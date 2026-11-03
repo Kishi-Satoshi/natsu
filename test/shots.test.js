@@ -210,6 +210,10 @@ const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark',
 // 0.14.0 で意図して変えた（版を 0.14.0 に上げる commit。Task G）: 0.14.0 で足した画面と取り直した画面（ADDED_140。前の RETAKE_140）。持ち主が見比べ（新しい 14 枚・取り直した 18 枚）に
 // 「この見た目でよい（おすすめ）」（2026-11-03）と言ったので、CI run 41612673475（036c020）・artifact 13220336274 の .after.png（32 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_140 = [...NEW_140, ...RETAKEN_140];
+// 0.15.0（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.15.0 の表の画面だけ（RETAKE_150）。
+// PH-3 でサイドバーの木の明暗と拡大 200% の3枚を足した（NEW_150。足した画面で、まだ基準が無い）
+const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light'];
+const RETAKE_150 = [...NEW_150];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -257,7 +261,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.13.2 LN-3 で意図して変えた: 録音中のページの帯 no-login の1枚を足した。LN-5 で議事録のページの「残り n 区間」の2枚を足した（版を 0.13.2 に上げる commit で基準にした）
     ...NEW_132,
     // 0.14.0 EB-4 で意図して変えた: 行の文の飾りと色の明暗の2枚を足した。EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した。EK-4・EK-5・MB-4・DQ-3 で足した画面も（版を 0.14.0 に上げる commit で基準にした）
-    ...NEW_140]);
+    ...NEW_140,
+    // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した（取り直し待ち・まだ基準が無い）
+    ...NEW_150]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -267,7 +273,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
     ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2],
-    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直しで意図して足した
+    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2], ['sidebar-tree-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直しで意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -749,7 +755,12 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.14.0 EB-4 で意図して変えた: 取り直し待ちは 0.14.0 の表の画面（ファイルの頭の RETAKE_140）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
   // 足した画面（NEW_140）はまだ基準が無い
   // 0.14.0 で意図して変えた（版を 0.14.0 に上げる commit。Task G）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.14.0 の表の画面（ADDED_140）はどれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.15.0 PH-3 で意図して変えた: 取り直し待ちは 0.15.0 の表の画面（ファイルの頭の RETAKE_150）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
+  // 足した画面（NEW_150）はまだ基準が無い
+  assert.deepStrictEqual([...SH.RETAKE], RETAKE_150);
+  const plan150 = read('docs/plans/2026-11-03-150.md');
+  const table150 = plan150.slice(plan150.indexOf('## 取り直す画面（RETAKE）'), plan150.indexOf('\n## ', plan150.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of RETAKE_150) assert.ok(table150.includes(`\`${n}\``), `0.15.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan140 = read('docs/plans/2026-10-26-140.md');
   const table140 = plan140.slice(plan140.indexOf('## 取り直す画面（RETAKE）'), plan140.indexOf('\n## ', plan140.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of ADDED_140) assert.ok(table140.includes(`\`${n}\``), `0.14.0 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -792,6 +803,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
+    if (NEW_150.includes(s.name)) continue;   // 0.15.0 で足した画面（取り直し待ち・まだ基準が無い。版を上げる commit で基準にする）
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
@@ -1079,7 +1091,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 DQ-3 直し2（R202）: 「口述の文を AI で整える」の行を div.checkrow の形にした。変わる画面は RETAKE にある settings-dictation-light と settings-record・settings-info・settings-detect の8枚。値を今の app.html に合わせた（前の値は 6c4823ab…）
   // 0.14.0 DQ-4 直し（R205 (5)）: 辞書の欄（textarea）に話した箇条は印の無い行の文を1行ずつ（dictIntoField に lines。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 64feeb89…）
   // 0.14.0 EK-6 直し3（R207）: 隠れた欄に口述を入れない照らし（dictShown・フォーカスの照らし。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 07800b9c…）
-  assert.strictEqual(sha, 'a4ebbe19c91d62986cb5fc48fbddf5f16d15054287131b08266dd7253d85a89d',
+  // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 18〜23・R24）: サイドバーを木に（pageTree の写し・role="tree" と treeitem・▸ の開け閉めと覚え書き・木のキー・
+  // 行の［＋］とメニュー・引っ張って動かす・木の CSS）。子の無い行は今と同じ形で、子のある行と［＋］・落とす印は今の撮る画面に出ない見込み。変わる画面は足した NEW_150 の3枚。値を今の app.html に合わせた（前の値は a4ebbe19…）
+  assert.strictEqual(sha, '8ed0a8e2cfe2314a2e6b32372044462f698de163bed92be0046732935c0df422',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

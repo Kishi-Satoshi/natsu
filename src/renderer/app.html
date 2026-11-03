@@ -259,6 +259,23 @@
   /* サイドバーの議事録は「🎙️ 題名」の1行（第1b2回 L-2。高さ 30px）。日付・長さ・要約なし・タイプは行の title */
   .side .pitem { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; flex: none; }
   .side .pitem .t { flex: 1; min-width: 0; font-size: 14px; font-weight: inherit; }
+  /* 0.15.0 PH-3（決めたこと 18・21）: サイドバーの木。子のある行（.kids）は、乗せる・フォーカスでアイコンの所が ▸（開いていれば ▾）になり、押すと開け閉め
+     （子の無い行は今と同じ形で、▸ の場所を空けない）。行の右端の［＋］は乗せたときだけ。落とす所は中なら行の枠・前後なら線 */
+  .pitem.kids .pi { position: relative; cursor: pointer; }
+  .pitem .tw { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: var(--text-2); font-size: 12px; }
+  .pitem.kids:hover .pe, .pitem.kids:focus .pe { visibility: hidden; }
+  .pitem.kids:hover .tw, .pitem.kids:focus .tw { display: flex; }
+  .pitem .padd { flex: none; display: none; align-items: center; justify-content: center; width: 22px; height: 22px; margin-right: -4px; padding: 0;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-2); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+  .pitem:hover .padd { display: inline-flex; }
+  .pitem .padd:hover { background: var(--tint); color: var(--text); }
+  .pitem.dragging { opacity: .5; }
+  .pitem.dropin { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .pitem.dropbefore, .pitem.dropafter { position: relative; }
+  .pitem.dropbefore::before, .pitem.dropafter::after { content: ''; position: absolute; left: 8px; right: 0; height: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
+  .pitem.dropbefore::before { top: -1px; }
+  .pitem.dropafter::after { bottom: -1px; }
+  .treemenu { position: fixed; z-index: 20; }
   .pitem .m { font-size: 11px; color: var(--muted); margin-top: 1px; display: flex; gap: 8px;
     white-space: nowrap; overflow: hidden; }
   .pitem .m > span { flex: none; }
@@ -1031,7 +1048,7 @@
       <button class="action" id="selCopy" type="button">リンクを写す</button>
       <button class="ghost" id="selCancel" type="button">やめる</button>
     </div>
-    <div class="plist" id="plist" role="listbox" aria-label="議事録の一覧"></div>
+    <div class="plist" id="plist" role="tree" aria-label="議事録の一覧"></div>
     <button id="tabBtnDictation" class="side-row"><span class="ic">🎤</span>音声入力</button>
     <button id="tabBtnSettings" class="side-row"><span class="ic">⚙️</span>設定</button>
     <div class="side-grip" id="sideGrip" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅" tabindex="0" aria-valuemin="200" aria-valuemax="480" aria-valuenow="260"></div>
@@ -2489,6 +2506,9 @@
       const tb = st && st.tabs;
       if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);
       slashRecent = recentCheck(st && st.slashRecent);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
+      // 0.15.0 PH-3（決めたこと 19）: サイドバーの木の開け閉め（main が今あるページだけに絞って渡す）。届く前に開け閉めしていたら上書きしない
+      const to = st && st.tree && Array.isArray(st.tree.open) ? st.tree.open : null;
+      if (to && !treeTouched) { treeOpen = new Set(to.filter((id) => typeof id === 'string').slice(0, TREE_OPEN_MAX)); renderList(); }
       const sb = st && st.sidebar;
       if (!sb || sideTouched) return;
       sideState.width = clampSide(sb.width);
@@ -2720,6 +2740,226 @@
     return el;
   }
 
+  // ---------------- 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 18〜23・HR1・HR5）: サイドバーの木
+  // ---- pageTree の写し（src/pageTree.js の TOP_ORD から placeText まで。字は同じで、行の頭に4つの空白を足した。画面は並びの鍵を作らない（DB が作る）ので、
+  // keysBetween は呼ぶと投げる小さな関数にした。名前がぶつからないよう関数の中に閉じる。test/stage150.app.test.js が字と答えを照らす）
+  const pageTreeView = (() => {
+    const keysBetween = () => { throw new Error('画面では並びの鍵を作らない'); };
+    const TOP_ORD = 'i';
+
+    const has = (m, k) => m.has(k);
+    const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+    const parentOf = (r) => (r && typeof r.parentId === 'string' && r.parentId ? r.parentId : null);
+
+    // rows → { roots: [id], kids: Map(id → [id]), parent: Map(id → id|null), orphans: n, byId: Map(id → 行) }
+    // （byId は PH-1 直し: R11。trashGroup・restoreGroup が同じ木を何度も使うときに、行を引き直さない）
+    // 最上位は createdAt の新しい順（BQ5 (a)。同じなら rows の順）。子は ord の順（同じ鍵なら createdAt の古い順）
+    function pageTree(rows) {
+      const list = Array.isArray(rows) ? rows.filter((r) => r && typeof r.id === 'string') : [];
+      const byId = new Map();
+      for (const r of list) if (!byId.has(r.id)) byId.set(r.id, r);
+      // 親をたどれない行（親が rows に無い・輪の中）の印。輪は親をたどって今の道に戻ったら、その輪の行を全部切る
+      const cut = new Set();
+      const state = new Map();   // id → 1（今たどっている道の上）・2（済んだ）
+      let orphans = 0;
+      for (const start of byId.keys()) {
+        if (state.has(start)) continue;
+        const path = [];
+        let cur = start;
+        while (cur !== null && byId.has(cur) && !state.has(cur)) {
+          state.set(cur, 1);
+          path.push(cur);
+          cur = parentOf(byId.get(cur));
+        }
+        if (cur !== null && state.get(cur) === 1) {
+          for (let i = path.indexOf(cur); i < path.length; i++) cut.add(path[i]);
+        }
+        for (const id of path) state.set(id, 2);
+      }
+      const parent = new Map();
+      const kids = new Map();
+      const roots = [];
+      for (const [id, r] of byId) {
+        const p = parentOf(r);
+        if (p !== null && (!byId.has(p) || cut.has(id))) orphans++;
+        const eff = p !== null && byId.has(p) && !cut.has(id) ? p : null;
+        parent.set(id, eff);
+        if (eff === null) roots.push(id);
+        else {
+          if (!kids.has(eff)) kids.set(eff, []);
+          kids.get(eff).push(id);
+        }
+      }
+      const at = (id) => byId.get(id);
+      roots.sort((a, b) => cmp(String(at(b).createdAt ?? ''), String(at(a).createdAt ?? '')));
+      for (const ks of kids.values()) {
+        ks.sort((a, b) => cmp(String(at(a).ord ?? ''), String(at(b).ord ?? '')) || cmp(String(at(a).createdAt ?? ''), String(at(b).createdAt ?? '')));
+      }
+      return { roots, kids, parent, orphans, byId };
+    }
+
+    const kidsIn = (tree, id) => (tree && tree.kids && has(tree.kids, id) ? tree.kids.get(id) : []);
+
+    // 子孫（自分を含まない。深さ優先・子の並びの順）。訪ねた印で止まる
+    function descendants(tree, id) {
+      const out = [];
+      const seen = new Set([id]);
+      const stack = [...kidsIn(tree, id)].reverse();
+      while (stack.length) {
+        const k = stack.pop();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(k);
+        const ks = kidsIn(tree, k);
+        for (let i = ks.length - 1; i >= 0; i--) stack.push(ks[i]);
+      }
+      return out;
+    }
+
+    // id を parentId の下へ動かしてよいか（null は最上位で真。自分の下・自分の子孫の下は偽: 輪を作らない。決めたこと 5）
+    function canMoveUnder(tree, id, parentId) {
+      if (parentId === null || parentId === undefined || parentId === '') return true;
+      if (parentId === id) return false;
+      const seen = new Set();
+      for (let cur = tree.parent.get(parentId) ?? null; cur !== null && !seen.has(cur); cur = tree.parent.get(cur) ?? null) {
+        if (cur === id) return false;
+        seen.add(cur);
+      }
+      return true;
+    }
+
+    // 根から親までの ID（自分を含まない。輪でも止まる）
+    function crumbsOf(tree, id) {
+      const out = [];
+      const seen = new Set([id]);
+      for (let cur = tree.parent.get(id) ?? null; cur !== null && !seen.has(cur); cur = tree.parent.get(cur) ?? null) {
+        seen.add(cur);
+        out.push(cur);
+      }
+      return out.reverse();
+    }
+
+    // 見えている行（open は開いている ID の Set）→ [{ id, depth, hasKids, open }]。閉じた行の子は出さない（描かない: F115）
+    function visibleRows(tree, open) {
+      const isOpen = (id) => Boolean(open && typeof open.has === 'function' && open.has(id));
+      const out = [];
+      const seen = new Set();
+      const stack = [...tree.roots].reverse().map((id) => ({ id, depth: 0 }));
+      while (stack.length) {
+        const { id, depth } = stack.pop();
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const ks = kidsIn(tree, id);
+        const hasKids = ks.length > 0;
+        const opened = hasKids && isOpen(id);
+        out.push({ id, depth, hasKids, open: opened });
+        if (!opened) continue;
+        for (let i = ks.length - 1; i >= 0; i--) stack.push({ id: ks[i], depth: depth + 1 });
+      }
+      return out;
+    }
+
+    // 鍵として使えるか（keys.js の形: 36 進の数字で、末尾が '0' でない）
+    const keyOk = (k) => typeof k === 'string' && /^[0-9a-z]*[1-9a-z]$/.test(k);
+    const ordIn = (ords, id) => {
+      const v = ords instanceof Map ? ords.get(id) : (ords && Object.hasOwn(ords, id) ? ords[id] : undefined);
+      return keyOk(v) ? v : null;
+    };
+    // parentId の子の並びで afterId の後ろに入れる鍵（afterId が '' なら頭・undefined なら末尾）。ords は id → ord（Map か物）。
+    // 呼び手は動かすページを除いた木を渡す（自分の今の鍵を兄弟に数えない）。最上位（parentId が null）は鍵で並べないので TOP_ORD（BQ5 (a)）。
+    // → { ord, rekey: [[id, ord]] }。PH-1 直し（R15）: 後ろの兄弟の鍵が前の兄弟と同じ（壊れた行・前の版の行）なら、その兄弟は入れるページの後ろへ
+    // 鍵を付け直す（rekey。呼び手が同じ命令の move に積む）。同じ鍵の間には鍵を作れないので、付け直さないと入れるページが同じ鍵の後ろへずれる
+    function placeKeys(tree, ords, parentId, afterId) {
+      if (parentId === null || parentId === undefined || parentId === '') return { ord: TOP_ORD, rekey: [] };
+      const sibs = kidsIn(tree, parentId);
+      const keysOf = sibs.map((id) => ordIn(ords, id));
+      let i;   // この位置の兄弟の後ろに入れる（-1 は頭）
+      if (afterId === undefined || afterId === null) i = sibs.length - 1;
+      else if (afterId === '') i = -1;
+      else { i = sibs.indexOf(afterId); if (i < 0) i = sibs.length - 1; }   // 兄弟でない ID は末尾
+      const lo = i >= 0 ? keysOf[i] : null;
+      let j = i + 1;
+      while (j < sibs.length && lo !== null && keysOf[j] !== null && keysOf[j] <= lo) j++;
+      const hi = j < sibs.length ? keysOf[j] : null;
+      const keys = keysBetween(lo, hi, j - i);
+      return { ord: keys[0], rekey: sibs.slice(i + 1, j).map((id, k) => [id, keys[k + 1]]) };
+    }
+    function siblingKey(tree, ords, parentId, afterId) {
+      return placeKeys(tree, ords, parentId, afterId).ord;
+    }
+
+    const trashedOf = (r) => (r && r.trashedAt !== null && r.trashedAt !== undefined && r.trashedAt !== '' ? r.trashedAt : null);
+
+    // id と、ゴミ箱に入っていない子孫（もうゴミ箱にある子の下は、その子のまとまりなので入れない。先に消した時刻を書き換えない: 決めたこと 30）
+    // tree は rows から作った木（無ければ作る。頭をいくつも歩くときは1回だけ作って渡す: R11）
+    function trashGroup(rows, id, tree = pageTree(rows)) {
+      const byId = tree.byId;
+      if (!byId.has(id)) return [];
+      const out = [id];
+      const seen = new Set([id]);
+      const stack = [...kidsIn(tree, id)].reverse();
+      while (stack.length) {
+        const k = stack.pop();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        if (trashedOf(byId.get(k)) !== null) continue;
+        out.push(k);
+        const ks = kidsIn(tree, k);
+        for (let i = ks.length - 1; i >= 0; i--) stack.push(ks[i]);
+      }
+      return out;
+    }
+
+    // id と、id と同じ時刻にゴミ箱に入った子孫（間にほかの時刻で消した子・ゴミ箱に無い子があれば、その下は入れない: 決めたこと 31）
+    function restoreGroup(rows, id, tree = pageTree(rows)) {
+      const byId = tree.byId;
+      if (!byId.has(id)) return [];
+      const at = trashedOf(byId.get(id));
+      const out = [id];
+      if (at === null) return out;
+      const seen = new Set([id]);
+      const stack = [...kidsIn(tree, id)].reverse();
+      while (stack.length) {
+        const k = stack.pop();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        if (trashedOf(byId.get(k)) !== at) continue;
+        out.push(k);
+        const ks = kidsIn(tree, k);
+        for (let i = ks.length - 1; i >= 0; i--) stack.push(ks[i]);
+      }
+      return out;
+    }
+
+    // サイドバーで引っ張って落とす所（rows は visibleRows の行・idx は乗せた行・y はその行の中の高さの位置・h は行の高さ）。
+    // → { parentId, afterId } | null。真ん中は中へ（最後の子: afterId は undefined）・上の4分の1はその前（同じ親の兄弟）・下の4分の1はその後ろ。
+    // 自分と自分の子孫の上は null（落とす印を出さない: 決めたこと 21）。afterId '' は兄弟の頭
+    function pageDropSpot(rows, idx, y, h, dragId, tree) {
+      const row = Array.isArray(rows) ? rows[idx] : null;
+      if (!row || typeof row.id !== 'string' || !tree) return null;
+      if (row.id === dragId || !canMoveUnder(tree, dragId, row.id)) return null;
+      const hh = Number(h) > 0 ? Number(h) : 1;
+      const yy = Number(y);
+      if (yy >= hh / 4 && yy < (hh * 3) / 4) return { parentId: row.id, afterId: undefined };
+      const p = tree.parent.get(row.id) ?? null;
+      const sibs = (p === null ? tree.roots : kidsIn(tree, p)).filter((id) => id !== dragId);
+      if (yy >= (hh * 3) / 4) return { parentId: p, afterId: row.id };
+      const i = sibs.indexOf(row.id);
+      return { parentId: p, afterId: i > 0 ? sibs[i - 1] : '' };
+    }
+
+    // 場所の文（根から親まで「親 / 子」。最上位は ''）。titleOf(id) は呼び手が1行にした題名。max 段を越えたら近い max 段の前に「…」
+    function placeText(tree, titleOf, id, max = 5) {
+      const ids = crumbsOf(tree, id);
+      if (!ids.length) return '';
+      const n = Math.max(1, Math.trunc(Number(max) || 5));
+      const shown = ids.length > n ? ids.slice(ids.length - n) : ids;
+      const parts = shown.map((x) => String(titleOf(x) ?? ''));
+      return (ids.length > n ? ['…', ...parts] : parts).join(' / ');
+    }
+    return { pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, pageDropSpot, placeText };
+  })();
+  // ---- pageTree の写しはここまで
   // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
   function rowTitle(p) {
     const parts = [String(p.date || ''), fmtDur(Number(p.durationSec) || 0)];
@@ -2729,8 +2969,97 @@
     if (def) parts.push(def.label);
     return parts.join(' ・ ');
   }
+  // 0.15.0 PH-3（決めたこと 18〜21・HR1・HR5）: 木の状態。木の正本は一覧の行の parentId・ord（DB の pages.list）で、画面は pageTreeView で組む
+  const TREE_INDENT = 14;       // 段ごとの字下げ（決めたこと 18）
+  const TREE_INDENT_MAX = 8;    // 字下げは 8 段で止める（HR1。aria-level は本当の段）
+  const TREE_OPEN_MAX = 500;    // 覚える開け閉めの数（winstate の TREE_MAX と同じ）
+  let treeOpen = new Set();     // 開いている行のページの ID（uiState の tree.open。開け閉めは uiSave({ tree }) で覚える: 決めたこと 19）
+  let treeTouched = false;      // 覚えた開け閉めが届く前に利用者が開け閉めしたら、届いた値で上書きしない
+  let treeFocus = '';           // 木の中で最後にフォーカスした行（Tab で届く行: 決めたこと 20）
+  let treeOf = null; let treeFor = null;   // 一覧（pages）から組んだ木（pages を替えたら組み直す）
+  function treeNow() {
+    if (treeFor !== pages) {
+      treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string')
+        .map((p) => ({ id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt })));
+      treeFor = pages;
+    }
+    return treeOf;
+  }
+  // 見えている行（閉じた行の子は出さない: F115）
+  const treeRows = () => pageTreeView.visibleRows(treeNow(), treeOpen);
+  const treeRowEl = (id) => [...$('plist').children].find((e) => e.dataset && e.dataset.pid === id) || null;
+  function saveTree() {
+    const ids = treeNow().byId;
+    saveUi({ tree: { open: [...treeOpen].filter((id) => ids.has(id)).slice(0, TREE_OPEN_MAX) } });
+  }
+  // 開け閉めを替えて覚える（替えたら真）
+  function setTreeOpen(id, on) {
+    if (on === treeOpen.has(id)) return false;
+    treeTouched = true;
+    if (on) treeOpen.add(id); else treeOpen.delete(id);
+    saveTree();
+    return true;
+  }
+  function toggleTreeRow(id, on = !treeOpen.has(id)) {
+    if (setTreeOpen(id, on)) renderList();
+  }
+  // 開いたページの祖先を開く（HR5。検索・リンク・タブ・パンくずから開いても、サイドバーのどこにあるかが見える）
+  function revealInTree(id) {
+    let changed = false;
+    for (const a of pageTreeView.crumbsOf(treeNow(), id)) if (!treeOpen.has(a)) { treeOpen.add(a); changed = true; }
+    if (changed) { treeTouched = true; saveTree(); }
+    return changed;
+  }
+  // 見えている行のうち id か、閉じて隠れていれば一番近い見えている祖先（無ければ ''）
+  function shownFor(id, ids) {
+    if (!id) return '';
+    if (ids.includes(id)) return id;
+    for (const a of pageTreeView.crumbsOf(treeNow(), id).reverse()) if (ids.includes(a)) return a;
+    return '';
+  }
+  function focusTreeRow(id) {
+    const el = treeRowEl(id);
+    if (!el) return;
+    treeFocus = id;
+    for (const e of $('plist').children) if (e.dataset && e.dataset.pid) e.tabIndex = e === el ? 0 : -1;
+    el.focus();
+  }
+  // 木のキー（決めたこと 20）: ↑↓ で見えている行を移る・→ で開く（開いていれば最初の子）・← で閉じる（閉じていれば親）・Home／End・
+  // Enter（と Space）で今のタブ・Ctrl+Enter で新しいタブ・Shift+F10 とメニューのキーで行のメニュー。変換確定の Enter は先に抜ける
+  function treeKey(ev, id) {
+    if (imeEnter(ev)) return;
+    const rows = treeRows();
+    const i = rows.findIndex((r) => r.id === id);
+    if (i < 0) return;
+    const r = rows[i];
+    const k = ev.key;
+    const stop = () => { if (typeof ev.preventDefault === 'function') ev.preventDefault(); };
+    if (k === 'ArrowDown') { stop(); if (i + 1 < rows.length) focusTreeRow(rows[i + 1].id); }
+    else if (k === 'ArrowUp') { stop(); if (i > 0) focusTreeRow(rows[i - 1].id); }
+    else if (k === 'Home') { stop(); focusTreeRow(rows[0].id); }
+    else if (k === 'End') { stop(); focusTreeRow(rows[rows.length - 1].id); }
+    else if (k === 'ArrowRight') {
+      stop();
+      if (!r.hasKids) return;
+      if (!r.open) { toggleTreeRow(id, true); return; }
+      focusTreeRow(rows[i + 1].id);   // 開いていれば最初の子
+    } else if (k === 'ArrowLeft') {
+      stop();
+      if (r.hasKids && r.open) { toggleTreeRow(id, false); return; }
+      const up = treeNow().parent.get(id) || null;
+      if (up) focusTreeRow(up);
+    } else if (k === 'Enter' || k === ' ') {
+      stop();
+      if (listSel.on) { pickRow(id); return; }
+      openPageTab(id, { newTab: k === 'Enter' && Boolean(ev.ctrlKey || ev.metaKey) });
+    } else if (k === 'ContextMenu' || (k === 'F10' && ev.shiftKey)) { stop(); openTreeMenu(id); }
+  }
   function renderList() {
-    const box = $('plist'); box.textContent = '';
+    const box = $('plist');
+    // 描き直してもフォーカスを同じ行に戻す（決めたこと 20。閉じて隠れたら一番近い見えている祖先へ）
+    const fa = document.activeElement;
+    const hadFocus = fa && fa.parentNode === box && fa.dataset && fa.dataset.pid ? fa.dataset.pid : '';
+    box.textContent = '';
     if (pages.length === 0) {
       const d = document.createElement('div');
       d.className = 'empty';
@@ -2739,22 +3068,149 @@
     }
     for (const p of pages) if (p && p.id && typeof p.title === 'string') tabTitles.set(p.id, p.title);
     renderTabs();   // タブの名前は題名を追う
-    for (const p of pages) {
+    const byId = new Map(pages.filter((p) => p && typeof p.id === 'string').map((p) => [p.id, p]));
+    const rows = treeRows();
+    const ids = rows.map((r) => r.id);
+    const want = shownFor(hadFocus, ids);
+    const reach = want || (ids.includes(curId) ? curId : '') || shownFor(treeFocus, ids) || ids[0];   // Tab で届くのは1つの行（決めたこと 20）
+    for (const r of rows) {
+      const p = byId.get(r.id);
       const el = document.createElement('div');
-      el.className = 'pitem' + (p.id === curId ? ' sel' : '');
+      el.className = 'pitem' + (p.id === curId ? ' sel' : '') + (r.hasKids ? ' kids' : '');
       el.dataset.pid = p.id;
       let ic;
       if (listSel.on) {
         // 0.10.0 L-2: 選ぶ形の間は 🎙️ の代わりにチェックボックス。押すと付け外し（ページは開かない）
         ic = document.createElement('span'); ic.className = 'pchk'; ic.setAttribute('role', 'checkbox');
         ic.setAttribute('aria-checked', listSel.ids.includes(p.id) ? 'true' : 'false');
+      } else if (r.hasKids) {
+        // 子のある行は、乗せる・フォーカスでアイコンの所が ▸（開いていれば ▾）になり、押すと開け閉め（決めたこと 18。子の無い行は今と同じ形）
+        ic = document.createElement('span'); ic.className = 'pi';
+        const pe = document.createElement('span'); pe.className = 'pe'; pe.textContent = '🎙️';
+        const tw = document.createElement('span'); tw.className = 'tw'; tw.setAttribute('aria-hidden', 'true'); tw.textContent = r.open ? '▾' : '▸';
+        ic.append(pe, tw);
+        ic.title = r.open ? '閉じる' : '開く';
+        ic.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); toggleTreeRow(p.id); };
       } else { ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🎙️'; }
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.title;
       el.append(ic, t);
+      if (!listSel.on) {
+        // 行に乗せると右端に［＋］（その中に白紙のページを作る: N-09）。Tab の並びには入れない（キーボードは行のメニューの［中にページを作る］）
+        const add = document.createElement('button');
+        add.type = 'button'; add.className = 'padd'; add.textContent = '＋'; add.tabIndex = -1;
+        add.title = 'この中にページを作る'; add.setAttribute('aria-label', 'この中にページを作る');
+        add.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); createPageIn(p.id); };
+        el.append(add);
+      }
       el.setAttribute('title', rowTitle(p));
       asOption(el, p.id === curId, (ev) => (listSel.on ? pickRow(p.id, ev) : openFromList(p.id, ev)));
+      // 木の決まり（決めたこと 20）: 行は treeitem（段・開け閉め・選んでいるか）。Tab で届くのは1つの行で、ほかは ↑↓ で移る
+      el.setAttribute('role', 'treeitem');
+      el.setAttribute('aria-level', String(r.depth + 1));
+      if (r.hasKids) el.setAttribute('aria-expanded', r.open ? 'true' : 'false');
+      el.tabIndex = p.id === reach ? 0 : -1;
+      if (r.depth > 0) el.style.paddingLeft = `${8 + TREE_INDENT * Math.min(r.depth, TREE_INDENT_MAX)}px`;
+      el.onkeydown = (ev) => treeKey(ev, p.id);
+      el.oncontextmenu = (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); openTreeMenu(p.id); };
+      wireTreeDrag(el, p.id);
       box.appendChild(el);
     }
+    if (want) { const el = treeRowEl(want); if (el) { treeFocus = want; el.focus(); } }
+  }
+  // ---------------- 0.15.0 PH-3（決めたこと 18・21・25・HR4）: 行の［＋］・行のメニュー・引っ張って動かす
+  // 中にページを作る（parentId が無ければ最上位）→ 一覧を読み直して今のタブで開く（親の行は開く）
+  async function createPageIn(parentId) {
+    flushEdits();
+    let r = null;
+    try { r = await window.koeApp.pageCreate(parentId); } catch (_) { r = null; }
+    if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
+    if (parentId) setTreeOpen(parentId, true);
+    await refreshList();
+    await openPageTab(r.id);
+    return r.id;
+  }
+  // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［新しいタブで開く］［削除］（HR4。［移動先…］は窓を作る PH-5 で足す: R24）
+  let treeMenu = null;   // 開いているとき { id, box }
+  function closeTreeMenu(back) {
+    const m = treeMenu;
+    if (!m) return;
+    treeMenu = null;
+    if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
+    if (back) focusTreeRow(m.id);
+  }
+  function openTreeMenu(id) {
+    closeTreeMenu();
+    const row = treeRowEl(id);
+    if (!row || listSel.on) return;
+    const box = document.createElement('div');
+    box.className = 'blockmenu treemenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ページのメニュー');
+    treeMenu = { id, box };
+    const run = (fn) => () => { closeTreeMenu(); fn(); };
+    menuItem(box, '中にページを作る', run(() => createPageIn(id)));
+    menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true })));
+    menuItem(box, '削除', run(() => deletePageFlow(id)));
+    box.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (menuStep(box, ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); closeTreeMenu(true); }
+      else if (ev.key === 'Tab') closeTreeMenu();
+      else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
+    };
+    box.addEventListener('focusout', () => setTimeout(() => { if (treeMenu && treeMenu.box === box && !isIn(document.activeElement, box)) closeTreeMenu(); }, 0));
+    const rc = row.getBoundingClientRect();
+    box.style.top = `${Math.round(rc.bottom || 0)}px`;
+    box.style.left = `${Math.round((rc.left || 0) + 8)}px`;
+    document.body.appendChild(box);
+    menuItems(box)[0].focus();
+  }
+  // 引っ張って動かす（決めたこと 21）: 行の真ん中へ落とすとその中（最後の子）へ・上か下の4分の1はその前か後ろ。自分と子孫の上では印を出さず、
+  // 落としても何もしない。Esc でやめる。落とす所は pageTreeView.pageDropSpot（要約の行の dropSpot とは別の部品）
+  let pageDrag = null;   // 引っ張っているページの ID
+  function clearTreeDrop() {
+    for (const e of $('plist').querySelectorAll('.dropin, .dropbefore, .dropafter')) e.classList.remove('dropin', 'dropbefore', 'dropafter');
+  }
+  function treeSpot(el, ev) {
+    if (!pageDrag) return null;
+    const rows = treeRows();
+    const idx = rows.findIndex((r) => r.id === el.dataset.pid);
+    const rc = el.getBoundingClientRect();
+    return pageTreeView.pageDropSpot(rows, idx, (Number(ev && ev.clientY) || 0) - (rc.top || 0), rc.height || 30, pageDrag, treeNow());
+  }
+  function wireTreeDrag(el, id) {
+    el.draggable = !listSel.on;
+    el.ondragstart = (ev) => {
+      if (listSel.on) return;
+      pageDrag = id; el.classList.add('dragging');
+      const dt = ev && ev.dataTransfer;
+      if (dt) { try { dt.effectAllowed = 'move'; dt.setData('application/x-natsu-page', id); } catch (_) { /* 印を置けなくても引っ張れる */ } }
+    };
+    el.ondragend = () => { pageDrag = null; el.classList.remove('dragging'); clearTreeDrop(); };
+    el.ondragover = (ev) => {
+      const s = treeSpot(el, ev);
+      clearTreeDrop();
+      if (!s) return;
+      if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      el.classList.add(s.afterId === undefined ? 'dropin' : s.afterId === el.dataset.pid ? 'dropafter' : 'dropbefore');
+    };
+    el.ondrop = (ev) => {
+      const s = treeSpot(el, ev);
+      const drag = pageDrag;
+      clearTreeDrop();
+      pageDrag = null;
+      if (!s) return;
+      if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      movePageTo(drag, s.parentId, s.afterId);
+    };
+  }
+  document.addEventListener('keydown', (ev) => {
+    if (pageDrag && ev.key === 'Escape') { pageDrag = null; clearTreeDrop(); }
+  });
+  async function movePageTo(id, parentId, afterId) {
+    let bad = '';
+    try { await window.koeApp.pageMove(id, parentId, afterId); } catch (e) { bad = (e && (e.code || e.message)) || 'error'; }
+    if (bad) toast(bad === 'bad-args' ? 'そのページの中へは動かせません' : 'ページを動かせませんでした。');
+    await refreshList();
+    if (!bad && revealInTree(id)) renderList();
   }
   // ---------------- 0.10.0 L-2（D58・D70・決めたこと 101）: 一覧で選んでリンクを写す ----------------
   // 選びの決まりは DOM に頼らない純粋な selStep・selLines（後のデータベースの表でも使う。test/repo.test.js が字面で取り出して当てる）。
@@ -2791,7 +3247,9 @@
     return { lines: all.slice(0, max).map((id) => pageRefLine(byId.get(id), base)), truncated: all.length > max };
   }
   let listSel = { on: false, ids: [], anchor: '' };
-  const listOrder = () => pages.map((p) => p.id);
+  // 0.15.0 PH-3（決めたこと 23）: 一覧の並びは木の並び（閉じた子も入れた並び。選びを残す・写す並び）。Shift の範囲は見えている行の順（閉じた子は入れない）
+  const listOrder = () => pageTreeView.visibleRows(treeNow(), { has: () => true }).map((r) => r.id);
+  const listShown = () => treeRows().map((r) => r.id);
   // 選びの見た目（［選ぶ］の押した形・頭の枠の数）。行は renderList が描く
   function syncListSel() {
     $('listSelect').setAttribute('aria-pressed', listSel.on ? 'true' : 'false');
@@ -2805,7 +3263,7 @@
     renderList();
   }
   function pickRow(id, ev) {
-    setListSel(selStep(listSel, { type: 'click', id, shift: Boolean(ev && ev.shiftKey) }, listOrder()));
+    setListSel(selStep(listSel, { type: 'click', id, shift: Boolean(ev && ev.shiftKey) }, listShown()));
   }
   $('listSelect').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
   $('selCancel').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
@@ -3007,6 +3465,7 @@
     curId = id; curPage = r.page; curSegs = r.segments;
     if (typeof curPage.title === 'string') tabTitles.set(id, curPage.title);
     pane = curPage.blocks.length ? 'note' : 'script';
+    revealInTree(id);   // 0.15.0 PH-3（HR5）: 開いたページの祖先を開いて、サイドバーの行を見せる
     renderList(); renderPage();
     return true;
   }
@@ -3285,15 +3744,7 @@
         await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
       }, false, true);
     }
-    mk('削除', async () => {
-      if (!confirm('この議事録を削除します。よろしいですか？')) return;
-      const gone = curId;
-      await window.koeApp.pageDelete(gone);
-      curId = null; curPage = null; curSegs = [];
-      tabTitles.delete(gone);
-      await refreshList(); renderPage();
-      closeTab(`page:${gone}`);   // 消したページのタブを残さない（選んでいたら隣へ、無ければ空のページ）
-    }, false, true);
+    mk('削除', () => deletePageFlow(curId), false, true);
 
     renderBlocks();
     renderScript();
@@ -3302,6 +3753,15 @@
     renderCrumb();
     syncNoPage();
     refreshPending();   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
+  }
+  // ページを消す（「···」の［削除］とサイドバーの行のメニューの［削除］。0.15.0 PH-3 で1つの関数にした）
+  async function deletePageFlow(id) {
+    if (!id || !confirm('この議事録を削除します。よろしいですか？')) return;
+    await window.koeApp.pageDelete(id);
+    if (curId === id) { curId = null; curPage = null; curSegs = []; }
+    tabTitles.delete(id);
+    await refreshList(); renderPage();
+    closeTab(`page:${id}`);   // 消したページのタブを残さない（選んでいたら隣へ、無ければ空のページ）
   }
   // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
   // ページのアイコンと丸いタブを隠して空の文だけを出す（第1b2回 P-2）

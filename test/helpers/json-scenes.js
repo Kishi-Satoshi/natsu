@@ -1157,6 +1157,15 @@ module.exports = {
       c.mainWin.webContents.emit('did-finish-load');
       c.out.ui = await c.handlers['ui:get']({});
     } },
+  // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 19・F118）: サイドバーの木の開け閉め（tree.open）は今あるページだけを返す（無いページは落とし、数だけを記録に1行）
+  'ws-tree-get': { files: { 'settings.json': pretty(TYPICAL),
+      'data/pages/ptkeep1.json': JSON.stringify({ id: 'ptkeep1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], createdAt: '2026-10-01T00:00:00.000Z' }),
+      'data/pages/ptkeep2.json': JSON.stringify({ id: 'ptkeep2', title: titleAt('2026-10-02T00:00:00.000Z'), blocks: [], createdAt: '2026-10-02T00:00:00.000Z' }) },
+    local: { [WS_FILE]: WS({ tree: { open: ['ptgone1', 'ptkeep2', 'ptgone2', 'ptkeep1'] } }) },
+    act: async (c) => {
+      c.out.ui = await c.handlers['ui:get']({});
+      c.out.again = await c.handlers['ui:get']({});
+    } },
   'ws-offscreen': { files: { 'settings.json': pretty(TYPICAL) },
     local: { [WS_FILE]: WS({ bounds: { x: 3000, y: 100, width: 1000, height: 700 } }) } },
   'ws-minimized': { files: { 'settings.json': pretty(TYPICAL) },

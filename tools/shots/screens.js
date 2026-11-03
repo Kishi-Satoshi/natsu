@@ -62,6 +62,13 @@ const OPEN_THREE_TABS = `(async () => {
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   return 1;
 })()`;
+// 0.15.0 PH-3: 1行目のページを開いて（非同期なので少し待つ）、子のある閉じた行（p2）にフォーカスする（アイコンの所が ▸）
+const FOCUS_TREE = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.querySelector('#plist .pitem[data-pid="p2"]').focus();
+  return 1;
+})()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -378,6 +385,11 @@ const SCREENS = [
   // 音声入力の履歴の［元の文をコピー］のある行。足した画面（まだ基準が無い）。カードに1行増える settings-record-light・settings-record-dark・settings-record-zoom200-light は取り直す
   { name: 'settings-dictation-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}; document.getElementById('aiTidy').closest('.card').scrollIntoView({ block: 'start' })` },
   { name: 'history-tidy-light', page: 'app', theme: 'light', get answers() { return { 'koeApp.getHistory': HISTORY_TIDY }; }, act: "document.getElementById('tabBtnDictation').click()" },
+  // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）: サイドバーの木（3 段より深い開いた行・閉じた行・フォーカスした ▸・深い段の字下げ）。
+  // 足した画面（まだ基準が無い）。拡大 200% でも題名が切れずに並ぶ
+  { name: 'sidebar-tree-light', page: 'app', theme: 'light', get answers() { return treeAnswers(); }, act: FOCUS_TREE },
+  { name: 'sidebar-tree-dark', page: 'app', theme: 'dark', get answers() { return treeAnswers(); }, act: FOCUS_TREE },
+  { name: 'sidebar-tree-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return treeAnswers(); }, act: FOCUS_TREE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -485,7 +497,8 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.14.0（版を 0.14.0 に上げる commit。Task G）: 持ち主が取り直しの見比べ（足した 14 枚: 飾り・道具の帯・リンクの欄・色のメニュー・選んだ行・近道の表・メモの行・
 // 「口述の文を AI で整える」・履歴の［元の文をコピー］、取り直した 18 枚: ⠿ のメニュー・設定の［一般］と［録音］・録音の前のページ・種類）に「この見た目でよい（おすすめ）」
 // （2026-11-03）と答えたので、CI run 41612673475（036c020）の artifact 13220336274 の .after.png（32 枚）をバイトのまま基準にし、空に戻した（基準は 175 枚）
-const RETAKE = new Set([]);
+// 0.15.0（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）: PH-3 で足したサイドバーの木の明暗と拡大 200% の3枚（まだ基準が無い）
+const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -610,6 +623,26 @@ function liveAnswers(stt = LIVE_STT, extra = {}) {
       pauses: [{ atMs: 150000, ms: 45000, why: 'user' }], pausing: false, resumeHint: false,
       localOnly: false, cloud: true, stt, ...extra,
     },
+  };
+}
+
+/**
+ * 0.15.0 PH-3: サイドバーの木（一覧の行に parentId・ord・kind。DB の pages.list と同じ作った新しい順）。p1 の中に白紙のページ2つ、その1つ目の中に
+ * 4 段まで続く白紙のページ（どれも開いている）。p2 の中に白紙のページ1つ（閉じている）。開け閉めは uiState の tree
+ */
+function treeAnswers() {
+  const blank = (id, title, at, parentId, ord) => ({ id, title, date: at.slice(0, 10), durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId, ord, kind: 'blank' });
+  const kids = [
+    blank('p2a', '採用の進め方', '2026-10-17T05:00:00.000Z', 'p2', 'i'),
+    blank('p1a1a1', '数の根拠', '2026-10-17T04:00:00.000Z', 'p1a1a', 'i'),
+    blank('p1a1a', '見積もりの内訳', '2026-10-17T03:00:00.000Z', 'p1a1', 'i'),
+    blank('p1a1', '見積もりの下書き', '2026-10-17T02:00:00.000Z', 'p1a', 'i'),
+    blank('p1b', '次回の議題', '2026-10-17T01:00:00.000Z', 'p1', 'r'),
+    blank('p1a', 'プロジェクトの資料', '2026-10-17T00:00:00.000Z', 'p1', 'i'),
+  ];
+  return {
+    'koeApp.pagesSearch': [...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
+    'koeApp.uiState': { tree: { open: ['p1', 'p1a', 'p1a1', 'p1a1a'] } },
   };
 }
 

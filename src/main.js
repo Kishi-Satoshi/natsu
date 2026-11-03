@@ -6918,8 +6918,17 @@ function setupIpc() {
     winTabsDropped = 0;
     if (dropped) engineLog(`画面の覚え書き: 無いページのタブを ${dropped} 個外した`);
     winState.tabs = k.tabs;
+    // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 19・F118）: サイドバーの木の開け閉めも今あるページだけにする（一覧を読めないときはそのまま）。
+    // 外した数だけを engine.log に1行（ページの id は書かない）
+    const treeWas = winState.tree && Array.isArray(winState.tree.open) ? winState.tree.open : [];
+    const treeOpen = ids ? treeWas.filter((id) => ids.has(id)) : treeWas.slice();
+    if (treeOpen.length !== treeWas.length) {
+      engineLog(`画面の覚え書き: 無いページの木の開け閉めを ${treeWas.length - treeOpen.length} 個外した`);
+      winState.tree = { open: treeOpen };
+    }
     return { sidebar: { ...winState.sidebar }, tabs: { open: winState.tabs.open.slice(), active: winState.tabs.active },
-      slashRecent: Array.isArray(winState.slashRecent) ? winState.slashRecent.slice() : [] };   // 0.13.0 ED-5（決めたこと 39）
+      slashRecent: Array.isArray(winState.slashRecent) ? winState.slashRecent.slice() : [],   // 0.13.0 ED-5（決めたこと 39）
+      tree: { open: treeOpen.slice() } };
   });
   ipcMain.handle('ui:set', (_e, patch) => {
     winState = W.applyUi(winState, patch);

@@ -581,17 +581,20 @@ const 二件 = () => ({
 });
 const 行を開く = (l) => l.called('pageGet').map((c) => c.args[0]);
 
-test('議事録の一覧は listbox で、行は Tab で辿れ Enter / Space で開ける（マウスは今まで通り）', async () => {
+// 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」・決めたこと 20）で意図して変えた: 一覧は木（role="tree"・行は treeitem）。
+// Tab で届くのは選んでいる行1つで、ほかの行へは ↑↓ で移る（キーボードで一覧を歩けて Enter / Space で開ける、は残す）
+test('議事録の一覧は tree で、行は Tab と ↑↓ で辿れ Enter / Space で開ける（マウスは今まで通り）', async () => {
   const l = await 開いた(二件());
   const list = l.byId.get('plist');
-  assert.strictEqual(list.getAttribute('role'), 'listbox', '一覧に listbox の役割が無い');
+  assert.strictEqual(list.getAttribute('role'), 'tree', '一覧に tree の役割が無い');
   assert.ok(list.getAttribute('aria-label'), '一覧に読み上げ用の名前が無い');
   let rows = list.querySelectorAll('.pitem');
   assert.strictEqual(rows.length, 2, '前提: 行が2つ描かれる');
-  for (const r of rows) {
-    assert.strictEqual(r.tabIndex, 0, `${r.textContent} が Tab で辿れない`);
-    assert.strictEqual(r.getAttribute('role'), 'option', `${r.textContent} に option の役割が無い`);
-  }
+  assert.deepStrictEqual(rows.map((r) => r.tabIndex), [0, -1], '選んでいる行1つだけが Tab で届く');
+  for (const r of rows) assert.strictEqual(r.getAttribute('role'), 'treeitem', `${r.textContent} に treeitem の役割が無い`);
+  rows[0].focus();
+  rows[0].dispatchEvent({ type: 'keydown', key: 'ArrowDown', preventDefault() {} });
+  assert.strictEqual(l.document.activeElement, rows[1], '↓ で次の行へ移らない');
   assert.strictEqual(rows[0].getAttribute('aria-selected'), 'true', '開いているページが選択中と示されない');
   assert.strictEqual(rows[1].getAttribute('aria-selected'), 'false', '開いていないページが選択中になっている');
   const n0 = 行を開く(l).length;
