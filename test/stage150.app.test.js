@@ -440,6 +440,7 @@ const CMDS = {
   blocksRemove: (pageId, ids) => ['blocks.remove', { pageId, ids }],
   blocksMove: (pageId, ids, afterId, parentId) => ['blocks.move', { pageId, ids, afterId, ...(parentId === undefined ? {} : { parentId }) }],
   blocksDuplicate: (pageId, ids, afterId, parentId) => ['blocks.duplicate', { pageId, ids, ...(afterId === undefined ? {} : { afterId }), ...(parentId === undefined ? {} : { parentId }) }],
+  blocksSetColor: (pageId, ids, color) => ['blocks.setColor', { pageId, ids, color }],   // PR-2 直し（R40）: 行の色も DB を通す
 };
 // 白紙のページの見本（page.create と同じ欄。本文の見出しは型の見出しと締めの見出し・出典の無い箇条書き。人が足した印 citeState は付けない＝要約の並べ替えと札が効く形）
 const BLANK = (id, title, blocks) => ({ page: { id, title, kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, segments: [] });
@@ -972,6 +973,198 @@ test('PR-2・決めたこと 46: 開いている白紙のページの子をサ�
     assert.deepStrictEqual(l.called('pageMove').map((c) => c.args.slice(0, 2)), [[k1, 'pa1']]);
     assert.ok(!subEl(l, k1), '動かした子の行が開いている本文に残る');
     assert.strictEqual($(l, 'bodyKids').hidden, true);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- 0.15.0 PR-2 直し（2026-11-03 の 76fb1c4..0828257 の点検。計画の R38〜）
+test('PR-2 直し・R38（F123）: 白紙のページを開いたまま、サイドバーの行のメニューの［削除］で子を消すと、本文の行も消えて描き直す（灰色の行を残さない）。孫を消しても本文はそのまま', T, async () => {
+  const l = await rowsDb({ more: (call) => ({ g1: call('page.create', { parentId: call('pages.list', {}).find((p) => p.title === '週の予定').id }).id }) });
+  try {
+    const { k1, k2, g1 } = l.made;
+    l.window.confirm = () => true;
+    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });
+    await l.drain();
+    const menuDelete = async (id) => {
+      rowOf(l, id).dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+      await l.drain();
+      const items = l.document.querySelector('.treemenu').querySelectorAll('.mitem');
+      items.find((b) => b.textContent === '削除').dispatchEvent({ type: 'click' });
+      await l.drain(); await l.drain();
+    };
+    // 孫 g1（k1 の中）: 開いている pb1 の本文は変わらない
+    rowOf(l, k1).querySelector('.pi').dispatchEvent({ type: 'click' });
+    await l.drain();
+    await menuDelete(g1);
+    assert.deepStrictEqual(l.called('pageDelete').map((c) => c.args[0]), [g1]);
+    assert.deepStrictEqual(subEls(l).map((e) => [e._b.page, e.classList.contains('gone')]), [[k1, false], [k2, false]]);
+    // 子 k2: DB が同じ命令で本文の行を消したので、開いている本文からも消える
+    await menuDelete(k2);
+    assert.deepStrictEqual(l.called('pageDelete').map((c) => c.args[0]), [g1, k2]);
+    assert.deepStrictEqual(l.page('pb1').blocks.filter((b) => b.type === 'subpage').map((b) => b.page), [k1]);
+    assert.deepStrictEqual(subEls(l).map((e) => [e._b.page, e.classList.contains('gone')]), [[k1, false]], '消した子の行が灰色で残る');
+    assert.strictEqual(l.document.querySelectorAll('.blk.subpage.gone').length, 0);
+    assert.strictEqual(curTitle(l), '計画', '開いているページが替わった');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+const curTitle = (l) => $(l, 'pTitle').textContent;
+
+test('PR-2 直し・R39: 子が無くて覚え書きから外れた「開いた行」に［＋］で子を作ると、開いた行として覚える（新しい側に入れ直す）', T, async () => {
+  let made = '';
+  const l = await boot({ returns: {
+    uiState: () => ({ tree: { open: ['pa1'] } }),
+    pagesSearch: () => (made ? [...LIST(), ROW('pnew1', AT('23T00:00:00'), { parentId: made, kind: 'blank' })] : LIST()),
+    pageCreate: (parentId) => { made = parentId || ''; return { id: 'pnew1', page: NEWPAGE().page }; } } });
+  rowOf(l, 'pa2').querySelector('.pi').dispatchEvent({ type: 'click' });   // pa2 を開く（覚え書きは子のある pa2 だけ。pa1 は子が無いので外れる）
+  await l.drain();
+  assert.deepStrictEqual(saves(l).pop(), { tree: { open: ['pa2'] } });
+  rowOf(l, 'pa1').querySelector('.padd').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(saves(l).pop(), { tree: { open: ['pa2', 'pa1'] } }, '子を作った開いた行を覚えない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PR-2 直し・R40（決めたこと 43・53）: 子ページの行の上の Shift+Enter・Alt+Enter・飾り（Ctrl+B・I・U）・リンク・型の近道は何もしない（題名の描き方も保存も変えない）。⠿ のメニューは［削除］［複製］だけ。子ページの行と一緒に選んだ行のメニューは［変換 ▸］を出さず、色はほかの行だけに付く', T, async () => {
+  const l = await rowsDb();
+  try {
+    const { k1 } = l.made;
+    const t1 = subEl(l, k1)._txt;
+    const was = l.page('pb1');
+    const sent = () => ['blockSplit', 'blockUpdate', 'blockTurnInto', 'blocksTurnInto', 'blocksSetColor', 'blockInsert'].map((n) => l.called(n).length);
+    const n0 = sent();
+    t1.focus(); l.caret.set(t1, 0, 3);
+    const keys = [{ key: 'Enter', code: 'Enter', shiftKey: true }, { key: 'Enter', code: 'Enter', altKey: true }, { key: 'Enter', code: 'Enter', ctrlKey: true, shiftKey: true },
+      { key: 'b', code: 'KeyB', ctrlKey: true }, { key: 'i', code: 'KeyI', ctrlKey: true }, { key: 'u', code: 'KeyU', ctrlKey: true }, { key: 'S', code: 'KeyS', ctrlKey: true, shiftKey: true },
+      { key: 'e', code: 'KeyE', ctrlKey: true }, { key: 'k', code: 'KeyK', ctrlKey: true }, { key: 'H', code: 'KeyH', ctrlKey: true, shiftKey: true },
+      { key: '1', code: 'Digit1', ctrlKey: true, shiftKey: true }, { key: '7', code: 'Digit7', ctrlKey: true, shiftKey: true }];
+    for (const k of keys) {
+      const ev = l.key(k, t1);
+      await l.drain();
+      assert.strictEqual(ev.defaultPrevented, true, `${JSON.stringify(k)} の既定の動きを止めない`);
+      assert.deepStrictEqual([subEl(l, k1)._txt.textContent, subEl(l, k1)._txt.children.length], ['📄 週の予定', 0], `${JSON.stringify(k)} で題名の描き方が変わった`);
+    }
+    await new Promise((r) => setTimeout(r, 700)); await l.drain();   // 打つ手の止まりの保存（TYPE_PAUSE_MS）も来ない
+    assert.deepStrictEqual(sent(), n0, '子ページの行の上のキーで書く命令を送った');
+    assert.deepStrictEqual(l.page('pb1').blocks, was.blocks);
+    assert.strictEqual(l.document.querySelector('.linkpop'), null, 'リンクの欄が開いた');
+    assert.strictEqual(toastText(l), '', '断られた知らせが出た');
+    // ⠿ のメニュー（1つの子ページの行）は［削除］［複製］だけ
+    l.key({ key: '/', code: 'Slash', ctrlKey: true }, t1);
+    await l.drain();
+    assert.deepStrictEqual($(l, 'pNote').querySelector('.blockmenu').querySelectorAll('.mitem').map((b) => b.textContent), ['削除', '複製']);
+    l.key({ key: 'Escape' }, $(l, 'pNote').querySelector('.blockmenu'));
+    await l.drain();
+    // 選んだ q1 と子ページの行: ［変換 ▸］は無く、［色 ▸］は → で開いて q1 だけに付く
+    noteTxt(l, 'q1').focus();
+    l.key({ key: 'Escape' }, noteTxt(l, 'q1'));
+    l.key({ key: 'ArrowDown', shiftKey: true }, $(l, 'pNote'));
+    l.key({ key: '1', code: 'Digit1', ctrlKey: true, shiftKey: true }, $(l, 'pNote'));   // 選んだ行の型の近道も送らない（DB が全部を断る）
+    await l.drain();
+    assert.deepStrictEqual(l.called('blocksTurnInto'), [], '子ページの行を含む選んだ行の型を変えようとした');
+    l.key({ key: '/', code: 'Slash', ctrlKey: true }, $(l, 'pNote'));
+    await l.drain();
+    const m = $(l, 'pNote').querySelector('.blockmenu');
+    assert.deepStrictEqual(m.querySelectorAll('.mitem').map((b) => b.textContent), ['削除', '複製', '色 ▸']);
+    m.querySelectorAll('.mitem')[2].focus();
+    l.key({ key: 'ArrowRight' }, m);
+    await l.drain();
+    const sub = m.querySelector('.blockmenu.sub');
+    assert.ok(sub && sub.getAttribute('aria-label') === '色', '→ で色の中が開かない');
+    sub.querySelectorAll('.mitem').find((b) => b.dataset.key === 'red').dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.strictEqual(l.called('blocksSetColor').length, 1);
+    assert.deepStrictEqual(l.page('pb1').blocks.filter((b) => b.color).map((b) => b.id), ['q1'], '色が q1 だけに付かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し・R41（決めたこと 52）: 子ページの行の入ったトグルを複製すると「ページの行は複製できません」を一度出し、トグルと中のほかの行だけを写す（Ctrl+D・⠿ の［複製］・選んだ行・Alt で落とす）', T, async () => {
+  const l = await rowsDb({ more: (call) => {
+    const tg = call('block.insert', { pageId: 'pb1', afterBlockId: 'q6', type: 'toggle' }).blockId;
+    call('block.update', { pageId: 'pb1', blockId: tg, patch: { text: 'まとめ' } });
+    const k1 = call('pages.list', {}).find((p) => p.title === '週の予定').id;
+    const r1 = call('page.get', { id: 'pb1' }).page.blocks.find((b) => b.type === 'subpage' && b.page === k1).id;
+    call('block.move', { pageId: 'pb1', blockId: r1, afterId: '', parentId: tg });
+    return { tg };
+  } });
+  try {
+    const { tg } = l.made;
+    const toggles = () => l.page('pb1').blocks.filter((b) => b.type === 'toggle' && b.text === 'まとめ');
+    const subCount = () => flatB(l.page('pb1').blocks).filter((b) => b.type === 'subpage').length;
+    const tryDup = async (what, fn) => {
+      $(l, 'toast').textContent = '';
+      const n = toggles().length;
+      await fn();
+      await l.drain(); await l.drain();
+      assert.strictEqual(toastText(l), 'ページの行は複製できません', `${what}: 知らせが無い`);
+      assert.strictEqual(toggles().length, n + 1, `${what}: トグルを写さない`);
+      assert.strictEqual(subCount(), 2, `${what}: 子ページの行を写した`);
+    };
+    await tryDup('Ctrl+D', async () => { const t = noteTxt(l, tg); t.focus(); l.caret.set(t, 0); l.key({ key: 'd', code: 'KeyD', ctrlKey: true }, t); });
+    await tryDup('⠿ の［複製］', async () => {
+      const t = noteTxt(l, tg); t.focus();
+      l.key({ key: '/', code: 'Slash', ctrlKey: true }, t);
+      await l.drain();
+      $(l, 'pNote').querySelector('.blockmenu').querySelectorAll('.mitem').find((b) => b.textContent === '複製').dispatchEvent({ type: 'click' });
+    });
+    await tryDup('選んだ行の Ctrl+D', async () => { const t = noteTxt(l, tg); t.focus(); l.key({ key: 'Escape' }, t); l.key({ key: 'd', code: 'KeyD', ctrlKey: true }, $(l, 'pNote')); });
+    await tryDup('Alt で落とす', async () => {
+      const box = $(l, 'pNote');
+      noteRows(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+      const row = noteRows(l).find((e) => e.dataset.id === tg);
+      row.ondragstart({ target: row, dataTransfer: { setData() {}, effectAllowed: '' }, clientX: 100 });
+      await box.ondrop({ preventDefault() {}, clientY: 0, clientX: 100, altKey: true, dataTransfer: {} });
+    });
+    // 選んだ行（トグルと子ページの行）を Alt で落とすと、子ページの行を除いて blocksDuplicate の1回
+    $(l, 'toast').textContent = '';
+    const tgt = noteTxt(l, tg); tgt.focus(); l.key({ key: 'Escape' }, tgt);
+    l.key({ key: 'ArrowDown', shiftKey: true }, $(l, 'pNote'));   // トグルの中の子ページの行（開いて見えている）まで
+    const picked = $(l, 'pNote').querySelectorAll('.blk.sel').map((e) => e.dataset.id);
+    assert.ok(picked.length >= 1 && picked[0] === tg, `選び: ${JSON.stringify(picked)}`);
+    const nd = l.called('blocksDuplicate').length;
+    noteRows(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+    const tgRow = noteRows(l).find((e) => e.dataset.id === tg);
+    tgRow.ondragstart({ target: tgRow, dataTransfer: { setData() {}, effectAllowed: '' }, clientX: 100 });
+    await $(l, 'pNote').ondrop({ preventDefault() {}, clientY: 0, clientX: 100, altKey: true, dataTransfer: {} });
+    await l.drain(); await l.drain();
+    assert.strictEqual(l.called('blocksDuplicate').length, nd + 1);
+    assert.ok(!l.called('blocksDuplicate').slice(-1)[0].args[1].some((id) => subEls(l).some((e) => e.dataset.id === id)), '子ページの行を写す行に入れた');
+    assert.strictEqual(toastText(l), 'ページの行は複製できません', '選んだ行の Alt で落とす: 知らせが無い');
+    assert.strictEqual(subCount(), 2);
+    // 子ページの行そのものを Alt で落としても写さない（知らせだけ）
+    $(l, 'toast').textContent = '';
+    const k2row = subEls(l).find((e) => e._b.page === l.made.k2);
+    const n = l.called('blockDuplicate').length;
+    noteRows(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+    k2row.ondragstart({ target: k2row, dataTransfer: { setData() {}, effectAllowed: '' }, clientX: 100 });
+    await $(l, 'pNote').ondrop({ preventDefault() {}, clientY: 0, clientX: 100, altKey: true, dataTransfer: {} });
+    await l.drain();
+    assert.strictEqual(l.called('blockDuplicate').length, n, '子ページの行を Alt で落として写そうとした');
+    assert.strictEqual(toastText(l), 'ページの行は複製できません');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+const flatB = (list) => (list || []).flatMap((b) => [b, ...flatB(b.children)]);
+
+test('PR-2 直し・R42（F123）: 子ページの行を ⠿ で引っ張って本文の中で並べ替えると blockMove の1回で、サイドバーの子の並びも替わる', T, async () => {
+  const l = await rowsDb();
+  try {
+    const { k1, k2 } = l.made;
+    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.deepStrictEqual(ids(l).filter((id) => id === k1 || id === k2), [k1, k2]);
+    // 見えている行: q1 k1 q2 k2 下の文 q3 q4 q5 q6（上端 0・10・20…）。k1 の行を「下の文」の下（q3 の上半分: 上端 50）へ
+    const box = $(l, 'pNote');
+    noteRows(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+    const row = subEl(l, k1);
+    row.ondragstart({ target: row, dataTransfer: { setData() {}, effectAllowed: '' }, clientX: 100 });
+    box.ondragover({ preventDefault() {}, clientY: 5 * 10 + 2, clientX: 100, dataTransfer: {} });
+    await box.ondrop({ preventDefault() {}, clientY: 5 * 10 + 2, clientX: 100, dataTransfer: {} });
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('blockMove').map((c) => [c.args[1], c.args[2]]), [[rowIdOf(l, k1), { afterId: l.made.tp }]], '引っ張っても blockMove の1回でない');
+    assert.deepStrictEqual(l.page('pb1').blocks.filter((b) => b.type === 'subpage').map((b) => b.page), [k2, k1]);
+    assert.deepStrictEqual(ids(l).filter((id) => id === k1 || id === k2), [k2, k1], '本文で引っ張って並べ替えてもサイドバーの子の並びが替わらない');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

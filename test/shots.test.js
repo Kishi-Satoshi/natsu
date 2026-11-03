@@ -1104,7 +1104,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.0 PR-2（計画の決めたこと 43〜60・R31）: 白紙のページの本文の子ページの行（.blk.subpage と灰色の .gone・行の無い子の一覧 #bodyKids（隠した div を #pNote の後ろに足した）の CSS と描き方・キー・写す・
   // 複製の断り・知らせ）・型の写し（TYPED_VIEW・kidsCanView・blocksMarkdown）に subpage。今の撮る画面には子ページの行が無いので変わらない見込みで、変わる画面は
   // 足した NEW_150 の page-rows の2枚。値を今の app.html に合わせた（前の値は e9b139f1…）
-  assert.strictEqual(sha, 'ca1d3f9f876dd985713dd354efae86d65eb0ecdfa62b5b1904e7645879c0223b',
+  // 0.15.0 PR-2 直し（計画の R38〜R42。2026-11-03 の 76fb1c4..0828257 の点検）: サイドバーで消した子の行を開いている本文から消して描き直す・開いている行を開き直しても覚える・
+  // 子ページの行の上のキーを飲む・⠿ のメニューの［変換 ▸］［色 ▸］を子ページの行で出さない・中に子ページの行のある複製の知らせ（<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は ca1d3f9f…）
+  assert.strictEqual(sha, 'd425ea576a036949ffe843c07877beb7c43eed561a3f0bb800a197274c4156ac',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -3023,12 +3023,16 @@
     saveUi({ tree: { open: [...treeOpen].filter((id) => kids.has(id)).slice(-TREE_OPEN_MAX) } });
   }
   // 開け閉めを替えて覚える（替えたら真）
+  // PR-2 直し（R39）: 開いている行をもう一度開く（行の［＋］で子を作った後）ときも、新しい側に入れ直して覚える（子が無くて覚え書きから外れていた行も）。
+  // 描き直すのは開け閉めが替わったときだけ
   function setTreeOpen(id, on) {
-    if (on === treeOpen.has(id)) return false;
+    const was = treeOpen.has(id);
+    if (!on && !was) return false;
     treeTouched = true;
+    if (on) treeOpen.delete(id);
     if (on) treeOpen.add(id); else treeOpen.delete(id);
     saveTree();
-    return true;
+    return on !== was;
   }
   function toggleTreeRow(id, on = !treeOpen.has(id)) {
     if (setTreeOpen(id, on)) renderList();
@@ -3831,10 +3835,14 @@
   // ページを消す（「···」の［削除］とサイドバーの行のメニューの［削除］。0.15.0 PH-3 で1つの関数にした）
   async function deletePageFlow(id) {
     if (!id || !confirm('この議事録を削除します。よろしいですか？')) return;
+    const from = (pages.find((p) => p && p.id === id) || {}).parentId || '';   // 0.15.0 PR-2 直し（R38）: 消す前の親
     await window.koeApp.pageDelete(id);
     if (curId === id) { curId = null; curPage = null; curSegs = []; }
     tabTitles.delete(id);
     await refreshList(); renderPage();
+    // 0.15.0 PR-2 直し（R38・F123）: 開いている白紙のページの子を消したら、DB が同じ命令で本文の行を消したので開き直して描く（movePageTo と同じ）。
+    // 前は今のメモリのページを描き直すだけで、消した子の行が灰色の「（このページはここにありません）」で残った
+    if (curId && from === curId && isBlankPage(curPage)) await openPage(curId);
     closeTab(`page:${id}`);   // 消したページのタブを残さない（選んでいたら隣へ、無ければ空のページ）
   }
   // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
@@ -8050,6 +8058,7 @@
     }
     const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
     if (!row || (row.key === 'divider' && !selDividerOk(ids))) return null;   // 区切り線は文も子も無い行だけ（EQ16 (a)・NR7・R65）
+    if (ids.some((id) => ((locate(blocksOfKey(pid), id) || {}).b || {}).type === 'subpage')) return null;   // PR-2 直し（R40）: 子ページの行の型は変えない（DB が全部を断る）
     return editAnswer(pid, () => rowApi(pid).blocksTurnInto(pid, ids, row.key, row.level, row.toggle), keep);
   }
   function selDividerOk(ids, k = blockSel ? blockSel.pageId : curId) {
@@ -8349,11 +8358,15 @@
     if (!el || !el._b || !el._txt || (!ids && el._txt.contentEditable !== 'true' && el._b.type !== 'subpage')) return;   // 0.15.0 PR-2: 子ページの行の ⠿ も（［削除］）
     const box = document.createElement('div');
     box.className = 'blockmenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ブロックのメニュー');
-    blockMenu = { el, box, sub: null, ids };
+    blockMenu = { el, box, sub: null, ids, heads: {} };
     menuItem(box, '削除', () => blockMenuDo('remove'));
     menuItem(box, '複製', () => blockMenuDo('duplicate'));
-    menuItem(box, '変換 ▸', () => blockMenuSub(true), { sub: true });
-    menuItem(box, '色 ▸', () => blockMenuSub(true, 3), { sub: true });   // 0.14.0 EB-5（決めたこと 21）: 行の色
+    // 0.15.0 PR-2 直し（R40・決めたこと 43）: 子ページの行は型も色（飾り）も持たない。変換 ▸ は子ページの行が1つでもあれば出さず（DB が全部を断る）、
+    // 色 ▸ は全部が子ページの行なら出さない（DB はほかの行だけに付ける: R37）。中の項目は番号でなく heads（2 は変換・3 は色）で引く
+    const rowsHere = (ids || [el.dataset.id]).map((id) => (ids ? (locate(blocksOfKey(keyOfEl(el)), id) || {}).b : el._b)).filter(Boolean);
+    const subs = rowsHere.filter((b) => b.type === 'subpage').length;
+    if (!subs) blockMenu.heads[2] = menuItem(box, '変換 ▸', () => blockMenuSub(true), { sub: true });
+    if (subs < rowsHere.length) blockMenu.heads[3] = menuItem(box, '色 ▸', () => blockMenuSub(true, 3), { sub: true });   // 0.14.0 EB-5（決めたこと 21）: 行の色
     box.onkeydown = (ev) => {
       if (imeEnter(ev)) return;
       const m = blockMenu;
@@ -8365,7 +8378,7 @@
         if (list === m.sub) { blockMenuSub(false); return; }
         blockMenuClose(true);
       } else if (ev.key === 'Tab') blockMenuClose();
-      else if (ev.key === 'ArrowRight' && list === box && [2, 3].includes(menuItems(box).indexOf(document.activeElement))) { ev.preventDefault(); blockMenuSub(true, menuItems(box).indexOf(document.activeElement)); }
+      else if (ev.key === 'ArrowRight' && list === box && [2, 3].some((k) => m.heads[k] === document.activeElement)) { ev.preventDefault(); blockMenuSub(true, [2, 3].find((k) => m.heads[k] === document.activeElement)); }
       else if (ev.key === 'ArrowLeft' && list === m.sub) { ev.preventDefault(); blockMenuSub(false); }
       else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
     };
@@ -8387,8 +8400,8 @@
     const was = m.sub ? m.subAt : at;
     if (!on || (m.sub && m.subAt !== at)) {
       if (m.sub) { m.sub.remove(); m.sub = null; }
-      menuItems(m.box)[was].setAttribute('aria-expanded', 'false');
-      if (!on) { menuItems(m.box)[was].focus(); return; }
+      m.heads[was].setAttribute('aria-expanded', 'false');
+      if (!on) { m.heads[was].focus(); return; }
     }
     if (!m.sub && at === 3) {
       const sub = document.createElement('div');
@@ -8417,7 +8430,7 @@
       if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });
       m.sub = sub; m.subAt = 2;
     }
-    menuItems(m.box)[at].setAttribute('aria-expanded', 'true');
+    m.heads[at].setAttribute('aria-expanded', 'true');
     menuItems(m.sub)[0].focus();
   }
   function blockMenuClose(back) {
@@ -8447,6 +8460,7 @@
     }
     if (what === 'duplicate') {
       if (b.type === 'subpage') { toast(SUB_NO_DUP); return null; }   // 0.15.0 PR-2（決めたこと 52・BQ13 (a)）: 子ページの行は写さない
+      if (subInside(b)) toast(SUB_NO_DUP);   // PR-2 直し（R41）: 中の子ページの行は写さない（ほかは写す）
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       return editAnswer(pid, () => rowApi(pid).blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
     }
@@ -8496,6 +8510,7 @@
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
     if (act === 'duplicate' && b.type === 'subpage') { toast(SUB_NO_DUP); return null; }   // 0.15.0 PR-2（決めたこと 52・BQ13 (a)）: 子ページの行の Ctrl+D は写さない
+    if (act === 'duplicate' && subInside(b)) toast(SUB_NO_DUP);   // PR-2 直し（R41）: 中の子ページの行は写さない（ほかは写す）
     if (act === 'duplicate') return editAnswer(pid, () => rowApi(pid).blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
     // 0.13.1 NR13: 子は同じ親の兄弟の中だけで1つ上・下へ（親の外へ出す・中へ入れるのは Tab と Shift+Tab）。最上位は画面の最上位の並びで（0.13.0 のまま）
     let to = null;
@@ -8557,6 +8572,10 @@
     const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
     const stop = () => { if (typeof ev.preventDefault === 'function') ev.preventDefault(); };
     if (ev.key === 'Enter' && !ev.altKey && !ev.shiftKey && !ev.metaKey) { stop(); subRowOpen(el, ev); return true; }
+    // PR-2 直し（R40・決めたこと 43・53）: ほかの Enter（Shift・Alt つき。文の行の中の改行・分ける）と、飾り・リンク・型の近道は飲む（行は文も飾りも型も持たない。
+    // 前は文の行の受け口へ落ちて、題名を描いた所に改行や飾りが入り、型の変換は DB が断った）
+    const act = keyAction(ev);
+    if (ev.key === 'Enter' || (act && (act.startsWith('mark:') || act.startsWith('turn:') || act === 'link' || act === 'colorAgain'))) { stop(); return true; }
     if ((ev.key === 'Backspace' || ev.key === 'Delete') && !mod && !ev.shiftKey) { stop(); subRowRemove(el); return true; }
     const ck = clipKey(ev);
     if (ck === 'copy' || ck === 'cut') { stop(); selRowStart(el); selClipCopy(ck === 'cut'); return true; }
@@ -8578,10 +8597,12 @@
     if (n > 0) toast(`ページ ${n} 件をゴミ箱に入れました（Ctrl+Z で戻せます）`);
   }
   // 選んだ行の複製: 子ページの行は写さない（決めたこと 52）。子ページの行だけなら知らせて null、混ざっていれば知らせてほかの行だけ
+  // PR-2 直し（R41）: 写す行の中（子孫）に子ページの行があるか（DB は写しから除く: 決めたこと 52。黙って落とさず知らせる）
+  const subInside = (b) => Boolean(b) && flattenBlocks(Array.isArray(b.children) ? b.children : []).some((x) => x && x.type === 'subpage');
   function dupIdsOf(pid, ids) {
     const blocks = blocksOfKey(pid);
     const keep = ids.filter((id) => { const l = locate(blocks, id); return !(l && l.b.type === 'subpage'); });
-    if (keep.length !== ids.length) toast(SUB_NO_DUP);
+    if (keep.length !== ids.length || keep.some((id) => subInside((locate(blocks, id) || {}).b))) toast(SUB_NO_DUP);
     return keep.length ? keep : null;
   }
   // 白紙のページの本文の子ページの行を今の一覧の値で描き直し、行の無い子の一覧（#bodyKids）を作る（決めたこと 55・56・HR16）
@@ -8815,12 +8836,15 @@
       if (many) {
         if (into && !openView(locate(blocksOfKey(pid), into).b)) revealRow(pid, into);
         const keep = (x) => ({ select: x && Array.isArray(x.ids) ? x.ids : many });
-        if (ev.altKey) return editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, many, afterId, into), keep);
+        if (ev.altKey) { const dup = dupIdsOf(pid, many); return dup ? editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, dup, afterId, into), keep) : null; }   // PR-2 直し（R41）
         return editAnswer(pid, () => rowApi(pid).blocksMove(pid, many, afterId, into), keep);
       }
       const row = [...box.querySelectorAll('.blk')].find((e) => e.dataset.id === id);
       if (row && row._txt && typeof row._txt._commit === 'function') { try { await row._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }
       if (ev.altKey) {   // K-21: Alt を押しながら落とすと、その所へ複製（1つの命令）
+        const b0 = (locate(blocksOfKey(pid), id) || {}).b;   // PR-2 直し（R41・決めたこと 52）: 子ページの行は写さない・中の子ページの行は知らせて除く
+        if (b0 && b0.type === 'subpage') { toast(SUB_NO_DUP); return; }
+        if (subInside(b0)) toast(SUB_NO_DUP);
         await editAnswer(pid, () => (into ? rowApi(pid).blockDuplicate(pid, id, afterId, into) : rowApi(pid).blockDuplicate(pid, id, afterId)), (x) => ({ focus: x.blockId, caret: 0 }));
         return;
       }
