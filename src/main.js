@@ -210,6 +210,8 @@ const FG_REPLY_MS = 300;      // fg の応答待ち。常駐が起動中なら�
 // 0.14.0 EK-6（決めたこと 40〜42・79）: NaTsu の中の音声入力の入れ先を画面に聞いた答え（Promise<{ ok, seq }>。null はほかのアプリ: 今の道）と、後に回したログインの窓
 let dictWhere = null;
 let dictLoginLater = false;
+// 0.14.0 EK-6 直し3（R207）: 止めた後の文字起こし・整えの間（processing）に画面の Esc（dictation:cancel）で捨てた NaTsu の中の口述の入れ先（dictWhere と同じ Promise）
+let dictDropped = null;
 const PASTE_REPLY_MS = 1500;  // paste の応答待ち。無応答なら貼れたものとして扱う（unknown）
 let programmaticMove = false;
 let recoveredPageId = null;
@@ -3743,6 +3745,12 @@ function resumeRecoveryAfterDictation() {
   recoveryTriggerAsk = 'dictation-end';
   if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗（音声入力の後）: ${logReason(e)}`));
 }
+// 0.14.0 EK-6 直し3（R207）: 画面の Esc（dictation:cancel）。録音中は今どおり取り消す（cancelRecording）。止めた後の文字起こし・整えの間（processing）は、
+// NaTsu の中へ入れる口述を捨てる印を付ける（文は送らず dictation:end・履歴は残す: deliverDictation）。cancelRecording は録音中のほかは何もしない
+function cancelDictation() {
+  if (state === 'processing' && dictWhere) { dictDropped = dictWhere; return; }
+  cancelRecording();
+}
 function toggleRecording() {
   if (state === 'idle') startRecording();
   else if (state === 'recording') stopRecording();
@@ -3781,6 +3789,7 @@ function flushDictLogin() {
 function dictEnded() {
   const w = dictWhere;
   dictWhere = null;
+  dictDropped = null;
   if (!w) return;
   w.then((r) => { sendToMainWin('dictation:end', { seq: r.seq }); flushDictLogin(); });
 }
@@ -3790,6 +3799,8 @@ async function deliverDictation(text, lines = null) {
   const w = dictWhere;
   if (!w) return deliverText(text);   // ほかのアプリ: 今どおり（クリップボードと貼り付け）
   const r = await w;
+  // 0.14.0 EK-6 直し3（R207）: 処理中に画面の Esc で捨てた口述は入れず、文を入れずに終わった知らせ（R61）。履歴は recordDictation が入れてある（R27 の「履歴だけ」）
+  if (r.ok && dictDropped === w) { dictDropped = null; if (dictWhere === w) dictWhere = null; sendToMainWin('dictation:end', { seq: r.seq }); flushDictLogin(); return undefined; }
   if (dictWhere === w) dictWhere = null;
   if (r.ok) sendToMainWin('dictation:text', { seq: r.seq, text, lines });   // クリップボードを通さない。箇条は画面が1命令で行にする
   else { sendToMainWin('app:notice', DICT_NOWHERE); sendToMainWin('dictation:end', { seq: r.seq }); }
@@ -6537,7 +6548,7 @@ function setupIpc() {
   // 0.14.0 EK-6 直し（R194）: どちらも本体の窓の画面から来たときだけ受ける（録音バー・ログインの窓・ヘルプの窓からは入れ先も取り消しも決めさせない）
   const fromMainWin = (e) => Boolean(mainWin && !mainWin.isDestroyed() && e && e.sender === mainWin.webContents);
   ipcMain.on('dictation:where-answer', (e, p) => { if (fromMainWin(e)) onWhereAnswer(p); });
-  ipcMain.handle('dictation:cancel', (e) => { if (!fromMainWin(e)) return false; cancelRecording(); return true; });
+  ipcMain.handle('dictation:cancel', (e) => { if (!fromMainWin(e)) return false; cancelDictation(); return true; });
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));

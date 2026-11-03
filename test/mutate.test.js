@@ -1244,6 +1244,7 @@ const IDS_140 = [
   'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-dict-seq', 'ek-esc-order', 'ek-dict-end', 'ek-dict-starting', 'ek-dict-login',
   'ek-ctrl-w-starting', 'ek-shortcut-131',
   'ek-cancel-sender', 'ek-ime-blur',   // 0.14.0 DQ-3 直し2（R202。EK-6 直し2 の R201 の変異）
+  'ek-dict-hidden', 'ek-dict-cancel-proc',   // 0.14.0 EK-6 直し3（R207）
   // 0.14.0 EK-2 の続き
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',
@@ -1292,7 +1293,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも�
   // 0.14.0 DQ-1 直し2（R198）で dq-guard-half・dq-guard-cp を足した（150）
   // 0.14.0 DQ-3 直し2（R202）で ek-cancel-sender・ek-ime-blur・dq-relay-blank・dq-tidy-reject を足した（154）
   // 0.14.0 DQ-4 直し（R205）で dq-guard-ws・dq-guard-mark・dq-guard-lines-len・dq-relay-mark・dq-lines-ai を足した（159）
-  assert.strictEqual(rows.length, 159, '計画の 0.14.0 の表（eb- 47・ek- 51・mo- 27・dq- 34）が読めない');
+  // 0.14.0 EK-6 直し3（R207）で ek-dict-hidden・ek-dict-cancel-proc を足した（161）
+  assert.strictEqual(rows.length, 161, '計画の 0.14.0 の表（eb- 47・ek- 53・mo- 27・dq- 34）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   assert.deepStrictEqual(IDS_140, rows.filter((id) => IDS_140.includes(id)), 'IDS_140 が表の行の順でない');

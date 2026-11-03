@@ -1075,7 +1075,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EK-6 直し2（R201）: 確定の事象が来ないまま欄を離れたら変換中の印を外す document の focusout の受け口（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 5d7e72ff…）
   // 0.14.0 DQ-3 直し2（R202）: 「口述の文を AI で整える」の行を div.checkrow の形にした。変わる画面は RETAKE にある settings-dictation-light と settings-record・settings-info・settings-detect の8枚。値を今の app.html に合わせた（前の値は 6c4823ab…）
   // 0.14.0 DQ-4 直し（R205 (5)）: 辞書の欄（textarea）に話した箇条は印の無い行の文を1行ずつ（dictIntoField に lines。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 64feeb89…）
-  assert.strictEqual(sha, '07800b9c6fdb014cc3e75180d690e6ac0d4e78907f1a0848d58be6cd850fa51f',
+  // 0.14.0 EK-6 直し3（R207）: 隠れた欄に口述を入れない照らし（dictShown・フォーカスの照らし。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 07800b9c…）
+  assert.strictEqual(sha, 'a4ebbe19c91d62986cb5fc48fbddf5f16d15054287131b08266dd7253d85a89d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

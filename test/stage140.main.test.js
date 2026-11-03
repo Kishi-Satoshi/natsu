@@ -813,3 +813,18 @@ test('DQ-4: 整えの答えに lines（箇条書き3つ）→ NaTsu の外は de
   assert.strictEqual(u.dict.pasteSims, 4, tidyDump(u));
   assert.deepStrictEqual(u.dict.history.map((h) => h.text).reverse(), DQ4_WANT.map(([text]) => text));
 });
+
+// ---------------------------------------------------------------- EK-6 直し3（2026-11-03 の版の点検 M-2。R207）
+test('EK-6 直し3・M-2（R207）: NaTsu の中の音声入力で、止めた後の文字起こし・整えの間（processing）に本体の窓から dictation:cancel → dictation:text は送らず dictation:end（同じ番号）が1回・履歴は残す（R27 の「履歴だけ」）・クリップボードも0', T, async () => {
+  const o = await mic([['sleep', 100], ['tidy', 'hold'], ['dictate-in-natsu', { where: 'ok', hold: true }], ['wait-tidy', 1], ['ipc-from', 'main', 'dictation:cancel'],
+    ['tidy-release', AI_REPLY], ['wait-dict-end'], ['sleep', 60]], ...RELAY);
+  assert.deepStrictEqual(o.ipc, [['dictation:cancel', true]], tidyDump(o));
+  const w = dsent(o, 'dictation:where');
+  assert.strictEqual(w.length, 1, tidyDump(o));
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), [], `処理中の Esc の後に文を入れた（ek-dict-cancel-proc）: ${tidyDump(o)}`);
+  assert.deepStrictEqual(dsent(o, 'dictation:end'), [{ seq: w[0].seq }], tidyDump(o));
+  assert.strictEqual(o.dict.history.length, 1, `履歴が残らない: ${tidyDump(o)}`);
+  assert.strictEqual(o.dict.history[0].text, AI1);
+  assert.deepStrictEqual(o.dict.pastes, [], 'クリップボードで貼った');
+  assert.strictEqual(o.dict.pasteSims, 0);
+});

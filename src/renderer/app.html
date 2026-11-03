@@ -6817,6 +6817,13 @@
     });
   }
   const dictAttached = (n) => isIn(n, document.documentElement);
+  // 0.14.0 EK-6 直し3（R207）: 覚えた欄が今も見えているか（隠れた先祖（検索の窓・設定）が無く、display:none でない）。検索の窓を閉じた・設定を × で閉じた・
+  // 結果を開いて窓が閉じたら、フォーカスは開いた元（行など）へ戻っているので、その欄の focus と insertText は戻った所に入ってしまう
+  function dictShown(n) {
+    for (let x = n; x && x.tagName; x = x.parentNode) if (x.hidden === true || (x.style && x.style.display === 'none')) return false;
+    if (typeof n.checkVisibility === 'function') { try { return n.checkVisibility() !== false; } catch (_) { return true; } }
+    return true;
+  }
   function dictIntoField(at, text, lines) {
     const f = at.field;
     // 1行の欄は改行を受けないので、改行を空白にした文（R52）。textarea（辞書: 1行に1語）は改行のまま。
@@ -6827,7 +6834,9 @@
       if (!dictAttached(f) || (at.pageId !== null && at.pageId !== curId)) { toast(DICT_GONE); return; }
       const now = at.box ? String(f.value) : f.textContent;
       const s = Math.min(at.s, now.length), e = Math.min(Math.max(at.e, at.s), now.length);
+      if (!dictShown(f)) { toast(DICT_GONE); return; }
       f.focus();
+      if (document.activeElement !== f) { toast(DICT_GONE); return; }   // フォーカスが欄に入らない（入れると今フォーカスのある所に入る）
       if (at.box) { try { f.setSelectionRange(s, e); } catch (_) { /* 選べなくても入れる */ } } else setSel(f, s, e);
       let ok = false;
       try { ok = document.execCommand('insertText', false, piece) === true; } catch (_) { ok = false; }
