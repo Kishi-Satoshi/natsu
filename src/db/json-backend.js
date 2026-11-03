@@ -78,7 +78,8 @@ function makeJsonBackend(store, { labels = {} } = {}) {
 
   const COMMANDS = Object.freeze(Object.assign(Object.create(null), {
     // ---- 読む
-    'pages.list': ({ q } = {}) => store.searchIndex(q || ''),
+    // 0.15.0 PH-2（決めたこと 17）: 一覧の行の木の欄（JSON の保存は木を持たないので、どれも最上位。DB の答えと形をそろえる）
+    'pages.list': ({ q } = {}) => store.searchIndex(q || '').map((e) => ({ ...e, parentId: null, ord: 'i' })),
     'pages.searchFull': ({ q, limit } = {}) => store.searchFullText(q || '', limit === undefined ? 60 : limit),
     'pages.actionView': ({ q, assignee } = {}) => store.actionView({ q, assignee }),
     'page.get': ({ id } = {}) => {

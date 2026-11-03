@@ -13,9 +13,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 2・6・21）: 元に戻す edit.revert と行の色 blocks.setColor を足した（23）
 // 0.14.0 EK-2（決めたこと 25・30）: 貼り付け block.paste と、選んだ行の blocks.remove・blocks.move・blocks.duplicate・blocks.turnInto を足した（28）
 // 0.14.0 MB-2（決めたこと 61）: メモの行を保存する page.setMemoDoc を足した（29）
+// 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の決めたこと 13）: ページの木の page.create・page.move・page.restore・pages.trash を足した（33）
 const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
   'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'blocks.setColor',
-  'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'page.setMemoDoc']);
+  'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'page.setMemoDoc',
+  'page.create', 'page.move', 'page.restore', 'pages.trash']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -28,7 +30,7 @@ function editStep(req) {
   const step = { cmd: req.cmd, pageId: typeof a.pageId === 'string' ? a.pageId : a.id, step: req.tx };
   for (const cb of editSteps) { try { cb(step); } catch (_) { /* 画面の受け口の誤りで答えを止めない */ } }
 }
-const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get']);
+const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash']);
 const DB_WAIT_MS = 30000;
 let dbPort = null;
 let dbSeq = 0;
@@ -211,6 +213,11 @@ contextBridge.exposeInMainWorld('koeApp', {
   blockSetAction: (pageId, blockId, assignee, dueRaw) => dbCall('block.setAction', { pageId, blockId, assignee, dueRaw }),
   pageGet: (id) => dbCall('page.get', { id }),
   pageDelete: (id) => dbCall('page.delete', { id }),
+  // 0.15.0 PH-2（決めたこと 13〜15）: ページの木。どれも元に戻すの歩みにしない（UNDO_CMDS に入れない）。parentId が空なら最上位
+  pageCreate: (parentId) => dbCall('page.create', parentId ? { parentId } : {}),
+  pageMove: (id, parentId, afterId) => dbCall('page.move', { id, parentId: parentId || '', ...(afterId === undefined ? {} : { afterId }) }),
+  pageRestore: (id) => dbCall('page.restore', { id }),
+  pagesTrash: () => dbCall('pages.trash', {}),
   pageSetTitle: (id, title) => dbCall('page.setTitle', { id, title }),
   pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
   // 0.14.0 MB-2（決めたこと 61・R74）: メモの行（doc は行の並び）。1回が元に戻すの1歩（onEditStep の pageId は id）

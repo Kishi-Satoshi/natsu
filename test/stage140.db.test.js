@@ -1398,9 +1398,10 @@ test('MB-2・F106: json-backend の page.setMemoDoc・page.setMemo の断りは 
   } finally { t.done(); j.done(); }
 });
 
-test('MB-2: preload の APP_COMMANDS（29）は役 app の命令と同じ集まり。koeApp.pageSetMemoDoc は dbCall の1回で tx が付き、ok で changed なら onEditStep に { cmd, pageId: id, step }', T, async () => {
+// 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」・R7）で意図して直した: ページの木の4つを足して 33（照らしは同じ）
+test('MB-2: preload の APP_COMMANDS（33）は役 app の命令と同じ集まり。koeApp.pageSetMemoDoc は dbCall の1回で tx が付き、ok で changed なら onEditStep に { cmd, pageId: id, step }', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 29);
+  assert.strictEqual(names.length, 33);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   assert.deepStrictEqual(core.COMMANDS['page.setMemoDoc'].roles, ['app']);
   const { k, givePort } = loadPreload();

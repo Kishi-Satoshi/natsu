@@ -28,7 +28,8 @@ function load(timers = { setTimeout, clearTimeout }) {
 // 0.14.0 EB-2 で意図して直した: 元に戻す edit.revert と行の色 blocks.setColor を足して 23（照らしは同じ）
 // 0.14.0 EK-2 で意図して直した: 貼り付けの block.paste と選んだ行の blocks.remove・move・duplicate・turnInto を足して 28（照らしは同じ）
 // 0.14.0 MB-2 で意図して直した: メモの行を保存する page.setMemoDoc を足して 29（照らしは同じ）
-test('ST5: ページの 29 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
+// 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」）で意図して直した: ページの木の4つ（page.create・page.move・page.restore・pages.trash）を足して 33（照らしは同じ）
+test('ST5: ページの 33 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
   const l = load(); const p = l.givePort();
   const pr = l.exposed.koeApp.blockInsert('pa1', 'b2', 'todo');
   const m = p.sent[0];

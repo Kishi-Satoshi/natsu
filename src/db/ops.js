@@ -6,7 +6,8 @@
  *   { op: 'add', id, row }                ブロックかページの行を足す（row は下の blockRow・pageRow の形）。後ろへは消す
  *   { op: 'move', id, ord, old }          並びの鍵を変える（鍵は同じ親の兄弟の中の並び: 0.13.1 NR1）
  *   { op: 'move', id, ord, old, parent, oldParent }  親も変える（0.13.1 決めたこと 7。親が変わったときだけ parent・oldParent を持つ。
- *                                         後ろへ当てれば前の親と鍵に戻る。子は親の ID を指したままなので書かない）
+ *                                         後ろへ当てれば前の親と鍵に戻る。子は親の ID を指したままなので書かない）。
+ *                                         0.15.0 PH-2: ページの行の親（子のページ）。最上位は parent: null・前の親が最上位なら oldParent: null
  *   { op: 'set', id, key, value, old }    欄を変える。ページの行の createdAt・updatedAt は列、rich はどの行でも列、
  *                                         ほかは attrs の欄。value・old が無い（undefined。JSON にすると欄ごと消える）なら欄を消す
  *   { op: 'text', id, value, old }        text を変える（ページの行は題名）
@@ -283,8 +284,9 @@ function applyOne(db, o, back, st) {
     case 'move': {
       const r = rowOf(db, o.id);
       db.prepare('update blocks set ord = ? where id = ?').run(back ? o.old : o.ord, o.id);
-      // 0.13.1（決めたこと 7）: 親が変わった move は parent_id も（後ろへは前の親に）
-      if (typeof o.parent === 'string') db.prepare('update blocks set parent_id = ? where id = ?').run(back ? o.oldParent : o.parent, o.id);
+      // 0.13.1（決めたこと 7）: 親が変わった move は parent_id も（後ろへは前の親に）。0.15.0 PH-2（決めたこと 4）: ページの行を最上位へ出す
+      // move は parent: null（前の親は oldParent）なので、欄があれば当てる（ブロックの行の move は今どおり文字の親だけを持つ）
+      if (Object.hasOwn(o, 'parent')) db.prepare('update blocks set parent_id = ? where id = ?').run(back ? (o.oldParent ?? null) : (o.parent ?? null), o.id);
       st.touched.add(r.page_id);
       return;
     }

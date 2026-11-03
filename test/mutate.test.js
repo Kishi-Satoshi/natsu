@@ -1320,10 +1320,14 @@ const IDS_150 = [
   // 0.15.0 PH-1（表の行の順に）
   'ph-tree-cycle', 'ph-tree-orphan', 'ph-tree-top-order', 'ph-tree-kid-order', 'ph-desc-self', 'ph-move-self', 'ph-move-cycle',
   'ph-trash-group', 'ph-restore-group', 'ph-visible-closed', 'ph-sibling-key', 'ph-drop-spot', 'ph-ws-tree-id', 'ph-ws-tree-max',
+  // 0.15.0 PH-2（表の行の順に）
+  'ph-create-id', 'ph-create-kind', 'ph-create-live', 'ph-move-live', 'ph-move-trashed', 'ph-move-top', 'ph-move-same', 'ph-delete-kids',
+  'ph-delete-at', 'ph-restore-kids', 'ph-restore-top', 'ph-list-parent', 'ph-list-cache', 'ph-discard-kids', 'ph-trash-heads', 'ph-role',
 ];
 // 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足す
 const BUILT_150 = [
   ['ph-tree-cycle', 'ph-ws-tree-max'],   // PH-1
+  ['ph-create-id', 'ph-role'],   // PH-2
 ];
 // 表の ph-・pl- の行（作りながら足すので、IDS_150 は今まで作ったタスクの行だけ: R1。表の全部とちょうど同じかは Task G で見る）
 function planRows150() {
