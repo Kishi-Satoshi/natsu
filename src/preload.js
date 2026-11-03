@@ -214,7 +214,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   pageGet: (id) => dbCall('page.get', { id }),
   pageDelete: (id) => dbCall('page.delete', { id }),
   // 0.15.0 PH-2（決めたこと 13〜15）: ページの木。どれも元に戻すの歩みにしない（UNDO_CMDS に入れない）。parentId が空なら最上位
-  pageCreate: (parentId) => dbCall('page.create', parentId ? { parentId } : {}),
+  // 0.15.0 PR-1（計画の R6）: placeAt は /ページ を打った行（白紙のページの本文のその所に子ページの行を置く）
+  pageCreate: (parentId, placeAt) => dbCall('page.create', { ...(parentId ? { parentId } : {}), ...(placeAt ? { placeAt } : {}) }),
   pageMove: (id, parentId, afterId) => dbCall('page.move', { id, parentId: parentId || '', ...(afterId === undefined ? {} : { afterId }) }),
   pageRestore: (id) => dbCall('page.restore', { id }),
   pagesTrash: () => dbCall('pages.trash', {}),

@@ -55,6 +55,8 @@ const BT = require('../blockTree');
 const { diffPage, diffSegments, applyOps, invertOps, opsMatch, pageRow } = require('./ops');
 // 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の決めたこと 1〜17・HR6）: ページの木は parent_id だけ。歩くのは JS（SQL の再帰を使わない: 決めたこと 6）
 const PT = require('../pageTree');
+// 0.15.0 PR-1（計画の HR14）: 白紙のページの子の並びの鍵は、本文の子ページの行の順から作る（等しい間の鍵）
+const { evenKeys } = require('./keys');
 // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜6・14〜16・R60・R72）: 戻せる命令の表（画面の元に戻すの列と同じ）と飾りの整え
 const { UNDO_CMDS } = require('../undoBook');
 const RT = require('../richText');
@@ -83,6 +85,8 @@ const HOT_QUERIES = Object.freeze({
   pageRows: "select id, parent_id, ord, text, created_at, trashed_at, json_extract(attrs, '$.meeting.phase') as phase, json_extract(attrs, '$.kind') as kind, json_extract(attrs, '$.icon') as icon from blocks where type = 'page'",
   pageRow: 'select id, type, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
   pageBlocks: 'select id, type, text, rich, attrs, ord, parent_id from blocks where page_id = ? and id <> ? order by ord',
+  // 0.15.0 PR-1（HR14）: 白紙のページの本文の並び（行の木の形と、子ページの行の指すページだけ。文・飾り・ほかの欄は読まない）
+  bodyRows: "select id, parent_id, ord, type, json_extract(attrs, '$.page') as sub from blocks where page_id = ? and id <> ? order by ord",
   pageSegments: 'select id, at_ms, duration_ms, text, failed, extra from segments where page_id = ? order by n',
   todoPages: "select distinct page_id from blocks where type = 'todo'",
   oplogTx: 'select seq, role, tx, at, actor, action, page_id, ops from oplog where role = ? and tx = ?',
@@ -196,7 +200,7 @@ function editPage(db, id, ctx, fn, { summary = false, view = false } = {}) {
   if (!w) return { ops: [], pageIds: [], result: null };
   if (summary && summaryLockedPage(db, w.was.page)) throw refuse('locked');
   const before = summary ? JSON.stringify(w.page.blocks) : '';
-  if (fn(w.page) === false) return { ops: [], pageIds: [], result: null };
+  if (fn(w.page, w.was) === false) return { ops: [], pageIds: [], result: null };   // 0.15.0 PR-1: fn は読んだ形（並びの鍵 ords）も受ける
   // 点検の見直し（R45）: 要約の欄の命令が行を何も変えなければ（同じ所への move・無い行の remove・同じ文の update）書かず、印も付けない（答えは今のページ）
   if (summary && JSON.stringify(w.page.blocks) === before) return { ops: [], pageIds: [], result: readPage(db, id) };
   // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる」）: 要約の欄を直した印（［要約を再生成］の前に確かめる。作り直した要約の書き戻しで消える）
@@ -272,7 +276,7 @@ function entryFor(db, cache, row) {
 // 外すページの判定は listedRows の1か所だけ（読むときにもう一度ゴミ箱を見ると、片方を戻す変異が生き残る）
 function listPages(db) {
   const cache = cacheOf(db);
-  const rows = listedRows(db);
+  const rows = withBodyOrds(db, listedRows(db));   // 0.15.0 PR-1（決めたこと 47・HR14）: 白紙のページの子は本文の行の順
   const listed = new Set(rows.map((r) => r.id));
   for (const id of cache.keys()) if (!listed.has(id)) cache.delete(id);
   const out = [];
@@ -286,7 +290,7 @@ function listPages(db) {
 // 検索（D-4）: 一覧に出すページの並びと一覧の1行を search.js に渡す（外す判定と並びは listedRows の1か所だけ）
 function searchView(db) {
   const cache = cacheOf(db);
-  const rows = listedRows(db);
+  const rows = withBodyOrds(db, listedRows(db));   // 0.15.0 PR-1（HR14）: 一覧と同じ並びの鍵
   const byId = new Map(rows.map((r) => [r.id, r]));
   return {
     ids: rows.map((r) => r.id),
@@ -678,9 +682,12 @@ function editRevert(db, a, ctx) {
   let same;
   try {
     back = invertOps(fwd, { pageId: a.pageId });
-    same = opsMatch(db, fwd);
+    same = opsMatch(db, fwd, { pageId: a.pageId });   // 0.15.0 PR-1（決めたこと 50）: 子のページの行の trashed_at も照らす
   } catch (_) { throw refuse('bad-args'); }   // 戻せない操作（ページの行の削除・発言など）
   if (!same) throw refuse('stale');
+  // 0.15.0 PR-1（決めたこと 59）: 戻すと今の子ページの行に文・型を入れる歩み（/ページ で替えた行の前の文）は戻さない
+  const typeNow = db.prepare('select type from blocks where id = ?');
+  if (back.some((o) => (o.op === 'text' || o.op === 'retype') && (typeNow.get(o.id) || {}).type === 'subpage')) throw refuse('stale');
   // 後ろへ当てた形を一度試しに当てて、直した時刻・出典の数・印の操作を作る（当てるのは1回だけ: T4b の rev の上がり方を同じにする）
   let meta;
   let fits = true;
@@ -771,6 +778,7 @@ function pasteInto(db, ctx, p, a) {
   const l = BT.locate(p.blocks, a.blockId);
   if (!l) return null;
   const b = l.b;
+  noSubRow(b);   // 0.15.0 PR-1（決めたこと 51）: 子ページの行の文には貼らない（画面は行のすぐ下へ貼る）
   const text = RT.plainOf(a.rich);
   if (!splitAtOk(text, a.at)) throw refuse('bad-args');
   // inside は子の見えている行だけ（R66・TQ3）。0.14.0 の BQ31（2026-10-30 の持ち主の答え「すぐ下（子の先頭）に入れる」）で文の途中も通す（Enter と同じ）。
@@ -872,13 +880,16 @@ function pageCreate(db, a, ctx) {
   const ord = parentId === null ? PT.TOP_ORD : PT.siblingKey(PT.pageTree(rows), new Map(rows.map((r) => [r.id, r.ord])), parentId, undefined);
   const page = { id, title: '', kind: 'blank', date: localDate(at), memo: '', blocks: [], createdAt: at.toISOString(), updatedAt: at.toISOString() };
   const ops = [{ op: 'add', id, row: { ...pageRow(page, { ord }), parent_id: parentId } }];
+  // 0.15.0 PR-1（決めたこと 45・HR13）: 白紙のページの中なら、同じ命令でその本文に子ページの行（placeAt の所か本文の最後）。議事録の中には作らない（BQ3）
+  const body = parentId === null || !isBlankPage(rows.find((r) => r.id === parentId).attrs) ? null : bodyOps(db, parentId, ctx, (p) => placeSubRow(p, newSubRow(db, ctx, id), { placeAt: a.placeAt }));
+  if (body) ops.push(...body);
   applyOps(db, ops);
-  return { ops, pageIds: [id], result: { page: readPage(db, id), id } };
+  return { ops, pageIds: body ? [id, parentId] : [id], result: { page: readPage(db, id), id } };
 }
 
 // 動かす（決めたこと 4・5・9・16・21）。'' は最上位。afterId は兄弟の後ろ（'' は頭・無ければ末尾。最上位は鍵で並べないので見ない）→ 一覧
-function pageMove(db, a) {
-  const rows = pageRowsOf(db);
+function pageMove(db, a, ctx) {
+  const rows = withBodyOrds(db, pageRowsOf(db));   // 0.15.0 PR-1（HR14）: 白紙のページの子は本文の行の順で「同じ所」と兄弟の鍵を見る
   const tree = PT.pageTree(rows);
   const me = tree.byId.get(a.id);
   if (!me || me.trashedAt !== null) throw refuse('bad-args');   // 無い・ゴミ箱のページは動かさない
@@ -899,8 +910,20 @@ function pageMove(db, a) {
   const place = to === null ? { ord: PT.TOP_ORD, rekey: [] } : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
   const ops = [{ op: 'move', id: a.id, ord: place.ord, old: me.ord, ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
     ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: tree.byId.get(id).ord }))];
+  // 0.15.0 PR-1（決めたこと 45・46・48・HR12）: 同じ命令で、前の親（白紙のページ）の本文の行を外し、新しい親（白紙のページ）の本文に置く
+  // （兄弟の後ろなら兄弟の行のすぐ後ろ・頭なら兄弟の最初の行の前・ほかは本文の最後）。同じ白紙のページの中の並べ替えは行を動かす
+  const sibs = new Set(to === null ? [] : PT.pageTree(others).kids.get(to) || []);
+  const hosts = [];
+  const put = (p) => placeSubRow(p, newSubRow(db, ctx, a.id), { afterPage: a.afterId, sibs });
+  const add = (id, list) => { if (list) { ops.push(...list); hosts.push(id); } };
+  const blank = (id) => id !== null && tree.byId.has(id) && isBlankPage(tree.byId.get(id).attrs);   // 本文を読むのは白紙のページだけ
+  if (me.parentId === to) { if (blank(to)) add(to, bodyOps(db, to, ctx, put)); }
+  else {
+    if (blank(me.parentId)) add(me.parentId, bodyOps(db, me.parentId, ctx, (p, was) => (takeSubRow(p, was, a.id) ? undefined : false)));
+    if (blank(to)) add(to, bodyOps(db, to, ctx, put));
+  }
   applyOps(db, ops);
-  return { ops, pageIds: [a.id], result: listPages(db) };
+  return { ops, pageIds: [a.id, ...hosts], result: listPages(db) };
 }
 // PH-2 直し（R13）: start から「そのままの親」（parent_id）をたどって id に着くか（木の部品は輪の行を最上位に並べるので、壊れた輪の上では
 // canMoveUnder が見ない道がある。訪ねた印で止まる）
@@ -939,8 +962,16 @@ function pageRestore(db, a, ctx) {
   const ops = group.map((id) => ({ op: 'restore', id, at, old: tree.byId.get(id).trashedAt }));
   const host = me.parentId === null ? null : tree.byId.get(me.parentId);
   if (me.parentId !== null && !isListedRow(host)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱・録音中の写しの親の下・無い親）に戻さない
+  // 0.15.0 PR-1（決めたこと 45・54・HR15）: 親が白紙のページなら、同じ命令でその本文に行を戻す（覚えた置き場がまだあればそこ・無ければ本文の最後。
+  // 行がもうあれば足さない）。覚えた置き場は戻したら消す
+  const rowAt = rowAtOf(db, a.id);
+  const body = me.parentId !== null && isListedRow(host) && isBlankPage(host.attrs)
+    ? bodyOps(db, me.parentId, ctx, (p, was) => (subSpot(p.blocks, a.id) ? false : putBackSubRow(p, was, newSubRow(db, ctx, a.id), rowAt)))
+    : null;
+  if (body) ops.push(...body);
+  if (rowAt !== undefined) ops.push({ op: 'set', id: a.id, key: 'rowAt', value: undefined, old: rowAt });
   applyOps(db, ops);
-  return { ops, pageIds: [a.id], result: listPages(db) };
+  return { ops, pageIds: body ? [a.id, me.parentId] : [a.id], result: listPages(db) };
 }
 
 // ゴミ箱の頭（一緒に消したまとまりの頭だけ。消した新しい順・200 まで: 決めたこと 32）→ [{ id, title, kind?, icon?, trashedAt, count }]
@@ -959,6 +990,182 @@ function trashHeads(db) {
     out.count = PT.restoreGroup(rows, r.id, tree).length - 1;
     return out;
   });
+}
+
+// ---------------------------------------------------------------- 0.15.0 PR-1: 白紙のページの本文の子ページの行（計画の決めたこと 43〜60・HR12〜HR18・F123）
+// 行は { id, type: 'subpage', text: '', page }（page は attrs の欄）。木の正本は子のページの parent_id で、行は「本文のどこに並ぶか」だけ（HR17）。
+// 作る・動かす・戻す・ほかの所で消す命令は、ページの行の操作と本文の行の操作を同じ命令（同じ oplog の1行）に積む（決めたこと 44）
+const isSubRow = (b) => isObj(b) && b.type === 'subpage';
+const isBlankPage = (attrs) => isObj(attrs) && attrs.kind === 'blank';
+const cmpStr = (x, y) => (String(x ?? '') < String(y ?? '') ? -1 : String(x ?? '') > String(y ?? '') ? 1 : 0);
+// 本文の中の、そのページを指す子ページの行の居場所（BT.locate の形。無ければ null。同じページを指す行が2つあれば先の行）
+function subSpot(blocks, pageId) {
+  const w = BT.walk(blocks).find((x) => isSubRow(x.b) && x.b.page === pageId);
+  return w ? BT.locate(blocks, w.b.id) : null;
+}
+// 白紙のページの本文を直す操作（当てない。呼び手がページの行の操作と1つの列にして当てる）。白紙のページでない・無い・fn が false なら null
+function bodyOps(db, pageId, ctx, fn) {
+  const w = forWrite(db, pageId);
+  if (!w || !isBlankPage(w.was.page)) return null;
+  if (fn(w.page, w.was) === false) return null;
+  return saveOps(w.was, w.page, ctx.now);
+}
+// 子ページの行を置く（決めたこと 45・48・HR12・HR13）。本文にそのページの行がもうあれば（前の版の行・食い違った行）、新しく作らずに動かす。
+// placeAt（/ページ を打った行）: 文も子も無いテキストの行ならその行を子ページの行に替え（同じ ID）、ほかの行ならすぐ下。afterPage が兄弟の
+// ページの ID ならその行のすぐ後ろ・'' なら兄弟（sibs）の最初の行の前。どれも無ければ本文の最後（最上位の並びの末尾）
+function placeSubRow(p, row, { placeAt, afterPage, sibs } = {}) {
+  const had = subSpot(p.blocks, row.page);
+  let me = row;
+  if (had) { me = had.b; had.list.splice(had.index, 1); }
+  if (placeAt !== undefined) {
+    const l = BT.locate(p.blocks, placeAt);
+    if (l && l.b.type === 'paragraph' && String(l.b.text || '') === '' && !(Array.isArray(l.b.children) && l.b.children.length)) {
+      l.list[l.index] = { id: l.b.id, type: 'subpage', text: '', page: row.page };
+      return;
+    }
+    if (l) { l.list.splice(l.index + 1, 0, me); return; }
+  }
+  if (typeof afterPage === 'string' && afterPage !== '') {
+    const s = subSpot(p.blocks, afterPage);
+    if (s) { s.list.splice(s.index + 1, 0, me); return; }
+  } else if (afterPage === '' && sibs) {
+    const first = BT.walk(p.blocks).find((x) => isSubRow(x.b) && x.b.page !== row.page && sibs.has(x.b.page));
+    if (first) { const s = BT.locate(p.blocks, first.b.id); s.list.splice(s.index, 0, me); return; }
+  }
+  p.blocks.push(me);
+}
+// 本文からそのページの行を外す → 外した行の置き場 { parent（本文の中の親の行の ID か、最上位ならページの ID）, ord }（子の attrs.rowAt の形）か null
+function takeSubRow(p, was, pageId) {
+  const l = subSpot(p.blocks, pageId);
+  if (!l) return null;
+  l.list.splice(l.index, 1);
+  return { parent: l.parent ? l.parent.id : p.id, ord: was.ords[l.b.id] };
+}
+// 覚えた置き場（rowAt）に行を戻す（HR15。置き場の親がまだこの本文にあって子を持てるなら、その子の並びの鍵の順の所。無ければ本文の最後）
+function putBackSubRow(p, was, row, at) {
+  if (isObj(at) && typeof at.ord === 'string' && typeof at.parent === 'string') {
+    let list = null;
+    if (at.parent === p.id) list = p.blocks;
+    else {
+      const l = BT.locate(p.blocks, at.parent);
+      if (l && BT.kidsCan(l.b)) { if (!Array.isArray(l.b.children)) l.b.children = []; list = l.b.children; }
+    }
+    if (list) {
+      let i = 0;
+      while (i < list.length && !(typeof was.ords[list[i].id] === 'string' && was.ords[list[i].id] > at.ord)) i++;
+      list.splice(i, 0, row);
+      return;
+    }
+  }
+  p.blocks.push(row);
+}
+const newSubRow = (db, ctx, pageId) => ({ id: newBlockId(db, ctx.now), type: 'subpage', text: '', page: pageId });
+// ページの行の rowAt（今の値。無ければ undefined）
+function rowAtOf(db, id) {
+  const r = db.prepare(HOT_QUERIES.pageRow).get(id);
+  const attrs = r ? JSON.parse(r.attrs || '{}') : {};
+  return attrs.rowAt;
+}
+// 消した行の中の子ページの行 → [{ page, parent, ord }]（rows は消す行。子孫の行も。parent は本文の中の親の行かページの ID）
+function goneSubRows(rows, topParent, was) {
+  const out = [];
+  const go = (list, parent) => {
+    for (const b of list) {
+      if (!isObj(b)) continue;
+      if (isSubRow(b) && typeof b.page === 'string') out.push({ page: b.page, parent, ord: was.ords[b.id] });
+      if (Array.isArray(b.children)) go(b.children, b.id);
+    }
+  };
+  go(rows, topParent);
+  return out;
+}
+// 子ページの行を消した命令（block.remove・blocks.remove）の後: 行の指すページのうち今のこのページの子（一覧に出るページ）を、ゴミ箱に入っていない
+// 子孫ごと同じ時刻でゴミ箱へ（決めたこと 49。page.delete と同じ組: 決めたこと 30）。消した行の置き場は子の rowAt に（ゴミ箱から戻すと元の所: HR15）。
+// 今の子でないページを指す行（HR16 の灰色の行）は消してもページを何もしない → { ops（当てない）, n（ゴミ箱に入れたページの数） }
+function trashRowPages(db, pageId, gone, ctx) {
+  if (!gone.length) return { ops: [], n: 0 };
+  const rows = pageRowsOf(db);
+  const tree = PT.pageTree(rows);   // 木は1回だけ作る（R11）
+  const at = ctx.now().toISOString();
+  const seen = new Set();
+  const trash = [];
+  const marks = [];
+  for (const g of gone) {
+    const r = tree.byId.get(g.page);
+    if (!r || r.parentId !== pageId || !isListedRow(r) || seen.has(r.id)) continue;
+    for (const id of PT.trashGroup(rows, r.id, tree)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      trash.push({ op: 'trash', id, at, old: tree.byId.get(id).trashedAt });
+    }
+    marks.push({ op: 'set', id: r.id, key: 'rowAt', value: { parent: g.parent, ord: g.ord }, old: rowAtOf(db, r.id) });
+  }
+  return { ops: [...trash, ...marks], n: seen.size };
+}
+// 行を消す命令の答え: 子ページの行のページをゴミ箱に入れたら、同じ命令に積んで当て、答えのページに trashed（数）を添える（無ければ今の答えのまま）
+function withRowPages(db, a, ctx, out, gone) {
+  const t = trashRowPages(db, a.pageId, gone, ctx);
+  if (!t.ops.length) return out;
+  applyOps(db, t.ops);
+  return { ops: [...out.ops, ...t.ops], pageIds: out.pageIds, result: out.result ? { ...out.result, trashed: t.n } : out.result };
+}
+// 白紙のページの子の並びの鍵（HR14・決めたこと 47）: rows（listedRows か pageRowsOf の行）のうち、白紙のページの子の ord を本文の子ページの行の順
+// （本文を上から読んだ順。トグルの中も）の等しい間の鍵に置き換えた写し。行の無い子（前の版で行を消した）は後ろに、今の ord の順。子のある白紙の
+// ページの本文だけを読む（文と欄は読まない: HOT_QUERIES.bodyRows）
+function withBodyOrds(db, rows) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const kidsOf = new Map();
+  for (const r of rows) {
+    const host = r.parentId ? byId.get(r.parentId) : null;
+    if (!host || !isBlankPage(host.attrs)) continue;
+    if (!kidsOf.has(host.id)) kidsOf.set(host.id, []);
+    kidsOf.get(host.id).push(r);
+  }
+  if (!kidsOf.size) return rows;
+  const q = db.prepare(HOT_QUERIES.bodyRows);
+  const ord = new Map();
+  for (const [hostId, kids] of kidsOf) {
+    const order = bodySubOrder(q.all(hostId, hostId), hostId);
+    const at = new Map();
+    order.forEach((id, i) => { if (!at.has(id)) at.set(id, i); });
+    const pos = (r) => (at.has(r.id) ? at.get(r.id) : order.length);
+    const sorted = [...kids].sort((x, y) => pos(x) - pos(y) || cmpStr(x.ord, y.ord) || cmpStr(x.createdAt, y.createdAt));
+    const keys = evenKeys(sorted.length);
+    sorted.forEach((r, i) => ord.set(r.id, keys[i]));
+  }
+  return rows.map((r) => (ord.has(r.id) ? { ...r, ord: ord.get(r.id) } : r));
+}
+// 本文の行（id・parent_id・ord・type・sub。ord の順）→ 子ページの行の指すページの ID を本文の順に（組めない行は後ろ: blockTree.buildTree と同じ）
+function bodySubOrder(rows, hostId) {
+  const kids = new Map();
+  for (const r of rows) { const k = r.parent_id ?? hostId; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(r); }
+  const out = [];
+  const seen = new Set();
+  const go = (id) => {
+    for (const r of kids.get(id) || []) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      if (r.type === 'subpage' && typeof r.sub === 'string') out.push(r.sub);
+      go(r.id);
+    }
+  };
+  go(hostId);
+  for (const r of rows) if (!seen.has(r.id) && r.type === 'subpage' && typeof r.sub === 'string') out.push(r.sub);
+  return out;
+}
+// 子ページの行の断り（決めたこと 52・53・59）: 文を持たない・型を変えない・つながない・分けない・写さない
+function noSubRow(b) {
+  if (isSubRow(b)) throw refuse('bad-args');
+}
+// 写す行から子ページの行を除く（子孫も。決めたこと 52: 同じページを指す行を2つにしない）
+function dropSubRows(list) {
+  const out = [];
+  for (const b of list) {
+    if (isSubRow(b)) continue;
+    if (Array.isArray(b.children)) b.children = dropSubRows(b.children);
+    out.push(b);
+  }
+  return out;
 }
 
 // 型を変える1行（block.turnInto・blocks.turnInto。区切り線の断りは呼ぶ側）。同じ型なら false
@@ -1034,12 +1241,18 @@ const DEFS = {
       const at = ctx.now().toISOString();
       const was2 = new Map(rows.map((r) => [r.id, r.trashedAt]));
       const ops = PT.trashGroup(rows, a.id).map((id) => ({ op: 'trash', id, at, old: was2.get(id) }));
+      // 0.15.0 PR-1（決めたこと 54・HR15）: 親が白紙のページなら、同じ命令でその本文の行を消し、置き場を子の rowAt に覚える（戻すとそこへ）
+      const host = rows.find((r) => r.id === a.id).parentId;
+      const hostRow = host === null ? null : rows.find((r) => r.id === host);
+      let spot = null;
+      const body = !hostRow || !isBlankPage(hostRow.attrs) ? null : bodyOps(db, host, ctx, (p, w) => { spot = takeSubRow(p, w, a.id); return spot ? undefined : false; });
+      if (body) ops.push(...body, { op: 'set', id: a.id, key: 'rowAt', value: spot, old: rowAtOf(db, a.id) });
       applyOps(db, ops);
       return { ops, pageIds: [a.id], result: listPages(db) };
     },
     dupResult: (db) => listPages(db) },
   // ---- 0.15.0 PH-2（決めたこと 13〜16・30〜32。どれも役 app だけ: SEC3）
-  'page.create': { roles: ['app'], write: true, args: { parentId: 'id?' },
+  'page.create': { roles: ['app'], write: true, args: { parentId: 'id?', placeAt: 'id?' },
     run: pageCreate,
     dupResult: (db, _a, row) => {
       const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type === 'page');
@@ -1056,6 +1269,7 @@ const DEFS = {
       const l = BT.locate(p.blocks, a.blockId);
       if (!l) return false;
       const b = l.b;
+      noSubRow(b);   // 0.15.0 PR-1（決めたこと 59）: 子ページの行は文・チェック・型を持たない（前の版の画面の命令も断る）
       const patch = a.patch;
       // 0.14.0 EB-2（決めたこと 16）: 飾りのある行に文だけの直しは断る（黙って飾りを捨てない・ずらさない。画面はいつも rich を送る）
       if (patch.rich === undefined && typeof patch.text === 'string' && Array.isArray(b.rich)) throw refuse('bad-args');
@@ -1107,10 +1321,15 @@ const DEFS = {
     } },
   'block.remove': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id' },
     // 0.13.1（決めたこと 3・F49）: 子ごと消す（子孫の行も同じ命令の trash に積む）。無い行は何も変えない
-    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
-      const l = BT.locate(p.blocks, a.blockId);
-      if (l) l.list.splice(l.index, 1);
-    }, { summary: true }),
+    // 0.15.0 PR-1（決めたこと 49・BQ10 (a)）: 子ページの行を消すと、同じ命令でそのページと子孫をゴミ箱へ（答えに trashed）
+    run: (db, a, ctx) => {
+      const gone = [];
+      const out = editPage(db, a.pageId, ctx, (p, was) => {
+        const l = BT.locate(p.blocks, a.blockId);
+        if (l) { gone.push(...goneSubRows([l.b], l.parent ? l.parent.id : a.pageId, was)); l.list.splice(l.index, 1); }
+      }, { summary: true });
+      return withRowPages(db, a, ctx, out, gone);
+    },
     dupResult: reread },
   // toIndex は「動かす行を抜いたあとの」挿入位置（今の store.moveBlock）
   // 0.13.0 ED-2（決めたこと 18。持ち主の試作の「子は誰の後ろか」）: afterId があれば、その行のすぐ後ろへ（'' は頭）。画面の番号でなく行で頼む
@@ -1144,6 +1363,7 @@ const DEFS = {
       const l = BT.locate(p.blocks, a.blockId);
       if (!l) return false;
       const b = l.b;
+      noSubRow(b);   // 0.15.0 PR-1（決めたこと 43）: 子ページの行は担当と期限を持たない
       if (typeof a.assignee === 'string') b.assignee = a.assignee.trim();
       if (typeof a.dueRaw === 'string') {
         b.dueRaw = a.dueRaw.trim();
@@ -1171,6 +1391,7 @@ const DEFS = {
         if (!splitAtOk(a.text, a.at)) throw refuse('bad-args');
         if (a.afterId !== undefined && a.afterId !== '' && (a.afterId === a.blockId || !BT.locate(p.blocks, a.afterId))) throw refuse('bad-args');
         const b = l.b;
+        noSubRow(b);   // 0.15.0 PR-1（決めたこと 53・59）: 子ページの行は文を持たないので分けない（Enter は画面が下に行を足す）
         if (a.inside === true && !BT.kidsCan(b)) throw refuse('bad-args');
         if (a.rich !== undefined && RT.plainOf(a.rich) !== a.text) throw refuse('bad-args');
         if (a.rich !== undefined) putRich(b, a.rich);   // 分ける前の今の行の飾り（画面の今の形）
@@ -1216,6 +1437,7 @@ const DEFS = {
       const out = editPage(db, a.pageId, ctx, (p) => {
         const l = BT.locate(p.blocks, a.blockId);
         if (!l) return false;
+        noSubRow(l.b);   // 0.15.0 PR-1（決めたこと 53）: 子ページの行はつなぐ元にしない（頭の行でも）
         let pl;
         if (a.intoId !== undefined) {
           if (BT.within(l.b, a.intoId)) throw refuse('bad-args');
@@ -1229,6 +1451,7 @@ const DEFS = {
         }
         const b = l.b;
         const prev = pl.b;
+        if (isSubRow(prev)) throw refuse('bad-args');   // 0.15.0 PR-1（決めたこと 53・HR18）: 子ページの行はつなぐ先にもしない（画面は子ページの行を選ぶ）
         if (a.rich !== undefined && RT.plainOf(a.rich) !== a.text) throw refuse('bad-args');
         if (a.rich !== undefined) putRich(b, a.rich);   // つなぐ今の行の飾り（画面の今の形）
         if (prev.type === 'divider') { pl.list.splice(pl.index, 1); retext(b, a.text); return true; }
@@ -1255,6 +1478,7 @@ const DEFS = {
       const l = BT.locate(p.blocks, a.blockId);
       if (!l) return false;
       const b = l.b;
+      noSubRow(b);   // 0.15.0 PR-1（決めたこと 43）: 子ページの行の型は変えない（subpage へは型の表 blockType が断る）
       if (a.type === 'divider' && String(b.text || '') !== '') throw refuse('bad-args');
       if (a.type === 'divider' && Array.isArray(b.children) && b.children.length) throw refuse('bad-args');   // NR7（EQ16 (a)）: 子のある行も
       return turnBlock(l, a);   // 0.14.0 EK-2: blocks.turnInto と同じ部品（R65）
@@ -1268,9 +1492,11 @@ const DEFS = {
       const out = editPage(db, a.pageId, ctx, (p) => {
         const l = BT.locate(p.blocks, a.blockId);
         if (!l) return false;
+        noSubRow(l.b);   // 0.15.0 PR-1（決めたこと 52・BQ13 (a)）: 子ページの行は写さない（同じページを指す行を2つにしない）
         const after = a.afterId === undefined ? a.blockId : a.afterId;
         if (after !== '' && !BT.locate(p.blocks, after)) throw refuse('bad-args');
         const copy = { ...clone(l.b), id: blockId };
+        if (Array.isArray(copy.children)) copy.children = dropSubRows(copy.children);   // 子孫の子ページの行も写さない
         const used = new Set([blockId]);
         for (const d of BT.flattenBlocks(copy.children)) {
           let nid = newBlockId(db, ctx.now);
@@ -1355,7 +1581,16 @@ const DEFS = {
     dupResult: pasteDup },
   // 選んだ行を子孫ごと消す（ほかの選んだ行の子孫は重ねない）→ page
   'blocks.remove': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids' },
-    run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => { takeOut(p.blocks, pickRoots(p.blocks, a.ids)); }, { summary: true }),
+    // 0.15.0 PR-1（決めたこと 49・BQ10 (a)）: 子ページの行（子孫の行も）を消すと、同じ命令でそのページと子孫をゴミ箱へ（答えに trashed）
+    run: (db, a, ctx) => {
+      const gone = [];
+      const out = editPage(db, a.pageId, ctx, (p, was) => {
+        const roots = pickRoots(p.blocks, a.ids);
+        for (const b of roots) { const l = BT.locate(p.blocks, b.id); gone.push(...goneSubRows([b], l.parent ? l.parent.id : a.pageId, was)); }
+        takeOut(p.blocks, roots);
+      }, { summary: true });
+      return withRowPages(db, a, ctx, out, gone);
+    },
     dupResult: reread },
   // 選んだ行を afterId の行の後ろ（'' は頭・parentId があればその子の頭。0.13.1 の block.move と同じ置き場）へ、画面の順（ids の順）のまま動かす。
   // 選んだ行を外してから置き場を探すので、afterId・parentId が選んだ行（とその子孫）の中・無い行なら置き場が無く bad-args。AI の節の見出しは子にしない（R65）→ page
@@ -1377,8 +1612,11 @@ const DEFS = {
         const after = a.afterId === undefined ? roots[roots.length - 1].id : a.afterId;
         if (after !== '' && !BT.locate(p.blocks, after)) throw refuse('bad-args');
         const used = new Set();
-        const copies = roots.map((b) => {
-          const c = clone(b);
+        // 0.15.0 PR-1（決めたこと 52・BQ13 (a)）: 子ページの行は写さない（子孫も）。子ページの行だけなら bad-args
+        const keep = dropSubRows(roots.map((b) => clone(b)));
+        if (!keep.length) throw refuse('bad-args');
+        const copies = keep.map((b) => {
+          const c = b;
           for (const d of BT.flattenBlocks([c])) d.id = freshId(db, ctx, used);
           return c;
         });
@@ -1401,6 +1639,7 @@ const DEFS = {
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
       if (!a.ids.length) throw refuse('bad-args');
       const rows = [...new Set(a.ids)].map((id) => { const l = BT.locate(p.blocks, id); if (!l) throw refuse('bad-args'); return l.b; });
+      rows.forEach(noSubRow);   // 0.15.0 PR-1（決めたこと 43）: 子ページの行の型は変えない（1つでもあれば全部を断る）
       if (a.type === 'divider' && rows.some((b) => String(b.text || '') !== '')) throw refuse('bad-args');
       if (a.type === 'divider' && rows.some((b) => Array.isArray(b.children) && b.children.length > 0)) throw refuse('bad-args');
       for (const b of rows) turnBlock(BT.locate(p.blocks, b.id), a);

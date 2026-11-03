@@ -34,6 +34,9 @@ const MENU_ROWS = Object.freeze(VERSION_ROWS.flatMap((r) => (r.id !== 'th' ? [r]
 const MENU_KEYS = Object.freeze(MENU_ROWS.map((r) => r.id));
 const TYPE_KEYS = Object.freeze([...new Set(VERSION_ROWS.map((r) => r.key))]);   // 画面の役の命令が通す型（DB の validate も同じ表）
 const RECENT_MAX = 3;
+// 0.15.0 PR-1（計画 docs/plans/2026-11-03-150.md の決めたこと 43）: 白紙のページの本文の子ページの行（{ id, type: 'subpage', text: '', page }）。
+// 子を持てず、文を持たない。型の表（BLOCK_TYPES・TYPE_KEYS）には入れない（画面の書く命令は作れない・変えられない。作るのはページの命令だけ）
+const SUBPAGE_ROW = Object.freeze({ id: 'subpage', key: 'subpage', label: 'ページ', words: Object.freeze([]), md: Object.freeze([]), kids: false, cite: false, since: '0.15.0' });
 const CALLOUT_ICON = '💡';   // EQ15 (a): コールアウトの絵文字は 💡 だけ
 
 const rowById = (id) => MENU_ROWS.find((r) => r.id === id) || null;
@@ -43,6 +46,7 @@ const headingLevel = (b) => (b && (b.level === 1 || b.level === 2 || b.level ===
 function typeOf(block) {
   const b = block && typeof block === 'object' ? block : {};
   if (b.type === 'heading') return rowById(`${b.toggle === true ? 'th' : 'h'}${headingLevel(b)}`);   // 0.13.1: トグル見出しは th1〜th3
+  if (b.type === 'subpage') return SUBPAGE_ROW;   // 0.15.0 PR-1: 子ページの行（子を持てない）
   const r = VERSION_ROWS.find((x) => x.key === b.type && x.key !== 'heading');
   return r || rowById('text');
 }
@@ -222,6 +226,7 @@ function blocksMarkdown(blocks, depth = 0, at = { base: 0 }) {
     if (b.type === 'divider') return '---';
     if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
     if (b.type === 'toggle') return `- ${t}`;
+    if (b.type === 'subpage') return `📄 ${typeof at.title === 'function' ? String(at.title(b.page) ?? '') : ''}`;   // 0.15.0 PR-1（決めたこと 57）: 題名は呼び手から（at.title）
     return t;
   };
   return list.map((b) => {
@@ -269,7 +274,7 @@ function lisIndexes(seq) {
 }
 
 module.exports = {
-  BLOCK_TYPES, VERSION_ROWS, MENU_ROWS, MENU_KEYS, TYPE_KEYS, RECENT_MAX, CALLOUT_ICON,
+  BLOCK_TYPES, VERSION_ROWS, MENU_ROWS, MENU_KEYS, TYPE_KEYS, RECENT_MAX, CALLOUT_ICON, SUBPAGE_ROW,
   typeOf, isTyped, headingLevel, safeOffset, splitText, splitRich, joinRich,
   shortcutFor, slashQuery, slashFilter, recentAdd, recentCheck,
   nextTypeOnEnter, backspaceAtStart, numberLabels, keyAction, blocksMarkdown, patchPlan,

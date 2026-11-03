@@ -268,3 +268,18 @@ test('PH-1 直し・R15: placeKeys は同じ鍵の兄弟（壊れた行）の間
   for (const after2 of ['pk2', '', undefined, 'pk4']) assert.deepStrictEqual(T.placeKeys(tree, ords, 'pp', after2).rekey, [], String(after2));
   assert.deepStrictEqual(T.placeKeys(tree, ords, null, 'pk1'), { ord: T.TOP_ORD, rekey: [] });
 });
+
+// ---------------------------------------------------------------- 0.15.0 PR-1（決めたこと 43・57）: 子ページの行の型と［コピー］
+test('PR-1・決めたこと 43・57: 子ページの行（subpage）は子を持てない・型の表（TYPE_KEYS）に入れない。blocksMarkdown は「📄 題名」（題名は呼び手から）・子ページの行の無い本文は今と1文字も同じ', () => {
+  const E = require('../src/blockEdit');
+  const BT = require('../src/blockTree');
+  assert.strictEqual(BT.kidsCan({ type: 'subpage', page: 'pk1' }), false);
+  assert.ok(!E.TYPE_KEYS.includes('subpage'));
+  const rows = [{ id: 'h', type: 'heading', level: 2, text: '計画' }, { id: 's1', type: 'subpage', text: '', page: 'pk1' },
+    { id: 't', type: 'toggle', text: 'まとめ', children: [{ id: 's2', type: 'subpage', text: '', page: 'pk2' }] }];
+  const titles = { pk1: '週の予定', pk2: '' };
+  assert.strictEqual(E.blocksMarkdown(rows, 0, { base: 0, title: (id) => titles[id] }), '\n## 計画\n📄 週の予定\n- まとめ\n  📄 ');
+  const plain = [rows[0], { ...rows[2], children: [{ id: 'b2', type: 'bullet', text: '中の点' }] }];
+  assert.strictEqual(E.blocksMarkdown(plain), '\n## 計画\n- まとめ\n  - 中の点', '子ページの行の無い本文の［コピー］が変わった');
+  assert.strictEqual(E.blocksMarkdown(plain, 0, { base: 0, title: () => '使わない' }), E.blocksMarkdown(plain));
+});

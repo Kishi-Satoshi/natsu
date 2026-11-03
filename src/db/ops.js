@@ -343,6 +343,8 @@ function applyOps(db, ops, dir = 'forward') {
 // ブロックの行の set のうち、短い行の印 citeSkip と見た目だけの欄（VIEW_KEYS。open）は戻さない（決めたこと 5・G1・R70。
 // citeSkip は書くたびの markShortBlocks が関係の無い行にも付ける印で、戻した後の文から作り直す: edit.revert）
 const REVERT_PAGE_KEYS = Object.freeze(['memo', 'memoDoc']);
+// 0.15.0 PR-1（決めたこと 50）: 戻すページ（pageId を渡したときだけ）でない、ほかのページの行の操作か
+const childPage = (o, pageId) => typeof pageId === 'string' && o.id !== pageId;
 const NO_REVERT_BLOCK = Object.freeze(['citeSkip', ...VIEW_KEYS]);
 function invertOps(ops, { pageId } = {}) {
   if (!Array.isArray(ops)) throw new Error('invertOps: 操作の列が無い');
@@ -355,8 +357,18 @@ function invertOps(ops, { pageId } = {}) {
         out.push({ op: 'trash', id: o.id, old: o.row });
         break;
       case 'trash':
-        if (!isObj(o.old)) throw new Error('invertOps: ページの行は戻さない');
+        if (!isObj(o.old)) {
+          // 0.15.0 PR-1（計画 docs/plans/2026-11-03-150.md の決めたこと 50）: 戻すページ（pageId）でないページの行（子ページの行を消して一緒にゴミ箱へ
+          // 入れた子のページ）の trash は restore に入れ替える。pageId を渡さない呼び出しと、戻すページ自身の行は今どおり投げる
+          if (!childPage(o, pageId) || typeof o.at !== 'string') throw new Error('invertOps: ページの行は戻さない');
+          out.push({ op: 'restore', id: o.id, at: o.old ?? null, old: o.at });
+          break;
+        }
         out.push({ op: 'add', id: o.id, row: o.old });
+        break;
+      case 'restore':   // 0.15.0 PR-1（決めたこと 50）: 上の入れ替えを戻す（やり直し）。子のページの行だけ
+        if (!childPage(o, pageId) || typeof o.old !== 'string') throw new Error('invertOps: ページの行は戻さない');
+        out.push({ op: 'trash', id: o.id, at: o.old, old: o.at ?? null });
         break;
       case 'move':
         out.push({ op: 'move', id: o.id, ord: o.old, old: o.ord, ...(typeof o.parent === 'string' ? { parent: o.oldParent, oldParent: o.parent } : {}) });
@@ -384,7 +396,9 @@ const NO_MATCH_BLOCK = Object.freeze(['citeSkip']);
 const NO_MATCH_PAGE = Object.freeze(['summaryEdited', 'updatedAt', 'citeStat']);
 const skipKey = (isPage, key) => (isPage ? NO_MATCH_PAGE.includes(key) : NO_MATCH_VIEW.includes(key) || NO_MATCH_BLOCK.includes(key));
 const PAGE_COLS = { createdAt: 'created_at', updatedAt: 'updated_at' };
-function opsMatch(db, ops) {
+// 0.15.0 PR-1（決めたこと 50）: 3つ目の引数 { pageId } があれば、そのページでないページの行の trash・restore（子のページ）の trashed_at が
+// 歩みの後の値と同じかも見る（後からゴミ箱から戻した・消し直した子のページを古い歩みで変えない）。無ければ今どおり投げる
+function opsMatch(db, ops, { pageId } = {}) {
   if (!Array.isArray(ops)) throw new Error('opsMatch: 操作の列が無い');
   const want = new Map();   // id → { gone } か { cols, attrs（add の行の全部の欄）か null, sets: Map }
   const at = (id) => {
@@ -403,8 +417,16 @@ function opsMatch(db, ops) {
         break;
       }
       case 'trash':
-        if (!isObj(o.old)) throw new Error('opsMatch: ページの行は照らさない');
+        if (!isObj(o.old)) {
+          if (!childPage(o, pageId)) throw new Error('opsMatch: ページの行は照らさない');
+          at(o.id).cols.trashed_at = o.at ?? null;   // 子のページの行: ゴミ箱に入れた時刻のまま
+          break;
+        }
         want.set(o.id, { gone: true });
+        break;
+      case 'restore':
+        if (!childPage(o, pageId)) throw new Error('opsMatch: ページの行は照らさない');
+        at(o.id).cols.trashed_at = null;   // 子のページの行: 戻したまま
         break;
       case 'move': { const w = at(o.id); w.cols.ord = o.ord; if (typeof o.parent === 'string') w.cols.parent_id = o.parent; break; }
       case 'text': at(o.id).cols.text = str(o.value); break;
@@ -419,7 +441,7 @@ function opsMatch(db, ops) {
         throw new Error('opsMatch: 照らせない操作');
     }
   }
-  const read = db.prepare('select type, page_id, parent_id, ord, text, rich, attrs, created_at, updated_at from blocks where id = ?');
+  const read = db.prepare('select type, page_id, parent_id, ord, text, rich, attrs, created_at, updated_at, trashed_at from blocks where id = ?');
   for (const [id, w] of want) {
     const r = read.get(id);
     if (w.gone) { if (r) return false; continue; }
@@ -427,7 +449,7 @@ function opsMatch(db, ops) {
     // 後から消えた・作り直された関係の無い要約の行のせいでメモの歩みを stale にしない: BQ22 (a)）
     if (!r) { if (!w.attrs && !Object.keys(w.cols).length && [...w.sets.keys()].every((k) => skipKey(false, k))) continue; return false; }
     const isPage = r.type === 'page';
-    const now = { type: r.type, page_id: r.page_id, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), rich: r.rich ? JSON.parse(r.rich) : null };
+    const now = { type: r.type, page_id: r.page_id, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), rich: r.rich ? JSON.parse(r.rich) : null, trashed_at: r.trashed_at ?? null };
     for (const [k, v] of Object.entries(w.cols)) if (!isDeepStrictEqual(now[k], v)) return false;
     const attrs = JSON.parse(r.attrs || '{}');
     const expect = w.attrs ? { ...w.attrs } : null;
