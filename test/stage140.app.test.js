@@ -3535,6 +3535,50 @@ test('EK-6・決めたこと 43・R64（第4版）: Esc の順。/ メニュー�
   } finally { l.done(); }
 });
 
+test('EK-6 直し3・I-1（R207）: 要約の行から Ctrl+P で検索の窓を開き、検索の欄で音声入力を始め、Esc で窓を閉じた（フォーカスは行へ戻る）後に文が届いても、行にも隠れた欄にも入れずに知らせ。設定を × で閉じた後も同じ', T, async () => {
+  const l = await openReal({ pa1: BASE() });
+  try {
+    const calls = execSpy(l);
+    const t = typeIn(l, 'p1', 'あいうえお', 2);
+    l.key({ key: 'p', code: 'KeyP', ctrlKey: true }, t);
+    await l.drain();
+    assert.ok(l.document.activeElement === $(l, 'searchBox'), '前提: Ctrl+P で検索の欄にフォーカスが行かない');
+    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    l.key({ key: 'Escape' }, $(l, 'searchBox'));
+    await l.drain();
+    assert.strictEqual($(l, 'palette').hidden, true, '前提: Esc で検索の窓が閉じない');
+    assert.ok(l.document.activeElement === t, '前提: 窓を閉じてもフォーカスが行へ戻らない');
+    assert.strictEqual(l.called('dictationCancel').length, 0, '前提: 窓を閉じる Esc で音声入力を取り消した');
+    await dictText(l, 'かきく', null, 1);
+    assert.deepStrictEqual(calls, [], '隠れた検索の欄の代わりに、フォーカスの戻った行へ insertText で入れた（ek-dict-hidden）');
+    assert.deepStrictEqual(updates(l), []);
+    assert.strictEqual(t.textContent, 'あいうえお', '行の文が変わった');
+    assert.strictEqual(toastOf(l), DICT_GONE);
+    // 設定の検索の欄で始めて、設定を × で閉じた
+    $(l, 'toast').textContent = '';
+    l.caret.set(t, 2);
+    $(l, 'tabBtnSettings').onclick();
+    await l.drain();
+    assert.strictEqual($(l, 'settingsModal').hidden, false, '前提: 設定が開かない');
+    $(l, 'setSearch').focus();
+    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
+    $(l, 'setClose').click();
+    await l.drain();
+    assert.strictEqual($(l, 'settingsModal').hidden, true, '前提: × で設定が閉じない');
+    await dictText(l, 'さしす', null, 2);
+    assert.deepStrictEqual(calls, [], '閉じた設定の欄の代わりに、フォーカスの戻った所へ insertText で入れた');
+    assert.strictEqual(t.textContent, 'あいうえお');
+    assert.strictEqual(toastOf(l), DICT_GONE);
+    // 見えている欄（題名）には今どおり入る
+    const ti = $(l, 'pTitle');
+    ti.focus(); l.caret.set(ti, 0);
+    assert.deepStrictEqual(whereOf(l, 3), { ok: true });
+    await dictText(l, '題名に', null, 3);
+    assert.deepStrictEqual(calls, [['insertText', false, '題名に']], '見えている題名に入らない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 // ---------------------------------------------------------------- MB-4 直し（2026-11-02 の点検 I1〜I3・M1・M2・M3。R190）
 test('MB-4 直し・I1: 録音の前のページのメモで打って Enter・Ctrl+Z の後に種類を選ぶと、main に送るのは戻した行で、雛形が入る（戻した行を録音中のメモの今の行にする）', T, async () => {
   const r = await bootLive();
@@ -3809,6 +3853,10 @@ test('DQ-4 直し・R205: 辞書の欄（textarea）に lines が3つ → 印の
   const l = await openReal({ pa1: BASE() });
   try {
     const calls = execSpy(l);
+    // 0.14.0 EK-6 直し3（R207）で意図して変えた: 辞書の欄は設定を開いて［録音］の項目を選んでから（閉じた設定の隠れた欄には入れない）
+    $(l, 'tabBtnSettings').onclick();
+    await l.drain();
+    $(l, 'setNav').dispatchEvent({ type: 'click', target: $(l, 'setNav').querySelector('.setnav-item[data-sec="record"]') });
     const d = $(l, 'dictionary');
     d.focus(); d.value = ''; l.caret.set(d, 0);
     assert.deepStrictEqual(whereOf(l, 1), { ok: true });

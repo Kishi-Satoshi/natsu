@@ -15,7 +15,7 @@
     {
       "name": "ready",
       "from": "test/shots/win32/live-ready-light.png",
-      "fromSha256": "JdHnX5f9ucivkMYjeMwEN5hOqWW70jH9HOV0KtUTGO8",
+      "fromSha256": "N6w3uTRHX4AHVCP8Vi0iedCCFPMQ3TCw9EtXmFly2-o",
       "crop": [300, 250, 780, 320]
     },
     {
@@ -69,13 +69,13 @@
     {
       "name": "settings-record",
       "from": "test/shots/win32/settings-record-light.png",
-      "fromSha256": "0rm3vmDUmOops0DNYhLd-zKeabctxe9sLf7d-nHwBKg",
+      "fromSha256": "rFRA_WI026MwsgdNe7ag7i8ZTn06gRudFN-PUgCia6Y",
       "crop": [50, 118, 1020, 512]
     },
     {
       "name": "ready-page",
       "from": "test/shots/win32/live-ready-light.png",
-      "fromSha256": "JdHnX5f9ucivkMYjeMwEN5hOqWW70jH9HOV0KtUTGO8",
+      "fromSha256": "N6w3uTRHX4AHVCP8Vi0iedCCFPMQ3TCw9EtXmFly2-o",
       "crop": [0, 0, 1060, 480]
     }
   ],

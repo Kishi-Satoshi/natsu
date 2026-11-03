@@ -1619,3 +1619,48 @@ test('MB-3 直し（小さな頼み 2・R180）: page.put に照らしに外れ�
     assert.deepStrictEqual([jr.durationSec, jr.memoDoc, jr.memo], [4321, MD.validateMemoDoc(MEMO_DOC), MEMO_PLAIN], 'json-backend');
   } finally { t.done(); j.done(); }
 });
+
+// ---------------------------------------------------------------- MB-2 直し2（2026-11-03 の版の点検 M-3。R210）
+test('MB-2 直し2・M-3（R210）: 行を増やす命令の大きさの照らし（pageFits）は、main が送り直す形と同じくメモ（memo・memoDoc）を数えない。大きなメモのページでも小さな block.paste・blocks.duplicate は通り、その後の main の書き戻し（メモを外した page.put）も通る', BIG, () => withDb((db) => {
+  const g0 = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
+  assert.ok(Buffer.byteLength(JSON.stringify({ page: g0, baseRev: g0.rev }), 'utf8') > 1024 * 1024, '種の前提: メモを入れた形は 1MB を越える');
+  const p = paste(db, { blockId: 'b3', rich: [run1('了解')], at: 2, blocks: [P('paragraph', '小さな行')] });
+  assert.strictEqual(p.ok, true, `大きなメモのページの小さな貼り付けを断った: ${p.code}`);
+  const d = call(db, 'blocks.duplicate', { pageId: 'pa1', ids: ['b3'] });
+  assert.strictEqual(d.ok, true, `大きなメモのページの小さな複製を断った: ${d.code}`);
+  const g = call(db, 'page.get', { id: 'pa1' }, 'main').result.page;
+  delete g.memo; delete g.memoDoc;   // main の saveIfExists と同じ（R165）
+  const put = call(db, 'page.put', { page: g, baseRev: g.rev }, 'main');
+  assert.strictEqual(put.ok, true, `貼り付けの後の main の書き戻しが ${put.code}`);
+  assert.strictEqual(get(db).memo.length, 99001, 'メモが消えた');
+  // 行そのものが 1MB を越える貼り付けは今どおり too-big
+  const big = paste(db, { blockId: 'b3', rich: [run1('了解')], at: 2, blocks: Array.from({ length: 3 }, (_, i) => P('paragraph', `${i}`.padEnd(90000, 'あ'))) });
+  assert.deepStrictEqual([big.ok, big.code], [false, 'too-big']);
+}, {
+  blocks: [...samplePage('pa1').page.blocks, ...Array.from({ length: 5 }, (_, i) => ({ id: `f${i}`, type: 'paragraph', text: 'y'.repeat(100000), citeState: 'manual', cites: [] }))],
+  memo: `${'あ'.repeat(99000)}\n`, memoDoc: [{ id: 'm1', type: 'paragraph', text: 'あ'.repeat(99000), citeState: 'manual' }],
+}));
+
+// ---------------------------------------------------------------- MB-2 直し2（2026-11-03 の版の点検 M-4。R210）
+test('MB-2 直し2・M-4（R210）: page.setType は、素の文字が雛形のままでも、メモの行に飾り（rich）か色（color）のある行があれば手を付けたメモとして雛形で置き換えない（同じ型の雛形でも行はそのまま）。飾りの無い雛形の行は今どおり置き換える', T, () => {
+  const M = require('../src/memoTypes');
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const seed = (id, patch) => { const { page, segments } = samplePage(id); page.blocks = page.blocks.map((b) => ({ ...b, id: `${id}${b.id}` })); Object.assign(page, patch); t.seed(page, segments); };
+    const POINTS = M.memoPreset('points'), BANTC = M.memoPreset('bantc');
+    const bold = (memo) => { const d = MD.memoFromText(memo); d[0] = { ...d[0], rich: [{ t: d[0].text, m: ['b'] }] }; return MD.validateMemoDoc(d); };
+    const red = (memo) => { const d = MD.memoFromText(memo); d[1] = { ...d[1], color: 'red' }; return MD.validateMemoDoc(d); };   // 見出しの下の空の行に色
+    const cases = [['pc1', POINTS, bold(POINTS)], ['pc2', POINTS, red(POINTS)], ['pc3', BANTC, bold(BANTC)], ['pc4', POINTS, MD.memoFromText(POINTS)]];
+    for (const [id, memo, doc] of cases) {
+      assert.strictEqual(MD.memoPlain(doc), memo, `種の前提: ${id} の素の文字が雛形でない`);
+      seed(id, { memo, memoDoc: doc });
+    }
+    for (const [id] of cases) assert.strictEqual(call(db, 'page.setType', { id, type: 'sales', preset: true }).ok, true, id);
+    for (const [id, memo, doc] of cases.slice(0, 3)) {
+      const p = get(db, id);
+      assert.deepStrictEqual([p.meetingType, p.memo, p.memoDoc], ['sales', memo, doc], `${id}: 飾りか色を付けた雛形の行を雛形で置き換えた`);
+    }
+    assert.deepStrictEqual([get(db, 'pc4').memo, get(db, 'pc4').memoDoc], [BANTC, MD.memoFromText(BANTC)], '飾りの無い雛形の行が新しい雛形にならない');
+  } finally { t.done(); }
+});

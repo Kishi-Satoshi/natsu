@@ -36,10 +36,11 @@ test('EB-5・SEC2（決めたこと 20・33）: app:open-link は https・http�
     ['javascript:alert(1)', 'no'], ['JaVaScRiPt:alert(1)', 'no'], ['file:///c:/windows/x', 'no'], ['data:text/html,x', 'no'], ['vbscript:x', 'no'],
     [' https://example.com/', 'no'], ['https://example.com/\u0000x', 'no'], ['natsu://page/p!1', 'no'], ['natsu://settings', 'no'], [`https://example.com/${'a'.repeat(2049)}`, 'no'], [5, 'no'], [null, 'no'],
   ];
-  const r = await run(['text', `--open-link=${JSON.stringify(CASES.map((c) => c[0]))}`]);
-  assert.deepStrictEqual(r.openLink, CASES.map((c) => c[1] !== 'no'), '答え（開いたか）');
+  // 0.14.0 EB-5 直し（R209）で意図して変えた: app:open-link は本体の窓の画面から来たときだけ受けるので、本体の窓から送る（["ipc-from", 'main', …]）
+  const r = await mic([['sleep', 100], ...CASES.map((c) => ['ipc-from', 'main', 'app:open-link', c[0]])]);
+  assert.deepStrictEqual(r.ipc.map(([, v]) => v), CASES.map((c) => c[1] !== 'no'), '答え（開いたか）');
   assert.deepStrictEqual(r.external, CASES.filter((c) => c[1] === 'ext').map((c) => c[0]), 'shell.openExternal に渡した住所');
-  assert.deepStrictEqual(r.linkSent, [{ id: 'pm1', anchor: 'b:x1' }, { id: 'pm2', anchor: '' }], 'NaTsu のリンクでページを開かない');
+  assert.deepStrictEqual(r.mainSentAll.filter(([ch]) => ch === 'page:open-link').map(([, p]) => p), [{ id: 'pm1', anchor: 'b:x1' }, { id: 'pm2', anchor: '' }], 'NaTsu のリンクでページを開かない');
   const logs = r.engineLog.filter((x) => x.startsWith('リンク: 開かなかった'));
   assert.strictEqual(logs.length, CASES.filter((c) => c[1] === 'no').length, '開かなかったリンクの記録の数');
   for (const x of logs) assert.match(x, /^リンク: 開かなかった（[a-z]+）$/, '記録は符号だけ');
@@ -812,4 +813,43 @@ test('DQ-4: 整えの答えに lines（箇条書き3つ）→ NaTsu の外は de
   assert.deepStrictEqual(u.dict.pastes, DQ4_WANT.map(([text]) => text), `ほかのアプリへ箇条の文を1回ずつ貼っていない（dq-lines-text）: ${tidyDump(u)}`);
   assert.strictEqual(u.dict.pasteSims, 4, tidyDump(u));
   assert.deepStrictEqual(u.dict.history.map((h) => h.text).reverse(), DQ4_WANT.map(([text]) => text));
+});
+
+// ---------------------------------------------------------------- EK-6 直し3（2026-11-03 の版の点検 M-2。R207）
+test('EK-6 直し3・M-2（R207）: NaTsu の中の音声入力で、止めた後の文字起こし・整えの間（processing）に本体の窓から dictation:cancel → dictation:text は送らず dictation:end（同じ番号）が1回・履歴は残す（R27 の「履歴だけ」）・クリップボードも0', T, async () => {
+  const o = await mic([['sleep', 100], ['tidy', 'hold'], ['dictate-in-natsu', { where: 'ok', hold: true }], ['wait-tidy', 1], ['ipc-from', 'main', 'dictation:cancel'],
+    ['tidy-release', AI_REPLY], ['wait-dict-end'], ['sleep', 60]], ...RELAY);
+  assert.deepStrictEqual(o.ipc, [['dictation:cancel', true]], tidyDump(o));
+  const w = dsent(o, 'dictation:where');
+  assert.strictEqual(w.length, 1, tidyDump(o));
+  assert.deepStrictEqual(dsent(o, 'dictation:text'), [], `処理中の Esc の後に文を入れた（ek-dict-cancel-proc）: ${tidyDump(o)}`);
+  assert.deepStrictEqual(dsent(o, 'dictation:end'), [{ seq: w[0].seq }], tidyDump(o));
+  assert.strictEqual(o.dict.history.length, 1, `履歴が残らない: ${tidyDump(o)}`);
+  assert.strictEqual(o.dict.history[0].text, AI1);
+  assert.deepStrictEqual(o.dict.pastes, [], 'クリップボードで貼った');
+  assert.strictEqual(o.dict.pasteSims, 0);
+});
+
+// ---------------------------------------------------------------- EB-5 直し（2026-11-03 の版の点検 M-1。R209）
+test('EB-5 直し・M-1（R209）: app:open-link は本体の窓の画面から来たときだけ開く（録音バーの窓・送り手の無い頼みからは false で、shell.openExternal もページを開く知らせも0）', T, async () => {
+  const o = await mic([['sleep', 100], ['ipc-from', 'overlay', 'app:open-link', 'https://example.com/a'], ['ipc-from', 'overlay', 'app:open-link', 'natsu://page/pm1'],
+    ['ipc', 'app:open-link', 'https://example.com/b'], ['ipc-from', 'main', 'app:open-link', 'https://example.com/c']]);
+  assert.deepStrictEqual(o.ipc, [['app:open-link', false], ['app:open-link', false], ['app:open-link', false], ['app:open-link', true]], `ほかの窓からリンクを開いた: ${JSON.stringify(o.ipc)}`);
+  assert.deepStrictEqual(o.external, ['https://example.com/c'], 'ほかの窓から来た住所を shell.openExternal に渡した');
+  assert.deepStrictEqual(o.mainSentAll.filter(([ch]) => ch === 'page:open-link'), [], 'ほかの窓から来た NaTsu のリンクでページを開いた');
+});
+
+// ---------------------------------------------------------------- MB-2 直し2（2026-11-03 の版の点検 M-4。R210）
+test('MB-2 直し2・M-4（R210）: meeting:set-type は、素の文字が雛形のままでも、メモの行に飾り（rich）か色（color）のある行があれば雛形で置き換えない（録音の前のページと会議の両方）', T, async () => {
+  const SALES = MT.memoPreset(MT.memoTypeOf('sales'));
+  const STANDUP = MT.memoPreset(MT.memoTypeOf('standup'));
+  const boldDoc = (memo) => { const d = MD.memoFromText(memo); d[0] = { ...d[0], rich: [{ t: d[0].text, m: ['b'] }] }; return MD.validateMemoDoc(d); };
+  const redDoc = (memo) => { const d = MD.memoFromText(memo); d[1] = { ...d[1], color: 'red' }; return MD.validateMemoDoc(d); };
+  const o = await mic([['ipc', 'meeting:prepare'], ['ipc', 'meeting:set-type', 'sales'], ['ipc', 'meeting:set-memo', boldDoc(SALES)], ['ipc', 'meeting:set-type', 'standup'],
+    ['ipc', 'meeting:start'], ['ipc', 'meeting:set-memo', redDoc(SALES)], ['ipc', 'meeting:set-type', 'standup'], ['ipc', 'meeting:set-memo', MD.memoFromText(SALES)], ['ipc', 'meeting:set-type', 'standup'],
+    ['stop'], ['wait-pages', 1]]);
+  const r = ipcOf(o, 'meeting:set-type');
+  assert.deepStrictEqual(r[1], { ok: true, memo: SALES, memoDoc: boldDoc(SALES), inserted: false, meetingType: 'standup' }, '太字にした雛形の見出しを雛形で置き換えた（録音の前のページ）');
+  assert.deepStrictEqual(r[2], { ok: true, memo: SALES, memoDoc: redDoc(SALES), inserted: false, meetingType: 'standup' }, '色を付けた雛形の行を雛形で置き換えた（会議）');
+  assert.deepStrictEqual(r[3], { ok: true, memo: STANDUP, memoDoc: MD.memoFromText(STANDUP), inserted: true, meetingType: 'standup' }, '飾りの無い雛形の行が新しい雛形にならない');
 });

@@ -58,6 +58,13 @@ function fitMemoDoc(args, limit = require('./db/validate').LIMITS.bytes) {
   return { args: { ...args, page: rest }, dropped: true };
 }
 
+// 0.14.0 MB-2 直し2（R210）: メモの行に飾り（rich）も色（color）も無いか（子の行も）。種類を替えたときの雛形の置き換えは、素の文字のメモ（memo）が雛形のままで、
+// かつこれが真のときだけ（雛形の見出しを太字にした・行に色を付けたメモは手を付けたメモ）。行が無い（undefined・前の版のページ）は真
+function memoDocBare(doc) {
+  if (!Array.isArray(doc)) return true;
+  return doc.every((b) => !b || typeof b !== 'object' || (b.rich == null && !b.color && memoDocBare(b.children)));
+}
+
 // ---------------------------------------------------------------- 会議の長さ
 // endAt は停止時刻（stoppedAt）。以降の文字起こし待ちを混ぜると 4分の会議が
 // 12分になる。一時停止したまま停止した場合、pausedAt から endAt までを
@@ -2345,7 +2352,7 @@ module.exports = {
   PROTOCOL, protocolPlan, linkFromArgv, linkRate,
   STATE_NAMES: SL.STATE_NAMES, BY_NAMES: SL.BY_NAMES, stateLogAdd: SL.stateLogAdd, cleanStateLog: SL.cleanStateLog, stateLogLine: SL.stateLogLine,
   meetingTitleAt,
-  saveIfExists, fitMemoDoc, meetingDurationSec, promptTail,
+  saveIfExists, fitMemoDoc, memoDocBare, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
   makeSummaryRunner, tickStep,
   pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,

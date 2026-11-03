@@ -3381,6 +3381,7 @@ process.on('exit', () => {
       notifications: noticeObjs.map((n) => ({ title: n.o.title, body: n.o.body, closed: Boolean(n.closed) })), notifyClosed,
       pageDur: store.listPages().map((p) => { const pg = store.getPage(p.id) || {}; return { id: p.id, durationSec: pg.durationSec, pauses: pg.pauses || [] }; }),
       loginWins: loginRecs.map((r) => ({ ...r })),   // 0.13.2 LN-4
+      external: external.slice(),   // 0.14.0 EB-5 直し（R209）: shell.openExternal に渡した住所（["ipc-from", 窓, 'app:open-link', 住所] の場面）
       // 0.14.0 EK-6: クリップボードへ書いた文・貼り付けの真似・履歴・ログインの窓を作ったときの dictation: の知らせの数・["ipc-later"] の答え
       dict: { pastes: clipWrites.slice(), pasteSims: pasteSims.length, history: handlers['history:get']() }, loginSentAt: loginSentAt.slice(), ipcLater: await Promise.all(laterCalls),
       // 0.14.0 DQ-3: 偽の整えの口が受けた要求・main の整えの待ちの時計の ms・録音バーへ送った overlay:phase

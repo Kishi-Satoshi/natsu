@@ -482,12 +482,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DQ-3 で足した設定の「口述の文を AI で整える」の1枚と履歴の［元の文をコピー］の1枚（まだ基準が無い）と、BQ27 (a) で［録音］の「文字起こし」のカードに1行増える
 // settings-record の3枚（今の基準がある。settings-record-light はヘルプの写真の元: R71）
 // DQ-3 直し（R200）: 同じく［録音］を開く ⓘ の吹き出しの3枚と「会議の検出」の2枚も、項目が伸びて捲り棒のつまみ（stt は吹き出しの下の行）が変わるので取り直す
-const RETAKE = new Set(['edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light', 'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light',
-  'memo-blocks-light', 'memo-blocks-dark', 'live-memo-blocks-light', 'settings-dictation-light', 'history-tidy-light',
-  'edit-block-menu-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
-  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'live-type-light', 'page-type-light', 'page-type-dark',
-  'settings-record-light', 'settings-record-dark', 'settings-record-zoom200-light',
-  'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-zoom200-light', 'settings-detect-light', 'settings-detect-dark']);
+// 0.14.0（版を 0.14.0 に上げる commit。Task G）: 持ち主が取り直しの見比べ（足した 14 枚: 飾り・道具の帯・リンクの欄・色のメニュー・選んだ行・近道の表・メモの行・
+// 「口述の文を AI で整える」・履歴の［元の文をコピー］、取り直した 18 枚: ⠿ のメニュー・設定の［一般］と［録音］・録音の前のページ・種類）に「この見た目でよい（おすすめ）」
+// （2026-11-03）と答えたので、CI run 41612673475（036c020）の artifact 13220336274 の .after.png（32 枚）をバイトのまま基準にし、空に戻した（基準は 175 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
