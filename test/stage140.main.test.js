@@ -838,3 +838,18 @@ test('EB-5 直し・M-1（R209）: app:open-link は本体の窓の画面から�
   assert.deepStrictEqual(o.external, ['https://example.com/c'], 'ほかの窓から来た住所を shell.openExternal に渡した');
   assert.deepStrictEqual(o.mainSentAll.filter(([ch]) => ch === 'page:open-link'), [], 'ほかの窓から来た NaTsu のリンクでページを開いた');
 });
+
+// ---------------------------------------------------------------- MB-2 直し2（2026-11-03 の版の点検 M-4。R210）
+test('MB-2 直し2・M-4（R210）: meeting:set-type は、素の文字が雛形のままでも、メモの行に飾り（rich）か色（color）のある行があれば雛形で置き換えない（録音の前のページと会議の両方）', T, async () => {
+  const SALES = MT.memoPreset(MT.memoTypeOf('sales'));
+  const STANDUP = MT.memoPreset(MT.memoTypeOf('standup'));
+  const boldDoc = (memo) => { const d = MD.memoFromText(memo); d[0] = { ...d[0], rich: [{ t: d[0].text, m: ['b'] }] }; return MD.validateMemoDoc(d); };
+  const redDoc = (memo) => { const d = MD.memoFromText(memo); d[1] = { ...d[1], color: 'red' }; return MD.validateMemoDoc(d); };
+  const o = await mic([['ipc', 'meeting:prepare'], ['ipc', 'meeting:set-type', 'sales'], ['ipc', 'meeting:set-memo', boldDoc(SALES)], ['ipc', 'meeting:set-type', 'standup'],
+    ['ipc', 'meeting:start'], ['ipc', 'meeting:set-memo', redDoc(SALES)], ['ipc', 'meeting:set-type', 'standup'], ['ipc', 'meeting:set-memo', MD.memoFromText(SALES)], ['ipc', 'meeting:set-type', 'standup'],
+    ['stop'], ['wait-pages', 1]]);
+  const r = ipcOf(o, 'meeting:set-type');
+  assert.deepStrictEqual(r[1], { ok: true, memo: SALES, memoDoc: boldDoc(SALES), inserted: false, meetingType: 'standup' }, '太字にした雛形の見出しを雛形で置き換えた（録音の前のページ）');
+  assert.deepStrictEqual(r[2], { ok: true, memo: SALES, memoDoc: redDoc(SALES), inserted: false, meetingType: 'standup' }, '色を付けた雛形の行を雛形で置き換えた（会議）');
+  assert.deepStrictEqual(r[3], { ok: true, memo: STANDUP, memoDoc: MD.memoFromText(STANDUP), inserted: true, meetingType: 'standup' }, '飾りの無い雛形の行が新しい雛形にならない');
+});

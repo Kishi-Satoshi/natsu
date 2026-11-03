@@ -1255,6 +1255,7 @@ const IDS_140 = [
   'mo-plain-same', 'mo-from-markup', 'mo-edit-parity', 'mo-doc-limit',
   // 0.14.0 MB-2（表の行の順に、MB-1 の行の間と eb- の行の間に入れた）
   'mo-derive', 'mo-fold', 'mo-mcp-plain', 'mo-text-only', 'mo-template',
+  'mo-fit-memo', 'mo-template-rich', 'mo-type-rich',   // 0.14.0 MB-2 直し2（R210）
   // 0.14.0 MB-3（表の行の順に、MB-2 の行の間に入れた）
   'mo-draft-doc', 'mo-live-db', 'mo-live-bad', 'mo-old-draft', 'mo-recover-check', 'mo-prep-adopt',
   // 0.14.0 MB-4（表の行の順に、MB-1〜MB-3 の行の間に入れた）
@@ -1296,8 +1297,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の�
   // 0.14.0 DQ-1 直し2（R198）で dq-guard-half・dq-guard-cp を足した（150）
   // 0.14.0 DQ-3 直し2（R202）で ek-cancel-sender・ek-ime-blur・dq-relay-blank・dq-tidy-reject を足した（154）
   // 0.14.0 DQ-4 直し（R205）で dq-guard-ws・dq-guard-mark・dq-guard-lines-len・dq-relay-mark・dq-lines-ai を足した（159）
-  // 0.14.0 EK-6 直し3（R207）で ek-dict-hidden・ek-dict-cancel-proc を足した（161）。EB-5 直し（R209）で eb-link-sender を足した（162）
-  assert.strictEqual(rows.length, 162, '計画の 0.14.0 の表（eb- 48・ek- 53・mo- 27・dq- 34）が読めない');
+  // 0.14.0 EK-6 直し3（R207）で ek-dict-hidden・ek-dict-cancel-proc を足した（161）。EB-5 直し（R209）で eb-link-sender を足した（162）。MB-2 直し2（R210）で mo-fit-memo・mo-template-rich・mo-type-rich を足した（165）
+  assert.strictEqual(rows.length, 165, '計画の 0.14.0 の表（eb- 48・ek- 53・mo- 30・dq- 34）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   // 0.14.0 EK-7 直し（R208）: IDS_140 は表の行とちょうど同じ（行の順）。前は表の行の一部でも通り、表の ek-help-article が変異に無いのを見落とした

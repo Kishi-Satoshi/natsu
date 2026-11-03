@@ -6598,7 +6598,8 @@ function setupIpc() {
     if (key !== 'auto' && !mtype.isSelectable(key)) return { ok: false };
     t.meetingType = key === 'auto' ? null : key;
     let inserted = false;
-    if (key !== 'auto' && memoTypes.isUntouchedMemo(t.memo, mtype.listTypes().map((x) => x.agenda).filter(Boolean))) {
+    // 0.14.0 MB-2 直し2（R210）: 飾り（rich）・色（color）のある行のメモは、素の文字が雛形のままでも手を付けたメモ（雛形で置き換えない）
+    if (key !== 'auto' && lib.memoDocBare(t.memoDoc) && memoTypes.isUntouchedMemo(t.memo, mtype.listTypes().map((x) => x.agenda).filter(Boolean))) {
       t.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(key));
       t.memoDoc = memoDoc.memoFromText(t.memo);   // 0.14.0 MB-3（決めたこと 64）: 雛形の行（見出し3）も同じ文から
       inserted = true;

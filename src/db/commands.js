@@ -42,7 +42,7 @@ const crypto = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { isCitable, refreshCitations, searchFold } = require('../cite');
 const { parseDue } = require('../actions');
-const { routeLabel, summaryLock } = require('../mainlib');
+const { routeLabel, summaryLock, memoDocBare } = require('../mainlib');
 const R = require('../pagerules');
 const mtype = require('../meetingType');
 const memoTypes = require('../memoTypes');
@@ -168,6 +168,7 @@ function setTypePage(p, { type, preset }, at) {
   if (type === 'auto') p.typeAuto = true;
   else {
     p.meetingType = type; p.typeAuto = false;
+    if (preset === true && !memoDocBare(p.memoDoc)) preset = false;   // 0.14.0 MB-2 直し2（R210）: 飾り・色を付けた雛形の行は手を付けたメモ（置き換えない）
     if (preset === true && memoTypes.isUntouchedMemo(p.memo, LEGACY_AGENDAS)) p.memo = memoTypes.memoPreset(memoTypes.memoTypeOf(type));
     // 0.14.0 MB-2（決めたこと 64）: 雛形を入れたら、メモの行も同じ文から作る（手を付けていないかは今どおり memo で見る。memo は memoDoc から作った文と同じ）
     if (preset === true && p.memo === memoTypes.memoPreset(memoTypes.memoTypeOf(type))) p.memoDoc = MD.memoFromText(p.memo);
@@ -740,7 +741,9 @@ const lastOf = (rows) => { const f = BT.flattenBlocks(rows); return f[f.length -
 const FIT_RESERVE = 4096;
 function pageFits(p, ctx) {
   if (BT.flattenBlocks(p.blocks).length > LIMITS.blocks) throw refuse('too-big');
-  const wire = { page: { ...forView(p, ctx && ctx.labels), rev: Number.MAX_SAFE_INTEGER }, baseRev: Number.MAX_SAFE_INTEGER };
+  // 0.14.0 MB-2 直し2（R210）: saveIfExists はメモ（memo・memoDoc）を外して送る（R165）ので、ここでも数えない（大きなメモのページの貼り付け・複製を断らない）
+  const { memo: _memo, memoDoc: _memoDoc, ...view } = forView(p, ctx && ctx.labels);
+  const wire = { page: { ...view, rev: Number.MAX_SAFE_INTEGER }, baseRev: Number.MAX_SAFE_INTEGER };
   if (Buffer.byteLength(JSON.stringify(wire), 'utf8') + FIT_RESERVE > LIMITS.bytes) throw refuse('too-big');
 }
 // 貼り付けの中身（editPage の中）: 今の行を at で分けて、前を今の行・貼った行をすぐ下（inside なら最初の子）・後ろの文を貼った行のさらに下の新しい行にする。
