@@ -906,6 +906,8 @@ function pageMove(db, a, ctx) {
   }
   if (!PT.canMoveUnder(tree, a.id, to)) throw refuse('bad-args');   // 自分と子孫の下へは動かさない（輪: 決めたこと 5）
   if (to !== null && rawChainHas(tree.byId, to, a.id)) throw refuse('bad-args');   // PH-2 直し（R13）: 壊れた輪の上の親をたどって自分に戻る所へも動かさない
+  // 0.15.0 PR-2 直し（R44・決めたこと 55）: rowAfter（と rowParent）は、同じ白紙のページの子の行を本文のその所へ置く（行の無い子を「このページの中のページ」から引っ張って置く）
+  if (a.rowAfter !== undefined || a.rowParent !== undefined) return placeInBody(db, a, ctx, me, to, tree);
   // 同じ所は書かない（操作の空の行だけ: 決めたこと 16）。PH-2 直し（R12）: 答えの一覧は同じ所のときだけ作る（前は毎回作って、動かすと一覧を2回作った）
   if (sameSpot(rows, me, to, a.afterId)) return { ops: [], pageIds: [], result: listPages(db) };
   // PH-2 直し（R16）: 兄弟は一覧に出るページだけ（ゴミ箱・録音中の写しの兄弟は並びに数えない）。同じ鍵の後ろの兄弟は付け直す（R15）
@@ -927,6 +929,25 @@ function pageMove(db, a, ctx) {
   }
   applyOps(db, ops);
   return { ops, pageIds: [a.id, ...hosts], result: listPages(db) };
+}
+// 0.15.0 PR-2 直し（R44・決めたこと 55）: 白紙のページの子（me）の行を、同じ本文の rowAfter の行のすぐ後ろ（'' は頭・rowParent があればその子の頭。
+// block.move の afterId・parentId と同じ置き場: BT.spotOf）へ。行が無ければ作り（上限を越えるなら too-big。本文もページも変えない）、あれば動かす（同じページを
+// 指す行を2つにしない）。ページの親と並びの鍵は変えない（並びは本文の行の順: HR14）。同じ命令（oplog の1行）で、元に戻すの歩みにはしない（決めたこと 60）→ 一覧
+function placeInBody(db, a, ctx, me, to, tree) {
+  if (a.rowAfter === undefined || a.afterId !== undefined || to === null || me.parentId !== to || !isBlankPage(tree.byId.get(to).attrs)) throw refuse('bad-args');
+  let made = false;
+  const ops = bodyOps(db, to, ctx, (p) => {
+    const had = subSpot(p.blocks, a.id);
+    let row;
+    if (had) { row = had.b; had.list.splice(had.index, 1); } else { row = newSubRow(db, ctx, a.id); made = true; }
+    if (a.rowAfter !== '' && !BT.locate(p.blocks, a.rowAfter)) throw refuse('bad-args');
+    const s = BT.spotOf(p.blocks, a.rowAfter, a.rowParent);
+    if (!s) throw refuse('bad-args');   // 無い親の行・子を持てない行（区切り線・子ページの行）・親の違う行
+    s.list.splice(s.index, 0, row);
+  });
+  if (!ops) { if (made) throw refuse('too-big'); return { ops: [], pageIds: [], result: listPages(db) }; }
+  applyOps(db, ops);
+  return { ops, pageIds: [a.id, to], result: listPages(db) };
 }
 // PH-2 直し（R13）: start から「そのままの親」（parent_id）をたどって id に着くか（木の部品は輪の行を最上位に並べるので、壊れた輪の上では
 // canMoveUnder が見ない道がある。訪ねた印で止まる）
@@ -1269,7 +1290,7 @@ const DEFS = {
       const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type === 'page');
       return add ? { page: readPage(db, add.id), id: add.id } : null;
     } },
-  'page.move': { roles: ['app'], write: true, args: { id: 'id', parentId: 'idOrEmpty', afterId: 'idOrEmpty?' },
+  'page.move': { roles: ['app'], write: true, args: { id: 'id', parentId: 'idOrEmpty', afterId: 'idOrEmpty?', rowAfter: 'idOrEmpty?', rowParent: 'id?' },   // PR-2 直し（R44）: rowAfter・rowParent
     run: pageMove, dupResult: (db) => listPages(db) },
   'page.restore': { roles: ['app'], write: true, args: { id: 'id' },
     run: pageRestore, dupResult: (db) => listPages(db) },

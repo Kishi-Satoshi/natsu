@@ -1031,3 +1031,62 @@ test('PR-1 直し・R37（決めたこと 43）: 子ページの行は色（飾�
   assert.deepStrictEqual([colorOf(tg), colorOf(row)], ['blue_bg', undefined], 'トグルの中の子ページの行に色を付けた');
   sameTree(db);
 }));
+
+test('PR-2 直し・R44（決めたこと 55）: page.move の rowAfter・rowParent は、同じ白紙のページの子の行を本文のその所（行の後ろ・頭・子を持てる行の子の頭）に置く（行の無い子は行を作り、行があれば動かす。oplog は1行・ページの親は替わらない）。違う親・議事録・無い行・子を持てない行・afterId と一緒は bad-args、2,000 行の本文に足すのは too-big（何も変えない）', T, () => withDb((db, t) => {
+  const P = create(db);
+  const K1 = create(db, P); const K2 = create(db, P);
+  const r1 = subRow(db, P, K1).id;
+  db.prepare('delete from blocks where id = ?').run(subRow(db, P, K2).id);   // 前の版で行を消された子（行の無い子）
+  assert.deepStrictEqual(subsOf(db, P), [K1]);
+  const place = (id, parentId, row, more = {}) => call(db, 'page.move', { id, parentId, ...row, ...more });
+  // 行の後ろへ（行を作る）
+  const before = oplogN(db);
+  const r = ok(place(K2, P, { rowAfter: r1 }), 'rowAfter');
+  assert.strictEqual(oplogN(db), before + 1, 'oplog は1行');
+  assert.deepStrictEqual(subsOf(db, P), [K1, K2], '行の後ろに置かない');
+  assert.strictEqual(rowOf(db, K2).parent_id, P, 'ページの親が替わった');
+  assert.ok(!opsOf(db, r.tx).some((o) => o.op === 'move' && o.id === K2), '同じ親なのにページの行を動かした');
+  assert.ok(Array.isArray(r.result) && r.result.some((p) => p.id === K2), '答えが一覧でない');
+  sameTree(db);
+  // 行があれば動かす（頭へ・2つにしない）
+  ok(place(K2, P, { rowAfter: '' }), 'rowAfter 頭');
+  assert.deepStrictEqual(subsOf(db, P), [K2, K1], '頭に置かないか、行が2つになった');
+  // 子を持てる行の子の頭
+  const tg = insert(db, P, r1, 'toggle');
+  ok(place(K2, P, { rowAfter: '', rowParent: tg }), 'rowParent');
+  assert.deepStrictEqual(flat(bodyOf(db, P)).find((b) => b.id === tg).children.map((b) => b.page), [K2], 'トグルの子の頭に置かない');
+  assert.deepStrictEqual(kidsInList(db, P), [K1, K2]);
+  sameTree(db);
+  // 断り（何も変えない）
+  const Q = create(db); const KQ = create(db, Q); const KM = create(db, 'pa1');
+  const div = insert(db, P, tg, 'divider');
+  const was = dump(db);
+  const bad = (args, what) => { const x = call(db, 'page.move', args); assert.strictEqual(x.code, 'bad-args', `${what}: ${x.code}`); };
+  bad({ id: KQ, parentId: P, rowAfter: r1 }, '違う親の子');
+  bad({ id: KM, parentId: 'pa1', rowAfter: '' }, '議事録の中');
+  bad({ id: K2, parentId: '', rowAfter: '' }, '最上位');
+  bad({ id: K2, parentId: P, rowAfter: 'bnothere1' }, '無い行');
+  bad({ id: K2, parentId: P, rowAfter: '', rowParent: div }, '子を持てない行（区切り線）');
+  bad({ id: K2, parentId: P, rowAfter: '', rowParent: r1 }, '子を持てない行（子ページの行）');
+  bad({ id: K2, parentId: P, rowAfter: '', rowParent: 'bnothere1' }, '無い親の行');
+  bad({ id: K2, parentId: P, rowAfter: r1, afterId: K1 }, 'afterId と一緒');
+  bad({ id: K2, parentId: P, rowParent: tg }, 'rowAfter の無い rowParent');
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+  // 2,000 行の本文に足すのは too-big（行のある子を本文の中で動かすのは通す）
+  const N = 2000;
+  t.seed({ id: 'pfull2', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks: Array.from({ length: N }, (_, i) => ({ id: `fy${i}`, type: 'paragraph', text: `行${i}` })), createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  tick();
+  const KF = ok(call(db, 'page.create', { parentId: 'pfull2' }), 'page.create').result.id;   // 行は置かない（R33）
+  const was2 = dump(db);
+  assert.strictEqual(place(KF, 'pfull2', { rowAfter: 'fy0' }).code, 'too-big');
+  assert.deepStrictEqual(dump(db), was2, 'too-big なのに何か書いた');
+}));
+
+test('PR-2 直し・R44: preload の pageMove(id, parentId, afterId, row) は row があるときだけ rowAfter・rowParent を送る', T, () => {
+  const { k, givePort } = loadPreload();
+  const p = givePort();
+  k.pageMove('pb1', 'pa1'); k.pageMove('pb1', 'pa1', undefined, { afterId: 'b1' }); k.pageMove('pb1', 'pa1', undefined, { afterId: '', parentId: 'b2' }); k.pageMove('pb1', 'pa1', undefined, { afterId: '' });
+  assert.deepStrictEqual(p.sent.map((m) => m.args), [
+    { id: 'pb1', parentId: 'pa1' }, { id: 'pb1', parentId: 'pa1', rowAfter: 'b1' }, { id: 'pb1', parentId: 'pa1', rowAfter: '', rowParent: 'b2' }, { id: 'pb1', parentId: 'pa1', rowAfter: '' },
+  ]);
+});

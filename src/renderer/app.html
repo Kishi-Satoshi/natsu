@@ -664,6 +664,7 @@
   .bodykids .kidrow { padding: 3px 6px; border-radius: 4px; cursor: pointer; color: var(--text); }
   .bodykids .kidrow:hover { background: var(--tint); }
   .bodykids .kidrow:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .bodykids .kidrow.dragging { opacity: .5; }   /* PR-2 直し（R44）: 本文へ引っ張っている行の無い子 */
   .blk.callout { background: var(--hover); border-radius: 6px; padding: 8px 10px; margin: 2px 0; }
   .blk.callout .icon { flex: none; line-height: 24px; user-select: none; }
   /* 0.13.0 ED-8（EQ4 (a)）: ［要約を再生成］の確かめの小さな窓（後ろは設定のポップアップと同じ .setmodal の暗い地） */
@@ -8544,6 +8545,8 @@
   const SUB_GONE = '（このページはここにありません）';
   const SUB_NO_DUP = 'ページの行は複製できません';
   const SUB_KIDS_HEAD = 'このページの中のページ';
+  const SUB_KID_TITLE = '開く（Ctrl+クリックで新しいタブ）・引っ張るか Ctrl+Shift+↑ で本文に置く';   // PR-2 直し（R44・決めたこと 55）
+  const SUB_KID_FULL = '本文が 2,000 行に達しているので、ページの行を置けません。';
   const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
   // 行の指すページ（今の白紙のページの子で、一覧に出るページ。無ければ null）
   function subPageOf(b) {
@@ -8605,6 +8608,26 @@
     if (keep.length !== ids.length || keep.some((id) => subInside((locate(blocks, id) || {}).b))) toast(SUB_NO_DUP);
     return keep.length ? keep : null;
   }
+  // PR-2 直し（R44・決めたこと 55）: 引っ張っているページ（アプリのページの印のある引っ張り）を、開いている白紙のページの本文に置けるか（そのページの子だけ。
+  // 行の無い子のほか、サイドバーから引っ張った子も、本文のその所へ行を動かす）
+  function kidDropOk(box, ev) {
+    if (!pageDrag || !isPageDrag(ev) || box !== $('pNote') || !curPage || !isBlankPage(curPage) || keyOfBox(box) !== curId) return false;
+    return pages.some((p) => p && p.id === pageDrag && p.parentId === curId);
+  }
+  // 子の行を本文の置き場（{ afterId, parentId? }: block.move と同じ）に置く（page.move の rowAfter・rowParent の1回）→ 読み直して置いた行へフォーカス
+  async function placeKid(id, spot) {
+    const pid = curId;
+    let bad = '';
+    const row = spot.parentId ? { afterId: spot.afterId, parentId: spot.parentId } : { afterId: spot.afterId };
+    flushEdits();
+    try { await window.koeApp.pageMove(id, pid, undefined, row); } catch (e) { bad = String((e && (e.code || e.message)) || 'error'); }
+    if (bad) toast(bad === 'too-big' ? SUB_KID_FULL : 'ページの行を置けませんでした。');
+    await refreshList();
+    if (bad || curId !== pid) return;
+    await openPage(pid);
+    const el = [...$('pNote').querySelectorAll('.blk.subpage')].find((e) => e._b && e._b.page === id);
+    if (el && el._txt) el._txt.focus();
+  }
   // 白紙のページの本文の子ページの行を今の一覧の値で描き直し、行の無い子の一覧（#bodyKids）を作る（決めたこと 55・56・HR16）
   function paintBodyPages() {
     const note = $('pNote');
@@ -8623,10 +8646,28 @@
     for (const id of lost) {
       const p = pages.find((x) => x && x.id === id);
       const r = document.createElement('div');
-      r.className = 'kidrow'; r.tabIndex = 0; r.setAttribute('role', 'link'); r.title = SUB_OPEN_TITLE;
+      r.className = 'kidrow'; r.tabIndex = 0; r.setAttribute('role', 'link'); r.title = SUB_KID_TITLE;
       r.textContent = `${pageEmoji(p)} ${oneLine(p.title)}`;
       r.onclick = (ev) => openPageTab(id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
-      r.onkeydown = (ev) => { if (imeEnter(ev)) return; if (ev.key === 'Enter') { ev.preventDefault(); openPageTab(id, { newTab: Boolean(ev.ctrlKey || ev.metaKey) }); } };
+      r.onkeydown = (ev) => {
+        if (imeEnter(ev)) return;
+        if (ev.key === 'Enter') { ev.preventDefault(); openPageTab(id, { newTab: Boolean(ev.ctrlKey || ev.metaKey) }); return; }
+        // PR-2 直し（R44）: キーボードでは Ctrl+Shift+↑（行を上へ動かす近道と同じ）で本文の最後（最上位の並びの末尾）に置く
+        if (ev.key === 'ArrowUp' && ev.ctrlKey && ev.shiftKey && !ev.altKey && !ev.metaKey) {
+          ev.preventDefault();
+          const top = curPage && Array.isArray(curPage.blocks) ? curPage.blocks : [];
+          placeKid(id, { afterId: top.length ? top[top.length - 1].id : '' });
+        }
+      };
+      // PR-2 直し（R44・決めたこと 55）: 引っ張って本文に置く（サイドバーの木と同じアプリのページの印。落とす所は本文の行の印: wireDrop）
+      r.draggable = true;
+      r.ondragstart = (ev) => {
+        pageDrag = id; r.classList.add('dragging');
+        dragStartX = Number(ev && ev.clientX) || 0;
+        const dt = ev && ev.dataTransfer;
+        if (dt) { try { dt.effectAllowed = 'move'; dt.setData(PAGE_DRAG_TYPE, id); } catch (_) { /* 印を置けなければ本文には落とせない */ } }
+      };
+      r.ondragend = () => { r.classList.remove('dragging'); clearDropMarks(note); };
       box.appendChild(r);
     }
   }
@@ -8795,7 +8836,8 @@
     box.ondragover = (ev) => {
       // EB-4 直し（M3・R115）: 外から引っ張ってきたものは既定の落としを止める（Chromium が HTML のまま行に入れる）。
       // EB-5 直し（R117）: 行の文の上の素の文字だけは落とせる（ondrop が素の文字を落とした所へ入れる）。ファイル・行の外は落とせない形
-      if (!dragBlockId) {
+      // 0.15.0 PR-2 直し（R44）: 今の白紙のページの子（行の無い子）を引っ張っているときは、行と同じ落とす印を出す（下の印の描き方のまま）
+      if (!dragBlockId && !kidDropOk(box, ev)) {
         if (typeof ev.preventDefault === 'function') ev.preventDefault();
         if (ev.dataTransfer) ev.dataTransfer.dropEffect = dropRowOf(ev) && dropPlain(ev.dataTransfer) !== null ? 'copy' : 'none';
         return;
@@ -8814,6 +8856,15 @@
       if (typeof mark.style.setProperty === 'function') mark.style.setProperty('--dropx', `${dx}px`);
     };
     box.ondrop = async (ev) => {
+      // 0.15.0 PR-2 直し（R44・決めたこと 55）: 今の白紙のページの子を落としたら、その所（上に見えている行の後ろ・右へずらすと上の行の子の頭）に行を置く
+      if (!dragBlockId && kidDropOk(box, ev)) {
+        if (typeof ev.preventDefault === 'function') ev.preventDefault();
+        const id = pageDrag; pageDrag = null;
+        const { idx, els } = dropIndexAt(box, ev.clientY);
+        const spot = dropSpotAt(els, idx, ev.clientX);
+        clearDropMarks(box);
+        return placeKid(id, { afterId: spot.afterId, parentId: spot.afterId === '' && spot.parentId ? spot.parentId : undefined });
+      }
       if (!dragBlockId) {   // EB-4 直し（M3）: 既定の落としは止める。EB-5 直し（R117）: 行の文の上の素の文字だけを入れる
         if (typeof ev.preventDefault === 'function') ev.preventDefault();
         const row = dropRowOf(ev);

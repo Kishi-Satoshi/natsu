@@ -431,7 +431,8 @@ const CMDS = {
   blockPaste: (pageId, blockId, rich, at, blocks, afterId, inside) => ['block.paste', { pageId, blockId, rich, at, blocks, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }],
   pageSetTitle: (id, title) => ['page.setTitle', { id, title }],
   pageCreate: (parentId, placeAt) => ['page.create', { ...(parentId ? { parentId } : {}), ...(placeAt ? { placeAt } : {}) }],   // 0.15.0 PR-2: preload と同じ形（R6・R30）
-  pageMove: (id, parentId, afterId) => ['page.move', { id, parentId: parentId || '', ...(afterId === undefined ? {} : { afterId }) }],
+  pageMove: (id, parentId, afterId, row) => ['page.move', { id, parentId: parentId || '', ...(afterId === undefined ? {} : { afterId }),
+    ...(row && row.afterId !== undefined ? { rowAfter: row.afterId } : {}), ...(row && row.parentId ? { rowParent: row.parentId } : {}) }],   // PR-2 直し（R44）: preload と同じ形
   pageDelete: (id) => ['page.delete', { id }],
   // 0.15.0 PR-2: 子ページの行の場面で使う行の命令も DB を本当に通す（preload と同じ形）
   blockMove: (pageId, blockId, to) => ['block.move', to && typeof to === 'object' ? { pageId, blockId, afterId: to.afterId, ...(to.parentId === undefined ? {} : { parentId: to.parentId }) } : { pageId, blockId, toIndex: to }],
@@ -1165,6 +1166,67 @@ test('PR-2 直し・R42（F123）: 子ページの行を ⠿ で引っ張って�
     assert.deepStrictEqual(l.called('blockMove').map((c) => [c.args[1], c.args[2]]), [[rowIdOf(l, k1), { afterId: l.made.tp }]], '引っ張っても blockMove の1回でない');
     assert.deepStrictEqual(l.page('pb1').blocks.filter((b) => b.type === 'subpage').map((b) => b.page), [k2, k1]);
     assert.deepStrictEqual(ids(l).filter((id) => id === k1 || id === k2), [k2, k1], '本文で引っ張って並べ替えてもサイドバーの子の並びが替わらない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し・R44（決めたこと 55）: 「このページの中のページ」の行の無い子は、引っ張って本文に置ける（pageMove(id, 今のページ, undefined, { afterId }) の1回・落とす印・置いた所に行・一覧から消える）。Ctrl+Shift+↑ で本文の最後に置く（キーボード）', T, async () => {
+  const l = await rowsDb({ more: (call) => {
+    const out = {};
+    for (const [k, title] of [['k3', '行の無い子'], ['k4', 'もう一つの子']]) {   // 利用者が付け直した題名（D77）
+      out[k] = call('page.create', { parentId: 'pb1' }).id;
+      call('page.setTitle', { id: out[k], title });
+    }
+    return out;
+  } });
+  try {
+    const { k1, k2, k3, k4 } = l.made;
+    for (const k of [k3, k4]) l.db.prepare('delete from blocks where id = ?').run(rowIdOf(l, k));   // 前の版で行を消された子
+    l.fire('onPageOpen', 'pa1'); await l.drain();
+    l.fire('onPageOpen', 'pb1'); await l.drain();
+    const kidRows = () => $(l, 'bodyKids').querySelectorAll('.kidrow');
+    assert.deepStrictEqual(kidRows().map((e) => e.textContent), ['📄 行の無い子', '📄 もう一つの子']);
+    const kr = kidRows()[0];
+    assert.strictEqual(kr.draggable, true, '行の無い子を引っ張れない');
+    assert.strictEqual(kr.title, '開く（Ctrl+クリックで新しいタブ）・引っ張るか Ctrl+Shift+↑ で本文に置く');
+    // 引っ張る: アプリのページの印を置く
+    const data = {};
+    const dt = { effectAllowed: '', setData: (k, v) => { data[k] = v; }, types: [PAGE_TYPE] };
+    kr.dispatchEvent({ type: 'dragstart', target: kr, clientX: 100, dataTransfer: dt });
+    assert.strictEqual(data[PAGE_TYPE], k3, 'ページの印を置かない');
+    // 本文の上: 見えている行 q1 k1 q2 k2 下の文…（上端 0・10・20・30…）。k2 の行の上半分（q2 の下）へ
+    const box = $(l, 'pNote');
+    noteRows(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+    const over = { preventDefault() { this.defaultPrevented = true; }, clientY: 32, clientX: 100, dataTransfer: dt };
+    box.ondragover(over);
+    assert.strictEqual(over.defaultPrevented, true, '本文に落とせない形');
+    assert.deepStrictEqual(box.querySelectorAll('.dropmark').map((e) => e.dataset.id), [rowIdOf(l, k2)], '落とす印が無い');
+    await box.ondrop({ preventDefault() {}, clientY: 32, clientX: 100, dataTransfer: dt });
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k3, 'pb1', undefined, { afterId: 'q2' }]], 'pageMove の1回で置かない');
+    assert.deepStrictEqual(l.page('pb1').blocks.filter((b) => b.type === 'subpage').map((b) => b.page), [k1, k3, k2], 'q2 の下に置かない');
+    assert.ok(subEl(l, k3) && !subEl(l, k3).classList.contains('gone'), '置いた行が本文に無い');
+    assert.deepStrictEqual(kidRows().map((e) => e.textContent), ['📄 もう一つの子'], '置いた子が一覧に残る');
+    assert.strictEqual(box.querySelectorAll('.dropmark, .dropmark-after').length, 0, '落とす印が残る');
+    assert.strictEqual(listNow(l).find((p) => p.id === k3).parentId, 'pb1');
+    // 素の文字（ページの印の無い引っ張り）は行の無い子を置かない（行の無い子の引っ張りの終わりが届かず、覚えた引っ張りが残っていても: R28 (1) と同じ）
+    const n = l.called('pageMove').length;
+    kidRows()[0].ondragstart({ target: kidRows()[0], clientX: 100, dataTransfer: { effectAllowed: '', setData() {} } });   // dragend は来ない
+    const plain = { preventDefault() {}, clientY: 32, clientX: 100, dataTransfer: { types: ['text/plain'], getData: () => '' } };
+    box.ondragover(plain);
+    await box.ondrop(plain);
+    await l.drain();
+    assert.strictEqual(l.called('pageMove').length, n, 'ページの印の無い引っ張りで置いた');
+    kidRows()[0].ondragend();
+    // キーボード: Ctrl+Shift+↑ で本文の最後（最上位の並びの末尾）に置き、置いた行へフォーカス
+    const k4row = kidRows()[0];
+    k4row.focus();
+    l.key({ key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true, shiftKey: true }, k4row);
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').slice(-1)[0].args, [k4, 'pb1', undefined, { afterId: 'q6' }]);
+    assert.deepStrictEqual(l.page('pb1').blocks.slice(-1)[0].page, k4, '本文の最後に置かない');
+    assert.strictEqual($(l, 'bodyKids').hidden, true, '置いても一覧が残る');
+    assert.ok(l.document.activeElement === subEl(l, k4)._txt, '置いた行へフォーカスしない');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
