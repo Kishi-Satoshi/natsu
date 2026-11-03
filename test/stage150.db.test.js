@@ -444,13 +444,15 @@ test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子
     const trash = [];
     for (let k = 0; k < 3; k++) { const [x, xr] = timed(() => call(db, 'pages.trash', {})); assert.strictEqual(xr.result.length, 200); trash.push(x); }
     const write = budget['write-commit'] * 2;
+    // 子孫 1,000 の書き込みは台の書き込みの速さで決まる。Windows の目安は CI で計った中央値の 2 倍（R21。tools/perf.js の BUDGETS_WIN と同じ考え）
+    const big = process.platform === 'win32' ? 800 : budget.list;
     tc.diagnostic(`pages.trash ${median(trash).toFixed(1)}・page.move ${median(moves).toFixed(1)}・page.delete ${median(dels).toFixed(1)}・page.restore（1,000）${median(rests).toFixed(1)}・page.delete（1）${median(oneDel).toFixed(1)}・page.restore（1）${median(one).toFixed(1)} ミリ秒（書く命令は一覧の分を引いた値）`);
     assert.ok(median(trash) < budget.list, `pages.trash ${median(trash).toFixed(1)} ミリ秒`);
     assert.ok(median(moves) < write, `page.move ${median(moves).toFixed(1)} ミリ秒`);
     assert.ok(median(oneDel) < write, `page.delete（1 ページ）${median(oneDel).toFixed(1)} ミリ秒`);
-    assert.ok(median(dels) < budget.list, `page.delete（子孫 1,000）${median(dels).toFixed(1)} ミリ秒`);
+    assert.ok(median(dels) < big, `page.delete（子孫 1,000）${median(dels).toFixed(1)} ミリ秒`);
     assert.ok(median(one) < write, `page.restore（1 ページ）${median(one).toFixed(1)} ミリ秒`);
-    assert.ok(median(rests) < budget.list, `page.restore（1,000 ページ）${median(rests).toFixed(1)} ミリ秒`);
+    assert.ok(median(rests) < big, `page.restore（1,000 ページ）${median(rests).toFixed(1)} ミリ秒`);
   } finally { t.done(); }
 });
 

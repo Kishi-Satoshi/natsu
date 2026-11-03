@@ -2746,6 +2746,9 @@ process.on('exit', () => {
       // 0.13.2 点検の直し（重要 1）: --retranscribe-ticks は、押した回が止まる（page:pending の running: false）までを待つ（待ち行列は残る）
       await waitFor(() => qn() === 0 || (retranscribeTicks > 0 && pendingSeen.slice(seen0).some((p) => p.id === latePageId && !p.running)), 10000);
       await sleep(200);
+      // 0.15.0 PH-2 直し 2（計画 docs/plans/2026-11-03-150.md の R20。CI run 41689878468 の test ubuntu）: 待ち行列のファイルが消えた後も、回した回が
+      // 終わる（page:pending の running: false を窓へ送る）までは止まりかけ。込んだ CI の台では 200 ミリ秒で足りないので、その知らせも待つ（足すだけ）
+      await waitFor(() => pendingSeen.slice(seen0).some((p) => p.id === latePageId && !p.running), 5000);
       out.afterRetranscribe = { pages: store.listPages().map((p) => ({ id: p.id, segments: store.getTranscript(p.id).map((x) => ({ id: x.id, text: x.text, failed: Boolean(x.failed) })) })),
         engineLog: engineLogLines(), relayCalls: relayPaths.slice(), pending: pendingSeen.slice(), pendingAfter: await handlers['page:pending']({}, { id: latePageId }), queues: qn() };
       // 0.13.2 点検の直し（重要 1）: --retranscribe-ticks=<n> … 押した回が止まった後に見回りを n 回呼び、増えた中継への文字起こしの要求・知らせと、
