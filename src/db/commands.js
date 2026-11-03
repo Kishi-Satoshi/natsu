@@ -79,7 +79,8 @@ function refuse(code) {
 const HOT_QUERIES = Object.freeze({
   list: "select rid, id, parent_id, ord, text, rev, created_at, updated_at, attrs, trashed_at from blocks where type = 'page' order by created_at desc, rid desc",
   // 0.15.0 PH-2（決めたこと 6）: 木を歩くためのページの行（ゴミ箱も録音中の写しも。命令の中で1回だけ読む）
-  pageRows: "select id, parent_id, ord, text, created_at, trashed_at, attrs from blocks where type = 'page'",
+  // PH-2 直し（R12）: attrs の全部（メモ・要約の欄）は読まない。木と一覧の判定に使う欄だけを SQL で取り出す
+  pageRows: "select id, parent_id, ord, text, created_at, trashed_at, json_extract(attrs, '$.meeting.phase') as phase, json_extract(attrs, '$.kind') as kind, json_extract(attrs, '$.icon') as icon from blocks where type = 'page'",
   pageRow: 'select id, type, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
   pageBlocks: 'select id, type, text, rich, attrs, ord, parent_id from blocks where page_id = ? and id <> ? order by ord',
   pageSegments: 'select id, at_ms, duration_ms, text, failed, extra from segments where page_id = ? order by n',
@@ -831,11 +832,15 @@ function pasteDup(db, a, row) {
 }
 // ---------------------------------------------------------------- 0.15.0 PH-2: ページの木の命令（決めたこと 1〜17・HR6）
 // ページの行の全部（ゴミ箱・録音中の写しも）→ [{ id, parentId, ord, title, createdAt, trashedAt, attrs }]（pageTree の行の形）
+// attrs は取り出した欄だけの小さな物（meeting.phase・kind・icon。isLive と一覧の印がそのまま使える: R12）
 function pageRowsOf(db) {
-  return db.prepare(HOT_QUERIES.pageRows).all().map((r) => ({
-    id: r.id, parentId: r.parent_id ?? null, ord: r.ord, title: r.text, createdAt: r.created_at,
-    trashedAt: r.trashed_at ?? null, attrs: JSON.parse(r.attrs || '{}'),
-  }));
+  return db.prepare(HOT_QUERIES.pageRows).all().map((r) => {
+    const attrs = {};
+    if (r.phase !== null && r.phase !== undefined) attrs.meeting = { phase: r.phase };
+    if (r.kind !== null && r.kind !== undefined) attrs.kind = r.kind;
+    if (r.icon !== null && r.icon !== undefined) attrs.icon = r.icon;
+    return { id: r.id, parentId: r.parent_id ?? null, ord: r.ord, title: r.text, createdAt: r.created_at, trashedAt: r.trashed_at ?? null, attrs };
+  });
 }
 // 一覧に出るページか（ゴミ箱と録音中の写しは除く。listedRows と同じ決まり）
 const isListedRow = (r) => Boolean(r) && r.trashedAt === null && !isLive(r.attrs);
@@ -843,9 +848,11 @@ const isListedRow = (r) => Boolean(r) && r.trashedAt === null && !isLive(r.attrs
 const topMove = (r) => ({ op: 'move', id: r.id, ord: PT.TOP_ORD, old: r.ord, parent: null, oldParent: r.parentId });
 
 // 新しいページの ID（決めたこと 14: store.newId と同じ形の p＋時刻の36進＋5字の小文字の英数。タブの鍵 ^page:p[a-z0-9]{1,40}$ に合う）
-function newPageId(db, now) {
+// rand は 32 ビットの乱数を返す関数（テストが重なりの照らしを見るために渡す。既定は crypto）
+const randU32 = () => crypto.randomBytes(4).readUInt32BE(0);
+function newPageId(db, now, rand = randU32) {
   for (;;) {
-    const tail = crypto.randomBytes(4).readUInt32BE(0).toString(36).padStart(7, '0').slice(-5);
+    const tail = rand().toString(36).padStart(7, '0').slice(-5);
     const id = `p${now().getTime().toString(36)}${tail}`;
     if (!db.prepare(HOT_QUERIES.pageRow).get(id)) return id;
   }
@@ -872,31 +879,46 @@ function pageCreate(db, a, ctx) {
 // 動かす（決めたこと 4・5・9・16・21）。'' は最上位。afterId は兄弟の後ろ（'' は頭・無ければ末尾。最上位は鍵で並べないので見ない）→ 一覧
 function pageMove(db, a) {
   const rows = pageRowsOf(db);
-  const me = rows.find((r) => r.id === a.id);
+  const tree = PT.pageTree(rows);
+  const me = tree.byId.get(a.id);
   if (!me || me.trashedAt !== null) throw refuse('bad-args');   // 無い・ゴミ箱のページは動かさない
   if (isLive(me.attrs)) throw refuse('bad-args');   // 録音中の写しは動かさない（決めたこと 9）
   const to = a.parentId || null;
   if (to !== null) {
-    const dest = rows.find((r) => r.id === to);
+    const dest = tree.byId.get(to);
     if (!dest) throw refuse('bad-args');
     if (dest.trashedAt !== null) throw refuse('bad-args');   // ゴミ箱のページの下へは動かさない
     if (isLive(dest.attrs)) throw refuse('bad-args');   // 録音中の写しの下へは動かさない
   }
-  if (!PT.canMoveUnder(PT.pageTree(rows), a.id, to)) throw refuse('bad-args');   // 自分と子孫の下へは動かさない（輪: 決めたこと 5）
-  const same = { ops: [], pageIds: [], result: listPages(db) };
-  if (sameSpot(rows, me, to, a.afterId)) return same;   // 同じ所は書かない（操作の空の行だけ: 決めたこと 16）
-  const others = rows.filter((r) => r.id !== a.id);
-  const ord = to === null ? PT.TOP_ORD : PT.siblingKey(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
-  const ops = [{ op: 'move', id: a.id, ord, old: me.ord, ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) }];
+  if (!PT.canMoveUnder(tree, a.id, to)) throw refuse('bad-args');   // 自分と子孫の下へは動かさない（輪: 決めたこと 5）
+  if (to !== null && rawChainHas(tree.byId, to, a.id)) throw refuse('bad-args');   // PH-2 直し（R13）: 壊れた輪の上の親をたどって自分に戻る所へも動かさない
+  // 同じ所は書かない（操作の空の行だけ: 決めたこと 16）。PH-2 直し（R12）: 答えの一覧は同じ所のときだけ作る（前は毎回作って、動かすと一覧を2回作った）
+  if (sameSpot(rows, me, to, a.afterId)) return { ops: [], pageIds: [], result: listPages(db) };
+  // PH-2 直し（R16）: 兄弟は一覧に出るページだけ（ゴミ箱・録音中の写しの兄弟は並びに数えない）。同じ鍵の後ろの兄弟は付け直す（R15）
+  const others = rows.filter((r) => r.id !== a.id && isListedRow(r));
+  const place = to === null ? { ord: PT.TOP_ORD, rekey: [] } : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
+  const ops = [{ op: 'move', id: a.id, ord: place.ord, old: me.ord, ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
+    ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: tree.byId.get(id).ord }))];
   applyOps(db, ops);
   return { ops, pageIds: [a.id], result: listPages(db) };
 }
+// PH-2 直し（R13）: start から「そのままの親」（parent_id）をたどって id に着くか（木の部品は輪の行を最上位に並べるので、壊れた輪の上では
+// canMoveUnder が見ない道がある。訪ねた印で止まる）
+function rawChainHas(byId, start, id) {
+  const seen = new Set();
+  for (let cur = start; cur !== null && cur !== undefined && !seen.has(cur); cur = byId.has(cur) ? byId.get(cur).parentId : null) {
+    if (cur === id) return true;
+    seen.add(cur);
+  }
+  return false;
+}
 // 今と同じ所か（最上位は並びが日付なので、最上位どうしはいつも同じ所。兄弟の中は今の前の兄弟と afterId で見る）
+// PH-2 直し（R16）: 兄弟は一覧に出るページだけで見る（間のゴミ箱の兄弟を数えない）
 function sameSpot(rows, me, to, afterId) {
   if (me.parentId !== to) return false;
   if (to === null) return true;
   if (afterId === me.id) return true;
-  const sibs = PT.pageTree(rows).kids.get(to) || [];
+  const sibs = PT.pageTree(rows.filter((r) => r.id === me.id || isListedRow(r))).kids.get(to) || [];
   const i = sibs.indexOf(me.id);
   if (afterId === undefined) return i === sibs.length - 1;
   if (afterId === '') return i === 0;
@@ -906,14 +928,17 @@ function sameSpot(rows, me, to, afterId) {
 // ゴミ箱から戻す（決めたこと 31・HR6）。一緒に消した子孫も。親がゴミ箱のまま・無いなら同じ命令で最上位へ → 一覧
 function pageRestore(db, a, ctx) {
   const rows = pageRowsOf(db);
-  const me = rows.find((r) => r.id === a.id);
+  const tree = PT.pageTree(rows);
+  const me = tree.byId.get(a.id);
   if (!me) throw refuse('bad-args');
+  if (isLive(me.attrs)) throw refuse('bad-args');   // PH-2 直し（R17）: 録音中の写しはゴミ箱から戻さない（写しの正本は録音のメモリと下書き）
   if (me.trashedAt === null) return { ops: [], pageIds: [], result: listPages(db) };   // ゴミ箱に無い（ほかの窓で戻した）
   const at = ctx.now().toISOString();
-  const was = new Map(rows.map((r) => [r.id, r.trashedAt]));
-  const ops = PT.restoreGroup(rows, a.id).map((id) => ({ op: 'restore', id, at, old: was.get(id) }));
-  const host = me.parentId === null ? null : rows.find((r) => r.id === me.parentId);
-  if (me.parentId !== null && (!host || host.trashedAt !== null)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱の親の下）に戻さない
+  // 一緒に消したまとまりの中の録音中の写し（壊れた行）は戻さない（R17）。木は1回だけ作る（R11）
+  const group = PT.restoreGroup(rows, a.id, tree).filter((id) => !isLive(tree.byId.get(id).attrs));
+  const ops = group.map((id) => ({ op: 'restore', id, at, old: tree.byId.get(id).trashedAt }));
+  const host = me.parentId === null ? null : tree.byId.get(me.parentId);
+  if (me.parentId !== null && !isListedRow(host)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱・録音中の写しの親の下・無い親）に戻さない
   applyOps(db, ops);
   return { ops, pageIds: [a.id], result: listPages(db) };
 }
@@ -922,16 +947,16 @@ function pageRestore(db, a, ctx) {
 const TRASH_MAX = 200;
 function trashHeads(db) {
   const rows = pageRowsOf(db);
-  const byId = new Map(rows.map((r) => [r.id, r]));
+  const tree = PT.pageTree(rows);   // 木は1回だけ作る（R11）。親は木の親（壊れた輪の行は最上位: R14）
   const heads = rows.filter((r) => r.trashedAt !== null && !isLive(r.attrs))
-    .filter((r) => { const up = r.parentId === null ? null : byId.get(r.parentId); return !up || up.trashedAt !== r.trashedAt; });
+    .filter((r) => { const up = tree.byId.get(tree.parent.get(r.id)); return !up || up.trashedAt !== r.trashedAt; });
   heads.sort((x, y) => (x.trashedAt < y.trashedAt ? 1 : x.trashedAt > y.trashedAt ? -1 : 0));
   return heads.slice(0, TRASH_MAX).map((r) => {
     const out = { id: r.id, title: r.title };
     if (r.attrs.kind === 'blank') out.kind = 'blank';
     if (typeof r.attrs.icon === 'string' && r.attrs.icon) out.icon = r.attrs.icon;
     out.trashedAt = r.trashedAt;
-    out.count = PT.restoreGroup(rows, r.id).length - 1;
+    out.count = PT.restoreGroup(rows, r.id, tree).length - 1;
     return out;
   });
 }
@@ -1430,4 +1455,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo };
+module.exports = { newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo };

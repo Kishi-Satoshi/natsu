@@ -389,3 +389,161 @@ test('PH-2: preload の 33 の名前・pageMove の引数（afterId が無けれ
   for (const m of p.sent.slice(0, 8)) assert.match(m.tx, /^a:[0-9a-f-]{36}$/, `${m.cmd} に tx が無い`);
   assert.strictEqual(p.sent[8].tx, undefined, '読む頼みに tx を付けた');
 });
+
+// ---------------------------------------------------------------- 0.15.0 PH-2 直し（2026-11-03 の点検。計画の R11〜R18）
+const PF = require('../tools/perf');
+test('PH-2 直し・R12: 木を歩くページの行は attrs の全部を読まない（HOT_QUERIES.pageRows の attrs は json_extract の中だけ。メモと要約を読み込まない）', T, () => {
+  const sql = C.HOT_QUERIES.pageRows;
+  assert.ok(!/\battrs\b/.test(sql.replace(/json_extract\(attrs, '\$\.[a-z.]+'\)/g, '')), sql);
+  assert.match(sql, /json_extract\(attrs, '\$\.meeting\.phase'\)/);
+});
+
+test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子孫）で pages.trash（頭 300）・page.move・子孫 1,000 の page.delete・page.restore が目安以内（3 回の中央値。読む命令は一覧の目安。書く命令は答えの一覧を作る分（同じ時に計った pages.list）を除いて、書き込みの目安の 2 倍。子孫 1,000 の削除と戻すは 1,000 行を書き、一覧に戻る 1,000 行を読み直すので一覧の目安）', { timeout: 120000 }, (tc) => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const memo = 'メモ'.repeat(500);
+    db.exec('BEGIN');
+    const ins = db.prepare("insert into blocks(id,type,page_id,parent_id,ord,text,rich,attrs,fold,rev,created_at,updated_at,trashed_at) values (?,?,?,?,?,?,null,?,'',1,?,?,null)");
+    const pid = (i) => `pp${String(i).padStart(5, '0')}`;
+    for (let i = 0; i < 5000; i++) {
+      ins.run(pid(i), 'page', pid(i), i > 0 && i <= 1000 ? pid(i - 1) : null, 'i', `題${i}`, JSON.stringify({ memo, date: '2026-10-01', meeting: { phase: 'done' } }),
+        new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(), '');
+    }
+    db.exec('COMMIT');
+    call(db, 'pages.list', {});   // 一覧の1行を覚える（画面が開いた後の形）
+    const budget = PF.budgetsFor(process.platform);
+    const timed = (f) => { const t0 = process.hrtime.bigint(); const r = f(); return [Number(process.hrtime.bigint() - t0) / 1e6, r]; };
+    const median = (xs) => [...xs].sort((a, b) => a - b)[1];
+    // 書く命令の答えは一覧（今の page.delete と同じ）。一覧を作る分は今の一覧の速さ（PERF の list）なので、すぐ前に計った pages.list を引いて木の分を見る
+    const listMs = () => timed(() => call(db, 'pages.list', {}))[0];
+    const moves = []; const dels = []; const rests = []; const one = []; const oneDel = [];
+    for (let k = 0; k < 3; k++) {
+      let l = listMs();
+      const [m, mr] = timed(() => move(db, 'pp04000', k % 2 ? 'pp00600' : 'pp00500'));
+      assert.strictEqual(mr.ok, true, mr.code); moves.push(m - l);
+      tick(); l = listMs();
+      const [d, dr] = timed(() => call(db, 'page.delete', { id: 'pp00000' }));
+      assert.strictEqual(dr.ok, true, dr.code); dels.push(d - l);
+      tick(); l = listMs();
+      const [r, rr] = timed(() => call(db, 'page.restore', { id: 'pp00000' }));
+      assert.strictEqual(rr.ok, true, rr.code); rests.push(r - l);
+      tick(); l = listMs();
+      const [od, odr] = timed(() => call(db, 'page.delete', { id: 'pp03000' }));
+      assert.strictEqual(odr.ok, true, odr.code); oneDel.push(od - l);
+      tick(); l = listMs();
+      const [o, or] = timed(() => call(db, 'page.restore', { id: 'pp03000' }));
+      assert.strictEqual(or.ok, true, or.code); one.push(o - l);
+    }
+    assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'page' and trashed_at is null").get().c, 5000);
+    // 頭 300 のゴミ箱（消した時刻を1つずつ違える）は SQL で作る（命令で消すと、答えの一覧を 300 回作る）
+    const trashAt = db.prepare('update blocks set trashed_at = ? where id = ?');
+    db.exec('BEGIN');
+    for (let i = 2000; i < 2300; i++) trashAt.run(new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString(), pid(i));
+    db.exec('COMMIT');
+    const trash = [];
+    for (let k = 0; k < 3; k++) { const [x, xr] = timed(() => call(db, 'pages.trash', {})); assert.strictEqual(xr.result.length, 200); trash.push(x); }
+    const write = budget['write-commit'] * 2;
+    tc.diagnostic(`pages.trash ${median(trash).toFixed(1)}・page.move ${median(moves).toFixed(1)}・page.delete ${median(dels).toFixed(1)}・page.restore（1,000）${median(rests).toFixed(1)}・page.delete（1）${median(oneDel).toFixed(1)}・page.restore（1）${median(one).toFixed(1)} ミリ秒（書く命令は一覧の分を引いた値）`);
+    assert.ok(median(trash) < budget.list, `pages.trash ${median(trash).toFixed(1)} ミリ秒`);
+    assert.ok(median(moves) < write, `page.move ${median(moves).toFixed(1)} ミリ秒`);
+    assert.ok(median(oneDel) < write, `page.delete（1 ページ）${median(oneDel).toFixed(1)} ミリ秒`);
+    assert.ok(median(dels) < budget.list, `page.delete（子孫 1,000）${median(dels).toFixed(1)} ミリ秒`);
+    assert.ok(median(one) < write, `page.restore（1 ページ）${median(one).toFixed(1)} ミリ秒`);
+    assert.ok(median(rests) < budget.list, `page.restore（1,000 ページ）${median(rests).toFixed(1)} ミリ秒`);
+  } finally { t.done(); }
+});
+
+test('PH-2 直し・R13: 前の版・壊れた行の輪（pa↔pb）があっても、動かして輪を大きくしない（pb を pa の子 pc の下へ動かすのは bad-args）', T, () => withDb((db) => {
+  db.prepare("update blocks set parent_id = 'pa2' where id = 'pa1'").run();
+  db.prepare("update blocks set parent_id = 'pa1', ord = 'm' where id = 'pa2'").run();
+  db.prepare("update blocks set parent_id = 'pa1', ord = 'n' where id = 'pa3'").run();
+  const snap = dump(db);
+  assert.strictEqual(move(db, 'pa2', 'pa3').code, 'bad-args', '輪の上の親をたどって自分に戻る所へ動かせた');
+  assert.deepStrictEqual(dump(db), snap);
+  assert.strictEqual(move(db, 'pa3', '').ok, true, '輪の外へは動かせる');
+  assert.strictEqual(move(db, 'pa2', '').ok, true, '輪の行を最上位へ出して直せる');
+  assert.strictEqual(rowOf(db, 'pa2').parent_id, null);
+}));
+
+test('PH-2 直し・R14: 輪のまま同じ時刻でゴミ箱に入った行（壊れた行）も、ゴミ箱の頭に出て戻せる', T, () => withDb((db) => {
+  const at = '2026-11-01T00:00:00.000Z';
+  db.prepare("update blocks set parent_id = 'pa3', trashed_at = ? where id = 'pa2'").run(at);
+  db.prepare("update blocks set parent_id = 'pa2', trashed_at = ? where id = 'pa3'").run(at);
+  const heads = call(db, 'pages.trash', {}).result.map((x) => x.id);
+  assert.ok(heads.includes('pa2') && heads.includes('pa3'), JSON.stringify(heads));
+  assert.strictEqual(call(db, 'page.restore', { id: 'pa2' }).ok, true);
+  assert.ok(listIds(db).includes('pa2'));
+}));
+
+test('PH-2 直し・R15: 同じ鍵の兄弟（壊れた行）の間へ動かすと、その間に並ぶ（後ろの兄弟の鍵を同じ命令で付け直す）', T, () => withDb((db) => {
+  const k1 = create(db, 'pa1'); const k2 = create(db, 'pa1'); const k3 = create(db, 'pa1');
+  db.prepare('update blocks set ord = \'m\' where id in (?, ?)').run(k1, k2);
+  const m = move(db, k3, 'pa1', k1);
+  assert.strictEqual(m.ok, true, m.code);
+  assert.deepStrictEqual(kidsInList(db, 'pa1'), [k1, k3, k2]);
+  const ops = JSON.parse(db.prepare('select ops from oplog where tx = ?').get(m.tx).ops);
+  assert.deepStrictEqual(ops.map((o) => [o.op, o.id, Object.hasOwn(o, 'parent')]), [['move', k3, false], ['move', k2, false]], '1つの命令に積む');
+}));
+
+test('PH-2 直し・R16: 同じ所かどうかと兄弟の鍵は、一覧に出る兄弟だけで見る（間のゴミ箱の兄弟を数えない: 決めたこと 16）', T, () => withDb((db) => {
+  const k1 = create(db, 'pa1'); const k2 = create(db, 'pa1'); const k3 = create(db, 'pa1');
+  tick(); call(db, 'page.delete', { id: k2 });
+  const before = rowOf(db, k3);
+  const s = move(db, k3, 'pa1', k1);
+  assert.strictEqual(s.ok, true, s.code);
+  assert.strictEqual(s.changed, undefined, '見えている並びが同じなのに書いた');
+  assert.deepStrictEqual(rowOf(db, k3), before);
+  // 頭へ（見えている兄弟の頭は k1）
+  assert.strictEqual(move(db, k3, 'pa1', '').ok, true);
+  assert.deepStrictEqual(kidsInList(db, 'pa1'), [k3, k1]);
+}));
+
+test('PH-2 直し・R17: 録音中の写しは戻さない（page.restore は bad-args・一緒に消したまとまりの中の写しは戻さない）。親が録音中の写しなら最上位へ戻す。pages.trash に写しを出さない', T, () => withDb((db) => {
+  assert.strictEqual(call(db, 'meeting.begin', { pageId: 'plive3', startedAt: clock }, 'main').ok, true);
+  tick();
+  assert.strictEqual(call(db, 'page.delete', { id: 'plive3' }).ok, true);
+  assert.ok(rowOf(db, 'plive3').trashed_at);
+  assert.ok(!call(db, 'pages.trash', {}).result.some((x) => x.id === 'plive3'), 'ゴミ箱に録音中の写しを出した');
+  const snap = dump(db);
+  assert.strictEqual(call(db, 'page.restore', { id: 'plive3' }).code, 'bad-args', '録音中の写しを戻した');
+  assert.deepStrictEqual(dump(db), snap);
+  // 親が録音中の写し（壊れた行）のページを戻すと最上位へ
+  const c = create(db, 'pa1');
+  tick(); call(db, 'page.delete', { id: c });
+  db.prepare("update blocks set parent_id = 'plive4' where id = ?").run(c);
+  assert.strictEqual(call(db, 'meeting.begin', { pageId: 'plive4', startedAt: clock }, 'main').ok, true);
+  assert.strictEqual(call(db, 'page.restore', { id: c }).ok, true);
+  assert.deepStrictEqual([rowOf(db, c).trashed_at, rowOf(db, c).parent_id], [null, null], '見えない所（録音中の写しの下）に戻した');
+  // 一緒に消したまとまりの中の写し（壊れた行）は戻さない
+  const h = create(db, 'pa2');
+  db.prepare("update blocks set parent_id = ? where id = 'plive4'").run(h);
+  tick(); assert.strictEqual(call(db, 'page.delete', { id: h }).ok, true);
+  const at = rowOf(db, h).trashed_at;
+  db.prepare('update blocks set trashed_at = ? where id = \'plive4\'').run(at);
+  assert.strictEqual(call(db, 'page.restore', { id: h }).ok, true);
+  assert.strictEqual(rowOf(db, h).trashed_at, null);
+  assert.strictEqual(rowOf(db, 'plive4').trashed_at, at, '録音中の写しを一緒に戻した');
+}));
+
+test('PH-2 直し・R17: meeting.discard は、ゴミ箱にある子の行も最上位へ出す（ゴミ箱の時刻はそのまま。戻すと最上位に出る）', T, () => withDb((db) => {
+  assert.strictEqual(call(db, 'meeting.begin', { pageId: 'plive5', startedAt: clock }, 'main').ok, true);
+  db.prepare("update blocks set parent_id = 'plive5', trashed_at = '2026-11-01T00:00:00.000Z' where id = 'pa3'").run();
+  db.prepare("update blocks set parent_id = 'plive5' where id = 'pa2'").run();
+  assert.strictEqual(call(db, 'meeting.discard', { pageId: 'plive5' }, 'main').ok, true);
+  assert.deepStrictEqual([rowOf(db, 'pa3').parent_id, rowOf(db, 'pa3').trashed_at], [null, '2026-11-01T00:00:00.000Z']);
+  assert.strictEqual(rowOf(db, 'pa2').parent_id, null);
+  assert.ok(call(db, 'pages.trash', {}).result.some((x) => x.id === 'pa3'));
+}));
+
+test('PH-2 直し・R17: 新しいページの ID は、同じ ID のページがあれば作り直す（newPageId の重なりの照らし）', T, () => withDb((db, t) => {
+  const fixed = () => new Date('2026-11-03T01:00:00.000Z');
+  const a = C.newPageId(db, fixed, () => 7);
+  assert.match(a, /^p[a-z0-9]{1,40}$/);
+  t.seed(pageOf(a).page, []);
+  const seq = [7, 7, 9];
+  const b = C.newPageId(db, fixed, () => seq.shift());
+  assert.notStrictEqual(b, a, '同じ ID を返した');
+  assert.match(b, /^p[a-z0-9]{1,40}$/);
+  assert.deepStrictEqual(seq, [], '重なりを見ずに返した');
+}));
