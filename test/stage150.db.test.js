@@ -898,3 +898,136 @@ test('PR-1: preload の pageCreate(parentId, placeAt) は placeAt があると�
     ['page.create', {}], ['page.create', { parentId: 'pa1' }], ['page.create', { parentId: 'pa1', placeAt: 'b1' }], ['page.create', { placeAt: 'b1' }],
   ]);
 });
+
+// ---------------------------------------------------------------- 0.15.0 PR-1 直し（2026-11-03 の 76fb1c4..0828257 の点検。計画の R32〜）
+const subsRaw = (db, id) => db.prepare("select json_extract(attrs, '$.page') as page from blocks where page_id = ? and type = 'subpage' order by ord").all(id).map((r) => r.page);
+
+test('PR-1 直し・R32: page.move の操作の old は、本文の順から作った鍵でなく、表に書いてあるページの行の ord（後ろへ当てると表の ord に戻る）', T, () => withDb((db) => {
+  const P = create(db); const Q = create(db);
+  const K1 = create(db, P); const K2 = create(db, P); const K3 = create(db, P);
+  // 本文で K3 の行を頭へ（一覧の並びの鍵は本文の順から作るので、K3 の作った鍵とずれる）
+  ok(call(db, 'blocks.move', { pageId: P, ids: [subRow(db, P, K3).id], afterId: '' }), 'blocks.move');
+  const stored = rowOf(db, K3).ord;
+  const shown = call(db, 'pages.list', {}).result.find((p) => p.id === K3).ord;
+  assert.notStrictEqual(shown, stored, '見本が悪い: 一覧の鍵と表の鍵が同じ');
+  const r = ok(move(db, K3, Q), 'page.move');
+  const op = opsOf(db, r.tx).find((o) => o.op === 'move' && o.id === K3);
+  assert.strictEqual(op.old, stored, `move の old が表の ord でない（${op.old}）`);
+  applyOps(db, opsOf(db, r.tx), 'backward');
+  assert.strictEqual(rowOf(db, K3).ord, stored, '後ろへ当てても表の ord に戻らない');
+  void K1; void K2;
+}));
+
+test('PR-1 直し・R33（決めたこと 58）: 本文が 2,000 行の白紙のページの中に作る・動かし入れる・戻すと、ページは作る・動かす・戻すが行は足さない（本文は 2,000 行のまま・子は「このページの中のページ」に出る形）。/ページ の文の無い行は替えるので置ける', T, () => withDb((db, t) => {
+  const N = 2000;
+  const blocks = Array.from({ length: N }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: i === N - 1 ? '' : `行${i}` }));
+  t.seed({ id: 'pfull', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  const count = () => db.prepare('select count(*) as c from blocks where page_id = ? and id <> ?').get('pfull', 'pfull').c;
+  assert.strictEqual(count(), N);
+  // 作る: ページはでき、親は pfull・行は無い
+  tick();
+  const K = ok(call(db, 'page.create', { parentId: 'pfull' }), 'page.create').result.id;
+  assert.strictEqual(rowOf(db, K).parent_id, 'pfull');
+  assert.deepStrictEqual([count(), subsRaw(db, 'pfull')], [N, []], '2,000 行の本文に行を足した');
+  assert.ok(listIds(db).includes(K), '作ったページが一覧に無い');
+  // 動かし入れる: 動かすが行は足さない
+  const Q = create(db); const K2 = create(db, Q);
+  ok(move(db, K2, 'pfull'), 'page.move');
+  assert.deepStrictEqual([rowOf(db, K2).parent_id, count(), subsOf(db, Q)], ['pfull', N, []], '動かし入れて行を足したか、前の親の行が残る');
+  // 戻す: 行を1つ空けて作った子を消し、空いた所を埋めてから戻す → 戻るが行は足さない
+  const K3 = create(db, Q);
+  ok(move(db, K3, 'pfull'), 'page.move');
+  ok(call(db, 'block.remove', { pageId: 'pfull', blockId: 'fz0' }), 'block.remove');
+  ok(move(db, K3, 'pfull', ''), 'page.move');   // 同じ親の中の並べ替え（兄弟の頭へ。行が無いので本文の最後に置く）→ 1,999 + 1
+  assert.deepStrictEqual([count(), subsRaw(db, 'pfull')], [N, [K3]]);
+  tick();
+  ok(call(db, 'page.delete', { id: K3 }), 'page.delete');
+  insert(db, 'pfull', 'fz1');
+  assert.strictEqual(count(), N);
+  tick();
+  ok(call(db, 'page.restore', { id: K3 }), 'page.restore');
+  assert.deepStrictEqual([trashedAt(db, K3), rowOf(db, K3).parent_id, count(), subsRaw(db, 'pfull')], [null, 'pfull', N, []], '戻したページが無いか、2,000 行の本文に行を足した');
+  // /ページ の文の無い行（fz1999）は子ページの行に替わる（数は変わらない）
+  tick();
+  const K4 = ok(call(db, 'page.create', { parentId: 'pfull', placeAt: `fz${N - 1}` }), 'page.create').result.id;
+  assert.deepStrictEqual([count(), subsRaw(db, 'pfull')], [N, [K4]]);
+}));
+
+test('PR-1 直し・R34: 親がゴミ箱の白紙のページの子を戻すと、最上位へ出し、同じ命令でゴミ箱の親の本文から行を消す（後で親を戻しても灰色の行が残らない）', T, () => withDb((db) => {
+  const P = create(db);
+  const K = create(db, P);
+  tick();
+  ok(call(db, 'page.delete', { id: P }), 'page.delete');   // P と K が同じ時刻でゴミ箱（P の本文の K の行はそのまま）
+  assert.deepStrictEqual(subsRaw(db, P), [K]);
+  tick();
+  const before = oplogN(db);
+  ok(call(db, 'page.restore', { id: K }), 'page.restore');
+  assert.strictEqual(oplogN(db), before + 1, 'oplog は1行');
+  assert.deepStrictEqual([rowOf(db, K).parent_id, trashedAt(db, K)], [null, null], '最上位に戻らない');
+  assert.deepStrictEqual(subsRaw(db, P), [], 'ゴミ箱の親の本文に行が残る');
+  assert.ok(trashedAt(db, P), '親まで戻した');
+  tick();
+  ok(call(db, 'page.restore', { id: P }), 'page.restore');
+  assert.deepStrictEqual(subsOf(db, P), [], '親を戻すと、もう子でないページの行が出る');
+  sameTree(db);
+}));
+
+test('PR-1 直し・R35: 同じページを指す行が本文に2つ（前の版の写し）→ サイドバーで消すと先の行だけが消え、戻すと残った行を使って行を足さない（行はちょうど1つ）', T, () => withDb((db) => {
+  const P = create(db);
+  const K = create(db, P);
+  const first = subRow(db, P, K).id;
+  applyOps(db, [{ op: 'add', id: 'btwin1', row: { ...O.blockRow({ id: 'btwin1', type: 'subpage', text: '' }, P, 'zz'), attrs: { page: K } } }]);
+  assert.deepStrictEqual(subsOf(db, P), [K, K]);
+  tick();
+  ok(call(db, 'page.delete', { id: K }), 'page.delete');
+  assert.deepStrictEqual(flat(bodyOf(db, P)).filter((b) => b.type === 'subpage').map((b) => b.id), ['btwin1'], '先の行が消えない');
+  tick();
+  ok(call(db, 'page.restore', { id: K }), 'page.restore');
+  assert.deepStrictEqual(flat(bodyOf(db, P)).filter((b) => b.type === 'subpage').map((b) => [b.id, b.page]), [['btwin1', K]], '戻すと行が2つになった（残った行があるのに足した）');
+  assert.ok(!flat(bodyOf(db, P)).some((b) => b.id === first));
+  sameTree(db);
+}));
+
+test('PR-1 直し・R36: 消した行の edit.revert は、間にゴミ箱から戻して動かした・戻して消し直した後も stale。戻した歩みのやり直しも、間に動かした・中のページ（子孫）だけを消した後は stale（何も変えない）', T, () => withDb((db) => {
+  const Q = create(db);
+  const setup = () => {
+    const P = create(db);
+    const K = create(db, P); const G = create(db, K);
+    tick();
+    const s = ok(call(db, 'block.remove', { pageId: P, blockId: subRow(db, P, K).id }), 'block.remove');
+    return { P, K, G, s };
+  };
+  const staleNow = (pageId, step, what) => {
+    const was = dump(db);
+    tick();
+    const r = call(db, 'edit.revert', { pageId, steps: [step] });
+    assert.strictEqual(r.code, 'stale', `${what}: ${r.code}`);
+    assert.deepStrictEqual(dump(db), was, `${what}: stale なのに何か変えた`);
+  };
+  // 戻す: 間にゴミ箱から戻して動かした
+  { const { P, K, s } = setup(); tick(); ok(call(db, 'page.restore', { id: K }), 'page.restore'); ok(move(db, K, Q), 'page.move'); staleNow(P, s.tx, '戻して動かした'); }
+  // 戻す: 間にゴミ箱から戻して消し直した
+  { const { P, K, s } = setup(); tick(); ok(call(db, 'page.restore', { id: K }), 'page.restore'); tick(); ok(call(db, 'page.delete', { id: K }), 'page.delete'); staleNow(P, s.tx, '戻して消し直した'); }
+  // やり直し: 戻した後に動かした
+  { const { P, K, s } = setup(); tick(); const u = ok(call(db, 'edit.revert', { pageId: P, steps: [s.tx] }), 'edit.revert'); ok(move(db, K, Q), 'page.move'); staleNow(P, u.tx, 'やり直しの前に動かした'); }
+  // やり直し: 戻した後に中のページ（子孫 G）だけを消した（P の本文は変わらない）
+  { const { P, G, s } = setup(); tick(); const u = ok(call(db, 'edit.revert', { pageId: P, steps: [s.tx] }), 'edit.revert'); tick(); ok(call(db, 'page.delete', { id: G }), 'page.delete'); staleNow(P, u.tx, 'やり直しの前に中のページを消した'); }
+}));
+
+test('PR-1 直し・R37（決めたこと 43）: 子ページの行は色（飾り）を持たない。blocks.setColor は子ページの行だけなら bad-args、ほかの行と一緒なら子ページの行を除いて付ける（トグルの中の子ページの行も）', T, () => withDb((db) => {
+  const P = create(db);
+  const K = create(db, P);
+  const row = subRow(db, P, K).id;
+  const para = insert(db, P, row);
+  const was = dump(db);
+  for (const color of ['red', 'red_bg', '']) assert.strictEqual(call(db, 'blocks.setColor', { pageId: P, ids: [row], color }).code, 'bad-args', `子ページの行だけの色 ${color}`);
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+  ok(call(db, 'blocks.setColor', { pageId: P, ids: [row, para], color: 'red' }), 'blocks.setColor');
+  const colorOf = (id) => flat(bodyOf(db, P)).find((b) => b.id === id).color;
+  assert.deepStrictEqual([colorOf(row), colorOf(para)], [undefined, 'red'], '子ページの行に色を付けたか、ほかの行に付けない');
+  const tg = insert(db, P, para, 'toggle');
+  ok(call(db, 'block.move', { pageId: P, blockId: row, afterId: '', parentId: tg }), 'block.move');
+  ok(call(db, 'blocks.setColor', { pageId: P, ids: [tg], color: 'blue_bg' }), 'blocks.setColor');
+  assert.deepStrictEqual([colorOf(tg), colorOf(row)], ['blue_bg', undefined], 'トグルの中の子ページの行に色を付けた');
+  sameTree(db);
+}));

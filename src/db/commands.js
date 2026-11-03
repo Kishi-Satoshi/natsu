@@ -163,8 +163,8 @@ function saveOps(was, page, now, keepTime = false) {
 }
 
 // 書くための読み: 生の形と、markShortBlocks を当てた写し（今の store が getPage → 直す → savePage するのと同じ）
-function forWrite(db, id) {
-  const was = loadPage(db, id);
+function forWrite(db, id, { trashed = false } = {}) {
+  const was = loadPage(db, id, { trashed });   // 0.15.0 PR-1 直し（R34）: ゴミ箱の白紙のページの本文も直せる（呼び手が trashed を渡したときだけ）
   if (!was) return null;
   const page = clone(was.page);
   R.markShortBlocks(page.blocks);
@@ -890,7 +890,9 @@ function pageCreate(db, a, ctx) {
 
 // 動かす（決めたこと 4・5・9・16・21）。'' は最上位。afterId は兄弟の後ろ（'' は頭・無ければ末尾。最上位は鍵で並べないので見ない）→ 一覧
 function pageMove(db, a, ctx) {
-  const rows = withBodyOrds(db, pageRowsOf(db));   // 0.15.0 PR-1（HR14）: 白紙のページの子は本文の行の順で「同じ所」と兄弟の鍵を見る
+  const raw = pageRowsOf(db);
+  const rows = withBodyOrds(db, raw);   // 0.15.0 PR-1（HR14）: 白紙のページの子は本文の行の順で「同じ所」と兄弟の鍵を見る
+  const stored = new Map(raw.map((r) => [r.id, r.ord]));   // PR-1 直し（R32）: 操作の old は表に書いてある ord（本文の順から作った鍵でない）
   const tree = PT.pageTree(rows);
   const me = tree.byId.get(a.id);
   if (!me || me.trashedAt !== null) throw refuse('bad-args');   // 無い・ゴミ箱のページは動かさない
@@ -909,8 +911,8 @@ function pageMove(db, a, ctx) {
   // PH-2 直し（R16）: 兄弟は一覧に出るページだけ（ゴミ箱・録音中の写しの兄弟は並びに数えない）。同じ鍵の後ろの兄弟は付け直す（R15）
   const others = rows.filter((r) => r.id !== a.id && isListedRow(r));
   const place = to === null ? { ord: PT.TOP_ORD, rekey: [] } : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
-  const ops = [{ op: 'move', id: a.id, ord: place.ord, old: me.ord, ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
-    ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: tree.byId.get(id).ord }))];
+  const ops = [{ op: 'move', id: a.id, ord: place.ord, old: stored.get(a.id), ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
+    ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: stored.get(id) }))];
   // 0.15.0 PR-1（決めたこと 45・46・48・HR12）: 同じ命令で、前の親（白紙のページ）の本文の行を外し、新しい親（白紙のページ）の本文に置く
   // （兄弟の後ろなら兄弟の行のすぐ後ろ・頭なら兄弟の最初の行の前・ほかは本文の最後）。同じ白紙のページの中の並べ替えは行を動かす
   const sibs = new Set(to === null ? [] : PT.pageTree(others).kids.get(to) || []);
@@ -963,6 +965,9 @@ function pageRestore(db, a, ctx) {
   const ops = group.map((id) => ({ op: 'restore', id, at, old: tree.byId.get(id).trashedAt }));
   const host = me.parentId === null ? null : tree.byId.get(me.parentId);
   if (me.parentId !== null && !isListedRow(host)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱・録音中の写しの親の下・無い親）に戻さない
+  // PR-1 直し（R34）: 最上位へ出すページの行が、ゴミ箱の白紙の親の本文に残っていれば同じ命令で消す（後で親を戻したときに灰色の行を残さない）
+  const left = host && host.trashedAt !== null && isBlankPage(host.attrs) ? bodyOps(db, host.id, ctx, (p, was) => (takeSubRow(p, was, a.id) ? undefined : false), { trashed: true }) : null;
+  if (left) ops.push(...left);
   // 0.15.0 PR-1（決めたこと 45・54・HR15）: 親が白紙のページなら、同じ命令でその本文に行を戻す（覚えた置き場がまだあればそこ・無ければ本文の最後。
   // 行がもうあれば足さない）。覚えた置き場は戻したら消す
   const rowAt = rowAtOf(db, a.id);
@@ -1005,10 +1010,15 @@ function subSpot(blocks, pageId) {
   return w ? BT.locate(blocks, w.b.id) : null;
 }
 // 白紙のページの本文を直す操作（当てない。呼び手がページの行の操作と1つの列にして当てる）。白紙のページでない・無い・fn が false なら null
-function bodyOps(db, pageId, ctx, fn) {
-  const w = forWrite(db, pageId);
+// PR-1 直し（R33・決めたこと 58）: 行を足して本文が LIMITS.blocks を越えるなら、本文は変えない（null。ページの命令はそのまま通し、行の無い子は
+// 「このページの中のページ」に出る: 決めたこと 55。ページを断らない・失わない）。trashed はゴミ箱の白紙のページの本文も読む（R34）
+function bodyOps(db, pageId, ctx, fn, { trashed = false } = {}) {
+  const w = forWrite(db, pageId, { trashed });
   if (!w || !isBlankPage(w.was.page)) return null;
+  const n0 = BT.flattenBlocks(w.page.blocks).length;
   if (fn(w.page, w.was) === false) return null;
+  const n = BT.flattenBlocks(w.page.blocks).length;
+  if (n > n0 && n > LIMITS.blocks) return null;
   return saveOps(w.was, w.page, ctx.now);
 }
 // 子ページの行を置く（決めたこと 45・48・HR12・HR13）。本文にそのページの行がもうあれば（前の版の行・食い違った行）、新しく作らずに動かす。
@@ -1562,8 +1572,11 @@ const DEFS = {
   // 0.14.0 EK-2（決めたこと 31・R122）: 親の行の色は子孫の行にも付ける・外す（親を選ぶと子も選んだものとして扱う）
   'blocks.setColor': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids', color: 'blockColor' },
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
-      for (const top of pickRoots(p.blocks, a.ids)) {
-        for (const x of BT.flattenBlocks([top])) { if (a.color) x.color = a.color; else delete x.color; }
+      // 0.15.0 PR-1 直し（R37・決めたこと 43）: 子ページの行は色（飾り）を持たない。子ページの行だけなら断り、ほかの行と一緒なら除く（複製と同じ）
+      const tops = pickRoots(p.blocks, a.ids);
+      if (tops.every(isSubRow)) throw refuse('bad-args');
+      for (const top of tops) {
+        for (const x of BT.flattenBlocks([top])) { if (isSubRow(x)) continue; if (a.color) x.color = a.color; else delete x.color; }
       }
     }, { summary: true }),
     dupResult: reread },
