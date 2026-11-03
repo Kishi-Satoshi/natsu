@@ -6708,7 +6708,8 @@ function setupIpc() {
     return true;
   });
   // 0.14.0 EB-5（決めたこと 20・33）: 行の飾りのリンクを開く（照らし直してから。答えは開いたか）
-  ipcMain.handle('app:open-link', (_e, url) => openRowLink(url));
+  // 0.14.0 EB-5 直し（R209）: 本体の窓の画面から来たときだけ受ける（録音バー・ログインの窓・ヘルプの窓から既定のブラウザやページを開かせない。ほかは false）
+  ipcMain.handle('app:open-link', (e, url) => (fromMainWin(e) ? openRowLink(url) : false));
   ipcMain.handle('app:version', () => ({ version: app.getVersion(), repo: updater.REPO }));
   ipcMain.handle('update:check', async () => {
     const r = await updater.check(app.getVersion(), app.getPath('userData'));
