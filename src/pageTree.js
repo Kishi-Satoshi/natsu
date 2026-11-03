@@ -5,7 +5,7 @@
 // 行の形: { id, parentId（null か文字）, ord, createdAt, trashedAt? }（一覧の1行か、DB のページの行を読んだもの）。
 // 輪や、親が rows に無い行（前の版で親だけを消した・壊れた行）は捨てずに最上位に並べ、orphans に数える（HR2。訪ねた印で必ず止まる）。
 // 木を歩くのは SQL の再帰でなく、ここの JS（決めたこと 6: 索引の無い parent_id の再帰は 1,000 段で約 3 秒・JS は約 10 ミリ秒）。
-const { keyBetween } = require('./db/keys');
+const { keysBetween } = require('./db/keys');
 
 // 最上位のページの並びの鍵（ops.js の PAGE_ORD と同じ。最上位は作った新しい順なので鍵で並べない: BQ5 (a)）
 const TOP_ORD = 'i';
@@ -14,7 +14,8 @@ const has = (m, k) => m.has(k);
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const parentOf = (r) => (r && typeof r.parentId === 'string' && r.parentId ? r.parentId : null);
 
-// rows → { roots: [id], kids: Map(id → [id]), parent: Map(id → id|null), orphans: n }
+// rows → { roots: [id], kids: Map(id → [id]), parent: Map(id → id|null), orphans: n, byId: Map(id → 行) }
+// （byId は PH-1 直し: R11。trashGroup・restoreGroup が同じ木を何度も使うときに、行を引き直さない）
 // 最上位は createdAt の新しい順（BQ5 (a)。同じなら rows の順）。子は ord の順（同じ鍵なら createdAt の古い順）
 function pageTree(rows) {
   const list = Array.isArray(rows) ? rows.filter((r) => r && typeof r.id === 'string') : [];
@@ -57,7 +58,7 @@ function pageTree(rows) {
   for (const ks of kids.values()) {
     ks.sort((a, b) => cmp(String(at(a).ord ?? ''), String(at(b).ord ?? '')) || cmp(String(at(a).createdAt ?? ''), String(at(b).createdAt ?? '')));
   }
-  return { roots, kids, parent, orphans };
+  return { roots, kids, parent, orphans, byId };
 }
 
 const kidsIn = (tree, id) => (tree && tree.kids && has(tree.kids, id) ? tree.kids.get(id) : []);
@@ -127,31 +128,35 @@ const ordIn = (ords, id) => {
   const v = ords instanceof Map ? ords.get(id) : (ords && Object.hasOwn(ords, id) ? ords[id] : undefined);
   return keyOk(v) ? v : null;
 };
-// lo と hi（null は端）の間の鍵。鍵が同じ・逆の順（壊れた行）なら lo の後ろ（投げない）
-function between(lo, hi) {
-  if (lo !== null && hi !== null && lo >= hi) return keyBetween(lo, null);
-  return keyBetween(lo, hi);
-}
-
 // parentId の子の並びで afterId の後ろに入れる鍵（afterId が '' なら頭・undefined なら末尾）。ords は id → ord（Map か物）。
-// 呼び手は動かすページを除いた木を渡す（自分の今の鍵を兄弟に数えない）。最上位（parentId が null）は鍵で並べないので TOP_ORD（BQ5 (a)）
-function siblingKey(tree, ords, parentId, afterId) {
-  if (parentId === null || parentId === undefined || parentId === '') return TOP_ORD;
+// 呼び手は動かすページを除いた木を渡す（自分の今の鍵を兄弟に数えない）。最上位（parentId が null）は鍵で並べないので TOP_ORD（BQ5 (a)）。
+// → { ord, rekey: [[id, ord]] }。PH-1 直し（R15）: 後ろの兄弟の鍵が前の兄弟と同じ（壊れた行・前の版の行）なら、その兄弟は入れるページの後ろへ
+// 鍵を付け直す（rekey。呼び手が同じ命令の move に積む）。同じ鍵の間には鍵を作れないので、付け直さないと入れるページが同じ鍵の後ろへずれる
+function placeKeys(tree, ords, parentId, afterId) {
+  if (parentId === null || parentId === undefined || parentId === '') return { ord: TOP_ORD, rekey: [] };
   const sibs = kidsIn(tree, parentId);
   const keysOf = sibs.map((id) => ordIn(ords, id));
-  if (afterId === undefined || afterId === null) return between(keysOf.length ? keysOf[keysOf.length - 1] : null, null);
-  if (afterId === '') return between(null, keysOf.length ? keysOf[0] : null);
-  const i = sibs.indexOf(afterId);
-  if (i < 0) return between(keysOf.length ? keysOf[keysOf.length - 1] : null, null);   // 兄弟でない ID は末尾
-  return between(keysOf[i], i + 1 < keysOf.length ? keysOf[i + 1] : null);
+  let i;   // この位置の兄弟の後ろに入れる（-1 は頭）
+  if (afterId === undefined || afterId === null) i = sibs.length - 1;
+  else if (afterId === '') i = -1;
+  else { i = sibs.indexOf(afterId); if (i < 0) i = sibs.length - 1; }   // 兄弟でない ID は末尾
+  const lo = i >= 0 ? keysOf[i] : null;
+  let j = i + 1;
+  while (j < sibs.length && lo !== null && keysOf[j] !== null && keysOf[j] <= lo) j++;
+  const hi = j < sibs.length ? keysOf[j] : null;
+  const keys = keysBetween(lo, hi, j - i);
+  return { ord: keys[0], rekey: sibs.slice(i + 1, j).map((id, k) => [id, keys[k + 1]]) };
+}
+function siblingKey(tree, ords, parentId, afterId) {
+  return placeKeys(tree, ords, parentId, afterId).ord;
 }
 
 const trashedOf = (r) => (r && r.trashedAt !== null && r.trashedAt !== undefined && r.trashedAt !== '' ? r.trashedAt : null);
 
 // id と、ゴミ箱に入っていない子孫（もうゴミ箱にある子の下は、その子のまとまりなので入れない。先に消した時刻を書き換えない: 決めたこと 30）
-function trashGroup(rows, id) {
-  const tree = pageTree(rows);
-  const byId = new Map((Array.isArray(rows) ? rows : []).filter((r) => r && typeof r.id === 'string').map((r) => [r.id, r]));
+// tree は rows から作った木（無ければ作る。頭をいくつも歩くときは1回だけ作って渡す: R11）
+function trashGroup(rows, id, tree = pageTree(rows)) {
+  const byId = tree.byId;
   if (!byId.has(id)) return [];
   const out = [id];
   const seen = new Set([id]);
@@ -169,9 +174,8 @@ function trashGroup(rows, id) {
 }
 
 // id と、id と同じ時刻にゴミ箱に入った子孫（間にほかの時刻で消した子・ゴミ箱に無い子があれば、その下は入れない: 決めたこと 31）
-function restoreGroup(rows, id) {
-  const tree = pageTree(rows);
-  const byId = new Map((Array.isArray(rows) ? rows : []).filter((r) => r && typeof r.id === 'string').map((r) => [r.id, r]));
+function restoreGroup(rows, id, tree = pageTree(rows)) {
+  const byId = tree.byId;
   if (!byId.has(id)) return [];
   const at = trashedOf(byId.get(id));
   const out = [id];
@@ -217,4 +221,4 @@ function placeText(tree, titleOf, id, max = 5) {
   return (ids.length > n ? ['…', ...parts] : parts).join(' / ');
 }
 
-module.exports = { TOP_ORD, pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, siblingKey, trashGroup, restoreGroup, pageDropSpot, placeText };
+module.exports = { TOP_ORD, pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, siblingKey, placeKeys, trashGroup, restoreGroup, pageDropSpot, placeText };

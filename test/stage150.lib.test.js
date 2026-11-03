@@ -226,3 +226,42 @@ test('PH-1・F118: winstate の tree.open（形の悪い ID・重なり・501 �
   assert.deepStrictEqual(W.applyUi(good(), { tree: 'x' }).tree, { open: ['pa1', 'pb2'] }, '形の悪い値で今の開け閉めを消した');
   assert.deepStrictEqual(W.applyUi(W.defaults(), { tree: { open: ['pa1'] } }).tree, { open: ['pa1'] });
 });
+
+// ---------------------------------------------------------------- 0.15.0 PH-1 直し（2026-11-03 の点検。計画の R11・R15）
+test('PH-1 直し・R11: trashGroup・restoreGroup は作った木を受け、同じ答え。5,000 ページで頭 300 個の restoreGroup が 100 ミリ秒以内（木を1回だけ作る）', () => {
+  const T0 = '2026-11-02T10:00:00.000Z';
+  const rows = [];
+  for (let i = 0; i < 5000; i++) {
+    const parent = i % 10 === 0 ? null : `pq${i - (i % 10)}`;
+    rows.push(row(`pq${i}`, parent, `k${i % 10 || 1}`, `2026-10-01T00:00:${String(i % 60).padStart(2, '0')}.${String(i % 1000).padStart(3, '0')}Z`, i < 3000 ? T0 : undefined));
+  }
+  const tree = T.pageTree(rows);
+  assert.deepStrictEqual(T.restoreGroup(rows, 'pq10', tree), T.restoreGroup(rows, 'pq10'));
+  assert.deepStrictEqual(T.trashGroup(rows, 'pq4000', tree), T.trashGroup(rows, 'pq4000'));
+  assert.strictEqual(T.restoreGroup(rows, 'pq10', tree).length, 10);
+  const times = [];
+  for (let n = 0; n < 3; n++) {
+    const t0 = process.hrtime.bigint();
+    const t = T.pageTree(rows);
+    for (let h = 0; h < 300; h++) T.restoreGroup(rows, `pq${h * 10}`, t);
+    times.push(Number(process.hrtime.bigint() - t0) / 1e6);
+  }
+  times.sort((a, b) => a - b);
+  assert.ok(times[1] < 100, `中央値 ${times[1].toFixed(1)} ミリ秒`);
+});
+
+test('PH-1 直し・R15: placeKeys は同じ鍵の兄弟（壊れた行）の間にも入れる（後ろの同じ鍵の兄弟は入れるページの後ろへ鍵を付け直す）。siblingKey は placeKeys の ord', () => {
+  const rows = [row('pp', null, 'i', day('11-01')), row('pk1', 'pp', 'm', day('11-01')), row('pk2', 'pp', 'm', day('11-02')), row('pk4', 'pp', 'q', day('11-03'))];
+  const tree = T.pageTree(rows);
+  const ords = new Map(rows.map((r) => [r.id, r.ord]));
+  const p = T.placeKeys(tree, ords, 'pp', 'pk1');
+  assert.deepStrictEqual(p.rekey.map(([id]) => id), ['pk2'], '同じ鍵の後ろの兄弟を付け直さない');
+  assert.ok(p.ord > 'm' && p.rekey[0][1] > p.ord && p.rekey[0][1] < 'q', JSON.stringify(p));
+  // 当てた後の並びは pk1・入れたページ・pk2・pk4
+  const after = [...rows, row('pk3', 'pp', p.ord, day('11-04'))].map((r) => (r.id === 'pk2' ? { ...r, ord: p.rekey[0][1] } : r));
+  assert.deepStrictEqual(T.pageTree(after).kids.get('pp'), ['pk1', 'pk3', 'pk2', 'pk4']);
+  assert.strictEqual(T.siblingKey(tree, ords, 'pp', 'pk1'), p.ord);
+  // 鍵の違う兄弟の間・頭・末尾・最上位は付け直さない
+  for (const after2 of ['pk2', '', undefined, 'pk4']) assert.deepStrictEqual(T.placeKeys(tree, ords, 'pp', after2).rekey, [], String(after2));
+  assert.deepStrictEqual(T.placeKeys(tree, ords, null, 'pk1'), { ord: T.TOP_ORD, rekey: [] });
+});
