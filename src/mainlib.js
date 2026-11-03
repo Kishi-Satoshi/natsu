@@ -940,6 +940,7 @@ const SUMMARY_LOCK_TEXT = Object.freeze({
 });
 function summaryLock(page, { live = false, making = false, segments = [] } = {}) {
   const p = page && typeof page === 'object' && !Array.isArray(page) ? page : {};
+  if (p.kind === 'blank') return '';   // 0.15.0 PH-4（決めたこと 24・R25）: 白紙のページの欄は要約でなく本文（録音も要約も無いので鍵を掛けない）
   if (live) return 'live';
   if (making) return 'making';
   if (p.summaryWait === true) return 'wait';

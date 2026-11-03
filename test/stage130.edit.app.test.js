@@ -547,7 +547,7 @@ test('ED-5: 行頭で / を打つと listbox が出て項目は型の表の順�
     assert.ok(slashBoxOf(l), '/ でメニューが出ない');
     assert.strictEqual(slashBoxOf(l).getAttribute('role'), 'listbox');
     assert.ok(optsOf(l).every((o) => o.getAttribute('role') === 'option'));
-    assert.deepStrictEqual(keysOf(l), [...E.MENU_KEYS]);
+    assert.deepStrictEqual(keysOf(l), [...E.MENU_KEYS, 'page']);   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25・R25）で意図して変えた: ページの本文の / メニューは型の後ろに［ページ］
     assert.deepStrictEqual(headsOf(l), ['ブロックの型']);
     assert.strictEqual(l.document.activeElement, t, 'フォーカスが行から離れた');
     t = typeInput(l, 'e1', '/みだし');
@@ -603,7 +603,7 @@ test('ED-5・F52: 見出し2を選ぶと uiSave が { slashRecent: [\'h2\'] } �
     assert.deepStrictEqual(recentSaves(l), [{ slashRecent: ['h2'] }]);
     typeInput(l, 'p1', 'あいうえお /');
     assert.deepStrictEqual(headsOf(l), ['最近使ったもの', 'ブロックの型']);
-    assert.deepStrictEqual(keysOf(l), ['h2', ...E.MENU_KEYS]);
+    assert.deepStrictEqual(keysOf(l), ['h2', ...E.MENU_KEYS, 'page']);   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25・R25）で意図して変えた: ページの本文の / メニューは型の後ろに［ページ］
     l.key({ key: 'Escape' }, txtOf(l, 'p1'));
     // 行頭の記法で変えても覚えない
     l.calls.length = 0;
@@ -688,7 +688,7 @@ test('ED-5: aria-activedescendant が選んでいる項目を指す・当たり�
     assert.strictEqual(sel().dataset.key, 'h1');
     assert.strictEqual(t.getAttribute('aria-activedescendant'), sel().id);
     l.key({ key: 'ArrowUp' }, t); l.key({ key: 'ArrowUp' }, t);
-    assert.strictEqual(sel().dataset.key, 'callout', '↑ が頭から最後へ回らない');
+    assert.strictEqual(sel().dataset.key, 'page', '↑ が頭から最後へ回らない');   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25・R25）で意図して変えた: ページの本文の / メニューは型の後ろに［ページ］
     t = typeInput(l, 'e1', '/zz');
     assert.strictEqual(slashBoxOf(l).querySelector('.snone').textContent, '当てはまる型がありません');
     assert.strictEqual(t.getAttribute('aria-activedescendant'), null);

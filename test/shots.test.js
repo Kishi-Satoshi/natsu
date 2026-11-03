@@ -211,9 +211,11 @@ const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark',
 // 「この見た目でよい（おすすめ）」（2026-11-03）と言ったので、CI run 41612673475（036c020）・artifact 13220336274 の .after.png（32 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
 const ADDED_140 = [...NEW_140, ...RETAKEN_140];
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.15.0 の表の画面だけ（RETAKE_150）。
-// PH-3 でサイドバーの木の明暗と拡大 200% の3枚を足した（NEW_150。足した画面で、まだ基準が無い）
-const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light'];
-const RETAKE_150 = [...NEW_150];
+// PH-3 でサイドバーの木の明暗と拡大 200% の3枚を足した（NEW_150。足した画面で、まだ基準が無い）。PH-4 で白紙のページの明暗の2枚を足した
+const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark'];
+// PH-4 で / メニューに［ページ］が増えるので、語の無い / メニューを開く edit-slash-recent-light（今の基準がある）を取り直す（RETAKEN_150。R25）
+const RETAKEN_150 = ['edit-slash-recent-light'];
+const RETAKE_150 = [...NEW_150, ...RETAKEN_150];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -262,7 +264,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_132,
     // 0.14.0 EB-4 で意図して変えた: 行の文の飾りと色の明暗の2枚を足した。EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した。EK-4・EK-5・MB-4・DQ-3 で足した画面も（版を 0.14.0 に上げる commit で基準にした）
     ...NEW_140,
-    // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を足した（取り直し待ち・まだ基準が無い）
     ...NEW_150]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -1093,7 +1095,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.14.0 EK-6 直し3（R207）: 隠れた欄に口述を入れない照らし（dictShown・フォーカスの照らし。<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 07800b9c…）
   // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 18〜23・R24）: サイドバーを木に（pageTree の写し・role="tree" と treeitem・▸ の開け閉めと覚え書き・木のキー・
   // 行の［＋］とメニュー・引っ張って動かす・木の CSS）。子の無い行は今と同じ形で、子のある行と［＋］・落とす印は今の撮る画面に出ない見込み。変わる画面は足した NEW_150 の3枚。値を今の app.html に合わせた（前の値は a4ebbe19…）
-  assert.strictEqual(sha, '8ed0a8e2cfe2314a2e6b32372044462f698de163bed92be0046732935c0df422',
+  // 0.15.0 PH-4（計画の決めたこと 24・25・R25）: 白紙のページ（頭と本文だけ・本文の手引き・アイコン 📄・題名の手引き）と見出しの［＋］（ふだんは透明）・/ メニューの［ページ］。
+  // 議事録の画面は見出しの［＋］が見えないので変わらない見込みで、変わる画面は足した page-blank の2枚と、語の無い / メニューの edit-slash-recent-light。値を今の app.html に合わせた（前の値は 8ed0a8e2…）
+  assert.strictEqual(sha, '2365a6e67072b66a08db51fbd7fbfaaf63551bbe0523978fdae6a3a249bb591e',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

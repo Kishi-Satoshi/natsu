@@ -2,6 +2,7 @@
  * stage150.main.test.js — 0.15.0「ページの階層」の main の場面（計画 docs/plans/2026-11-03-150.md の Task PH-3・PH-4）
  * main.js を偽の Electron の上で本当に動かす（helpers/mainrun.js の --json-scene）。
  * PH-3（決めたこと 19・F118）: ui:get のサイドバーの木の開け閉め（tree.open）は今あるページだけ（無いページは落とし、数だけを記録に1行）。
+ * PH-4（決めたこと 24・F116）: 白紙のページの page:summarize は断る（Claude Code を呼ばない・ページを書かない）。
  */
 'use strict';
 const test = require('node:test');
@@ -24,4 +25,12 @@ test('PH-3・F118: ui:get の tree は今あるページだけ（無いページ
   assert.deepStrictEqual(r.again.tree, { open: ['ptkeep2', 'ptkeep1'] });
   assert.deepStrictEqual(r.engineLog.filter((l) => /無いページの木の開け閉め/.test(l)), ['画面の覚え書き: 無いページの木の開け閉めを 2 個外した'], r.engineLog.join('\n'));
   assert.ok(!r.engineLog.some((l) => /ptgone|ptkeep/.test(l)), 'engine.log にページの id を書いた');
+});
+
+test('PH-4・F116: page:summarize に白紙のページの ID → 断り（「白紙のページは要約できません」。Claude Code を呼ばない・ページを書かない）', { timeout: sceneTimeout(20000) }, async () => {
+  const r = await run(['text', '--json-scene=blank-summarize']);
+  assert.match(r.made, /^p[a-z0-9]+$/);
+  assert.deepStrictEqual(r.sum, { ok: false, error: '白紙のページは要約できません' }, '白紙のページの要約を断らない');
+  assert.deepStrictEqual([r.after.rev, r.after.updatedAt, r.after.kind, r.after.blocks], [r.before.rev, r.before.updatedAt, 'blank', []], '断ったのにページを書いた');
+  assert.ok(!r.spawns.some((s) => /claude/i.test(JSON.stringify(s))), `Claude Code を呼んだ: ${JSON.stringify(r.spawns)}`);
 });

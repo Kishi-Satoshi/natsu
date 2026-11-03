@@ -235,6 +235,12 @@
   .list-sel:hover { background: var(--hover); color: var(--text); }
   .list-sel[aria-pressed="true"] { background: var(--tint); color: var(--text); font-weight: 500; }
   .list-sel[hidden], .selbar[hidden] { display: none; }
+  /* 0.15.0 PH-4（決めたこと 25・BQ7 (a)）: 見出し「議事録」の行の［＋］。［選ぶ］と同じく見出しの行に重ね（上の余白 -26px・高さ 22px・下の余白 3px で、
+     下の一覧の位置は変えない）、見出しの字の右に置く。ふだんは見えず、見出しの行に乗せる・フォーカスで出る（今の画面の見た目を変えない） */
+  .list-add { align-self: flex-start; flex: none; position: relative; width: 22px; height: 22px; margin: -26px 0 3px 52px; padding: 0; border: none; border-radius: 6px;
+    background: transparent; color: var(--text-2); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; }
+  #tabBtnNotes:hover ~ .list-add, .list-add:hover, .list-add:focus-visible { opacity: 1; }
+  .list-add:hover { background: var(--hover); color: var(--text); }
   /* 選んでいる間の頭の枠（「{数} 件を選んでいます」と［リンクを写す］［やめる］） */
   .selbar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 8px; margin: 2px 0 4px;
     border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 12px; }
@@ -276,6 +282,13 @@
   .pitem.dropbefore::before { top: -1px; }
   .pitem.dropafter::after { bottom: -1px; }
   .treemenu { position: fixed; z-index: 20; }
+  /* 0.15.0 PH-4（決めたこと 24・BQ2 (a)）: 白紙のページは頭（アイコンと題名）と本文だけ。3つのタブは出さず、本文は会議のブロックの枠で囲まない。
+     無題の題名の欄と空の本文は灰色の手引き */
+  #pageWrap.blank .ptabs { display: none; }
+  #pageWrap.blank .mblock { border-color: transparent; }
+  #pTitle[data-ph]:empty::before { content: attr(data-ph); color: var(--muted); }
+  .bodyph { color: var(--muted); padding: 4px 2px; border-radius: 6px; cursor: text; }
+  .bodyph:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .pitem .m { font-size: 11px; color: var(--muted); margin-top: 1px; display: flex; gap: 8px;
     white-space: nowrap; overflow: hidden; }
   .pitem .m > span { flex: none; }
@@ -1043,6 +1056,8 @@
     <button id="tabBtnNotes" class="active">議事録</button>
     <!-- 0.10.0 L-2（D58・D70・決めたこと 101）: 見出し「議事録」の行の右の小さな［選ぶ］（見出しの行に重ね、一覧の位置は変えない）と、1件以上選んでいる間の頭の枠 -->
     <button id="listSelect" class="list-sel" type="button" aria-pressed="false" hidden>選ぶ</button>
+    <!-- 0.15.0 PH-4（決めたこと 25・BQ7 (a)）: 見出し「議事録」の行の［＋］（白紙のページを最上位に作る。見出しの行に重ね、乗せる・フォーカスで出る） -->
+    <button id="newPageBtn" class="list-add" type="button" title="ページを作る" aria-label="ページを作る">＋</button>
     <div class="selbar" id="selBar" hidden>
       <span id="selCount" role="status"></span>
       <button class="action" id="selCopy" type="button">リンクを写す</button>
@@ -2347,8 +2362,8 @@
     const k = activeTab;
     let icon = '', title = '';
     if (isPageKey(k)) {
-      icon = '🎙️';
       const id = k.slice(5);
+      icon = pageEmoji(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null));   // 0.15.0 PH-4: 白紙のページは 📄
       title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || '議事録';
     } else if (k === 'dictation') { icon = '🎤'; title = '音声入力'; }
     else if (k === 'live') { icon = '🎙️'; title = readyNow() ? '新しい議事録' : '記録中の会議'; }
@@ -3086,12 +3101,12 @@
       } else if (r.hasKids) {
         // 子のある行は、乗せる・フォーカスでアイコンの所が ▸（開いていれば ▾）になり、押すと開け閉め（決めたこと 18。子の無い行は今と同じ形）
         ic = document.createElement('span'); ic.className = 'pi';
-        const pe = document.createElement('span'); pe.className = 'pe'; pe.textContent = '🎙️';
+        const pe = document.createElement('span'); pe.className = 'pe'; pe.textContent = pageEmoji(p);
         const tw = document.createElement('span'); tw.className = 'tw'; tw.setAttribute('aria-hidden', 'true'); tw.textContent = r.open ? '▾' : '▸';
         ic.append(pe, tw);
         ic.title = r.open ? '閉じる' : '開く';
         ic.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); toggleTreeRow(p.id); };
-      } else { ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🎙️'; }
+      } else { ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p); }   // 0.15.0 PH-4: 白紙のページは 📄
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.title;
       el.append(ic, t);
       if (!listSel.on) {
@@ -3122,11 +3137,12 @@
   async function createPageIn(parentId) {
     flushEdits();
     let r = null;
-    try { r = await window.koeApp.pageCreate(parentId); } catch (_) { r = null; }
+    try { r = await (parentId ? window.koeApp.pageCreate(parentId) : window.koeApp.pageCreate()); } catch (_) { r = null; }
     if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
     if (parentId) setTreeOpen(parentId, true);
     await refreshList();
-    await openPageTab(r.id);
+    const ok = await openPageTab(r.id);
+    if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
     return r.id;
   }
   // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［新しいタブで開く］［削除］（HR4。［移動先…］は窓を作る PH-5 で足す: R24）
@@ -3266,6 +3282,7 @@
     setListSel(selStep(listSel, { type: 'click', id, shift: Boolean(ev && ev.shiftKey) }, listShown()));
   }
   $('listSelect').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
+  $('newPageBtn').onclick = () => createPageIn();   // 0.15.0 PH-4（決めたこと 25）: 見出しの［＋］は最上位に白紙のページを作る
   $('selCancel').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
   $('selCopy').onclick = async () => {
     const base = await linkBaseNow();
@@ -3525,6 +3542,11 @@
   }
   const LIVE_COPY_PHASES = ['recording', 'paused', 'finalizing'];   // 録音中の写し（src/db/commands.js の LIVE_PHASES と同じ）
   const isLiveCopy = (page) => Boolean(page && page.meeting && typeof page.meeting === 'object' && LIVE_COPY_PHASES.includes(page.meeting.phase));
+  // 0.15.0 PH-4（決めたこと 24・36）: 白紙のページ（ページの kind が 'blank'。一覧の行の kind も同じ）。アイコンは今は既定だけ（議事録 🎙️・白紙のページ 📄。選べるのは PL-3）
+  // （描く関数は script の上の方からも呼ばれるので、どれも巻き上がる関数の宣言にする）
+  function isBlankPage(p) { return Boolean(p && typeof p === 'object' && p.kind === 'blank'); }
+  function pageEmoji(p) { return isBlankPage(p) ? '📄' : '🎙️'; }
+  function blankUntitled() { return '無題のページ'; }   // 無題の白紙のページの名前と題名の欄の手引き（議事録の「(無題の議事録)」は変えない）
   // 0.10.0 LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵。src/mainlib.js の summaryLock の写し（repo が同じ表を両方に当てる）。
   // 上から順に見て、最初に当たった行の符号（鍵なしは ''）。making は画面の［要約を生成］の最中と、main が知らせる自動の要約の最中
   const SUMMARY_LOCK_VIEW_TEXT = {
@@ -3536,6 +3558,7 @@
   };
   function summaryLockView(page, { live = false, making = false, segments = [] } = {}) {
     const p = page && typeof page === 'object' && !Array.isArray(page) ? page : {};
+    if (p.kind === 'blank') return '';   // 0.15.0 PH-4（決めたこと 24・R25）: 白紙のページの欄は要約でなく本文（録音も要約も無いので鍵を掛けない）
     if (live) return 'live';
     if (making) return 'making';
     if (p.summaryWait === true) return 'wait';
@@ -3644,6 +3667,12 @@
     clearActs();
     $('pageWrap').classList.remove('live-on');   // 記録中のタブを描くときは showLive → drawLive が付け直す
     renderWave();   // 0.9.3 M-6: 保存したページには波を出さない
+    // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・BQ2 (a)）: 白紙のページは頭がアイコン（📄）と題名だけで、その下が本文
+    // （会議の種類の行・プロパティ・［AI 要約］［メモ］［文字起こし］のタブ・［要約を生成］を出さない）
+    const blank = isBlankPage(curPage);
+    $('pageWrap').classList.toggle('blank', blank);
+    $('pIcon').textContent = pageEmoji(curPage);
+    if (blank) $('pTitle').setAttribute('data-ph', blankUntitled()); else $('pTitle').removeAttribute('data-ph');
     if (!curPage) {
       $('pTitle').textContent = '';
       $('pProps').textContent = '';
@@ -3661,13 +3690,13 @@
       syncNoPage();
       return;
     }
-    $('pTypeRow').style.display = '';
+    $('pTypeRow').style.display = blank ? 'none' : '';
     $('pTypeLiveHint').hidden = true;
     $('pMore').hidden = false;
     $('pTitle').textContent = curPage.title;
     $('pTitle').setAttribute('contenteditable', 'true');
 
-    renderTypeRow();   // 会議の種類の行（0.11.0 V-1）
+    if (!blank) renderTypeRow();   // 会議の種類の行（0.11.0 V-1。白紙のページには無い）
 
     renderProps();
 
@@ -3690,7 +3719,7 @@
     // 生成中は押せない。生成の途中で page:updated が来て描き直されても、
     // summarizing に入っている間は押せないままにする（main 側は同じページの
     // 二重起動を同じ Promise で返すが、画面側でも二重に押させない）。
-    const sumBtn = mk(curPage.blocks.length ? '要約を再生成' : '要約を生成', async () => {
+    const sumBtn = blank ? null : mk(curPage.blocks.length ? '要約を再生成' : '要約を生成', async () => {
       const pid = curId;
       if (summarizing.has(pid)) return;
       // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるときだけ、作り直す前に確かめる（作り直すと書き直した所は元に戻る）
@@ -3707,7 +3736,7 @@
       else { toast(`議事録を作成しました（出典 ${r.stat.linked}/${r.stat.total}）`); undoBk = bookDrop(undoBk, noteKey(pid)); }   // 0.14.0 EB-3（決めたこと 13）: 作り直しは戻せない。要約の列を空に
       if (pid === curId) await openPage(pid);
     }, !curPage.blocks.length, curPage.blocks.length > 0);   // 要約のあるページは［要約を再生成］も「···」の中の1つ目（第1b2回 P-1）
-    if (summarizing.has(curId)) { sumBtn.disabled = true; sumBtn.textContent = '生成中…'; }
+    if (sumBtn && summarizing.has(curId)) { sumBtn.disabled = true; sumBtn.textContent = '生成中…'; }
     // コピーは、いま開いているタブの中身を写す。議事録タブなら議事録、
     // 文字起こしタブなら文字起こし、メモタブならメモ。
     mk('コピー', async () => {
@@ -3724,6 +3753,10 @@
         const tg = memoTgOf(memoKeyOf(curId));
         text = tg ? memoDocView.memoPlain(memoNowDoc(tg)) : String(curPage.memo || '');
         what = 'メモ';
+      } else if (blank) {
+        // 0.15.0 PH-4: 白紙のページは本文を書いた順のまま（要約の並べ替えと打ち合わせの質の行は無い）
+        text = blocksMarkdown(curPage.blocks);
+        what = 'ページ';
       } else {
         // 0.11.0 V-2（D48）: 画面と同じ順。点があれば最後に打ち合わせの質の行
         // 0.13.0 ED-3（決めたこと 22）: 新しい型も写す blocksMarkdown（今の4つの型は前の式と1文字も同じ）
@@ -3749,10 +3782,10 @@
     renderBlocks();
     renderScript();
     renderMemo();
-    setPane(pane);
+    setPane(blank ? 'note' : pane);   // 0.15.0 PH-4: 白紙のページは本文（要約の欄）だけ
     renderCrumb();
     syncNoPage();
-    refreshPending();   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
+    if (!blank) refreshPending();   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
   }
   // ページを消す（「···」の［削除］とサイドバーの行のメニューの［削除］。0.15.0 PH-3 で1つの関数にした）
   async function deletePageFlow(id) {
@@ -6718,6 +6751,24 @@
     ...COLORS.map((n) => ({ id: `bg:${n}`, kind: 'bg', value: `${n}_bg`, label: COLOR_LABELS[n], md: [],
       words: [`${COLOR_WORDS[n][0]}${BG_JOIN[n]}はいけい`, `${COLOR_WORDS[n][0]}のはいけい`, `${n} background`, 'はいけい', 'background'] })),
   ]);
+  // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25）: / メニューの［ページ］（よみ: ぺーじ・page）。ページの本文の欄（議事録の［AI 要約］と
+  // 白紙のページの本文）だけに出す（メモの欄には出さない）。型の表（SLASH_ROWS・blockEdit の MENU_ROWS）の外の項目で、「最近使ったもの」にも入れない
+  const SLASH_PAGE = Object.freeze({ id: 'page', label: 'ページ', md: [], words: ['ぺーじ', 'page'] });
+  function slashPageHits(q, el) {
+    const k = keyOfEl(el);
+    if (!k || isMemoKey(k) || k !== curId) return [];
+    if (!q) return [{ id: SLASH_PAGE.id, group: 'types' }];
+    return slashHit(SLASH_PAGE, q) ? [{ id: SLASH_PAGE.id, group: '' }] : [];
+  }
+  // 選ぶと打った /ページ の文字を消して保存し（1歩）、開いているページの中に白紙のページを作って開く（題名にフォーカス）
+  async function slashPagePick(s) {
+    const el = s.el; const txt = el._txt;
+    rowReplace(txt, s.start, s.start + 1 + s.query.length, '');
+    setCaret(txt, s.start);
+    const pid = keyOfEl(el);
+    try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return createPageIn(pid);
+  }
   // 語を打ったときだけ色の項目を出す（空の / では型だけ）
   const slashColorHits = (q) => (q ? SLASH_COLORS.filter((r) => slashHit(r, q)).map((r) => ({ id: r.id, group: r.kind })) : []);
   // / メニューの色を選ぶ: / と打った語を消し、打った文を保存してから行の色を付ける（stepGroup の中: 1歩）
@@ -6991,7 +7042,7 @@
     }
     if (pid !== curId || !curPage || !page || page.id !== curId) return;   // 決めたこと 41: 送ったページがもう開いていなければ描かない
     applyRows({
-      key: pid, box: $('pNote'), memo: false, old: curPage.blocks,
+      key: pid, box: $('pNote'), memo: isBlankPage(curPage), old: curPage.blocks,   // 0.15.0 PH-4: 白紙のページの本文は書いた順（memo と同じ）
       lock: summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs }),
       set: (blocks) => {
         curPage.blocks = blocks;
@@ -7684,8 +7735,9 @@
   function slashOpen(el, start, query) {
     const types = slashFilter(query, slashRecent);
     const colors = slashColorHits(query);   // 0.14.0 EB-5（決めたこと 21・S-03）: 語を打ったら色の項目も（型の後ろ）
-    if (types === null && !colors.length) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
-    const items = [...(types || []), ...colors];
+    const pageIt = slashPageHits(query, el);   // 0.15.0 PH-4（決めたこと 25）: ページの本文の［ページ］（型の後ろ・色の前）
+    if (types === null && !colors.length && !pageIt.length) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
+    const items = [...(types || []), ...pageIt, ...colors];
     const keep = slash && slash.el === el && slash.start === start ? slash.items[slash.sel] : null;
     const sel = Math.max(0, keep ? items.findIndex((x) => x.id === keep.id && x.group === keep.group) : 0);
     if (slash && slash.el !== el) slashClose();
@@ -7712,7 +7764,7 @@
         const h = document.createElement('div'); h.className = 'shead'; h.setAttribute('role', 'presentation'); h.textContent = SLASH_HEADS[group];
         slashBox.appendChild(h);
       }
-      const row = SLASH_ROWS.find((x) => x.id === it.id) || SLASH_COLORS.find((x) => x.id === it.id);
+      const row = SLASH_ROWS.find((x) => x.id === it.id) || (it.id === SLASH_PAGE.id ? SLASH_PAGE : null) || SLASH_COLORS.find((x) => x.id === it.id);
       const o = document.createElement('div');
       o.className = 'sopt'; o.id = `slashOpt${i}`; o.setAttribute('role', 'option');
       o.setAttribute('aria-selected', i === s.sel ? 'true' : 'false');
@@ -7761,6 +7813,7 @@
     slashClose();
     const crow = SLASH_COLORS.find((x) => x.id === it.id);
     if (crow) return slashColorPick(s, crow);   // 0.14.0 EB-5（決めたこと 21・S-03）: 行の色
+    if (it.id === SLASH_PAGE.id) return slashPagePick(s);   // 0.15.0 PH-4（決めたこと 25）: 開いているページの中に白紙のページ
     const row = SLASH_ROWS.find((x) => x.id === it.id);
     const el = s.el; const txt = el._txt; const b = el._b;
     const t = txt.textContent;
@@ -8561,8 +8614,8 @@
         tail.appendChild(meta);
       }
 
-      // 出典チップ
-      if (b.type === 'bullet' || b.type === 'todo') {
+      // 出典チップ（0.15.0 PH-4: 白紙のページの本文には出典が無いので札を出さない）
+      if ((b.type === 'bullet' || b.type === 'todo') && !isBlankPage(curPage)) {
         const wrap = document.createElement('span'); wrap.className = 'cites';
         tail.appendChild(wrap);
         el.appendChild(tail);
@@ -8657,6 +8710,7 @@
       const n = document.createElement('div'); n.className = 'note'; n.textContent = curPage.summaryError;
       box.appendChild(n);
     }
+    if (isBlankPage(curPage)) { renderBodyRows(box); return; }   // 0.15.0 PH-4: 白紙のページの本文
     if (!curPage.blocks.length) {
       const d = document.createElement('div'); d.className = 'empty';
       d.innerHTML = lock ? '<div class="big">要約はまだありません</div>' : '<div class="big">要約はまだありません</div>右上の［要約を生成］で作成できます。';
@@ -8673,6 +8727,29 @@
     renderQualityCard(box);   // 0.11.0 V-2: 点のカードは要約の欄の最後（決めたこと 28）
   }
 
+  // 0.15.0 PH-4（決めたこと 24・BQ2 (a)）: 白紙のページの本文。要約と同じ行の部品（飾り・/・⠿ と ＋・貼り付け・選択・Ctrl+Z）で描き、要約の決まりは通さない
+  // （書いた順のまま: orderForView を通さない・出典の札を出さない・要約の欄の鍵を見ない）。空なら最初の行を足す手引き
+  const BODY_HINT = 'ここに書く（/ で行の型を選べます）';
+  function renderBodyRows(box) {
+    if (!curPage.blocks.length) {
+      const ph = document.createElement('div');
+      ph.className = 'bodyph'; ph.tabIndex = 0; ph.setAttribute('role', 'button'); ph.textContent = BODY_HINT;
+      ph.onclick = () => startBody();
+      ph.onkeydown = (ev) => { if (imeEnter(ev)) return; if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); startBody(); } };
+      box.appendChild(ph);
+      return;
+    }
+    for (const r of viewRows(curPage.blocks, true)) box.appendChild(blockRows.make(r.b, '', r.depth, r.parentId));
+    renumberRows();
+  }
+  // 本文の最初の行へ（行が無ければテキストの行を足してフォーカス）。題名の Enter と手引きから
+  function startBody() {
+    const pid = curId;
+    if (!pid || !isBlankPage(curPage)) return null;
+    const first = editRows($('pNote'))[0];
+    if (first && first._txt) { first._txt.focus(); setCaret(first._txt, 0); return null; }
+    return stepGroup(() => editAnswer(pid, () => rowApi(pid).blockInsert(pid, '', 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 })));
+  }
   // 鍵の間の ToDo の担当・期限と出典（0.10.0 LS-2）。担当・期限は押せない札で見せる（直す口を持たない）
   function renderLockedMeta(el, b) {
     const tail = document.createElement('span'); tail.className = 'tail';   // 点検 2（NR46）: 札は1つの箱で折り返す
@@ -8767,6 +8844,7 @@
   // 行は「アイコン・名前・値」（.prop の .k に「アイコン 名前」、.v に値。第1b回 N4）
   function renderProps() {
     const props = $('pProps'); props.textContent = '';
+    if (isBlankPage(curPage)) return;   // 0.15.0 PH-4（BQ2 (a)）: 白紙のページにプロパティは無い
     // 名前の欄のアイコンは灰色の .ic に包む（k.textContent は今と同じ「🔗 出典」。第1b2回 P-2）
     const add = (icon, name, value, color) => {
       const r = document.createElement('div'); r.className = 'prop';
@@ -9139,7 +9217,12 @@
   $('pTitle').onblur = () => commitTitle(curId);
   $('pTitle').onkeydown = (e) => {
     if (imeEnter(e)) return;
-    if (e.key === 'Enter') { e.preventDefault(); $('pTitle').blur(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const blank = isBlankPage(curPage);
+      $('pTitle').blur();
+      if (blank) startBody();   // 0.15.0 PH-4: 白紙のページは題名の Enter で本文へ（行が無ければ最初の行を足す）
+    }
   };
 
   // 記録中は main がエンジンに関わる設定の変更を受け付けない（変換の途中でエンジンが

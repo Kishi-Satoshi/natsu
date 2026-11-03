@@ -1166,6 +1166,16 @@ module.exports = {
       c.out.ui = await c.handlers['ui:get']({});
       c.out.again = await c.handlers['ui:get']({});
     } },
+  // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・F116）: 白紙のページの page:summarize は断る（Claude Code を呼ばない・ページを書かない）。
+  // 画面と同じ役 app の口で白紙のページを作り、ページの rev・更新の時刻と、呼んだ子のプロセスを見る
+  'blank-summarize': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const made = await c.appCall('page.create', {});
+      c.out.made = made.id;
+      c.out.before = (await c.appCall('page.get', { id: made.id })).page;
+      c.out.sum = await c.handlers['page:summarize']({}, made.id);
+      c.out.after = (await c.appCall('page.get', { id: made.id })).page;
+    } },
   'ws-offscreen': { files: { 'settings.json': pretty(TYPICAL) },
     local: { [WS_FILE]: WS({ bounds: { x: 3000, y: 100, width: 1000, height: 700 } }) } },
   'ws-minimized': { files: { 'settings.json': pretty(TYPICAL) },

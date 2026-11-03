@@ -305,3 +305,209 @@ test('PH-3・F117: 選ぶ形（0.10.0 L-2）も木のまま。Shift の範囲は
   assert.deepStrictEqual(l.called('pageGet'), [], '選ぶ形で押した行を開いた');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- PH-4 の台（命令は一時の DB を本当に通す。stage140.app の openReal と同じ形）
+const { tmpDb, samplePage } = require('./helpers/dbtmp');
+const core = require('../src/db/core');
+const U = require('../src/undoBook');
+const NOW = () => new Date('2026-11-03T01:02:03.000Z');
+let txn = 0;
+const CMDS = {
+  blockUpdate: (pageId, blockId, patch) => ['block.update', { pageId, blockId, patch }],
+  blockInsert: (pageId, afterBlockId, type, level, parentId, toggle) => ['block.insert', { pageId, afterBlockId, type, ...(level === undefined ? {} : { level }), ...(parentId === undefined ? {} : { parentId }), ...(toggle === true ? { toggle } : {}) }],
+  blockRemove: (pageId, blockId) => ['block.remove', { pageId, blockId }],
+  blockSplit: (pageId, blockId, text, at, afterId, inside, rich) => ['block.split', { pageId, blockId, text, at, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}), ...(rich === undefined ? {} : { rich }) }],
+  blockMerge: (pageId, blockId, text, intoId, rich) => ['block.merge', { pageId, blockId, text, ...(intoId === undefined ? {} : { intoId }), ...(rich === undefined ? {} : { rich }) }],
+  blockTurnInto: (pageId, blockId, type, level, toggle) => ['block.turnInto', { pageId, blockId, type, ...(level === undefined ? {} : { level }), ...(toggle === true ? { toggle } : {}) }],
+  editRevert: (pageId, steps) => ['edit.revert', { pageId, steps }],
+  blockPaste: (pageId, blockId, rich, at, blocks, afterId, inside) => ['block.paste', { pageId, blockId, rich, at, blocks, ...(afterId === undefined ? {} : { afterId }), ...(inside === true ? { inside } : {}) }],
+  pageSetTitle: (id, title) => ['page.setTitle', { id, title }],
+  pageCreate: (parentId) => ['page.create', parentId ? { parentId } : {}],
+  pageMove: (id, parentId, afterId) => ['page.move', { id, parentId: parentId || '', ...(afterId === undefined ? {} : { afterId }) }],
+  pageDelete: (id) => ['page.delete', { id }],
+};
+// 白紙のページの見本（page.create と同じ欄。本文の見出しは型の見出しと締めの見出し・出典の無い箇条書き。人が足した印 citeState は付けない＝要約の並べ替えと札が効く形）
+const BLANK = (id, title, blocks) => ({ page: { id, title, kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, segments: [] });
+const BODY = () => [
+  { id: 'q1', type: 'heading', level: 2, text: '目的' }, { id: 'q2', type: 'bullet', text: '見積もりを出す日を決める。' },
+  { id: 'q3', type: 'heading', level: 2, text: '論点ごとの要点' }, { id: 'q4', type: 'bullet', text: '予算は先月の案のまま進める。' },
+  { id: 'q5', type: 'heading', level: 2, text: '決定事項' }, { id: 'q6', type: 'todo', text: '案を送る', checked: false }];
+async function openDb(o = {}) {
+  const t = tmpDb();
+  const { db } = t.open();
+  const { page, segments } = samplePage('pa1');
+  t.seed({ ...page, title: titleAt('2026-10-29T01:00:00.000Z') }, segments);
+  for (const b of o.blanks || []) t.seed(b.page, b.segments);
+  let L = null;
+  const call = (cmd, args, role = 'app') => {
+    const tx = `${role[0]}:ph4-${String(++txn).padStart(6, '0')}`;
+    const r = core.call(db, { role, cmd, args, tx }, { now: NOW, labels: {} });
+    if (!r.ok) throw new Error(r.code);   // contextBridge を越えた Error は message だけが残る
+    if (role === 'app' && (r.changed || r.dupChanged) && U.UNDO_CMDS.has(cmd)) { const s = { cmd, pageId: typeof args.pageId === 'string' ? args.pageId : args.id, step: tx }; if (L) L.fire('onEditStep', s); }
+    return r.result;
+  };
+  const wrap = (fn) => (...a) => { try { return fn(...a); } catch (e) { return Promise.reject(e); } };
+  const returns = { pagesSearch: wrap((q) => call('pages.list', { q: q || '' })), pageGet: wrap((id) => call('page.get', { id })), copy: () => true, ...(o.returns || {}) };
+  for (const [name, f] of Object.entries(CMDS)) if (!returns[name]) returns[name] = wrap((...a) => call(...f(...a)));
+  const l = await load(APP, { caret: true, returns });
+  L = l;
+  l.t = t; l.db = db; l.call = call;
+  l.page = (id) => call('page.get', { id }).page;
+  l.done = () => t.done();
+  await l.drain();
+  if (o.open) { l.fire('onPageOpen', o.open); await l.drain(); }
+  return l;
+}
+const noteRows = (l) => $(l, 'pNote').querySelectorAll('.blk');
+const noteTxt = (l, id) => noteRows(l).find((e) => e.dataset.id === id).querySelector('.txt');
+const menuLabels = (l) => { $(l, 'pMore').dispatchEvent({ type: 'click' }); const r = $(l, 'pMenu').querySelectorAll('.mitem').map((b) => b.textContent); $(l, 'pMore').dispatchEvent({ type: 'click' }); return r; };
+
+// ---------------------------------------------------------------- PH-4
+test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・プロパティ・3つのタブ・［要約を生成］が無い・本文の行がある・「···」は［コピー］［リンクを写す］［削除］・アイコンは 📄）。議事録は今の形のまま', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '', BODY())], open: 'pb1' });
+  try {
+    assert.ok($(l, 'pageWrap').classList.contains('blank'), '白紙のページの印が無い');
+    const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+    assert.strictEqual(S.declsFor(rules, '#pageWrap.blank .ptabs', { at: '' }).display, 'none', '白紙のページに3つのタブが出る');
+    assert.strictEqual($(l, 'pTypeRow').style.display, 'none', '白紙のページに会議の種類の行が出る');
+    assert.strictEqual($(l, 'pProps').textContent, '', '白紙のページにプロパティが出る');
+    assert.deepStrictEqual([...$(l, 'pActs').children].map((b) => b.id), ['pMore', 'pMenu'], '白紙のページに［要約を生成］が出る');
+    assert.deepStrictEqual(menuLabels(l), ['コピー', 'リンクを写す', '削除']);
+    assert.strictEqual($(l, 'pIcon').textContent, '📄');
+    assert.deepStrictEqual([$(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['', '無題のページ']);
+    assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id), ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], '本文の行が無いか、書いた順でない');
+    assert.strictEqual($(l, 'pNote').classList.contains('active'), true);
+    assert.strictEqual($(l, 'sumLock'), null, '白紙のページの本文に要約の鍵の一言が出る');
+    // 議事録は今の形のまま
+    l.fire('onPageOpen', 'pa1');
+    await l.drain();
+    assert.ok(!$(l, 'pageWrap').classList.contains('blank'));
+    assert.strictEqual($(l, 'pTypeRow').style.display, '');
+    assert.strictEqual($(l, 'pIcon').textContent, '🎙️');
+    assert.ok(menuLabels(l).includes('要約を再生成'), '議事録の「···」から［要約を再生成］が消えた');
+    assert.strictEqual($(l, 'pTitle').getAttribute('data-ph'), null);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-4・P3・F116: 白紙のページの本文は書いた順のまま（「目的」「論点ごとの要点」の後ろの「決定事項」を前に出さない）・「根拠なし」「手書き」の札が無い。Enter・Ctrl+B・貼り付け・Ctrl+Z は要約の欄と同じ命令（DB が受ける）', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '', BODY())], open: 'pb1' });
+  try {
+    assert.deepStrictEqual(noteRows(l).map((e) => e.querySelector('.txt').textContent), ['目的', '見積もりを出す日を決める。', '論点ごとの要点', '予算は先月の案のまま進める。', '決定事項', '案を送る']);
+    assert.strictEqual($(l, 'pNote').querySelectorAll('.cites, .cbadge').length, 0, '白紙のページの行に出典の札がある');
+    assert.ok(!/根拠なし|手書き/.test($(l, 'pNote').textContent), '白紙のページに出典の札の文がある');
+    // Enter → block.split（DB が受ける: 鍵を掛けない）
+    const t = noteTxt(l, 'q2');
+    t.focus(); l.caret.set(t, 3);
+    l.key({ key: 'Enter', code: 'Enter' }, t);
+    await l.drain();
+    assert.deepStrictEqual(l.called('blockSplit').map((c) => c.args.slice(0, 2)), [['pb1', 'q2']]);
+    assert.strictEqual(l.page('pb1').blocks.length, 7, 'DB が白紙のページの本文の分割を受けない');
+    // Ctrl+Z → edit.revert の1回で戻る
+    l.key({ key: 'z', code: 'KeyZ', ctrlKey: true }, l.document.activeElement);
+    await l.drain(); await l.drain();
+    assert.strictEqual(l.called('editRevert').length, 1, 'Ctrl+Z で戻さない');
+    assert.strictEqual(l.page('pb1').blocks.length, 6);
+    // Ctrl+B → 選んだ所を太字にして、区切りで rich を1回保存
+    const t2 = noteTxt(l, 'q4');
+    t2.focus(); l.caret.set(t2, 0, 2);
+    assert.strictEqual(l.key({ key: 'b', code: 'KeyB', ctrlKey: true }, t2).defaultPrevented, true);
+    t2.blur(); if (typeof t2.onblur === 'function') t2.onblur({});
+    await l.drain();
+    assert.ok(l.called('blockUpdate').some((c) => c.args[0] === 'pb1' && c.args[1] === 'q4' && Array.isArray(c.args[2].rich)), 'Ctrl+B の太字を保存しない');
+    // 貼り付け → block.paste の1回
+    const t3 = noteTxt(l, 'q2');
+    t3.focus(); l.caret.set(t3, t3.textContent.length);
+    let prevented = false;
+    t3.dispatchEvent({ type: 'paste', clipboardData: { getData: (k) => (k === 'text/plain' ? '- 一つ目\n- 二つ目' : '') }, preventDefault() { prevented = true; } });
+    await l.drain();
+    assert.ok(prevented);
+    assert.deepStrictEqual(l.called('blockPaste').map((c) => c.args[0]), ['pb1'], '貼り付けが block.paste にならない');
+    assert.ok(l.page('pb1').blocks.some((b) => b.text === '二つ目'), 'DB が貼り付けを受けない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-4: 空の白紙のページの本文は「ここに書く（/ で行の型を選べます）」の手引きで、押すと最初の行（テキスト）を足してフォーカスする（DB は空の白紙のページの本文を断らない）', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb2', '', [])], open: 'pb2' });
+  try {
+    const ph = $(l, 'pNote').querySelector('.bodyph');
+    assert.ok(ph, '空の本文の手引きが無い');
+    assert.deepStrictEqual([ph.textContent, ph.tabIndex, ph.getAttribute('role')], ['ここに書く（/ で行の型を選べます）', 0, 'button']);
+    ph.dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.deepStrictEqual(l.called('blockInsert').map((c) => c.args.slice(0, 3)), [['pb2', '', 'paragraph']]);
+    assert.strictEqual(l.page('pb2').blocks.length, 1, 'DB が空の白紙のページの本文に行を足さない（要約の鍵）');
+    assert.strictEqual(noteRows(l).length, 1);
+    assert.strictEqual(l.document.activeElement, noteRows(l)[0].querySelector('.txt'), '足した行にフォーカスが無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-4: 見出し「議事録」の行の［＋］・行の［＋］・/ページ → pageCreate（最上位・行の中・開いているページの中）→ 作ったページを今のタブで開いて題名にフォーカス。/ページ の文字は消える', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '', BODY())], open: 'pa1' });
+  try {
+    const head = $(l, 'newPageBtn');
+    assert.ok(head, '見出しの［＋］が無い');
+    assert.deepStrictEqual([head.textContent, head.getAttribute('title'), head.getAttribute('aria-label')], ['＋', 'ページを作る', 'ページを作る']);
+    head.dispatchEvent({ type: 'click' });
+    await l.drain();
+    const made = l.called('pageCreate');
+    assert.deepStrictEqual(made.map((c) => c.args), [[]], '見出しの［＋］が最上位に作らない');
+    const id1 = l.called('pageGet').pop().args[0];
+    assert.match(id1, /^p[a-z0-9]+$/);
+    assert.strictEqual(l.page(id1).kind, 'blank');
+    assert.strictEqual(l.document.activeElement, $(l, 'pTitle'), '作ったページの題名にフォーカスが無い');
+    assert.deepStrictEqual([$(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['', '無題のページ']);
+    // 行の［＋］（議事録 pa1 の中）
+    rowOf(l, 'pa1').querySelector('.padd').dispatchEvent({ type: 'click' });
+    await l.drain();
+    assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args)[1], ['pa1']);
+    assert.strictEqual(l.document.activeElement, $(l, 'pTitle'), '行の［＋］で作ったページの題名にフォーカスが無い');
+    // /ページ（議事録の［AI 要約］の欄）→ 打った /ページ の文字は消えて保存され、pa1 の中に作る
+    l.fire('onPageOpen', 'pa1');
+    await l.drain();
+    const t = noteTxt(l, 'b2');
+    const was = t.textContent;
+    t.focus();
+    t.textContent = `${was} /ぺーじ`;
+    l.caret.set(t, t.textContent.length);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    const menu = $(l, 'pNote').querySelector('.slashmenu');
+    assert.ok(menu, '/ メニューが開かない');
+    assert.deepStrictEqual(menu.querySelectorAll('.sopt').map((o) => o.textContent), ['ページ'], '/ぺーじ で［ページ］が出ない');
+    l.key({ key: 'Enter', code: 'Enter' }, t);
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args)[2], ['pa1'], '/ページ が開いているページの中に作らない');
+    assert.strictEqual(l.page('pa1').blocks.find((b) => b.id === 'b2').text, was, '/ページ の文字が消えない');
+    assert.strictEqual(l.document.activeElement, $(l, 'pTitle'));
+    // 白紙のページの本文の /ページ も開いているページの中
+    l.fire('onPageOpen', 'pb1');
+    await l.drain();
+    const t2 = noteTxt(l, 'q2');
+    t2.focus();
+    t2.textContent = `${t2.textContent} /page`;
+    l.caret.set(t2, t2.textContent.length);
+    t2.dispatchEvent({ type: 'input' });
+    await l.drain();
+    l.key({ key: 'Enter', code: 'Enter' }, t2);
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args)[3], ['pb1']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-4・F116: 無題の白紙のページはサイドバー・タブ・検索で「無題のページ」、無題の議事録は今の「(無題の議事録)」', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '', BODY())], open: 'pb1' });
+  try {
+    assert.strictEqual(rowOf(l, 'pb1').querySelector('.t').textContent, '無題のページ');
+    assert.strictEqual(rowOf(l, 'pb1').querySelector('.pi').textContent, '📄', '白紙のページの行のアイコン');
+    assert.strictEqual($(l, 'tabbar').querySelector('.tabitem .tt').textContent, '無題のページ');
+    assert.strictEqual($(l, 'crumb').querySelector('.ci').textContent, '📄');
+    assert.deepStrictEqual(l.call('pages.list', { q: '無題のページ' }).map((p) => p.id), ['pb1'], '検索で「無題のページ」が当たらない');
+    l.call('page.setTitle', { id: 'pa1', title: '' }, 'main');
+    assert.strictEqual(l.call('pages.list', { q: '' }).find((p) => p.id === 'pa1').title, '(無題の議事録)');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

@@ -551,3 +551,41 @@ test('PH-2 直し・R17: 新しいページの ID は、同じ ID のページ�
   assert.match(b, /^p[a-z0-9]{1,40}$/);
   assert.deepStrictEqual(seq, [], '重なりを見ずに返した');
 }));
+
+// ---------------------------------------------------------------- PH-4（決めたこと 24・HR20・R25）
+test('PH-4・R25: 白紙のページの本文は要約の鍵を掛けない（空の白紙のページにも行を足せ、直せる）。文字起こしの無い議事録の要約の欄は今どおり鍵（locked）', T, () => withDb((db) => {
+  const lib = require('../src/mainlib');
+  assert.strictEqual(lib.summaryLock({ kind: 'blank', blocks: [] }, { segments: [] }), '', '空の白紙のページに鍵');
+  assert.strictEqual(lib.summaryLock({ kind: 'blank', summaryWait: true }, { segments: [] }), '');
+  assert.strictEqual(lib.summaryLock({ blocks: [] }, { segments: [] }), 'empty', '議事録の鍵が変わった');
+  const id = create(db);
+  const r = call(db, 'block.insert', { pageId: id, afterBlockId: '', type: 'paragraph' });
+  assert.strictEqual(r.ok, true, `空の白紙のページに行を足せない: ${r.code}`);
+  const u = call(db, 'block.update', { pageId: id, blockId: r.result.blockId, patch: { text: '本文の一行目' } });
+  assert.strictEqual(u.ok, true, u.code);
+  assert.deepStrictEqual(call(db, 'page.get', { id }).result.page.blocks.map((b) => b.text), ['本文の一行目']);
+  // 文字起こしの無い議事録（行の無い要約）は今どおり鍵
+  const { page } = pageOf('pz9', { title: '会議9', blocks: [], createdAt: '2026-10-25T00:00:00.000Z' });   // 利用者が付け直した題名（D77）
+  delete page.route;   // 要約をまだ作っていない会議
+  const t2 = tmpDb();
+  try {
+    const { db: d2 } = t2.open();
+    t2.seed(page, []);
+    assert.strictEqual(call(d2, 'block.insert', { pageId: 'pz9', afterBlockId: '', type: 'paragraph' }).code, 'locked');
+  } finally { t2.done(); }
+}));
+
+test('PH-4・HR20: 白紙のページを足しても、会議の種類の見回り（pages.typeSlots）と要約待ちの見回り（pages.summaryWaits）の答えは変わらない。無題の白紙のページは一覧と検索で「無題のページ」', T, () => withDb((db) => {
+  const slots = () => call(db, 'pages.typeSlots', { since: '2000-01-01T00:00:00.000Z' }, 'main').result;
+  const waits = () => call(db, 'pages.summaryWaits', {}, 'main').result;
+  const before = [slots(), waits()];
+  const a = create(db);
+  create(db, 'pa1');
+  create(db, a);
+  assert.deepStrictEqual([slots(), waits()], before, '白紙のページが会議の見回りに入った');
+  const e = call(db, 'pages.list', {}).result.find((p) => p.id === a);
+  assert.deepStrictEqual([e.title, e.kind], ['無題のページ', 'blank']);
+  assert.ok(call(db, 'pages.list', { q: '無題のページ' }).result.some((p) => p.id === a), '検索で「無題のページ」が当たらない');
+  call(db, 'page.setTitle', { id: 'pa2', title: '' });
+  assert.strictEqual(call(db, 'pages.list', {}).result.find((p) => p.id === 'pa2').title, '(無題の議事録)', '無題の議事録の名前が変わった');
+}));

@@ -27,6 +27,8 @@ const FULL_TEXT_LIMIT = 60;   // 今の store.searchFullText と同じ既定
 const CONTROL_RE = /[\u0000-\u001f\u007f]/g;
 // 題名の無いページの一覧の行の題名（R.summarize が付ける）を畳んだもの。今の searchIndex はこれに当てる
 const UNTITLED_FOLD = searchFold(R.listEntry({ id: '', blocks: [] }).title);
+// 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25・R25）: 無題の白紙のページの一覧の行の題名「無題のページ」を畳んだもの（当たるかは一覧の行の題名で見る）
+const UNTITLED_BLANK_FOLD = searchFold(R.listEntry({ id: '', kind: 'blank', blocks: [] }).title);
 
 const SQL = Object.freeze({
   // 一覧の検索はページごとに、ページの行（題名・メモ）と、当たったブロックのうち並びの一番前のもの（min(ord) の行）の2つだけを返す
@@ -83,7 +85,7 @@ function searchList(db, q, { ids, entryOf }) {
       memoOf.set(r.page_id, typeof attrs.memo === 'string' ? attrs.memo : '');
     } else firstBlock.set(r.page_id, r);
   }
-  const untitled = UNTITLED_FOLD.includes(f) ? new Set(db.prepare(SQL.untitled).all().map((r) => r.id)) : new Set();
+  const untitled = UNTITLED_FOLD.includes(f) || UNTITLED_BLANK_FOLD.includes(f) ? new Set(db.prepare(SQL.untitled).all().map((r) => r.id)) : new Set();
   const out = [];
   for (const id of ids) {
     if (!rowHit.has(id) && !firstBlock.has(id) && !untitled.has(id)) continue;

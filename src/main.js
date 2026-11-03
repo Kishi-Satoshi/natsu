@@ -6018,6 +6018,7 @@ function restartBlockNow() {
 }
 
 // 要約の生成 → ブロック化 → 出典付与 → 保存
+const BLANK_SUMMARY_TEXT = '白紙のページは要約できません';
 async function doRunSummary(pageId) {
   // どの経路で抜けても進捗表示と録音状態を必ず解除する
   const clearUi = () => {
@@ -6043,6 +6044,8 @@ async function doRunSummary(pageId) {
   const opened = await db.call('page.get', { id: pageId });
   if (!opened) { clearUi(); return { ok: false, error: 'ページが見つかりません' }; }
   const { page } = opened;
+  // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・F116）: 白紙のページは要約しない（文字起こしが無い。Claude Code を呼ばず、ページも書かない）
+  if (page.kind === 'blank') { clearUi(); return { ok: false, error: BLANK_SUMMARY_TEXT }; }
   let segments = opened.segments;   // 出典付与の直前に読み直して差し替える（下記）
   const segmentsAtStart = segments;   // 要約の材料にした配列。出典付けで今の配列と突き合わせる（#4）
   const usable = segments.filter((s) => !s.failed && !s.pending);
