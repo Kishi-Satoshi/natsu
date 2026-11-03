@@ -156,7 +156,7 @@ test('NE-4a: 画面の写し（canIndent・locate・kidsCan・isOpenStored・vis
   const app = new Function(`${src}\nreturn { kidsCanView, isOpenStored, aiSectionHead, locate, canIndent, visibleOrder };`)();   // eslint-disable-line no-new-func
   const blocks = NEST();
   blocks.push({ id: 't', type: 'toggle', text: 't', open: false, children: [kid('tk')] }, { id: 'th', type: 'heading', toggle: true, level: 1, text: 'th', children: [kid('thk')] }, { id: 'ai', type: 'heading', text: 'AI' });
-  for (const b of BT.flattenBlocks(blocks).concat([{ type: 'video' }, { type: 'heading', toggle: true }, { type: 'divider' }, { type: 'toggle', open: true }])) {
+  for (const b of BT.flattenBlocks(blocks).concat([{ type: 'video' }, { type: 'heading', toggle: true }, { type: 'divider' }, { type: 'toggle', open: true }, { type: 'subpage', page: 'pk1' }])) {
     assert.strictEqual(app.kidsCanView(b), BT.kidsCan(b), JSON.stringify(b));
     assert.strictEqual(app.isOpenStored(b), BT.isOpenStored(b), JSON.stringify(b));
     assert.strictEqual(app.aiSectionHead(b), BT.aiSectionHead(b), JSON.stringify(b));

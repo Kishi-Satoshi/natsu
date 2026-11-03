@@ -56,6 +56,11 @@ test('ED-3: ［コピー］の Markdown は blocksMarkdown の写し（app.html�
       { id: 'x', type: 'bullet', text: 'c\nd' }, { id: 'n3', type: 'numbered', text: 'e' }, { id: 'q', type: 'quote', text: 'f' }, { id: 'v', type: 'divider', text: '' }, { id: 'c', type: 'callout', text: 'g' }, { id: 'z', type: 'video', text: 'h' }]];
   for (const t of tables) assert.strictEqual(app.blocksMarkdown(t), E.blocksMarkdown(t), JSON.stringify(t));
   for (const t of tables.slice(2)) assert.deepStrictEqual([...app.numberLabels(t)], [...E.numberLabels(t)]);
+  // 0.15.0 PR-2: 子ページの行の「📄 題名」（題名は at.title から）も同じ答え
+  const subs = [{ id: 's1', type: 'subpage', text: '', page: 'pk1' }, { id: 't', type: 'toggle', text: 'まとめ', children: [{ id: 's2', type: 'subpage', text: '', page: 'pk2' }] }];
+  const title = (id) => ({ pk1: '週の予定' }[id]);
+  assert.strictEqual(app.blocksMarkdown(subs, 0, { base: 0, title }), E.blocksMarkdown(subs, 0, { base: 0, title }));
+  assert.strictEqual(app.blocksMarkdown(subs), E.blocksMarkdown(subs));
 });
 
 test('ED-3: 要約の欄の［コピー］が見出しを段の数の # で写す（画面の順・今の型は前と同じ）', T, async () => {
@@ -153,7 +158,7 @@ test('ED-4: 行の編集の写し（app.html の graphemeEnds・safeOffset・sho
     for (const full of [undefined, before, `${before}x`]) assert.deepStrictEqual(app.shortcutFor(before, { full }), E.shortcutFor(before, { full }), `${before}|${full}`);
   }
   for (const b of [null, {}, { type: 'paragraph' }, { type: 'heading' }, { type: 'heading', level: 3 }, { type: 'todo' }, { type: 'bullet' }, { type: 'numbered' },
-    { type: 'quote' }, { type: 'divider' }, { type: 'callout' }, { type: 'toggle' }, { type: 'video' }]) assert.strictEqual(app.isTypedView(b), E.isTyped(b), JSON.stringify(b));
+    { type: 'quote' }, { type: 'divider' }, { type: 'callout' }, { type: 'toggle' }, { type: 'video' }, { type: 'subpage', page: 'pk1' }]) assert.strictEqual(app.isTypedView(b), E.isTyped(b), JSON.stringify(b));   // 0.15.0 PR-2: 子ページの行も
   const a = { id: 'a', text: '1' }, b = { id: 'b', text: '2' }, c = { id: 'c', text: '3' }, d = { id: 'd', text: '4' };
   for (const [x, y] of [[[a, b, c], [a, b, c]], [[a, b, c], [a, { ...b, text: 'x' }, d, c]], [[a, b, c], [c, a, b]], [[a, b, c, d], [b, a, d, c]], [[], [a]], [[a], []]]) {
     assert.deepStrictEqual(app.patchPlan(x, y), E.patchPlan(x, y));

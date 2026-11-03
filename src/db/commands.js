@@ -778,8 +778,9 @@ function pasteInto(db, ctx, p, a) {
   const l = BT.locate(p.blocks, a.blockId);
   if (!l) return null;
   const b = l.b;
-  noSubRow(b);   // 0.15.0 PR-1（決めたこと 51）: 子ページの行の文には貼らない（画面は行のすぐ下へ貼る）
   const text = RT.plainOf(a.rich);
+  // 0.15.0 PR-1（決めたこと 51）: 子ページの行の文には貼らない。PR-2（R31）: 区切り線と同じく、文の無い形（rich が空）なら行のすぐ下へ足す（行はそのまま）
+  if (isSubRow(b) && (text !== '' || a.inside === true)) throw refuse('bad-args');
   if (!splitAtOk(text, a.at)) throw refuse('bad-args');
   // inside は子の見えている行だけ（R66・TQ3）。0.14.0 の BQ31（2026-10-30 の持ち主の答え「すぐ下（子の先頭）に入れる」）で文の途中も通す（Enter と同じ）。
   // 文のある行の頭は上に足す形（BQ30 (a)）なので inside は断る

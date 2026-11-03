@@ -757,12 +757,17 @@ test('PR-1・BQ13 (a)・BQ11 (a)・HR18: 断り（block.duplicate の子ペー�
   bad('block.turnInto', { pageId: P, blockId: row, type: 'paragraph' });
   bad('block.turnInto', { pageId: P, blockId: para, type: 'subpage' });
   bad('blocks.turnInto', { pageId: P, ids: [row, para], type: 'bullet' });
-  bad('block.paste', { pageId: P, blockId: row, rich: [], at: 0, blocks: [{ type: 'paragraph', rich: [{ t: '貼った文' }] }] });
+  bad('block.paste', { pageId: P, blockId: row, rich: [{ t: '行の文' }], at: 0, blocks: [{ type: 'paragraph', rich: [{ t: '貼った文' }] }] });   // PR-2（R31）で意図して変えた: 子ページの行に文を入れる貼り付けだけを断る
   bad('block.paste', { pageId: P, blockId: para, rich: [{ t: '下の行' }], at: 3, blocks: [{ type: 'subpage', rich: [] }] });
   bad('block.setAction', { pageId: P, blockId: row, assignee: '担当' });   // 決めたこと 43: 担当と期限を持たない
   bad('block.insert', { pageId: P, afterBlockId: para, type: 'subpage' });
   bad('block.insert', { pageId: P, afterBlockId: '', type: 'paragraph', parentId: row });   // 子を持てない
   assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+  // PR-2（R31）: 子ページの行の下に貼る（区切り線と同じ: rich が空）と、行はそのまま・貼った行はすぐ下
+  const pz = ok(call(db, 'block.paste', { pageId: P, blockId: row, rich: [], at: 0, blocks: [{ type: 'paragraph', rich: [{ t: '貼った文' }] }] }), 'block.paste');
+  const order = flat(pz.result.page.blocks).map((b) => (b.type === 'subpage' ? `@${b.page}` : b.text));
+  assert.deepStrictEqual(order.slice(order.indexOf(`@${K}`), order.indexOf(`@${K}`) + 2), [`@${K}`, '貼った文'], '子ページの行のすぐ下に貼らない');
+  assert.deepStrictEqual(flat(pz.result.page.blocks).find((b) => b.id === row), { id: row, type: 'subpage', text: '', page: K, children: [] });
   // blocks.duplicate はほかの行だけを写す
   const d = ok(call(db, 'blocks.duplicate', { pageId: P, ids: [row, para] }), 'blocks.duplicate');
   assert.strictEqual(d.result.ids.length, 1);

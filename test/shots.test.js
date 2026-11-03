@@ -212,7 +212,8 @@ const RETAKEN_140 = ['edit-block-menu-light', 'settings-light', 'settings-dark',
 const ADDED_140 = [...NEW_140, ...RETAKEN_140];
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.15.0 の表の画面だけ（RETAKE_150）。
 // PH-3 でサイドバーの木の明暗と拡大 200% の3枚を足した（NEW_150。足した画面で、まだ基準が無い）。PH-4 で白紙のページの明暗の2枚を足した
-const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark'];
+// PR-2 で白紙のページの本文の子ページの行の明暗の2枚を足した
+const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark'];
 // PH-4 で / メニューに［ページ］が増えるので、語の無い / メニューを開く edit-slash-recent-light（今の基準がある）を取り直す（RETAKEN_150。R25）
 const RETAKEN_150 = ['edit-slash-recent-light'];
 const RETAKE_150 = [...NEW_150, ...RETAKEN_150];
@@ -264,7 +265,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_132,
     // 0.14.0 EB-4 で意図して変えた: 行の文の飾りと色の明暗の2枚を足した。EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した。EK-4・EK-5・MB-4・DQ-3 で足した画面も（版を 0.14.0 に上げる commit で基準にした）
     ...NEW_140,
-    // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を、PR-2 で子ページの行の明暗の2枚を足した（取り直し待ち・まだ基準が無い）
     ...NEW_150]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -1100,7 +1101,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.0 PH-3 直し・PH-4 直し（計画の R28・R29。2026-11-03 の点検の Minor）: 木の落とす所はページの印のある引っ張りだけ・document の dragstart／dragend／drop で引っ張りを忘れる・
   // 開け閉めは子のある行の新しい 500 個を覚える・選ぶ形の子のある行の ▸（.ptw の CSS）・行のメニューは入らなければ上へ・白紙のページは種類の判定を聞かない。今の撮る画面には
   // 子のある行の選ぶ形も行のメニューも写らないので変わらない見込み。値を今の app.html に合わせた（前の値は 2365a6e6…）
-  assert.strictEqual(sha, 'e9b139f1ccc2eeac7544656cedc599f625cc5d1d50834f790c57d7caa7e99379',
+  // 0.15.0 PR-2（計画の決めたこと 43〜60・R31）: 白紙のページの本文の子ページの行（.blk.subpage と灰色の .gone・行の無い子の一覧 #bodyKids（隠した div を #pNote の後ろに足した）の CSS と描き方・キー・写す・
+  // 複製の断り・知らせ）・型の写し（TYPED_VIEW・kidsCanView・blocksMarkdown）に subpage。今の撮る画面には子ページの行が無いので変わらない見込みで、変わる画面は
+  // 足した NEW_150 の page-rows の2枚。値を今の app.html に合わせた（前の値は e9b139f1…）
+  assert.strictEqual(sha, 'ca1d3f9f876dd985713dd354efae86d65eb0ecdfa62b5b1904e7645879c0223b',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

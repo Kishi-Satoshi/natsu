@@ -398,6 +398,9 @@ const SCREENS = [
   // 足した画面（まだ基準が無い）。/ メニューに［ページ］が増える edit-slash-recent-light は取り直す（語「みだし」で開く edit-slash-light・dark は変わらない）
   { name: 'page-blank-light', page: 'app', theme: 'light', get answers() { return blankAnswers(); }, act: OPEN_PAGE },
   { name: 'page-blank-dark', page: 'app', theme: 'dark', get answers() { return blankAnswers(); }, act: OPEN_PAGE },
+  // 0.15.0 PR-2（計画 docs/plans/2026-11-03-150.md の「取り直す画面」）: 白紙のページの本文の子ページの行（見出し・箇条書きの間・トグルの中・灰色の行・行の無い子の一覧）
+  { name: 'page-rows-light', page: 'app', theme: 'light', get answers() { return rowsAnswers(); }, act: OPEN_PAGE },
+  { name: 'page-rows-dark', page: 'app', theme: 'dark', get answers() { return rowsAnswers(); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -507,7 +510,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // （2026-11-03）と答えたので、CI run 41612673475（036c020）の artifact 13220336274 の .after.png（32 枚）をバイトのまま基準にし、空に戻した（基準は 175 枚）
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）: PH-3 で足したサイドバーの木の明暗と拡大 200% の3枚（まだ基準が無い）
 // PH-4 で足した白紙のページの明暗の2枚（まだ基準が無い）と、/ メニューに［ページ］が増える edit-slash-recent-light（今の基準がある）
-const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'edit-slash-recent-light']);
+const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark', 'edit-slash-recent-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -668,6 +671,29 @@ function blankAnswers() {
   ] };
   const row = { id: 'pb1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
   return { 'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
+}
+
+/**
+ * 0.15.0 PR-2: 白紙のページの本文の子ページの行（一覧のいちばん上の白紙のページ pr1。子は pk1〜pk4 で、pk4 は本文に行の無い子。
+ * 行 s9 は今の子でないページ pzz を指す灰色の行。行の文 text は空で、画面が一覧の題名から描く）
+ */
+function rowsAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const m = { citeState: 'manual', cites: [] };
+  const page = { id: 'pr1', kind: 'blank', title: '計画のまとめ', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [
+    { id: 'q1', type: 'heading', level: 2, text: '目的', ...m },
+    { id: 'q2', type: 'bullet', text: '見積もりを出す日を決める。', ...m },
+    { id: 's1', type: 'subpage', text: '', page: 'pk1' },
+    { id: 'q3', type: 'bullet', text: '予算は先月の案のまま進める。', ...m },
+    { id: 's2', type: 'subpage', text: '', page: 'pk2' },
+    { id: 'q4', type: 'heading', level: 2, text: '資料', ...m },
+    { id: 't1', type: 'toggle', text: '取引先ごとの資料', ...m, children: [{ id: 's3', type: 'subpage', text: '', page: 'pk3' }] },
+    { id: 's9', type: 'subpage', text: '', page: 'pzz' },
+    { id: 'q5', type: 'paragraph', text: '次の打ち合わせで決まったことを書き足す。', ...m },
+  ] };
+  const row = (id, title, ord, parentId) => ({ id, title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId, ord, kind: 'blank' });
+  const kids = [row('pk1', '週の予定', 'i', 'pr1'), row('pk2', '見積もりの内訳', 'r', 'pr1'), row('pk3', '取引先の一覧', 't', 'pr1'), row('pk4', '前の版で行を消した子', 'v', 'pr1')];
+  return { 'koeApp.pagesSearch': [row('pr1', page.title, 'i', null), ...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
 }
 
 /** 0.13.0 RDY-3: 録音の前のページ（main の meetingStatus() の形。録音していない・prep は空のメモと「自動」・クラウドで文字起こしする PC） */

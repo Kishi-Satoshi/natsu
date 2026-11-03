@@ -653,6 +653,17 @@
   .blk.quote .txt { border-left: 3px solid var(--text); border-radius: 0; padding-left: 12px; }
   .blk.divider .txt { height: 0; min-height: 0; margin: 11px 0 12px; padding: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
   .blk.divider .txt:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
+  /* 0.15.0 PR-2: 白紙のページの本文の子ページの行（押すと開く・文は直せない）・今の子でないページを指す灰色の行・行の無い子の一覧 */
+  .blk.subpage .txt { cursor: pointer; border-radius: 4px; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+  .blk.subpage .txt:hover { background: var(--tint); }
+  .blk.subpage .txt:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .blk.subpage.gone .txt { cursor: default; color: var(--muted); text-decoration: none; }
+  .blk.subpage.gone .txt:hover { background: transparent; }
+  .bodykids { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+  .bodykids .kidshead { font-size: 12px; color: var(--text-2); margin: 0 0 4px; }
+  .bodykids .kidrow { padding: 3px 6px; border-radius: 4px; cursor: pointer; color: var(--text); }
+  .bodykids .kidrow:hover { background: var(--tint); }
+  .bodykids .kidrow:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .blk.callout { background: var(--hover); border-radius: 6px; padding: 8px 10px; margin: 2px 0; }
   .blk.callout .icon { flex: none; line-height: 24px; user-select: none; }
   /* 0.13.0 ED-8（EQ4 (a)）: ［要約を再生成］の確かめの小さな窓（後ろは設定のポップアップと同じ .setmodal の暗い地） */
@@ -1117,6 +1128,8 @@
             <div class="pcol">
             <div id="pProgress" class="prog" style="display:none"></div>
             <div id="pNote" class="pane active" role="tabpanel" aria-labelledby="paneBtnNote"></div>
+            <!-- 0.15.0 PR-2（決めたこと 55・HR16）: 白紙のページの本文に行の無い子の一覧（「このページの中のページ」。子が無ければ隠す） -->
+            <div id="bodyKids" class="bodykids" hidden></div>
             <div id="pPending" class="pendline" role="status" hidden><span id="pPendingText"></span><button type="button" class="ghost" id="pRetranscribe">もう一度文字起こし</button></div>
             <div id="pScript" class="pane" role="tabpanel" aria-labelledby="paneBtnScript"></div>
             <div id="pMemo" class="pane" role="tabpanel" aria-labelledby="paneBtnMemo"></div>
@@ -3141,13 +3154,14 @@
       box.appendChild(el);
     }
     if (want) { const el = treeRowEl(want); if (el) { treeFocus = want; el.focus(); } }
+    paintBodyPages();   // 0.15.0 PR-2（決めたこと 56）: 一覧を読み直したら、白紙のページの本文の子ページの行の題名とアイコンも今の値に
   }
   // ---------------- 0.15.0 PH-3（決めたこと 18・21・25・HR4）: 行の［＋］・行のメニュー・引っ張って動かす
   // 中にページを作る（parentId が無ければ最上位）→ 一覧を読み直して今のタブで開く（親の行は開く）
-  async function createPageIn(parentId) {
+  async function createPageIn(parentId, placeAt) {
     flushEdits();
     let r = null;
-    try { r = await (parentId ? window.koeApp.pageCreate(parentId) : window.koeApp.pageCreate()); } catch (_) { r = null; }
+    try { r = await (parentId ? (placeAt ? window.koeApp.pageCreate(parentId, placeAt) : window.koeApp.pageCreate(parentId)) : window.koeApp.pageCreate()); } catch (_) { r = null; }
     if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
     await refreshList();
     if (parentId) setTreeOpen(parentId, true);   // PH-3 直し（R28 (2)）: 覚えるのは子のある行だけなので、作った子が一覧に入ってから開く
@@ -3247,10 +3261,13 @@
   document.addEventListener('drop', forgetPageDrag);
   async function movePageTo(id, parentId, afterId) {
     let bad = '';
+    const from = (pages.find((p) => p && p.id === id) || {}).parentId || '';
     try { await window.koeApp.pageMove(id, parentId, afterId); } catch (e) { bad = (e && (e.code || e.message)) || 'error'; }
     if (bad) toast(bad === 'bad-args' ? 'そのページの中へは動かせません' : 'ページを動かせませんでした。');
     await refreshList();
     if (!bad && revealInTree(id)) renderList();
+    // 0.15.0 PR-2（決めたこと 45・46）: 開いている白紙のページの本文の行が DB で変わったら読み直す（前の親か新しい親）
+    if (!bad && curId && isBlankPage(curPage) && (curId === from || curId === (parentId || ''))) await openPage(curId);
   }
   // ---------------- 0.10.0 L-2（D58・D70・決めたこと 101）: 一覧で選んでリンクを写す ----------------
   // 選びの決まりは DOM に頼らない純粋な selStep・selLines（後のデータベースの表でも使う。test/repo.test.js が字面で取り出して当てる）。
@@ -3779,7 +3796,7 @@
         what = 'メモ';
       } else if (blank) {
         // 0.15.0 PH-4: 白紙のページは本文を書いた順のまま（要約の並べ替えと打ち合わせの質の行は無い）
-        text = blocksMarkdown(curPage.blocks);
+        text = blocksMarkdown(curPage.blocks, 0, { base: 0, title: subTitle });   // 0.15.0 PR-2（決めたこと 57）: 子ページの行は「📄 題名」
         what = 'ページ';
       } else {
         // 0.11.0 V-2（D48）: 画面と同じ順。点があれば最後に打ち合わせの質の行
@@ -3982,6 +3999,7 @@
       if (b.type === 'divider') return '---';
       if (b.type === 'callout') return `> ${CALLOUT_ICON} ${t}`;
       if (b.type === 'toggle') return `- ${t}`;
+      if (b.type === 'subpage') return `📄 ${typeof at.title === 'function' ? String(at.title(b.page) ?? '') : ''}`;   // 0.15.0 PR-1（決めたこと 57）: 題名は呼び手から（at.title）
       return t;
     };
     return list.map((b) => {
@@ -4004,7 +4022,7 @@
   function kidsCanView(b) {   // 型の表の「子を持てる」: トグルでない見出しと区切り線は持てない（知らない型はテキストの見た目なので持てる）
     if (!b || typeof b !== 'object') return true;
     if (b.type === 'heading') return b.toggle === true;
-    return b.type !== 'divider';
+    return b.type !== 'divider' && b.type !== 'subpage';   // 0.15.0 PR-2: 子ページの行も持てない（src/blockEdit.js の SUBPAGE_ROW）
   }
   function isToggleView(b) {
     return Boolean(b) && typeof b === 'object' && (b.type === 'toggle' || (b.type === 'heading' && b.toggle === true));
@@ -4195,7 +4213,7 @@
     return null;
   }
   // テキストでない型か（知らない型はテキストの見た目なので偽）
-  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'toggle', 'quote', 'divider', 'callout'];
+  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'toggle', 'quote', 'divider', 'callout', 'subpage'];   // 0.15.0 PR-2: 子ページの行（src/blockEdit.js の SUBPAGE_ROW）
   function isTypedView(b) {
     return Boolean(b && typeof b === 'object' && TYPED_VIEW.includes(b.type));
   }
@@ -6791,7 +6809,7 @@
     setCaret(txt, s.start);
     const pid = keyOfEl(el);
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    return createPageIn(pid);
+    return createPageIn(pid, isBlankPage(curPage) && pid === curId ? el.dataset.id : undefined);   // 0.15.0 PR-2（決めたこと 25・45）: 白紙のページは打った行に子ページの行
   }
   // 語を打ったときだけ色の項目を出す（空の / では型だけ）
   const slashColorHits = (q) => (q ? SLASH_COLORS.filter((r) => slashHit(r, q)).map((r) => ({ id: r.id, group: r.kind })) : []);
@@ -7045,6 +7063,7 @@
     if (!r) return null;
     applyEditAnswer(pid, Array.isArray(r.blocks) ? r : r.page, where ? where(r) : null);
     if (pid === curId) { refreshList(); refreshEditMeta(pid); }
+    noteTrashed(r);   // 0.15.0 PR-2（決めたこと 49・HR21）: 子ページの行を消してページをゴミ箱へ入れたら一度知らせる
     return r;
   }
   // 命令の答えは DB の素のページ（出典の数などは添えていない）。「🔗 出典」の行だけを読み直す
@@ -7115,7 +7134,7 @@
         const nb = byId.get(o.id);
         if (el === focused) {
           blockRows.dress(el, nb, '');
-          if (el._txt.textContent !== String(nb.text ?? '') || !sameRich(rowRich(el._txt), richOf(nb))) paintBlock(el._txt, nb);   // 0.14.0 EB-4: 飾りも
+          if (nb.type !== 'subpage' && (el._txt.textContent !== String(nb.text ?? '') || !sameRich(rowRich(el._txt), richOf(nb)))) paintBlock(el._txt, nb);   // 0.14.0 EB-4: 飾りも（0.15.0 PR-2: 子ページの行は題名を描く）
         } else {
           const ne = blockRows.make(nb, '', placeOf.get(o.id).depth, placeOf.get(o.id).parentId);
           box.insertBefore(ne, el); el.remove(); rows.set(o.id, ne);
@@ -7167,7 +7186,7 @@
     const plain = plainPasteAt === txt;
     plainPasteAt = null;
     if (revertingAt(keyOfEl(el))) return;   // EB-3 直し（R109 (4)）と同じ: 戻している間は打たせない
-    const line = el._b.type === 'divider';
+    const line = el._b.type === 'divider' || el._b.type === 'subpage';   // 0.15.0 PR-2: 子ページの行も文を持たないので、下に行として足す
     const cd = ev.clipboardData;
     const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
     // 決めたこと 26: Ctrl+Shift+V は素の文字だけ（改行は行の中の改行）。R126: 変換中（IME）の貼り付けも変換を決めない（素の文字を行の中に）。
@@ -7524,6 +7543,8 @@
     const rows = editRows(rowsBoxOf(el));
     const i = rows.indexOf(el);
     if (i <= 0) return null;
+    // 0.15.0 PR-2（決めたこと 53・HR18）: すぐ上が子ページの行なら、つながずに子ページの行を選ぶ（1回の Backspace でページをゴミ箱へ入れない。もう一度で消す）
+    if (rows[i - 1]._b && rows[i - 1]._b.type === 'subpage') { txt._commit(pid); selRowStart(rows[i - 1]); return null; }
     const intoId = rows[i - 1].dataset.id;
     const text = txt.textContent;
     // 0.14.0 EB-4（決めたこと 16・R58）: 飾りのある行は今の rich も送る（つないだ先の後ろに飾りを残す）
@@ -7567,7 +7588,7 @@
   function stepRow(el, dir) {
     const txt = el._txt;
     const r = caretRange(txt);
-    const line = el._b && el._b.type === 'divider';   // 区切り線は文を持たないので、いつも隣へ
+    const line = el._b && (el._b.type === 'divider' || el._b.type === 'subpage');   // 区切り線と子ページの行（0.15.0 PR-2）は文を持たないので、いつも隣へ
     if (!line && (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length))) return false;
     const rows = editRows(rowsBoxOf(el));
     const to = rows[rows.indexOf(el) + dir];
@@ -7588,6 +7609,7 @@
     // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
     txt._commit = (pid) => {
       if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
+      if (el._b && el._b.type === 'subpage') return undefined;   // 0.15.0 PR-2（決めたこと 53・56）: 子ページの行の文は題名を描いたもので、保存しない
       if (rowsBoxOf(el) && keyOfEl(el) !== pid) return undefined;   // 0.14.0 MB-4: 別の欄の鍵では保存しない（メモの行を要約の命令で送らない）
       const b = el._b;
       const memoRow = Boolean(rowsBoxOf(el) && rowsBoxOf(el)._memoTg);
@@ -7615,6 +7637,7 @@
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
+      if (el._b.type === 'subpage' && subRowKey(el, ev)) return;   // 0.15.0 PR-2（決めたこと 53）: 子ページの行の Enter・Backspace・Delete・写す・貼る
       plainPasteAt = plainPasteKey(ev) ? txt : null;   // 0.14.0 EK-3（決めたこと 26）: Ctrl+Shift+V の次の paste は素の文字だけ（既定の貼り付けは止めない）
       // EK-4 直し（R153）: 区切り線の行は文の欄でないので、Chromium は Ctrl+V で paste の事象を出さない。キーで受け、main に読ませて貼る
       if (el._b.type === 'divider') { const ck = clipKey(ev); if (ck === 'paste' || ck === 'plain') { ev.preventDefault(); rowClipPaste(el, ck === 'plain'); return; } }
@@ -8019,7 +8042,7 @@
     const pid = blockSel.pageId; const ids = [...blockSel.ids];
     const keep = (x) => ({ select: x && Array.isArray(x.ids) ? x.ids : ids });
     if (act === 'menu') { blockMenuOpen(rowById(ids[0]), { ids }); return null; }
-    if (act === 'duplicate') return editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, ids), keep);
+    if (act === 'duplicate') { const dup = dupIdsOf(pid, ids); return dup ? editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, dup), keep) : null; }   // 0.15.0 PR-2（BQ13 (a)）
     if (act === 'moveUp' || act === 'moveDown') {
       const to = selMoveSpot(act === 'moveUp' ? -1 : 1);
       if (!to) return null;
@@ -8136,6 +8159,8 @@
       const kids = Array.isArray(b.children) && b.children.length ? selHtml(b.children) : '';
       if (b.type === 'heading') return `<h${headingLevel(b)}>${t}</h${headingLevel(b)}>${kids}`;
       if (b.type === 'divider') return `<hr>${kids}`;
+      // 0.15.0 PR-2（決めたこと 51・BQ11 (a)）: 子ページの行は題名と NaTsu のリンクの文だけ（貼るとリンクの付いた文の行。ページは増えも動きもしない）
+      if (b.type === 'subpage') return `<p><a href="natsu://page/${htmlEsc(b.page)}">${htmlEsc(`📄 ${subTitle(b.page)}`)}</a></p>${kids}`;
       if (b.type === 'quote' || b.type === 'callout') return `<blockquote>${t}</blockquote>${kids}`;
       if (b.type === 'numbered') return `<ol><li>${t}${kids}</li></ol>`;
       if (b.type === 'todo') return `<ul><li><input type="checkbox"${b.checked ? ' checked' : ''}>${t}${kids}</li></ul>`;
@@ -8148,7 +8173,7 @@
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
     const blocks = selRootIds().map((id) => locate(blocksOfKey(blockSel.pageId), id)).filter(Boolean).map((l) => l.b);
     const cd = ev.clipboardData;
-    if (cd) { cd.setData('text/plain', blocksMarkdown(blocks).replace(/^\n+/, '')); cd.setData('text/html', selHtml(blocks)); }
+    if (cd) { cd.setData('text/plain', blocksMarkdown(blocks, 0, { base: 0, title: subTitle }).replace(/^\n+/, '')); cd.setData('text/html', selHtml(blocks)); }   // 0.15.0 PR-2: 子ページの行は「📄 題名」
     selCopied = Boolean(cd);
     if (cut) selRemove();
   }
@@ -8321,7 +8346,7 @@
   function blockMenuOpen(el, o = {}) {
     blockMenuClose();
     const ids = Array.isArray(o.ids) ? o.ids : null;
-    if (!el || !el._b || !el._txt || (!ids && el._txt.contentEditable !== 'true')) return;
+    if (!el || !el._b || !el._txt || (!ids && el._txt.contentEditable !== 'true' && el._b.type !== 'subpage')) return;   // 0.15.0 PR-2: 子ページの行の ⠿ も（［削除］）
     const box = document.createElement('div');
     box.className = 'blockmenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ブロックのメニュー');
     blockMenu = { el, box, sub: null, ids };
@@ -8421,6 +8446,7 @@
       return editAnswer(pid, () => rowApi(pid).blocksSetColor(pid, [b.id], row), () => ({ focus: b.id, caret: txt.textContent.length }));
     }
     if (what === 'duplicate') {
+      if (b.type === 'subpage') { toast(SUB_NO_DUP); return null; }   // 0.15.0 PR-2（決めたこと 52・BQ13 (a)）: 子ページの行は写さない
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       return editAnswer(pid, () => rowApi(pid).blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret: txt.textContent.length }));
     }
@@ -8435,7 +8461,7 @@
   function blockMenuMany(what, row, ids, pid) {
     if (what === 'remove') { if (selOn()) return selRemove(); return editAnswer(pid, () => rowApi(pid).blocksRemove(pid, ids), null); }
     const keep = (x) => ({ select: x && Array.isArray(x.ids) ? x.ids : ids });
-    if (what === 'duplicate') return editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, ids), keep);
+    if (what === 'duplicate') { const dup = dupIdsOf(pid, ids); return dup ? editAnswer(pid, () => rowApi(pid).blocksDuplicate(pid, dup), keep) : null; }   // 0.15.0 PR-2（BQ13 (a)）
     if (what === 'color') return editAnswer(pid, () => rowApi(pid).blocksSetColor(pid, ids, row), keep);
     if (row.key === 'divider' && !selDividerOk(ids, pid)) return null;
     return editAnswer(pid, () => rowApi(pid).blocksTurnInto(pid, ids, row.key, row.level, row.toggle), keep);
@@ -8469,6 +8495,7 @@
       return editAnswer(pid, () => window.koeApp.blockSetOpenAll(pid, open), () => ({ focus: b.id, caret }));   // 隠れた行のフォーカスは liftFocus が先祖へ（点検 3）
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    if (act === 'duplicate' && b.type === 'subpage') { toast(SUB_NO_DUP); return null; }   // 0.15.0 PR-2（決めたこと 52・BQ13 (a)）: 子ページの行の Ctrl+D は写さない
     if (act === 'duplicate') return editAnswer(pid, () => rowApi(pid).blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
     // 0.13.1 NR13: 子は同じ親の兄弟の中だけで1つ上・下へ（親の外へ出す・中へ入れるのは Tab と Shift+Tab）。最上位は画面の最上位の並びで（0.13.0 のまま）
     let to = null;
@@ -8494,6 +8521,93 @@
     const nums = new Map();
     for (const list of groups.values()) for (const [k, v] of numberLabels(list)) nums.set(k, v);
     for (const e of rows) { const n = e.querySelector('.num'); if (n && e._b) n.textContent = nums.get(e._b.id) || '1.'; }
+  }
+  // ---------------- 0.15.0 PR-2（計画 docs/plans/2026-11-03-150.md の決めたこと 43〜60・HR16・HR18・HR21・F123）: 白紙のページの本文の子ページの行
+  // 行の文は持たず（text は空）、一覧の1行（pages）から「アイコン 題名」を textContent で描く（題名を変えたらすぐ変わる: 決めたこと 56）。
+  // 今の子でないページを指す行は灰色（押せない・消せる: HR16）。行の無い子は本文の後ろの「このページの中のページ」（#bodyKids）
+  const SUB_OPEN_TITLE = '開く（Ctrl+クリックで新しいタブ）';
+  const SUB_GONE = '（このページはここにありません）';
+  const SUB_NO_DUP = 'ページの行は複製できません';
+  const SUB_KIDS_HEAD = 'このページの中のページ';
+  const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+  // 行の指すページ（今の白紙のページの子で、一覧に出るページ。無ければ null）
+  function subPageOf(b) {
+    const p = b && typeof b.page === 'string' ? pages.find((x) => x && x.id === b.page) : null;
+    return p && curPage && p.parentId === curPage.id ? p : null;
+  }
+  // 写す・［コピー］の題名（1行。一覧に無いページは空）
+  function subTitle(id) {
+    const p = pages.find((x) => x && x.id === id);
+    return p ? oneLine(p.title) : '';
+  }
+  function paintSubRow(el) {
+    const txt = el._txt; const p = subPageOf(el._b);
+    el.classList.toggle('gone', !p);
+    txt.textContent = p ? `${pageEmoji(p)} ${oneLine(p.title)}` : SUB_GONE;
+    txt.title = p ? SUB_OPEN_TITLE : '';
+    if (p) txt.removeAttribute('aria-disabled'); else txt.setAttribute('aria-disabled', 'true');
+  }
+  function subRowOpen(el, ev) {
+    const p = subPageOf(el._b);
+    if (!p) return;
+    openPageTab(p.id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
+  }
+  // 子ページの行のキー（決めたこと 53）。受けたら真（↑↓・Tab・Esc・近道は今の受け口へ）
+  function subRowKey(el, ev) {
+    const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
+    const stop = () => { if (typeof ev.preventDefault === 'function') ev.preventDefault(); };
+    if (ev.key === 'Enter' && !ev.altKey && !ev.shiftKey && !ev.metaKey) { stop(); subRowOpen(el, ev); return true; }
+    if ((ev.key === 'Backspace' || ev.key === 'Delete') && !mod && !ev.shiftKey) { stop(); subRowRemove(el); return true; }
+    const ck = clipKey(ev);
+    if (ck === 'copy' || ck === 'cut') { stop(); selRowStart(el); selClipCopy(ck === 'cut'); return true; }
+    if (ck === 'paste' || ck === 'plain') { stop(); rowClipPaste(el, ck === 'plain'); return true; }   // 区切り線と同じく下に行として貼る
+    return false;
+  }
+  // 子ページの行を消す（決めたこと 49: ページと子孫もゴミ箱へ。確かめない・知らせる）。フォーカスは上の行の終わり（無ければ下の行の頭）
+  function subRowRemove(el) {
+    const pid = keyOfEl(el); const b = el._b;
+    const rows = editRows(rowsBoxOf(el));
+    const i = rows.indexOf(el);
+    const near = rows[i - 1] || rows[i + 1] || null;
+    const where = near ? { focus: near.dataset.id, caret: near === rows[i - 1] ? near._txt.textContent.length : 0 } : null;
+    return stepGroup(() => editAnswer(pid, () => rowApi(pid).blockRemove(pid, b.id), () => where));
+  }
+  // ゴミ箱へ入れたページの数の知らせ（答えの trashed。中のページも数える: HR21）
+  function noteTrashed(r) {
+    const n = r && Number(r.trashed);
+    if (n > 0) toast(`ページ ${n} 件をゴミ箱に入れました（Ctrl+Z で戻せます）`);
+  }
+  // 選んだ行の複製: 子ページの行は写さない（決めたこと 52）。子ページの行だけなら知らせて null、混ざっていれば知らせてほかの行だけ
+  function dupIdsOf(pid, ids) {
+    const blocks = blocksOfKey(pid);
+    const keep = ids.filter((id) => { const l = locate(blocks, id); return !(l && l.b.type === 'subpage'); });
+    if (keep.length !== ids.length) toast(SUB_NO_DUP);
+    return keep.length ? keep : null;
+  }
+  // 白紙のページの本文の子ページの行を今の一覧の値で描き直し、行の無い子の一覧（#bodyKids）を作る（決めたこと 55・56・HR16）
+  function paintBodyPages() {
+    const note = $('pNote');
+    const box = $('bodyKids');
+    const blank = Boolean(curPage) && isBlankPage(curPage);
+    for (const el of note.querySelectorAll('.blk.subpage')) if (el._b && el._txt) paintSubRow(el);
+    const placed = new Set(blank ? flattenBlocks(curPage.blocks).filter((b) => b.type === 'subpage').map((b) => b.page) : []);
+    const rest = blank ? pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string')
+      .map((p) => ({ id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt })))
+      .kids.get(curPage.id) || [] : [];
+    const lost = rest.filter((id) => !placed.has(id));
+    if (!lost.length) { box.hidden = true; box.textContent = ''; return; }
+    box.hidden = false; box.textContent = '';
+    const h = document.createElement('div'); h.className = 'kidshead'; h.textContent = SUB_KIDS_HEAD;
+    box.appendChild(h);
+    for (const id of lost) {
+      const p = pages.find((x) => x && x.id === id);
+      const r = document.createElement('div');
+      r.className = 'kidrow'; r.tabIndex = 0; r.setAttribute('role', 'link'); r.title = SUB_OPEN_TITLE;
+      r.textContent = `${pageEmoji(p)} ${oneLine(p.title)}`;
+      r.onclick = (ev) => openPageTab(id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
+      r.onkeydown = (ev) => { if (imeEnter(ev)) return; if (ev.key === 'Enter') { ev.preventDefault(); openPageTab(id, { newTab: Boolean(ev.ctrlKey || ev.metaKey) }); } };
+      box.appendChild(r);
+    }
   }
   const blockRows = {
     // 1つの行の要素を作る（文の欄と受け口は1回だけ）。lock は summaryLockView の符号（'' は鍵なし）
@@ -8525,10 +8639,12 @@
       if (COLORS.includes(bcName) && bc === bcName) el.setAttribute('data-bcolor', bcName); else el.removeAttribute('data-bcolor');
       if (COLORS.includes(bcName) && bc !== bcName) el.setAttribute('data-bbg', bcName); else el.removeAttribute('data-bbg');
       if (!lock) {   // 区切り線は文の欄を持たない（フォーカスはできる）
-        txt.contentEditable = vt === 'divider' ? 'false' : 'true';
+        txt.contentEditable = vt === 'divider' || vt === 'subpage' ? 'false' : 'true';   // 0.15.0 PR-2（決めたこと 53）: 子ページの行も文を直せない
         if (vt === 'divider') { txt.tabIndex = 0; txt.setAttribute('role', 'separator'); txt.setAttribute('aria-label', '区切り線'); txt.textContent = ''; }
-        else { txt.removeAttribute('tabindex'); txt.removeAttribute('role'); txt.removeAttribute('aria-label'); }
+        else if (vt !== 'subpage') { txt.removeAttribute('tabindex'); txt.removeAttribute('role'); txt.removeAttribute('aria-label'); }
       }
+      if (vt === 'subpage') { txt.tabIndex = 0; txt.setAttribute('role', 'link'); txt.onclick = (ev) => subRowOpen(el, ev); paintSubRow(el); }
+      else el.classList.remove('gone');
       el.dataset.id = b.id;
       if (lock) el.dataset.locked = '1';
       for (const c of [...el.children]) if (c !== txt) el.removeChild(c);
@@ -8648,7 +8764,7 @@
 
       const del = document.createElement('button');
       del.className = 'del'; del.textContent = '×'; del.title = 'この行を削除';
-      del.onclick = async () => { await window.koeApp.blockRemove(curId, b.id); await openPage(curId); };
+      del.onclick = async () => { noteTrashed(await window.koeApp.blockRemove(curId, b.id)); await openPage(curId); };   // 0.15.0 PR-2: 子ページの行ならページも（知らせる）
       tail.appendChild(del);
       el.appendChild(tail);
     },
@@ -8761,10 +8877,12 @@
       ph.onclick = () => startBody();
       ph.onkeydown = (ev) => { if (imeEnter(ev)) return; if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); startBody(); } };
       box.appendChild(ph);
+      paintBodyPages();
       return;
     }
     for (const r of viewRows(curPage.blocks, true)) box.appendChild(blockRows.make(r.b, '', r.depth, r.parentId));
     renumberRows();
+    paintBodyPages();   // 0.15.0 PR-2（決めたこと 55・HR16）: 行の無い子の一覧
   }
   // 本文の最初の行へ（行が無ければテキストの行を足してフォーカス）。題名の Enter と手引きから
   function startBody() {
