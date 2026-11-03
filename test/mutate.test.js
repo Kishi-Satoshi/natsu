@@ -1248,6 +1248,7 @@ const IDS_140 = [
   // 0.14.0 EK-2 の続き
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',
+  'ek-help-article',   // 0.14.0 EK-7 直し（R208）
   // 0.14.0 MB-1（表の行の順に）
   'mo-plain-same', 'mo-from-markup', 'mo-edit-parity', 'mo-doc-limit',
   // 0.14.0 MB-2（表の行の順に、MB-1 の行の間と eb- の行の間に入れた）
@@ -1279,7 +1280,7 @@ const IDS_140 = [
   'dq-tidy-login', 'dq-tidy-hold',
   'dq-tidy-reject',   // 0.14.0 DQ-3 直し2（R202）
 ];
-test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも計画の「変異確認」の表に行の順である。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
+test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の「変異確認」の表の行とちょうど同じ（行の順）。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_140.filter((id) => !byId.has(id)), [], 'IDS_140 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_140).size, IDS_140.length, 'IDS_140 に重なり');
@@ -1297,7 +1298,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 はどれも�
   assert.strictEqual(rows.length, 161, '計画の 0.14.0 の表（eb- 47・ek- 53・mo- 27・dq- 34）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
-  assert.deepStrictEqual(IDS_140, rows.filter((id) => IDS_140.includes(id)), 'IDS_140 が表の行の順でない');
+  // 0.14.0 EK-7 直し（R208）: IDS_140 は表の行とちょうど同じ（行の順）。前は表の行の一部でも通り、表の ek-help-article が変異に無いのを見落とした
+  assert.deepStrictEqual(IDS_140, rows, 'IDS_140 が表の行とちょうど同じでない（表の行の変異が無い・行の順でない）');
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/]) {
     assert.deepStrictEqual(IDS_140.filter((id) => re.test(id)), [], `${re} に当たる 0.14.0 の id`);
   }

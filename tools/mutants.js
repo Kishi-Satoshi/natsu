@@ -2726,4 +2726,6 @@ module.exports = [
   // 0.14.0 EK-6 直し3（R207。版の点検 I-1・M-2 で足した変異。表の行の順は IDS_140 が決める）
   {"id":"ek-dict-hidden","file":"src/renderer/app.html","from":"      if (!dictShown(f)) { toast(DICT_GONE); return; }\n","to":"","tests":["test/stage140.app.test.js"],"pattern":"^EK-6 直し3・I-1","why":"0.14.0 EK-6 直し3 R207: 覚えた欄が隠れた（検索の窓・設定を閉じた）後に届いた口述も入れる（フォーカスの戻った行へ rowReplace・_commit を通らずに入る）"},
   {"id":"ek-dict-cancel-proc","file":"src/main.js","from":"  if (r.ok && dictDropped === w) { dictDropped = null; if (dictWhere === w) dictWhere = null; sendToMainWin('dictation:end', { seq: r.seq }); flushDictLogin(); return undefined; }\n","to":"","tests":["test/stage140.main.test.js"],"pattern":"^EK-6 直し3・M-2","why":"0.14.0 EK-6 直し3 R207: 止めた後の文字起こし・整えの間に画面の Esc で取り消しても、NaTsu の中へ文を入れる（取り消しが効かない）"},
+  // 0.14.0 EK-7 直し（R208。表の ek-help-article の行を作っていなかった）
+  {"id":"ek-help-article","file":"help/articles/summary/edit-summary.md","from":"## 元に戻す・やり直す {#undo}\n","to":"","also":[{"from":"## 貼り付け {#paste}\n","to":""}],"tests":["test/help-content.test.js"],"pattern":"^EK-7（E6・E7・E8・E9）","why":"0.14.0 EK-7 直し R208: 要約を書き直す記事に元に戻すと貼り付けの節が無い（節の見出しを消す）"},
 ];
