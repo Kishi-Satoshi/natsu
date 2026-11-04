@@ -548,10 +548,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // PH-4 で足した白紙のページの明暗の2枚（まだ基準が無い）と、/ メニューに［ページ］が増える edit-slash-recent-light（今の基準がある）
 // PR-2 で足した白紙のページの本文の子ページの行の明暗の2枚（まだ基準が無い）
 // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚（まだ基準が無い）と、近道の表に行が増える settings-shortcuts-light・
-// 「···」に［移動先…］が増える page-menu-link の2枚・計画の表のとおり / メニューの edit-slash-light・edit-slash-dark（今の基準がある）
+// 「···」に［移動先…］が増える page-menu-link の2枚・計画の表のとおり / メニューの edit-slash-light・edit-slash-dark（今の基準がある）。
+// PH-5 直し（R55。CI run 41758331037 の画像）: 近道の表が伸びて「ホットキー」のカードの下が下がり、捲り棒のつまみも変わる設定の［一般］の3枚（今の基準がある）
 const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
   'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light',
-  'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark']);
+  'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
+  'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

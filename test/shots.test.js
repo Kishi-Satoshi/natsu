@@ -217,7 +217,9 @@ const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom20
   'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light'];   // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚
 // PH-4 で / メニューに［ページ］が増えるので、語の無い / メニューを開く edit-slash-recent-light（今の基準がある）を取り直す（RETAKEN_150。R25）
 // PH-5 で近道の表に行が増える settings-shortcuts-light・「···」に［移動先…］が増える page-menu-link の2枚と、計画の表のとおり edit-slash-light・edit-slash-dark を取り直す
-const RETAKEN_150 = ['edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark'];
+// PH-5 直し（R55）: 近道の表が伸びる設定の［一般］の3枚も（0.14.0 EK-5 と同じ）
+const RETAKEN_150 = ['edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
+  'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 const RETAKE_150 = [...NEW_150, ...RETAKEN_150];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
