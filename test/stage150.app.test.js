@@ -2163,3 +2163,19 @@ test('PH-5 直し 2・R56 M-6: 議事録の子ページの一覧は、そのペ�
   assert.strictEqual($(l, 'pKids').hidden, true, 'ほかのタブで一覧を読み直すと、子ページの一覧が出る');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+test('PH-5 直し 3・R59（CI run 41770758402 の electron-smoke の Windows のテスト）: 「新しいページ」は窓を見せてから項目にフォーカスする（隠れた窓の中の要素には本物の窓でフォーカスが入らない）', T, async () => {
+  const l = await boot();
+  l.fire('onPageOpen', 'pa1'); await l.drain();
+  const proto = Object.getPrototypeOf($(l, 'newList'));
+  const was = proto.focus;
+  const seen = [];
+  proto.focus = function focus(...a) { if (this.classList && this.classList.contains('mitem') && this.parentNode === $(l, 'newList')) seen.push($(l, 'newPop').hidden); return was.apply(this, a); };
+  try {
+    l.key(CN2); await l.drain();
+    l.fire('onMeetingUpdate', { active: true, finalizing: false, segments: [], memo: '', paused: false, pauses: [], pausedMs: 0, stt: null }); await l.drain();
+  } finally { proto.focus = was; }
+  assert.ok(seen.length >= 2, '前提: 開いたとき・描き直したときに項目へフォーカスした');
+  assert.deepStrictEqual(seen.filter((h) => h !== false), [], '隠れた「新しいページ」の中の項目にフォーカスした');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

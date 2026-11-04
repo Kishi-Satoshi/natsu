@@ -1123,7 +1123,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // page-menu-link の2枚（edit-slash-light・dark は計画の表のとおり取り直し待ちに入れた）。値を今の app.html に合わせた（前の値は 1c6fedc2…）
   // 0.15.0 PH-5 直し 2（計画の R56〜R58）: 窓の間の近道の照らし・パンくずの描き直しの省き・窓の mousedown・選んだ後のフォーカス・録音の状態の描き直し
   // （<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は 5f265eec…）
-  assert.strictEqual(sha, '0d9ce3c21a3a33099a3234ae19b60f03bb64d183cffbbdb33be320f629705548',
+  // 0.15.0 PH-5 直し 3（計画の R59）: 「新しいページ」は窓を見せてから項目にフォーカスする（<script> の中だけ）。値を今の app.html に合わせた（前の値は 0d9ce3c2…）
+  assert.strictEqual(sha, '2845f0bd2c38436e81ad91ae2ce94051a3d374b992dee7837d2ea1e28f4cc4d5',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

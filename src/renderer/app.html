@@ -3583,8 +3583,8 @@
     const fa = document.activeElement;
     newPopFrom = fa && fa !== document.body && typeof fa.focus === 'function' ? fa : null;
     newPopOn = true;
+    $('newPop').hidden = false;   // PH-5 直し 3（R59）: 先に見せてから項目を描いてフォーカスする（隠れた窓の中の要素にはフォーカスが入らない）
     renderNewItems(0);
-    $('newPop').hidden = false;
   }
   // 項目を描いて at 番目にフォーカス（PH-5 直し 2（R56 M-4）: 開いている間に録音が始まった・終わったら描き直して、［議事録］の灰色を今の状態に）
   function renderNewItems(at) {
