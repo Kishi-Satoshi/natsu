@@ -1,8 +1,8 @@
 ---
 title: Claude から議事録を読む（MCP）
 description: Claude デスクトップに NaTsu を登録すると、Claude に「10/20 の議事録を読んで」のように頼めるようになる。登録の仕方・送られるもの・つながらないとき
-updated: 2026-10-27
-sources: README.md, src/renderer/app.html, src/main.js, src/mcp-config.js, src/mcp/tools.js
+updated: 2026-11-04
+sources: README.md, src/renderer/app.html, src/main.js, src/mcp-config.js, src/mcp/tools.js, src/mcp/format.js
 related: start/claude-code, record/pc-only, find/delete-and-backups
 ---
 
@@ -21,6 +21,13 @@ Claude に、こんなふうに頼めます。
 Claude は、頼みに関係のある箇所だけを、日付・題名・時刻の出典つきで NaTsu から受け取ります。必要なときは会議の全体も読みます。資料やレポートを作るのは Claude です。
 相手の声も録った会議の文字起こしは、行の頭に「自分」（マイク）か「相手」（PC から流れた声）が付いたまま渡ります（[文字起こしの「自分」「相手」](record/start-stop.md#speakers)）。
 答えの出典はリンクになっていて、押すと NaTsu でその会議のその箇所が開きます（初めて押したときは、ブラウザーが「NaTsu を開きますか？」と聞きます）。
+
+## 白紙のページと中のページ {#pages}
+
+- 白紙のページ（[白紙のページ](find/page-tree.md#blank)）も、議事録と同じ道具で読めます。一覧では会議の種類と長さの代わりに「白紙のページ」と書かれ、読むときは本文が「## 本文」の下に渡ります。白紙のページの ToDo も、開いた ToDo に「（白紙のページ）題名」の印で出ます。
+- ページの中のページには、一覧と読む答えに「場所: 親 / 子」が付きます（親の題名も1行にして渡します）。
+- 会議の種類で絞って頼むと、白紙のページは出ません（会議の種類が無いため）。
+- ゴミ箱のページは Claude に出ません。ゴミ箱に入れたページの中のページも出ません（[ゴミ箱から戻す](find/delete-and-backups.md#restore)）。
 
 ## 議事録のリンクを渡す {#link}
 
