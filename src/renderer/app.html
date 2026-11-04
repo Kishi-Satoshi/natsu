@@ -2500,7 +2500,7 @@
     const had = fa && fa.dataset && fa.dataset.crumb && fa.parentNode === c ? (fa.dataset.pid || fa.dataset.crumb) : crumbMore && isIn(fa, crumbMore.box) ? 'more' : '';
     closeCrumbMore();
     for (const e of [...c.children]) if (e.dataset && e.dataset.crumb) c.removeChild(e);
-    if (!ups.length) return;
+    if (!ups.length) { if (had) focusVisible(); return; }   // PH-5 直し 4（R62 M-1）: 段が全部無くなったら選んでいるタブへ
     const at = c.querySelector('.ci');
     for (const a of shown) {
       const b = document.createElement('button');
@@ -2523,7 +2523,10 @@
       c.insertBefore(b, at);
       c.insertBefore(sep, at);
     }
-    const back = had ? [...c.children].find((x) => x.dataset && x.dataset.crumb && x.dataset.crumb !== 'sep' && (x.dataset.pid || x.dataset.crumb) === had) : null;
+    const segs = [...c.children].filter((x) => x.dataset && x.dataset.crumb && x.dataset.crumb !== 'sep');
+    // PH-5 直し 4（R62 M-1）: 同じ段が無くなったら（「…」の中へ隠れた・「…」が無くなった）、「…」・一番近い（今のページに近い）段・選んでいるタブの順で
+    const back = !had ? null : segs.find((x) => (x.dataset.pid || x.dataset.crumb) === had) || segs.find((x) => x.dataset.crumb === 'more') || segs[segs.length - 1]
+      || $('tabbar').querySelector('.tabitem.active');
     if (back) back.focus();
   }
   // 「…」の一覧（隠れた段を根に近い順に。押すとそのページ・Esc で閉じて「…」へ戻る）
@@ -3565,8 +3568,11 @@
     const m = movePop;
     if (!m || !m.rows[i]) return;
     const target = m.rows[i].id;
-    closeMovePop(true);   // 木の行から開いたらその行へ（動かした後の描き直しも同じ行へフォーカスを戻す: 決めたこと 20）
+    closeMovePop(true);
     await movePageTo(m.id, target);
+    // PH-5 直し 4（R62。R58 の片づけを取り下げる）: 木の行から開いたら、動かした行へフォーカスを戻す。閉じた親・子の無い親の中へ動かすと、一覧を描き直したときに
+    // 動かした行が隠れて一番近い見えている祖先（新しい親）へフォーカスが移るので、祖先を開いて描き直した後に戻す
+    if (m.tree) focusTreeRow(m.id);
   }
   $('moveSearch').oninput = () => { if (movePop) { movePop.at = 0; renderMoveList(); } };
   $('moveSearch').onkeydown = (ev) => {
@@ -3578,7 +3584,7 @@
   };
   $('movePop').onclick = (ev) => { if (ev && ev.target === $('movePop')) closeMovePop(true); };   // 後ろの全面を押すと閉じる
   // PH-5 直し 2（R56 M-2）: 窓の中のフォーカスを取れない所（見出し・候補・余白）を押してもフォーカスを探す欄から外さない（キーは探す欄で受ける）
-  $('movePop').addEventListener('mousedown', (ev) => { if (ev && ev.target !== $('moveSearch') && typeof ev.preventDefault === 'function') ev.preventDefault(); });
+  $('movePop').addEventListener('mousedown', (ev) => { if (keepPopFocus(ev, [$('moveSearch'), $('moveList')])) ev.preventDefault(); });
   // 新しいページの選び（決めたこと 28・BQ7 (a)）: Ctrl+Shift+N（窓のどこでも。変換中は抜ける・設定や検索の窓・確かめが開いているときは何もしない）で
   // 「新しいページ」に［📄 白紙のページ］［🎙️ 議事録（録音の前のページ）］。↑↓・Enter・Esc。項目は表で持つ（0.17.0 で［データベース］を足せる並び）。
   // ［白紙のページ］は最上位に作って開く（pageCreate()）、［議事録］は［＋ 新しい議事録］と同じ（録音の前のページを開くだけ。録音中・作成中は灰色で「録音中です」）
@@ -3586,9 +3592,24 @@
   // PH-5 直し 2（R56 M-3）: 選んだ後のフォーカス。白紙のページは作ったページの題名（createPageIn）・作れなければ開く前の所（無ければ見出しの［＋］）、
   // 議事録は［＋ 新しい議事録］（サイドバーから開いたときと同じ: F83）
   const NEW_ITEMS = Object.freeze([
-    Object.freeze({ key: 'blank', label: '📄 白紙のページ', busy: () => false, run: async (from) => { if (!(await createPageIn())) focusAlive(from, $('newPageBtn')); } }),
-    Object.freeze({ key: 'meeting', label: '🎙️ 議事録（録音の前のページ）', busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: async () => { await openReady(); $('mtToggleBtn').focus(); } }),
+    Object.freeze({ key: 'blank', label: '📄 白紙のページ', busy: () => false, run: async (from) => { if (!(await createPageIn())) focusVisible(from, $('newPageBtn')); } }),
+    Object.freeze({ key: 'meeting', label: '🎙️ 議事録（録音の前のページ）', busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: async () => { await openReady(); focusVisible($('mtToggleBtn')); } }),
   ]);
+  // PH-5 直し 4（R62 M-2）: 窓の中の mousedown の既定を止めてフォーカスを残すか。左のボタンだけ（中クリックの自動の捲りを止めない）で、
+  // keep（探す欄・捲る候補の箱そのもの（捲り棒）・後ろの全面）を押したときは止めない
+  function keepPopFocus(ev, keep) {
+    if (!ev || typeof ev.preventDefault !== 'function') return false;
+    if (ev.button !== undefined && ev.button !== 0) return false;
+    return !keep.includes(ev.target);
+  }
+  // PH-5 直し 4（R62 M-3）: 見えているフォーカスの先（サイドバーを畳んでいると .side の中は見えず focus() が効かない）。候補の頭から、生きていて
+  // 畳んだサイドバーの中でないもの。どれも無ければ選んでいるタブ
+  function focusVisible(...els) {
+    const body = document.body;
+    const ok = (el) => el && (!body || typeof body.contains !== 'function' || body.contains(el)) && !(sideState.collapsed && isIn(el, $('side')));
+    const el = els.find(ok) || $('tabbar').querySelector('.tabitem.active') || $('tabbar').querySelector('.tabitem');
+    if (el) el.focus();
+  }
   function focusAlive(el, fallback) {
     const body = document.body;
     const alive = el && (!body || typeof body.contains !== 'function' || body.contains(el));
@@ -3605,7 +3626,10 @@
     renderNewItems(0);
   }
   // 項目を描いて at 番目にフォーカス（PH-5 直し 2（R56 M-4）: 開いている間に録音が始まった・終わったら描き直して、［議事録］の灰色を今の状態に）
+  let newBusyShown = '';
+  const newBusyKey = () => NEW_ITEMS.map((it) => (it.busy() ? '1' : '0')).join('');
   function renderNewItems(at) {
+    newBusyShown = newBusyKey();
     const list = $('newList');
     list.textContent = '';
     for (const it of NEW_ITEMS) {
@@ -3635,7 +3659,7 @@
   };
   $('newPop').onclick = (ev) => { if (ev && ev.target === $('newPop')) closeNewPop(true); };
   // PH-5 直し 2（R56 M-2）: 窓の中を押してもフォーカスを項目から外さない（キーは項目の並びで受ける。項目は押すと click で動く）
-  $('newPop').addEventListener('mousedown', (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); });
+  $('newPop').addEventListener('mousedown', (ev) => { if (keepPopFocus(ev, [])) ev.preventDefault(); });
   document.addEventListener('keydown', (ev) => {
     if (trashOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も開かない
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || regenAsking) return;   // Ctrl+Shift+N: 変換中・設定・検索・［移動先…］・確かめの間は開かない
@@ -4339,7 +4363,7 @@
     btns[j].focus();
   };
   $('trashPop').onclick = (ev) => { if (ev && ev.target === $('trashPop')) closeTrash(true); };   // 後ろの全面を押すと閉じる
-  $('trashPop').addEventListener('mousedown', (ev) => { if (ev && ev.target !== $('trashPop') && !(ev.target && ev.target.tagName === 'BUTTON') && typeof ev.preventDefault === 'function') ev.preventDefault(); });
+  $('trashPop').addEventListener('mousedown', (ev) => { if (!(ev && ev.target && ev.target.tagName === 'BUTTON') && keepPopFocus(ev, [$('trashPop'), $('trashList')])) ev.preventDefault(); });
   // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
   // ページのアイコンと丸いタブを隠して空の文だけを出す（第1b2回 P-2）
   function syncNoPage() {
@@ -10241,7 +10265,8 @@
     mtPausedMs = st.pausedMs || 0;
     mtPausedAt = st.paused ? Date.now() : null;
     mtSt = st;
-    if (newPopOn) { const items = menuItems($('newList')); renderNewItems(Math.max(0, items.indexOf(document.activeElement))); }   // PH-5 直し 2（R56 M-4）
+    // PH-5 直し 2（R56 M-4）・PH-5 直し 4（R62）: 録音の状態で［議事録］の灰色が替わるときだけ描き直す（区間ごとの知らせのたびに描き直して読み上げ・押す手を邪魔しない）
+    if (newPopOn && newBusyKey() !== newBusyShown) { const items = menuItems($('newList')); renderNewItems(Math.max(0, items.indexOf(document.activeElement))); }
     const phase = meetingPhase(st);
     const phaseChanged = phase !== mtPhase;
     mtPhase = phase;

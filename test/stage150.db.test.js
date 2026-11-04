@@ -1004,6 +1004,53 @@ test('PH-5 直し 2・R56（M-5・R54）: 本文に行のある子を同じ白�
   assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], '行がもう本文の最後なのに書いた');
 }));
 
+// 0.15.0 PH-5 直し 4（2026-11-04 の 148ed34..03abad4 の点検）: 満杯の本文の行の無い子の同じ所・ゴミ箱の兄弟の後ろ・行のある子の表の鍵
+test('PH-5 直し 4・R61: 満杯の本文の白紙のページで、行の無い子の今と同じ所への page.move（頭の子を頭へ・前の兄弟の後ろへ・ゴミ箱や録音中の兄弟の後ろで最後の子）は書かない。ゴミ箱・知らない兄弟の後ろは満杯でもそうでなくても末尾', T, () => withDb((db, t) => {
+  const N = 2000;
+  const blocks = Array.from({ length: N - 1 }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: `行${i}` }));
+  t.seed({ id: 'pfull', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  const R1 = create(db, 'pfull');   // 行のある子（本文は 2,000 行になる）
+  const K = Array.from({ length: 4 }, () => create(db, 'pfull'));   // 行の無い子
+  const T1 = create(db, 'pfull');
+  tick(); ok(call(db, 'page.delete', { id: T1 }), 'page.delete');   // ゴミ箱の兄弟
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, ...K], '前提');
+  const same = (id, afterId, what) => {
+    const n0 = oplogN(db);
+    const r = ok(move(db, id, 'pfull', afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 同じ所なのに書いた`);
+    assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, ...K]);
+  };
+  same(K[0], '', '行の無い子の頭を頭へ');
+  same(K[0], R1, '行の無い子の頭を行のある兄弟の後ろへ');
+  same(K[2], K[1], '前の兄弟の後ろへ');
+  same(K[3], T1, '最後の子をゴミ箱の兄弟の後ろへ（末尾）');
+  same(K[3], 'pzzunknown', '最後の子を知らない兄弟の後ろへ（末尾）');
+  // ゴミ箱の兄弟の後ろは末尾（満杯）
+  ok(move(db, K[0], 'pfull', T1), 'page.move');
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, K[1], K[2], K[3], K[0]], '満杯の本文でゴミ箱の兄弟の後ろが末尾でない');
+  // 満杯でない白紙のページでも同じ（末尾）
+  const P = create(db); const A = create(db, P); const B = create(db, P); const C = create(db, P); const TT = create(db, P);
+  tick(); ok(call(db, 'page.delete', { id: TT }), 'page.delete');
+  ok(move(db, A, P, TT), 'page.move');
+  assert.deepStrictEqual(kidsInList(db, P), [B, C, A], '満杯でない本文でゴミ箱の兄弟の後ろが末尾でない');
+}));
+
+test('PH-5 直し 4・R61: 行のある子の並びの鍵は本文の順から作った鍵の間（行の無い子の鍵の作り方を使わない）。行のある子の今と同じ所への afterId つきの page.move・自分の後ろは、行が本文の最後でなくても書かない', T, () => withDb((db) => {
+  const P = create(db);
+  const K1 = create(db, P); const K2 = create(db, P); const K3 = create(db, P);
+  const shown = new Map(call(db, 'pages.list', {}).result.filter((p) => p.parentId === P).map((p) => [p.id, p.ord]));
+  ok(move(db, K3, P, K1), 'page.move');
+  const o = rowOf(db, K3).ord;
+  assert.ok(o > shown.get(K1) && o < shown.get(K2), `行のある子の表の鍵が本文の順の鍵の間でない（${shown.get(K1)} < ${o} < ${shown.get(K2)}）`);
+  assert.deepStrictEqual(kidsInList(db, P), [K1, K3, K2]);
+  insert(db, P, subRow(db, P, K2).id);   // K2（最後の兄弟）の行の後ろにテキストの行
+  for (const [afterId, what] of [[K3, '前の兄弟の後ろ'], [K2, '自分の後ろ']]) {
+    const n0 = oplogN(db);
+    const r = ok(move(db, K2, P, afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 同じ所なのに書いた`);
+  }
+}));
+
 test('PR-1 直し・R34: 親がゴミ箱の白紙のページの子を戻すと、最上位へ出し、同じ命令でゴミ箱の親の本文から行を消す（後で親を戻しても灰色の行が残らない）', T, () => withDb((db) => {
   const P = create(db);
   const K = create(db, P);
