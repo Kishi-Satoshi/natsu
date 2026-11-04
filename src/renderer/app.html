@@ -1060,6 +1060,8 @@
     .prop .k { width: 96px; }
     .mblock { padding: 6px 8px 12px; }
     .blk .txt { overflow-wrap: anywhere; }
+    #pageWrap.look-wide { padding-left: 12px; padding-right: 12px; }   /* 0.15.0 PL-3 直し（R77）: 全幅も狭い窓の余白（#pageWrap の規則が上の .page より強いため） */
+    #pageWrap.look-small #pTitle { font-size: 24px; line-height: 30px; }   /* 小さい文字の題名は狭い窓の標準（28px）より小さく */
   }
 
   /* 狭い画面（第1b2回 R-1 の区画）: 設定と音声入力の題名と余白を詰め、トグルは左へ戻して折り返しを減らす */
@@ -2747,9 +2749,9 @@
       try { st = await window.koeApp.uiState(); } catch (_) { st = null; }
       const tb = st && st.tabs;
       if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);
-      slashRecent = recentCheck(st && st.slashRecent);
+      slashRecent = recentCheck(st && st.slashRecent);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
       // 0.15.0 PL-3（決めたこと 37）: アイコンの選びの最近使ったもの（main が照らした値。辞書に無い値はここでも落とす）
-      if (st && Array.isArray(st.emojiRecent)) iconRecent = st.emojiRecent.filter((e) => emojiView.isPageIcon(e)).slice(0, ICON_RECENT_MAX);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
+      if (st && Array.isArray(st.emojiRecent)) iconRecent = st.emojiRecent.filter((e) => emojiView.isPageIcon(e)).slice(0, ICON_RECENT_MAX);
       // 0.15.0 PH-3（決めたこと 19）: サイドバーの木の開け閉め（main が今あるページだけに絞って渡す）。届く前に開け閉めしていたら上書きしない
       const to = st && st.tree && Array.isArray(st.tree.open) ? st.tree.open : null;
       if (to && !treeTouched) { treeOpen = new Set(to.filter((id) => typeof id === 'string').slice(-TREE_OPEN_MAX)); renderList(); }   // PH-3 直し（R28 (2)）: 新しい 500 個
@@ -5143,6 +5145,16 @@
     }
     await refreshList();   // renderList がタブも描き直す（タブの頭のアイコン）
   }
+  // PL-3 直し（R77）: 見える行（分類ごとの 10 列の並び。最後の行は短い）ごとの、並びの通しの番号
+  function iconRows() {
+    const opts = iconOpts();
+    const rows = [];
+    for (const g of $('iconList').querySelectorAll('.icgrid')) {
+      const bs = [...g.querySelectorAll('.icopt')];
+      for (let k = 0; k < bs.length; k += ICON_COLS) rows.push(bs.slice(k, k + ICON_COLS).map((b) => opts.indexOf(b)));
+    }
+    return rows;
+  }
   function iconMove(i) {
     const opts = iconOpts();
     if (!opts.length || !iconPop) return;
@@ -5172,11 +5184,16 @@
       return;
     }
     if (i < 0) return;
-    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: ICON_COLS, ArrowUp: -ICON_COLS }[ev.key];
-    if (step !== undefined) {
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') { ev.preventDefault(); iconMove(i + (ev.key === 'ArrowRight' ? 1 : -1)); }
+    else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      // PL-3 直し（R77）: 見える行で動き、列を保つ（短い行では行の最後へ）。探す欄へ戻るのは、いちばん上の見える行の ↑ だけ
       ev.preventDefault();
-      if (step === -ICON_COLS && i < ICON_COLS) { $('iconSearch').focus(); return; }
-      iconMove(i + step);
+      const rows = iconRows();
+      const r = rows.findIndex((row) => row.includes(i));
+      const to = r + (ev.key === 'ArrowDown' ? 1 : -1);
+      if (to < 0) { $('iconSearch').focus(); return; }
+      if (to >= rows.length) return;
+      iconMove(rows[to][Math.min(rows[r].indexOf(i), rows[to].length - 1)]);
     } else if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); iconMove(ev.key === 'Home' ? 0 : opts.length - 1); }
     else if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pickIcon(opts[i].dataset.e); }
   }

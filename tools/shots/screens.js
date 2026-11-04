@@ -470,6 +470,8 @@ const SCREENS = [
   { name: 'look-small-serif-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ small: true, font: 'serif' }); }, act: OPEN_PAGE },
   { name: 'look-mono-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ font: 'mono' }); }, act: OPEN_PAGE },
   { name: 'page-menu-look-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true, font: 'serif' }); }, act: OPEN_LOOK_MENU },
+  // PL-3 直し（R77）: 小さい文字の拡大 200%（狭い窓の題名は標準の狭い窓より小さい）
+  { name: 'look-small-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ small: true }); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -585,7 +587,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // PH-5 直し（R55。CI run 41758331037 の画像）: 近道の表が伸びて「ホットキー」のカードの下が下がり、捲り棒のつまみも変わる設定の［一般］の3枚（今の基準がある）
 const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
   'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light', 'trash-pop-light',
-  'icon-pop-light', 'icon-pop-dark', 'look-wide-light', 'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light',
+  'icon-pop-light', 'icon-pop-dark', 'look-wide-light', 'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light', 'look-small-zoom200-light',
   'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
   'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る

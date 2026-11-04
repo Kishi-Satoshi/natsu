@@ -153,6 +153,46 @@ test('PL-3: #pIcon は button（aria-label）・押すと #iconPop・よみで�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+// PL-3 直し（R77・2026-11-04 の 023c176..307bd5a の点検 2・3）: ↑↓ は見える行（分類ごとの 10 列の並び。最後の行は短い）で動き、列を保つ（短い行では行の最後へ）。
+// ↑ で探す欄へ戻るのは、いちばん上の見える行からだけ。Home/End・後ろの全面を押すと閉じる
+test('PL-3 直し（R77）: 並びの ↑↓ は見える行と列で分類をまたぐ（短い行は行の最後へ）・いちばん上の行の ↑ だけ探す欄へ・Home/End・後ろの全面を押すと閉じ、中を押しても閉じない', T, async () => {
+  const l = await boot({ returns: { uiState: () => ({ emojiRecent: ['🌸', '🚀'] }) } });
+  await open(l, 'g1');
+  const btn = $(l, 'pIcon');
+  btn.dispatchEvent({ type: 'click' }); await l.drain();
+  const at = () => opts(l).indexOf(l.document.activeElement);
+  const key = (k) => l.key({ key: k }, l.document.activeElement);
+  const nFace = D.EMOJI.filter((x) => x.c === D.CATS[0].key).length;   // 顔の数（10 で割り切れない: 最後の行が短い）
+  assert.ok(nFace % 10 !== 0, '前提: 顔の最後の行が短い');
+  const face = (r, c) => 2 + r * 10 + c;   // 最近使ったもの（2つ・1行）の後ろの顔の r 行 c 列
+  const lastRow = Math.floor((nFace - 1) / 10);
+  key('ArrowDown'); assert.strictEqual(at(), 0, '探す欄の ↓ で並びの最初へ行かない');
+  key('ArrowDown'); assert.strictEqual(at(), face(0, 0), '最近使ったものの ↓ が顔のいちばん上の行の同じ列へ行かない');
+  key('ArrowUp'); assert.strictEqual(at(), 0, '顔のいちばん上の行の ↑ が最近使ったものへ戻らない（探す欄へ飛んだ）');
+  key('ArrowRight'); key('ArrowDown'); assert.strictEqual(at(), face(0, 1), '最近使ったものの2列目の ↓ が顔の2列目へ行かない');
+  key('ArrowUp'); key('ArrowUp');
+  assert.ok(l.document.activeElement === $(l, 'iconSearch'), 'いちばん上の行の ↑ で探す欄へ戻らない');
+  key('ArrowDown'); key('ArrowDown');
+  for (let r = 0; r < lastRow - 1; r++) key('ArrowDown');
+  for (let c = 0; c < 8; c++) key('ArrowRight');
+  assert.strictEqual(at(), face(lastRow - 1, 8), '前提: 顔の最後の1つ前の行の9列目');
+  key('ArrowDown'); assert.strictEqual(at(), 2 + nFace - 1, '短い最後の行へ ↓ で、行の最後へ行かない');
+  const col = (nFace - 1) % 10;
+  key('ArrowDown'); assert.strictEqual(at(), 2 + nFace + col, '次の分類（人と手）のいちばん上の行の同じ列へ行かない');
+  key('ArrowUp'); assert.strictEqual(at(), 2 + nFace - 1, '人と手のいちばん上の行の ↑ が顔の最後の行へ戻らない');
+  key('End'); assert.strictEqual(at(), opts(l).length - 1, 'End で並びの最後へ行かない');
+  key('ArrowDown'); assert.strictEqual(at(), opts(l).length - 1, '最後の行の ↓ で動いた');
+  key('Home'); assert.strictEqual(at(), 0, 'Home で並びの最初へ行かない');
+  assert.strictEqual(l.called('pageSetIcon').length, 0, '動くだけで付けた');
+  // 中（並び）を押しても閉じない・後ろの全面を押すと閉じて #pIcon へ
+  const pop = $(l, 'iconPop');
+  pop.onclick({ target: $(l, 'iconList') }); await l.drain();
+  assert.strictEqual(pop.hidden, false, '窓の中を押して閉じた');
+  pop.dispatchEvent({ type: 'click', target: pop }); await l.drain();
+  assert.deepStrictEqual([pop.hidden, l.document.activeElement === btn, l.called('pageSetIcon').length], [true, true, 0], '後ろの全面を押しても閉じない・フォーカスを戻さない・付けた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('PL-3・R71: 録音中のページ（記録中のタブ）では #pIcon が aria-disabled で、押しても選びの窓を開かない。「···」の見た目の項目は録音中の写しに出さない', T, async () => {
   const live = { ...LIST()[3], id: 'plv1' };
   const l = await boot({ list: [...LIST(), live], returns: { pageGet: (id) => (id === 'plv1' ? { page: { id, title: live.title, date: live.date, createdAt: live.createdAt, blocks: [], memo: '', meeting: { phase: 'recording' }, look: { wide: true, font: 'serif' } }, segments: [] } : PAGE(id)) } });
@@ -255,6 +295,25 @@ test('PL-3・F120: 「···」の［全幅］［小さい文字］［書体 ▸
   assert.match(S.declsFor(rules, '#pageWrap.look-serif', { at: '' })['font-family'], /^"Yu Mincho", "BIZ UDMincho", "MS Mincho", serif$/);
   assert.match(S.declsFor(rules, '#pageWrap.look-mono', { at: '' })['font-family'], /^"BIZ UDGothic", "Cascadia Mono", Consolas, monospace$/);
   assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// PL-3 直し（R77・2026-11-04 の 023c176..307bd5a の点検 1）: #pageWrap.look-* の規則は狭い窓（拡大 200%）の .page・.ptitle の規則より強いので、
+// 狭い窓の区画にも見た目の規則を置く（全幅は狭い窓の余白のまま・小さい文字の題名は狭い窓の標準より小さい）
+test('PL-3 直し（R77）: 狭い窓（max-width: 760px）では、全幅の左右の余白は標準の狭い窓の余白と同じで、小さい文字の題名は標準の狭い窓の題名より小さい', T, () => {
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  const NARROW = '@media (max-width: 760px)';
+  const page = S.declsFor(rules, '.page', { at: NARROW });
+  const side = page.padding.split(/\s+/)[1];
+  assert.strictEqual(side, '12px', '前提: 狭い窓の .page の左右の余白');
+  const wide = S.declsFor(rules, '#pageWrap.look-wide', { at: NARROW });
+  assert.deepStrictEqual([wide['padding-left'], wide['padding-right']], [side, side], '狭い窓の全幅の余白が標準の狭い窓と違う');
+  const px = (v) => Number(String(v).replace(/px$/, ''));
+  const std = S.declsFor(rules, '.ptitle', { at: NARROW });
+  const small = S.declsFor(rules, '#pageWrap.look-small #pTitle', { at: NARROW });
+  assert.ok(px(small['font-size']) < px(std['font-size']) && px(small['line-height']) < px(std['line-height']), `狭い窓の小さい文字の題名が標準（${std['font-size']}）より小さくない: ${small['font-size']}`);
+  // 広い窓の値（決めたこと 42）は今のまま
+  assert.strictEqual(S.declsFor(rules, '#pageWrap.look-wide', { at: '' })['padding-left'], '48px');
+  assert.strictEqual(S.declsFor(rules, '#pageWrap.look-small #pTitle', { at: '' })['font-size'], '32px');
 });
 
 test('PL-3・F120: 録音中のページ（記録中のタブ）に替えると見た目の組が外れる', T, async () => {
