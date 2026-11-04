@@ -938,6 +938,11 @@ function placeInBody(db, a, ctx, me, to, tree) {
   let made = false;
   const ops = bodyOps(db, to, ctx, (p) => {
     const had = subSpot(p.blocks, a.id);
+    // PR-2 直し 3（R46）: 自分の行の後ろは今の所（block.move の afterId === blockId と同じく書かない。前は行を抜いてから探して bad-args）。親の違う rowParent は断る
+    if (had && a.rowAfter === had.b.id) {
+      if (a.rowParent !== undefined && (!had.parent || had.parent.id !== a.rowParent)) throw refuse('bad-args');
+      return false;
+    }
     let row;
     if (had) { row = had.b; had.list.splice(had.index, 1); } else { row = newSubRow(db, ctx, a.id); made = true; }
     if (a.rowAfter !== '' && !BT.locate(p.blocks, a.rowAfter)) throw refuse('bad-args');

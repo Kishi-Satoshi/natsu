@@ -1090,3 +1090,28 @@ test('PR-2 直し・R44: preload の pageMove(id, parentId, afterId, row) は ro
     { id: 'pb1', parentId: 'pa1' }, { id: 'pb1', parentId: 'pa1', rowAfter: 'b1' }, { id: 'pb1', parentId: 'pa1', rowAfter: '', rowParent: 'b2' }, { id: 'pb1', parentId: 'pa1', rowAfter: '' },
   ]);
 });
+
+// ---------------------------------------------------------------- 0.15.0 PR-2 直し 3（2026-11-04 の 0828257..a812237 の点検。計画の R45〜）
+test('PR-2 直し 3・R46: page.move の rowAfter が動かすページ自身の行なら、今の所のまま何も書かない（block.move の afterId === blockId と同じ。前は行を抜いてから探して bad-args）。rowParent が今の親の行と違えば bad-args', T, () => withDb((db) => {
+  const P = create(db);
+  const K1 = create(db, P); const K2 = create(db, P);
+  const r2 = subRow(db, P, K2).id;
+  const tg = insert(db, P, r2, 'toggle');
+  const was = dump(db);
+  const r = ok(call(db, 'page.move', { id: K2, parentId: P, rowAfter: r2 }), '自分の行の後ろ');
+  assert.deepStrictEqual(opsOf(db, r.tx), [], '同じ所なのに操作を書いた（oplog の行は空の操作）');
+  assert.deepStrictEqual(dump(db), was, '同じ所なのに何か書いた');
+  assert.strictEqual(r.changed, undefined, '同じ所なのに変えた印');
+  assert.ok(Array.isArray(r.result) && r.result.some((p) => p.id === K2), '答えが一覧でない');
+  assert.deepStrictEqual(subsOf(db, P), [K1, K2]);
+  // 今の親（最上位）と違う rowParent は、ほかの行の後ろと同じく断る（何も変えない）
+  const x = call(db, 'page.move', { id: K2, parentId: P, rowAfter: r2, rowParent: tg });
+  assert.strictEqual(x.code, 'bad-args', `親の違う rowParent: ${x.code}`);
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+  // トグルの子の行: 同じ親の rowParent と一緒でも今の所のまま
+  ok(call(db, 'page.move', { id: K2, parentId: P, rowAfter: '', rowParent: tg }), 'トグルの子の頭');
+  const was2 = dump(db);
+  const y = ok(call(db, 'page.move', { id: K2, parentId: P, rowAfter: r2, rowParent: tg }), '同じ親の rowParent');
+  assert.deepStrictEqual(opsOf(db, y.tx), []);
+  assert.deepStrictEqual(dump(db), was2, '同じ所なのに何か書いた');
+}));

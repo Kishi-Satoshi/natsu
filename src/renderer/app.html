@@ -3237,7 +3237,8 @@
       const dt = ev && ev.dataTransfer;
       if (dt) { try { dt.effectAllowed = 'move'; dt.setData(PAGE_DRAG_TYPE, id); } catch (_) { /* 印を置けなくても引っ張れる */ } }
     };
-    el.ondragend = () => { pageDrag = null; el.classList.remove('dragging'); clearTreeDrop(); };
+    // PR-2 直し 3（R47）: 本文の上でやめても、本文の落とす印（wireDrop）を消す
+    el.ondragend = () => { pageDrag = null; el.classList.remove('dragging'); clearTreeDrop(); clearDropMarks($('pNote')); };
     el.ondragover = (ev) => {
       const s = treeSpot(el, ev);
       clearTreeDrop();
@@ -3256,6 +3257,7 @@
     };
   }
   document.addEventListener('keydown', (ev) => {
+    if (pageDrag && ev.key === 'Escape') clearDropMarks($('pNote'));   // PR-2 直し 3（R47）: 本文の上でやめたときの本文の落とす印も消す
     if (pageDrag && ev.key === 'Escape') { pageDrag = null; clearTreeDrop(); }
   });
   // PH-3 直し（R28 (1)）: 引っ張りの始まり（先に document の捕まえる段で前の引っ張りを忘れ、行の dragstart が新しく覚える）・終わり（元の行が
@@ -3890,10 +3892,11 @@
 
   // 挿入位置: ドラッグ中の行を除いた並びの中で、カーソルより下にある最初の行の位置。
   // store 側も「抜いてから挿す」ので、この数え方がそのまま挿入位置になる。
-  function dropIndexAt(box, clientY) {
+  function dropIndexAt(box, clientY, ids = dragIds || [dragBlockId]) {
     // 0.13.1: 動かす行とその子孫の行を除く（子は親と一緒に動く）
     // 0.14.0 EK-4: 選んだ行を引っ張っているときは、選んだ行の全部とその子孫を除く
-    const drag = new Set(dragIds || [dragBlockId]);
+    // 0.15.0 PR-2 直し 3（R46）: ページを引っ張っているときは、そのページの行（ids。サイドバーから引っ張った、もう行のある子）を除く
+    const drag = new Set(ids);
     const els = [];
     let skip = -1;
     for (const x of box.querySelectorAll('.blk')) {
@@ -3932,9 +3935,10 @@
   }
   // 落とす所の段（横のずれ 24px ごとに1段。AI の節の見出しは最上位のまま: TQ2）→ { parentId, afterId, depth }
   // 0.14.0 EK-4（R65）: 選んだ行を引っ張っているとき（many）は、どれか1つでも最上位の AI の節の見出しなら最上位のまま
-  function dropSpotAt(els, idx, clientX, dragId = dragBlockId, many = dragIds) {
+  // 0.15.0 PR-2 直し 3（R45）: fromX は横のずれの元（本文の ⠿ の引っ張りは掴んだ所。本文の外から引っ張ったページは kidSpotAt が渡す）
+  function dropSpotAt(els, idx, clientX, dragId = dragBlockId, many = dragIds, fromX = dragStartX) {
     const rows = els.map((e) => ({ id: e.dataset.id, depth: Number(e.dataset.depth) || 0, parentId: e.dataset.parent || null, kids: kidsCanView(e._b) }));
-    const shift = Number.isFinite(clientX) ? Math.round((clientX - dragStartX) / 24) : 0;
+    const shift = Number.isFinite(clientX) ? Math.round((clientX - fromX) / 24) : 0;
     const top = (many || [dragId]).some((id) => { const d = curPage ? locate(curPage.blocks, id) : null; return Boolean(d && d.depth === 0 && aiSectionHead(d.b)); });
     const spot = dropSpot(rows, idx, shift, { top });
     const p = spot.parentId ? rows.find((r) => r.id === spot.parentId) : null;
@@ -8614,6 +8618,17 @@
     if (!pageDrag || !isPageDrag(ev) || box !== $('pNote') || !curPage || !isBlankPage(curPage) || keyOfBox(box) !== curId) return false;
     return pages.some((p) => p && p.id === pageDrag && p.parentId === curId);
   }
+  // PR-2 直し 3（R46）: 落とす所は、引っ張っているページの行（サイドバーから引っ張った、もう行のある子）を除いた並びで数える（本文の ⠿ の引っ張りが自分の行を除くのと同じ）
+  const kidDropIndex = (box, clientY, id) => dropIndexAt(box, clientY, [...box.querySelectorAll('.blk.subpage')].filter((e) => e._b && e._b.page === id).map((e) => e.dataset.id));
+  // PR-2 直し 3（R45）: 段。本文の ⠿ の引っ張りは ⠿ を掴んだ所からの横のずれで選ぶ（真下へは上の行と同じ段・24px 右へで上の行の子）。本文の外（サイドバー・
+  // 「このページの中のページ」）から引っ張ったページは掴んだ所が本文に無いので、上に見えている行の ⠿ を掴んだとみなす（⠿ を測れなければその行の左の端）
+  function kidSpotAt(els, idx, clientX) {
+    const above = idx > 0 ? els[Math.min(idx, els.length) - 1] : null;
+    const g = above ? above.querySelector('.grip') : null;
+    const gr = g ? g.getBoundingClientRect() : null;
+    const x0 = gr && gr.width ? gr.left + gr.width / 2 : above ? Number(above.getBoundingClientRect().left) || 0 : 0;
+    return dropSpotAt(els, idx, clientX, null, null, x0);
+  }
   // 子の行を本文の置き場（{ afterId, parentId? }: block.move と同じ）に置く（page.move の rowAfter・rowParent の1回）→ 読み直して置いた行へフォーカス
   async function placeKid(id, spot) {
     const pid = curId;
@@ -8662,8 +8677,7 @@
       // PR-2 直し（R44・決めたこと 55）: 引っ張って本文に置く（サイドバーの木と同じアプリのページの印。落とす所は本文の行の印: wireDrop）
       r.draggable = true;
       r.ondragstart = (ev) => {
-        pageDrag = id; r.classList.add('dragging');
-        dragStartX = Number(ev && ev.clientX) || 0;
+        pageDrag = id; r.classList.add('dragging');   // PR-2 直し 3（R45）: 段は掴んだ所でなく上の行の ⠿ から選ぶ（kidSpotAt）ので dragStartX は覚えない
         const dt = ev && ev.dataTransfer;
         if (dt) { try { dt.effectAllowed = 'move'; dt.setData(PAGE_DRAG_TYPE, id); } catch (_) { /* 印を置けなければ本文には落とせない */ } }
       };
@@ -8845,10 +8859,11 @@
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'move';
       clearDropMarks(box);
-      const { idx, els } = dropIndexAt(box, ev.clientY);
+      const kid = !dragBlockId;   // PR-2 直し 3（R45・R46）: ページの引っ張り（kidDropOk）は自分の行を除いて数え、段は上の行の ⠿ から
+      const { idx, els } = kid ? kidDropIndex(box, ev.clientY, pageDrag) : dropIndexAt(box, ev.clientY);
       if (!els.length) return;
       // 0.13.1 NR12: 落とす線は選んだ段の左から（--dropx は印を付けた行の左からのずれ）
-      const spot = dropSpotAt(els, idx, ev.clientX);
+      const spot = kid ? kidSpotAt(els, idx, ev.clientX) : dropSpotAt(els, idx, ev.clientX);
       const mark = idx < els.length ? els[idx] : els[els.length - 1];
       mark.classList.add(idx < els.length ? 'dropmark' : 'dropmark-after');
       const dx = (spot.depth - (Number(mark.dataset.depth) || 0)) * 24;
@@ -8860,8 +8875,8 @@
       if (!dragBlockId && kidDropOk(box, ev)) {
         if (typeof ev.preventDefault === 'function') ev.preventDefault();
         const id = pageDrag; pageDrag = null;
-        const { idx, els } = dropIndexAt(box, ev.clientY);
-        const spot = dropSpotAt(els, idx, ev.clientX);
+        const { idx, els } = kidDropIndex(box, ev.clientY, id);   // PR-2 直し 3（R45・R46）
+        const spot = kidSpotAt(els, idx, ev.clientX);
         clearDropMarks(box);
         return placeKid(id, { afterId: spot.afterId, parentId: spot.afterId === '' && spot.parentId ? spot.parentId : undefined });
       }

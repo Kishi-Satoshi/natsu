@@ -1196,7 +1196,8 @@ test('PR-2 直し・R44（決めたこと 55）: 「このページの中のペ�
     assert.strictEqual(data[PAGE_TYPE], k3, 'ページの印を置かない');
     // 本文の上: 見えている行 q1 k1 q2 k2 下の文…（上端 0・10・20・30…）。k2 の行の上半分（q2 の下）へ
     const box = $(l, 'pNote');
-    noteRows(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 0, right: 100, width: 100 }); });
+    // PR-2 直し 3（R45）で意図して変えた: 行の左の端を 100 に置く（本文の外から引っ張ったページの段は、上の行の左の端からのずれで選ぶ。前は 0 で、掴んだ所 100 からのずれを見ていた）
+    noteRows(l).forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 100, right: 200, width: 100 }); });
     const over = { preventDefault() { this.defaultPrevented = true; }, clientY: 32, clientX: 100, dataTransfer: dt };
     box.ondragover(over);
     assert.strictEqual(over.defaultPrevented, true, '本文に落とせない形');
@@ -1227,6 +1228,208 @@ test('PR-2 直し・R44（決めたこと 55）: 「このページの中のペ�
     assert.deepStrictEqual(l.page('pb1').blocks.slice(-1)[0].page, k4, '本文の最後に置かない');
     assert.strictEqual($(l, 'bodyKids').hidden, true, '置いても一覧が残る');
     assert.ok(l.document.activeElement === subEl(l, k4)._txt, '置いた行へフォーカスしない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- 0.15.0 PR-2 直し 3（2026-11-04 の 0828257..a812237 の点検。計画の R45〜）
+// 行の無い子 k3・k4 を作る（rowsDb の more）。作った後で本文の行を消す（前の版で行を消された子）
+const lostTwo = (call) => {
+  const out = {};
+  for (const [k, title] of [['k3', '行の無い子'], ['k4', 'もう一つの子']]) {   // 利用者が付け直した題名（D77）
+    out[k] = call('page.create', { parentId: 'pb1' }).id;
+    call('page.setTitle', { id: out[k], title });
+  }
+  return out;
+};
+async function openLost(l, kids) {
+  for (const k of kids) l.db.prepare('delete from blocks where id = ?').run(rowIdOf(l, k));
+  l.fire('onPageOpen', 'pa1'); await l.drain();
+  l.fire('onPageOpen', 'pb1'); await l.drain();
+  rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });   // サイドバーで pb1 を開いて子の行を出す
+  await l.drain();
+}
+// 本文の行の箱（上端 0・10・20…・高さ 10）。左の端は本文の左 320 に段の字下げ（24px）を足した所（#pNote .blk の margin-left）
+const bodyRects = (l, left = 320) => noteRows(l).forEach((e, i) => {
+  const x = left + (Number(e.dataset.depth) || 0) * 24;
+  e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: x, right: x + 400, width: 400 });
+});
+const pageDt = () => ({ effectAllowed: '', setData() {}, getData: () => '', types: [PAGE_TYPE] });
+const sideDrag = (l, id, x) => rowOf(l, id).dispatchEvent({ type: 'dragstart', target: rowOf(l, id), clientX: x, dataTransfer: pageDt() });
+const pageEv = (y, x) => ({ preventDefault() { this.defaultPrevented = true; }, clientY: y, clientX: x, dataTransfer: pageDt() });
+const marks = (l) => $(l, 'pNote').querySelectorAll('.dropmark, .dropmark-after').map((e) => [e.dataset.id, e.classList.contains('dropshift')]);
+const subsIn = (l) => flatB(l.page('pb1').blocks).filter((b) => b.type === 'subpage').map((b) => b.page);
+
+test('PR-2 直し 3・R45: サイドバーから今の白紙のページの子を本文へ落とすと、段は上の行の ⠿（測れなければ行の左の端）からの横のずれで選ぶ（サイドバーで掴んだ所は見ない）。真下なら上の箇条書きの後ろ（最上位）・24px ほど右へ入れたときだけ上の行の子の頭', T, async () => {
+  const l = await rowsDb({ more: lostTwo });
+  try {
+    const { k1, k2, k3, k4 } = l.made;
+    await openLost(l, [k3, k4]);
+    const box = $(l, 'pNote');
+    // 点検の再現: サイドバーで x=40 で掴み、本文の箇条書き q2 の下（k2 の行の上半分）の x=320（q2 の行の左の端）へ
+    sideDrag(l, k3, 40);
+    bodyRects(l);
+    const o1 = pageEv(32, 320);
+    box.ondragover(o1);
+    assert.strictEqual(o1.defaultPrevented, true, '本文に落とせない形');
+    assert.deepStrictEqual(marks(l), [[rowIdOf(l, k2), false]], '段をずらした印を出した（サイドバーで掴んだ所からのずれを見た）');
+    await box.ondrop(pageEv(32, 320));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k3, 'pb1', undefined, { afterId: 'q2' }]], 'q2 の後ろでなく子にした');
+    assert.deepStrictEqual(subsIn(l), [k1, k3, k2]);
+    assert.deepStrictEqual(l.page('pb1').blocks.find((b) => b.id === 'q2').children || [], [], 'q2 の子になった');
+    // 上の行の左の端から 30px 右へ入れると、q2 の子の頭（印は字下げして出る）
+    sideDrag(l, k4, 40);
+    bodyRects(l);
+    box.ondragover(pageEv(32, 350));
+    assert.deepStrictEqual(marks(l), [[rowIdOf(l, k3), true]], '右へ入れても段をずらした印が無い');
+    // ⠿ を測れれば ⠿ の真ん中から（⠿ が 346〜358 なら、350 は上の行の後ろ・376 で上の行の子）
+    const grip = noteRows(l).find((e) => e.dataset.id === 'q2').querySelector('.grip');
+    grip._rect = { left: 346, width: 12, top: 20, height: 10 };
+    box.ondragover(pageEv(32, 350));
+    assert.deepStrictEqual(marks(l), [[rowIdOf(l, k3), false]], '⠿ の上なのに段をずらした');
+    box.ondragover(pageEv(32, 376));
+    assert.deepStrictEqual(marks(l), [[rowIdOf(l, k3), true]]);
+    await box.ondrop(pageEv(32, 376));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args)[1], [k4, 'pb1', undefined, { afterId: '', parentId: 'q2' }], 'q2 の子の頭に置かない');
+    assert.deepStrictEqual(l.page('pb1').blocks.find((b) => b.id === 'q2').children.map((b) => b.page), [k4]);
+    assert.strictEqual(subEl(l, k4).dataset.parent, 'q2');
+    assert.strictEqual(listNow(l).find((p) => p.id === k4).parentId, 'pb1', 'ページの親が替わった');
+    assert.deepStrictEqual(marks(l), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し 3・R46: サイドバーから本文にもう行のある子を引っ張ると、落とす所はその子の行を除いて数える（自分の行に印を出さない・自分の行の後ろを送らない）。今の所に落としても「ページの行を置けませんでした。」を出さない', T, async () => {
+  const l = await rowsDb();
+  try {
+    const { k1, k2, tp } = l.made;
+    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });
+    await l.drain();
+    const box = $(l, 'pNote');
+    sideDrag(l, k2, 40);
+    bodyRects(l);
+    // 見えている行 q1 k1 q2 k2 下の文…。k2 の行（上端 30）の上半分: 自分の行は数えないので、印は次の行（下の文）
+    box.ondragover(pageEv(32, 320));
+    assert.deepStrictEqual(marks(l), [[tp, false]], '引っ張っている子の行に印を出した');
+    // k2 の行の下半分（今の所）: 自分の行の後ろでなく、上に見えている q2 の後ろ
+    await box.ondrop(pageEv(38, 320));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k2, 'pb1', undefined, { afterId: 'q2' }]], '自分の行の後ろを送った');
+    assert.notStrictEqual(toastText(l), 'ページの行を置けませんでした。');
+    assert.deepStrictEqual(subsIn(l), [k1, k2]);
+    assert.ok(subEl(l, k2) && !subEl(l, k2).classList.contains('gone'));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し 3・R47: サイドバーや「このページの中のページ」からの引っ張りを本文の上でやめる（dragend・Esc）と、本文の落とす印も消える。やめた後は落としても置かない', T, async () => {
+  const l = await rowsDb({ more: lostTwo });
+  try {
+    const { k3 } = l.made;
+    await openLost(l, [k3]);
+    const box = $(l, 'pNote');
+    const overBody = () => { bodyRects(l); box.ondragover(pageEv(32, 320)); return marks(l).length; };
+    // サイドバーの行の dragend
+    sideDrag(l, k3, 40);
+    assert.strictEqual(overBody(), 1);
+    rowOf(l, k3).dispatchEvent({ type: 'dragend' });
+    assert.deepStrictEqual(marks(l), [], 'サイドバーの引っ張りの dragend で本文の印が残る');
+    // サイドバーの引っ張りの Esc
+    sideDrag(l, k3, 40);
+    assert.strictEqual(overBody(), 1);
+    l.key({ key: 'Escape' });
+    assert.deepStrictEqual(marks(l), [], 'Esc で本文の印が残る');
+    assert.strictEqual(overBody(), 0, 'Esc の後も落とす印を出す');
+    await box.ondrop(pageEv(32, 320));
+    await l.drain();
+    // 「このページの中のページ」の行の引っ張りの Esc
+    const kr = $(l, 'bodyKids').querySelectorAll('.kidrow')[0];
+    kr.dispatchEvent({ type: 'dragstart', target: kr, clientX: 100, dataTransfer: pageDt() });
+    assert.strictEqual(overBody(), 1);
+    l.key({ key: 'Escape' });
+    assert.deepStrictEqual(marks(l), [], '一覧の行の引っ張りの Esc で本文の印が残る');
+    kr.dispatchEvent({ type: 'dragend' });
+    assert.deepStrictEqual(l.called('pageMove'), [], 'やめた引っ張りで置いた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し 3・R48 (1): 今の白紙のページの子でないページ（最上位の議事録・ほかのページの子）をサイドバーから本文の上へ引っ張っても、落とす印を出さず、落としても page.move を呼ばない', T, async () => {
+  const l = await rowsDb({ more: (call) => ({ g1: call('page.create', { parentId: call('pages.list', {}).find((p) => p.title === '週の予定').id }).id }) });
+  try {
+    const { k1, g1 } = l.made;
+    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });
+    await l.drain();
+    rowOf(l, k1).querySelector('.pi').dispatchEvent({ type: 'click' });   // 孫 g1 を出す
+    await l.drain();
+    const box = $(l, 'pNote');
+    for (const id of ['pa1', g1]) {
+      sideDrag(l, id, 40);
+      bodyRects(l);
+      box.ondragover(pageEv(32, 320));
+      assert.deepStrictEqual(marks(l), [], `${id} の引っ張りに落とす印を出した`);
+      await box.ondrop(pageEv(32, 320));
+      await l.drain(); await l.drain();
+      rowOf(l, id).dispatchEvent({ type: 'dragend' });
+    }
+    assert.deepStrictEqual(l.called('pageMove'), [], '今のページの子でないページを本文に置いた');
+    assert.deepStrictEqual(subsIn(l), [k1, l.made.k2]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し 3・R48 (2): 本文が 2,000 行の白紙のページで行の無い子を置こうとすると「本文が 2,000 行に達しているので、ページの行を置けません。」（本文も「このページの中のページ」も変わらない）', T, async () => {
+  const N = 2000;
+  const big = Array.from({ length: N }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: `行${i}` }));
+  const l = await openDb({ blanks: [BLANK('pf1', '大きな本文', big)], open: 'pf1', before: (call) => {
+    const k = call('page.create', { parentId: 'pf1' }).id;   // 行は置かない（R33）
+    call('page.setTitle', { id: k, title: '行の無い子' });   // 利用者が付け直した題名（D77）
+    return { k };
+  } });
+  try {
+    const { k } = l.made;
+    const kr = $(l, 'bodyKids').querySelectorAll('.kidrow')[0];
+    assert.strictEqual(kr.textContent, '📄 行の無い子');
+    kr.focus();
+    l.key({ key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true, shiftKey: true }, kr);
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k, 'pf1', undefined, { afterId: `fz${N - 1}` }]]);
+    assert.strictEqual(toastText(l), '本文が 2,000 行に達しているので、ページの行を置けません。');
+    assert.strictEqual(l.page('pf1').blocks.length, N, '本文が変わった');
+    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map((e) => e.textContent), ['📄 行の無い子'], '一覧から消えた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し 3・R48 (3): 「このページの中のページ」の行をトグルの下へ右へずらして落とすと、トグルの子の頭に置く（pageMove の row の parentId・rowParent）', T, async () => {
+  const l = await rowsDb({ more: (call) => {
+    const out = lostTwo(call);
+    const tp = call('page.get', { id: 'pb1' }).page.blocks.find((b) => b.text === '下の文').id;
+    out.tg = call('block.insert', { pageId: 'pb1', afterBlockId: tp, type: 'toggle' }).blockId;
+    call('block.update', { pageId: 'pb1', blockId: out.tg, patch: { text: 'まとめ' } });
+    return out;
+  } });
+  try {
+    const { k3, k4, tg } = l.made;
+    await openLost(l, [k3, k4]);
+    const box = $(l, 'pNote');
+    assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id).slice(4, 7), [l.made.tp, tg, 'q3']);
+    const kr = $(l, 'bodyKids').querySelectorAll('.kidrow')[0];
+    kr.dispatchEvent({ type: 'dragstart', target: kr, clientX: 100, dataTransfer: pageDt() });
+    bodyRects(l);
+    // q3 の行（上端 60）の上半分・トグルの行の左の端から 30px 右
+    box.ondragover(pageEv(62, 350));
+    assert.deepStrictEqual(marks(l), [['q3', true]]);
+    await box.ondrop(pageEv(62, 350));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k3, 'pb1', undefined, { afterId: '', parentId: tg }]]);
+    assert.deepStrictEqual(l.page('pb1').blocks.find((b) => b.id === tg).children.map((b) => b.page), [k3], 'トグルの子の頭に置かない');
+    assert.strictEqual(subEl(l, k3).dataset.parent, tg);
+    assert.strictEqual(subEl(l, k3).dataset.depth, '1');
+    assert.ok(l.document.activeElement === subEl(l, k3)._txt, '置いた行へフォーカスしない');
+    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map((e) => e.textContent), ['📄 もう一つの子']);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
