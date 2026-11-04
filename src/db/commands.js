@@ -246,7 +246,7 @@ function listedRows(db) {
     if (r.trashed_at !== null && r.trashed_at !== undefined) continue;
     const attrs = JSON.parse(r.attrs || '{}');
     if (isLive(attrs)) continue;
-    out.push({ id: r.id, key: keyOfRow(r), attrs, createdAt: r.created_at, parentId: r.parent_id ?? null, ord: r.ord });
+    out.push({ id: r.id, key: keyOfRow(r), attrs, createdAt: r.created_at, parentId: r.parent_id ?? null, ord: r.ord, title: r.text });   // 0.15.0 PH-7: 題名は MCP の場所の文（決めたこと 34）
   }
   return out;
 }

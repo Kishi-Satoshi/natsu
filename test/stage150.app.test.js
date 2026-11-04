@@ -2467,3 +2467,34 @@ test('PH-5 直し 4・R62 M-1: パンくずを描き直して、フォーカス�
   assert.ok(d.document.activeElement && d.document.activeElement.classList.contains('tabitem'), '段が無くなったのに選んでいるタブへ移らない');
   assert.deepStrictEqual(d.errors.map(fmt), []);
 });
+
+// ---------------------------------------------------------------- PH-7
+const palLines = (l) => $(l, 'palList').querySelectorAll('.pitem').map((e) => [e.dataset.pid, e.querySelector('.m').textContent]);
+test('PH-7・F122: 検索の結果の子ページの2行目に「場所: 親 / 子」・最上位のページは今と同じ文', T, async () => {
+  const l = await boot();
+  $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+  const got = new Map(palLines(l));
+  const row = (id) => LIST().find((p) => p.id === id);
+  const base = (id) => `${row(id).date} ・ 10分0秒`;   // 一覧の行の rowTitle（日付・長さ。要約あり・種類なし）
+  assert.strictEqual(got.get('pa3'), base('pa3'), '最上位のページの2行目が今の文でない');
+  assert.strictEqual(got.get('pa2'), base('pa2'));
+  assert.strictEqual(got.get('k1'), `場所: ${row('pa2').title} ・ ${base('k1')}`);
+  assert.strictEqual(got.get('g1'), `場所: ${row('pa2').title} / ${row('k1').title} ・ ${base('g1')}`);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PH-7・HR19（第3版）: 白紙のページの ToDo が、検索の窓の［アクション］に「（白紙のページ）題名」の印で出る（無題は「無題のページ」）。議事録の ToDo の行は今と同じ', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '計画のページ', BODY()), BLANK('pb2', '', [{ id: 'r1', type: 'todo', text: '題名の無いページの ToDo', checked: false }])],
+    returns: { pagesActionView: (o) => l.call('pages.actionView', o || {}) } });
+  try {
+    $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+    $(l, 'fltActions').dispatchEvent({ type: 'click' }); await l.drain();
+    const srcs = $(l, 'palList').querySelectorAll('.actrow .src').map((e) => [e.getAttribute('data-pid'), e.textContent]);
+    const meet = l.page('pa1');
+    assert.ok(srcs.some(([id, t]) => id === 'pb1' && t === '（白紙のページ）計画のページ'), JSON.stringify(srcs));
+    assert.ok(srcs.some(([id, t]) => id === 'pb2' && t === '（白紙のページ）無題のページ'), JSON.stringify(srcs));
+    const mine = srcs.filter(([id]) => id === 'pa1');
+    assert.ok(mine.length > 0 && mine.every(([, t]) => t === `${meet.date} ${meet.title}`), JSON.stringify(mine));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

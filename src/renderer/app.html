@@ -2928,7 +2928,8 @@
       d.textContent = x.dueRaw; meta.appendChild(d); }
     if (meta.childNodes.length) body.appendChild(meta);
     const src = document.createElement('div'); src.className = 'src';
-    src.textContent = `${x.date} ${x.pageTitle}`;
+    // 0.15.0 PH-7（HR19）: 白紙のページの ToDo は「（白紙のページ）題名」の印（議事録の行は今と同じ）
+    src.textContent = x.kind === 'blank' ? `（白紙のページ）${oneLine(x.pageTitle) || blankUntitled()}` : `${x.date} ${x.pageTitle}`;
     src.setAttribute('data-pid', x.pageId);
     asOption(src, x.pageId === curId, (ev) => openResult(x.pageId, ev));
     body.appendChild(src);
@@ -3750,6 +3751,11 @@
     setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
   });
 
+  // 0.15.0 PH-7（決めたこと 33・F122）: 検索の結果の場所の文（根から親まで。題名は一覧の行の1行の題名・5 段まで: pageTreeView.placeText）。最上位は ''
+  function searchPlace(id) {
+    if (!crumbPage(id)) return '';
+    return pageTreeView.placeText(treeNow(), (x) => oneLine((crumbPage(x) || {}).title), id);
+  }
   // 検索の窓の結果は2行（🎙️・題名、灰色の日付・長さ・要約なし・タイプ）と抜粋
   function renderResults() {
     const box = $('palList'); box.textContent = '';
@@ -3794,6 +3800,9 @@
       // 2行目は灰色の文字だけ（赤い「要約なし」・青いタイプの札はやめた）。並びはサイドバーの行の title と同じ rowTitle
       // （要約なしはタイプより前＝左。1行に収まらない分は右端から切れる）
       const s1 = document.createElement('span'); s1.textContent = rowTitle(p);
+      // 0.15.0 PH-7（決めたこと 33・F122）: 子ページは「場所: 親 / 子 ・ 」を今の文の前に（最上位のページは今と同じ文）
+      const place = searchPlace(p.id);
+      if (place) s1.textContent = `場所: ${place} ・ ${s1.textContent}`;
       m.appendChild(s1);
       pb.append(t, m);
       if (p.snippet) {

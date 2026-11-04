@@ -282,7 +282,8 @@ function passageLines(p, order, terms) {
   const list = terms.map((t) => t.term);
   const time = F.timeOf(p.createdAt);
   const lines = [
-    `## ${order}｜${F.dateWithDay(p.date) || F.safeLine(String(p.date || ''))}${time ? `${time}ごろ` : ''}｜${F.safeLine(p.title || '') || '(無題の議事録)'}｜${F.typeLabel(p.meetingType)}`,
+    // 0.15.0 PH-7（決めたこと 34・F116）: 白紙のページは会議の種類の代わりに「白紙のページ」（p.blank は呼び手の印）
+    `## ${order}｜${F.dateWithDay(p.date) || F.safeLine(String(p.date || ''))}${time ? `${time}ごろ` : ''}｜${p.blank ? F.titleLine({ title: p.title, kind: 'blank' }) : F.safeLine(p.title || '') || '(無題の議事録)'}｜${p.blank ? F.BLANK_LABEL : F.typeLabel(p.meetingType)}`,
     `- 場所: ${F.placeLink(p, p.pageId, anchorOf(p.pageId, p).split('#')[1])}`,
     `- 印: ${anchorOf(p.pageId, p)}`,
   ];

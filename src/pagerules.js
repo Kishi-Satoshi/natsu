@@ -109,6 +109,7 @@ function actionRow(page, b) {
     pageId: page.id, blockId: b.id, pageTitle: page.title, date: page.date,
     text: b.text, assignee: b.assignee || '', due: b.due || '',
     dueRaw: b.dueRaw || '', dueApprox: Boolean(b.dueApprox),
+    ...(page.kind === 'blank' ? { kind: 'blank' } : {}),   // 0.15.0 PH-7（HR19）: 白紙のページの ToDo の印（議事録の行は今と同じ欄）
   };
 }
 
