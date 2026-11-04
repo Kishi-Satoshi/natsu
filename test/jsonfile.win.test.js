@@ -42,17 +42,20 @@ function hold(file, ms) {
 // 0.9.0 見た目の直しの CI（run 39488461030 の electron-smoke）で、下の Out-File と Set-Content のテストが見張りの 20 秒を越えた
 // （ふつうは 1〜2 秒）。この2つはモジュールの命令（Microsoft.PowerShell.Utility・Microsoft.PowerShell.Management）で、新しい機械で
 // 初めて使うときの読み込みがテストの見張りの中に入っていた。温めで同じ命令を1回通し、最初の読み込みの遅さを before（60 秒）に寄せる
+// 0.15.0 CI 直し（計画 docs/plans/2026-11-03-150.md の R76。run 41841758549 の electron-smoke）: 温めが見張りの 60 秒を越え、このファイルの 8 つが
+// 「failed running before hook」で赤になった（同じ commit の test (windows-latest) では最初のテストが 3.4 秒。electron-smoke では前の 10 回が 3.4〜4.2 秒、
+// 023c176 で 31.8 秒）。どの段が遅いかを出し（段の時間を1行ずつ「# 」で書く。時間切れでも、そこまでの段が残る）、見張りを 180 秒にした
+// （テストの見張りの 20 秒は変えない。温めは CI の機械の最初の起動の遅さを吸う所）
+const warmStep = async (name, f) => { const t0 = Date.now(); await f(); process.stdout.write(`# jsonfile.win の温め: ${name} ${Date.now() - t0} ミリ秒\n`); };
 test.before(async () => {
-  await run('exit 0');
+  await warmStep('起動', () => run('exit 0'));
   const w = dir('-温め');
-  await run('$env:NATSU_JSON | Out-File -FilePath $env:NATSU_P1; Set-Content -Path $env:NATSU_P2 -Value $env:NATSU_JSON -Encoding UTF8',
-    { NATSU_JSON: '{}', NATSU_P1: path.join(w, 'warm-outfile.json'), NATSU_P2: path.join(w, 'warm-setcontent.json') });
+  await warmStep('Out-File と Set-Content', () => run('$env:NATSU_JSON | Out-File -FilePath $env:NATSU_P1; Set-Content -Path $env:NATSU_P2 -Value $env:NATSU_JSON -Encoding UTF8',
+    { NATSU_JSON: '{}', NATSU_P1: path.join(w, 'warm-outfile.json'), NATSU_P2: path.join(w, 'warm-setcontent.json') }));
   const f = path.join(w, 'warm.json');
   fs.writeFileSync(f, '{}');
-  const h = hold(f, 1);
-  await h.locked;
-  await h.done;
-}, { timeout: 60000 });
+  await warmStep('掴む', async () => { const h = hold(f, 1); await h.locked; await h.done; });
+}, { timeout: 180000 });
 
 test('RF20 通る場合: 名前の変更のやり直しの持ち時間より短く（250ms）掴まれても、待ってやり直して書ける', PS_WAIT, async (t) => {
   const d = dir();
