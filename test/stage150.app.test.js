@@ -1316,7 +1316,9 @@ test('PR-2 直し 3・R46: サイドバーから本文にもう行のある子�
     // k2 の行の下半分（今の所）: 自分の行の後ろでなく、上に見えている q2 の後ろ
     await box.ondrop(pageEv(38, 320));
     await l.drain(); await l.drain();
-    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k2, 'pb1', undefined, { afterId: 'q2' }]], '自分の行の後ろを送った');
+    // PR-2 直し 4（R49）で意図して変えた: もう行のある子は page.move でなく、その行の blockMove の1回（元に戻せる）。置き場の数え方（自分の行を除く）は同じ
+    assert.deepStrictEqual(l.called('pageMove'), []);
+    assert.deepStrictEqual(l.called('blockMove').map((c) => c.args), [['pb1', rowIdOf(l, k2), { afterId: 'q2' }]], '自分の行の後ろを送った');
     assert.notStrictEqual(toastText(l), 'ページの行を置けませんでした。');
     assert.deepStrictEqual(subsIn(l), [k1, k2]);
     assert.ok(subEl(l, k2) && !subEl(l, k2).classList.contains('gone'));
@@ -1430,6 +1432,134 @@ test('PR-2 直し 3・R48 (3): 「このページの中のページ」の行を�
     assert.strictEqual(subEl(l, k3).dataset.depth, '1');
     assert.ok(l.document.activeElement === subEl(l, k3)._txt, '置いた行へフォーカスしない');
     assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map((e) => e.textContent), ['📄 もう一つの子']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- 0.15.0 PR-2 直し 4（2026-11-04 の持ち主の答え: 本文に行がある子は戻せる・Ctrl+Shift+↑ は残す・ページは通し知らせを1回出す。計画の R49〜）
+const moveUp = async (l, id) => { noteTxt(l, id).focus(); l.key({ key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true, shiftKey: true }, noteTxt(l, id)); await l.drain(); };
+const undo = async (l) => { l.key({ key: 'z', code: 'KeyZ', ctrlKey: true }, l.document.activeElement || $(l, 'pNote')); await l.drain(); await l.drain(); };
+const topIds = (l) => l.page('pb1').blocks.map((b) => (b.type === 'subpage' ? `page:${b.page}` : b.id));
+
+test('PR-2 直し 4・R49（2026-11-04 の持ち主の答え「本文に行がある子は戻せる」）: サイドバーから本文に、もう行のある子を落とすと、その行の blockMove の1回（page.move でない）。Ctrl+Z でその1歩だけが戻り、前の本文の歩みは戻らない', T, async () => {
+  const l = await rowsDb();
+  try {
+    const { k1, k2, tp } = l.made;
+    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });
+    await l.drain();
+    // 前の本文の歩み（関わりの無い行の並べ替え: q6 を q5 の前へ）
+    await moveUp(l, 'q6');
+    const before = topIds(l);
+    assert.deepStrictEqual(before, ['q1', `page:${k1}`, 'q2', `page:${k2}`, tp, 'q3', 'q4', 'q6', 'q5']);
+    // k2 をサイドバーから引っ張り、k1 の行の上半分（q1 の後ろ）へ落とす
+    sideDrag(l, k2, 40);
+    bodyRects(l);
+    await box150(l).ondrop(pageEv(12, 320));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove'), [], 'もう行のある子を page.move で置いた（元に戻せない）');
+    assert.deepStrictEqual(l.called('blockMove').slice(-1)[0].args, ['pb1', rowIdOf(l, k2), { afterId: 'q1' }]);
+    assert.deepStrictEqual(topIds(l), ['q1', `page:${k2}`, `page:${k1}`, 'q2', tp, 'q3', 'q4', 'q6', 'q5']);
+    assert.deepStrictEqual(ids(l).filter((id) => id === k1 || id === k2), [k2, k1], 'サイドバーの子の並びが替わらない');
+    // Ctrl+Z: 置いた1歩だけが戻る（q6 の並べ替えは残る）
+    noteTxt(l, 'q1').focus();
+    await undo(l);
+    assert.strictEqual(l.called('editRevert').length, 1, 'Ctrl+Z で editRevert の1回でない');
+    assert.deepStrictEqual(topIds(l), before, 'Ctrl+Z で元の所に戻らないか、前の歩みまで戻した');
+    assert.deepStrictEqual(ids(l).filter((id) => id === k1 || id === k2), [k1, k2], 'Ctrl+Z でサイドバーの子の並びが戻らない');
+    assert.strictEqual(listNow(l).find((p) => p.id === k2).parentId, 'pb1');
+    // 右へずらして落とすと、上の行（下の文）の子の頭へ（blockMove の parentId。自分の行は数えない）
+    sideDrag(l, k2, 40);
+    bodyRects(l);
+    await box150(l).ondrop(pageEv(52, 350));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('blockMove').slice(-1)[0].args, ['pb1', rowIdOf(l, k2), { afterId: '', parentId: tp }]);
+    assert.deepStrictEqual(l.page('pb1').blocks.find((b) => b.id === tp).children.map((b) => b.page), [k2], '下の文の子の頭に置かない');
+    assert.deepStrictEqual(l.called('pageMove'), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+const box150 = (l) => $(l, 'pNote');
+
+test('PR-2 直し 4・R49: 行の無い子を本文に置く（page.move の rowAfter）のは元に戻すの歩みにしない。置いた後の Ctrl+Z は、その前の本文の歩み（関わりの無い行の並べ替え）を戻し、置いた行は残る（今の動き）', T, async () => {
+  const l = await rowsDb({ more: lostTwo });
+  try {
+    const { k3, k4 } = l.made;
+    await openLost(l, [k3, k4]);
+    await moveUp(l, 'q6');
+    const kr = $(l, 'bodyKids').querySelectorAll('.kidrow')[0];
+    kr.dispatchEvent({ type: 'dragstart', target: kr, clientX: 100, dataTransfer: pageDt() });
+    bodyRects(l);
+    await box150(l).ondrop(pageEv(32, 320));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k3, 'pb1', undefined, { afterId: 'q2' }]]);
+    assert.deepStrictEqual(l.called('blockMove').length, 1, '行の無い子を blockMove で置いた');
+    noteTxt(l, 'q1').focus();
+    await undo(l);
+    assert.strictEqual(l.called('editRevert').length, 1);
+    const top = topIds(l);
+    assert.ok(top.indexOf('q5') < top.indexOf('q6'), 'Ctrl+Z が前の歩み（q6 の並べ替え）を戻さない');
+    assert.strictEqual(top[top.indexOf('q2') + 1], `page:${k3}`, 'Ctrl+Z で置いた行が消えた');
+    assert.strictEqual(listNow(l).find((p) => p.id === k3).parentId, 'pb1');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PR-2 直し 4・R51（2026-11-04 の持ち主の答え「ページは通し、知らせを1回出す」）: 本文が 2,000 行の白紙のページの中に /ページ・行の［＋］で作る・サイドバーで動かし入れると、ページは通し（本文に行は無い）「本文が 2,000 行に達しているので、ページの行は本文の最後の一覧に置きました。」を1回。行を置けた白紙のページ・最上位・議事録の中では出さない', T, async () => {
+  const N = 2000;
+  const big = Array.from({ length: N }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: `行${i}` }));
+  const FULL = '本文が 2,000 行に達しているので、ページの行は本文の最後の一覧に置きました。';
+  const almost = Array.from({ length: N - 1 }, (_, i) => ({ id: `fw${i}`, type: 'paragraph', text: `行${i}` }));   // あと1行で満杯（行を置ける）
+  const l = await openDb({ blanks: [BLANK('pf1', '大きな本文', big), BLANK('pf2', 'もう一つの大きな本文', almost), BLANK('pb1', '計画', BODY())], open: 'pf1' });
+  try {
+    const te = $(l, 'toast');
+    let cur = te.textContent;
+    const seen = [];
+    Object.defineProperty(te, 'textContent', { configurable: true, get: () => cur, set: (v) => { cur = v; seen.push(String(v)); } });
+    const fulls = () => seen.filter((x) => x === FULL).length;
+    const kidsOf = (id) => listNow(l).filter((p) => p.parentId === id).map((p) => p.id);
+    // 議事録の中に作る（行は作らない: BQ3）では出さない
+    rowOf(l, 'pa1').querySelector('.padd').dispatchEvent({ type: 'click' });
+    await l.drain(); await l.drain();
+    assert.strictEqual(fulls(), 0, '議事録の中に作って知らせた');
+    l.fire('onPageOpen', 'pf1'); await l.drain();
+    // /ページ（開いている満杯の本文の行 fz0 で）
+    const t = noteTxt(l, 'fz0');
+    t.focus();
+    t.textContent = `${t.textContent} /page`;
+    l.caret.set(t, t.textContent.length);
+    t.dispatchEvent({ type: 'input' });
+    await l.drain();
+    l.key({ key: 'Enter', code: 'Enter' }, t);
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [['pa1'], ['pf1', 'fz0']]);
+    assert.strictEqual(kidsOf('pf1').length, 1, 'ページを通さない');
+    assert.strictEqual(fulls(), 1, '/ページ で知らせを1回出さない');
+    // 行の［＋］（満杯の pf1 の行。開いているのは作ったページ）
+    rowOf(l, 'pf1').querySelector('.padd').dispatchEvent({ type: 'click' });
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args)[2], ['pf1']);
+    assert.strictEqual(fulls(), 2, '行の［＋］で知らせを1回出さない');
+    // サイドバーで動かし入れる（議事録 pa1 を、開いている満杯の pf1 の真ん中へ）
+    l.fire('onPageOpen', 'pf1'); await l.drain();
+    for (const r of rows(l)) r._rect = { top: 0, height: 30 };
+    rowOf(l, 'pa1').dispatchEvent({ type: 'dragstart', target: rowOf(l, 'pa1'), dataTransfer: { effectAllowed: '', setData() {} } });
+    rowOf(l, 'pf1').dispatchEvent({ type: 'drop', clientY: 15, dataTransfer: { types: [PAGE_TYPE] }, preventDefault() {} });
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [['pa1', 'pf1', undefined]]);
+    assert.ok(kidsOf('pf1').includes('pa1'));
+    assert.strictEqual(fulls(), 3, 'サイドバーで動かし入れて知らせを1回出さない');
+    assert.strictEqual(l.page('pf1').blocks.length, N, '満杯の本文に行を足した');
+    assert.strictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').length, 3, '行の無い子が本文の最後の一覧に無い');
+    // 行を置けた白紙のページ（あと1行の pf2 に置けて 2,000 行になった・小さな pb1）・最上位では出さない
+    for (const id of ['pf2', 'pb1']) {
+      rowOf(l, id).querySelector('.padd').dispatchEvent({ type: 'click' });
+      await l.drain(); await l.drain();
+    }
+    assert.strictEqual(l.page('pf2').blocks.length, N, 'あと1行の本文に行を置かない');
+    $(l, 'newPageBtn').dispatchEvent({ type: 'click' });
+    await l.drain(); await l.drain();
+    assert.strictEqual(l.called('pageCreate').length, 6);
+    assert.strictEqual(fulls(), 3, '行を置けたのに知らせた');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
