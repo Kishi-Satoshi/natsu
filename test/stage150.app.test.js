@@ -2597,3 +2597,36 @@ test('PH-6・PH-7 直し（rv30 M-d）: 子ページの行を消した後の Ctr
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- PH-8 直し（2026-11-04 の e235d8b..831ce7c の点検 rv31）
+test('PH-8 直し（rv31・R67 M-b）: ゴミ箱の窓の間にほかの所でページがゴミ箱へ入り、フォーカスの行の前に行が増えても、フォーカスは同じページの［戻す］のまま（同じ位置の別のページへ移らない）', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '計画', BODY()), BLANK('pb2', '予定', []), BLANK('pb3', '後で消す', [])], open: 'pa1' });
+  try {
+    l.window.confirm = () => true;
+    for (const id of ['pb1', 'pb2', 'pa1']) await treeMenuDo(l, id, '削除');
+    $(l, 'tabBtnTrash').dispatchEvent({ type: 'click' }); await l.drain();
+    const [x1, x2, x3] = trashRows(l).map((e) => e.dataset.pid);
+    l.key({ key: 'ArrowDown' }, $(l, 'trashList'));
+    assert.ok(l.document.activeElement === trashBtns(l)[1], '前提: 2つ目の［戻す］');
+    // ほかの窓（か main）が pb3 をゴミ箱へ入れた（いちばん新しい: 頭に並ぶ）
+    l.call('page.delete', { id: 'pb3' });
+    l.db.prepare('update blocks set trashed_at = ? where id = ?').run('2026-11-03T05:00:00.000Z', 'pb3');
+    l.fire('onPagesUpdated'); await l.drain(); await l.drain();
+    assert.deepStrictEqual(trashRows(l).map((e) => e.dataset.pid), ['pb3', x1, x2, x3], '前提: 頭に行が増えた');
+    assert.strictEqual(l.document.activeElement && l.document.activeElement.closest('.tprow').dataset.pid, x2, 'フォーカスが同じ位置の別のページの［戻す］へ移った（Enter で違うページを戻す）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-8 直し（rv31・R66）: ［戻す］の読み上げの名前は、改行のある題名でも1行（行の題名と同じ）', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '二行の\n題名', BODY())], open: 'pa1' });
+  try {
+    l.window.confirm = () => true;
+    await treeMenuDo(l, 'pb1', '削除');
+    $(l, 'tabBtnTrash').dispatchEvent({ type: 'click' }); await l.drain();
+    const row = trashRows(l).find((e) => e.dataset.pid === 'pb1');
+    assert.strictEqual(row.querySelector('.tpt').textContent, '📄 二行の 題名');
+    assert.strictEqual(row.querySelector('button').getAttribute('aria-label'), '『二行の 題名』を戻す');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

@@ -398,7 +398,7 @@ test('PH-2 直し・R12: 木を歩くページの行は attrs の全部を読ま
   assert.match(sql, /json_extract\(attrs, '\$\.meeting\.phase'\)/);
 });
 
-test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子孫）で pages.trash（頭 300）・page.move・子孫 1,000 の page.delete・page.restore が目安以内（3 回の中央値。pages.trash は一覧の目安。書く命令は答えの一覧を作る分（同じ時に計った pages.list）を除いて、1 ページは一覧の目安・子孫 1,000 は一覧の目安の 2 倍: R22）', { timeout: 120000 }, (tc) => {
+test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子孫）で pages.trash（頭 300）・page.move・子孫 1,000 の page.delete・page.restore が目安以内（3 回の中央値。pages.trash は一覧の目安。書く命令は答えの一覧を作る分（同じ時に計った pages.list）を除いて、1 ページは一覧の目安・子孫 1,000 は一覧の目安の 2 倍: R22）', { timeout: 120000 }, async (tc) => {
   const t = tmpDb();
   try {
     const { db } = t.open();
@@ -414,47 +414,57 @@ test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子
     call(db, 'pages.list', {});   // 一覧の1行を覚える（画面が開いた後の形）
     const budget = PF.budgetsFor(process.platform);
     const timed = (f) => { const t0 = process.hrtime.bigint(); const r = f(); return [Number(process.hrtime.bigint() - t0) / 1e6, r]; };
-    const median = (xs) => [...xs].sort((a, b) => a - b)[1];
-    // 書く命令の答えは一覧（今の page.delete と同じ）。一覧を作る分は今の一覧の速さ（PERF の list）なので、すぐ前に計った pages.list を引いて木の分を見る
+    // PH-8 直し（rv31。R70）で意図して変えた: 前は命令ごとに「命令の時間 − すぐ前の pages.list の時間」を3回取って中央値にしていた（差を取るたびに
+    // 一覧の揺れが2倍になり、負の値も出た）。今は命令の時間と、命令の前と後に計った pages.list の時間を別の並びに持ち、中央値どうしの差で決める
     const listMs = () => timed(() => call(db, 'pages.list', {}))[0];
-    const moves = []; const dels = []; const rests = []; const one = []; const oneDel = [];
-    for (let k = 0; k < 3; k++) {
-      let l = listMs();
-      const [m, mr] = timed(() => move(db, 'pp04000', k % 2 ? 'pp00600' : 'pp00500'));
-      assert.strictEqual(mr.ok, true, mr.code); moves.push(m - l);
-      tick(); l = listMs();
-      const [d, dr] = timed(() => call(db, 'page.delete', { id: 'pp00000' }));
-      assert.strictEqual(dr.ok, true, dr.code); dels.push(d - l);
-      tick(); l = listMs();
-      const [r, rr] = timed(() => call(db, 'page.restore', { id: 'pp00000' }));
-      assert.strictEqual(rr.ok, true, rr.code); rests.push(r - l);
-      tick(); l = listMs();
-      const [od, odr] = timed(() => call(db, 'page.delete', { id: 'pp03000' }));
-      assert.strictEqual(odr.ok, true, odr.code); oneDel.push(od - l);
-      tick(); l = listMs();
-      const [o, or] = timed(() => call(db, 'page.restore', { id: 'pp03000' }));
-      assert.strictEqual(or.ok, true, or.code); one.push(o - l);
-    }
+    const WRITES = [
+      ['page.move', () => move(db, 'pp04000', 'pp00500'), () => move(db, 'pp04000', 'pp00600')],
+      ['page.delete（子孫 1,000）', () => call(db, 'page.delete', { id: 'pp00000' })],
+      ['page.restore（1,000 ページ）', () => call(db, 'page.restore', { id: 'pp00000' })],
+      ['page.delete（1 ページ）', () => call(db, 'page.delete', { id: 'pp03000' })],
+      ['page.restore（1 ページ）', () => call(db, 'page.restore', { id: 'pp03000' })],
+    ];
+    // 3回の組（命令は今と同じ並び: 動かす → 子孫ごと消す → 戻す → 1ページ消す → 戻す）→ { 名前: 中央値(命令) − 中央値(前後の一覧) }
+    const writeRound = () => {
+      const cmd = new Map(WRITES.map(([n]) => [n, []]));
+      const lists = new Map(WRITES.map(([n]) => [n, []]));
+      for (let k = 0; k < 3; k++) {
+        for (const [n, f, g] of WRITES) {
+          tick();
+          lists.get(n).push(listMs());
+          const [ms, r] = timed(g && k % 2 ? g : f);
+          assert.strictEqual(r.ok, true, `${n}: ${r.code}`);
+          cmd.get(n).push(ms);
+          lists.get(n).push(listMs());
+        }
+      }
+      return Object.fromEntries(WRITES.map(([n]) => [n, PF.median(cmd.get(n)) - PF.median(lists.get(n))]));
+    };
+    const first = writeRound();
     assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'page' and trashed_at is null").get().c, 5000);
     // 頭 300 のゴミ箱（消した時刻を1つずつ違える）は SQL で作る（命令で消すと、答えの一覧を 300 回作る）
     const trashAt = db.prepare('update blocks set trashed_at = ? where id = ?');
     db.exec('BEGIN');
     for (let i = 2000; i < 2300; i++) trashAt.run(new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString(), pid(i));
     db.exec('COMMIT');
-    const trash = [];
-    for (let k = 0; k < 3; k++) { const [x, xr] = timed(() => call(db, 'pages.trash', {})); assert.strictEqual(xr.result.length, 200); trash.push(x); }
+    const trashRound = () => {
+      const xs = [];
+      for (let k = 0; k < 3; k++) { const [x, xr] = timed(() => call(db, 'pages.trash', {})); assert.strictEqual(xr.result.length, 200); xs.push(x); }
+      return PF.median(xs);
+    };
     // R22: 一覧を引いた値は一覧の速さの揺れ（CI の台で ±50 ミリ秒ほど）を含むので、1 ページの命令は一覧の目安、子孫 1,000 の書き込み（台の書き込みの
     // 速さで決まる）は一覧の目安の 2 倍（Windows は CI で計った中央値の 2 倍の 800: R21。tools/perf.js の BUDGETS_WIN と同じ考え）。
     // メモを読まないこと（R12）は上の SQL の試験が、木を1回だけ作ること（R11）は pages.trash の目安が見る（直す前は 927 ミリ秒）
     const write = budget.list;
     const big = process.platform === 'win32' ? 800 : budget.list * 2;
-    tc.diagnostic(`pages.trash ${median(trash).toFixed(1)}・page.move ${median(moves).toFixed(1)}・page.delete ${median(dels).toFixed(1)}・page.restore（1,000）${median(rests).toFixed(1)}・page.delete（1）${median(oneDel).toFixed(1)}・page.restore（1）${median(one).toFixed(1)} ミリ秒（書く命令は一覧の分を引いた値）`);
-    assert.ok(median(trash) < budget.list, `pages.trash ${median(trash).toFixed(1)} ミリ秒`);
-    assert.ok(median(moves) < write, `page.move ${median(moves).toFixed(1)} ミリ秒`);
-    assert.ok(median(oneDel) < write, `page.delete（1 ページ）${median(oneDel).toFixed(1)} ミリ秒`);
-    assert.ok(median(dels) < big, `page.delete（子孫 1,000）${median(dels).toFixed(1)} ミリ秒`);
-    assert.ok(median(one) < write, `page.restore（1 ページ）${median(one).toFixed(1)} ミリ秒`);
-    assert.ok(median(rests) < big, `page.restore（1,000 ページ）${median(rests).toFixed(1)} ミリ秒`);
+    const BUDGET = { 'pages.trash': budget.list, 'page.move': write, 'page.delete（1 ページ）': write, 'page.delete（子孫 1,000）': big, 'page.restore（1 ページ）': write, 'page.restore（1,000 ページ）': big };
+    const firstAll = { 'pages.trash': trashRound(), ...first };
+    // 目安を越えた名前だけ、3回の組をもう2回まるごと計り直し、はじめと合わせた3回の中央値で決める（RF59・PG1 の PF.recheck と同じ決まり。目安の値は変えない）
+    const judged = Object.entries(BUDGET).map(([name, b]) => ({ name, ms: Number(firstAll[name].toFixed(2)), budget: b, ok: firstAll[name] < b }));
+    const logs = [];
+    const out = await PF.recheck(judged, async (name) => Number((name === 'pages.trash' ? trashRound() : writeRound()[name]).toFixed(2)), { rounds: 2, log: (l) => logs.push(l) });
+    tc.diagnostic(`${out.map((x) => `${x.name} ${x.ms.toFixed(1)}${x.tries ? `（${x.tries.join('・')}）` : ''}`).join('・')} ミリ秒（書く命令は中央値(命令) − 中央値(前後の一覧)）${logs.length ? `。${logs.join('。')}` : ''}`);
+    for (const x of out) assert.ok(x.ok, `${x.name} ${x.ms.toFixed(1)} ミリ秒（目安 ${x.budget}${x.tries ? `・計り直し ${x.tries.join('・')}` : ''}）`);
   } finally { t.done(); }
 });
 
@@ -1264,4 +1274,20 @@ test('PH-6・PH-7 直し（rv29 F1・決めたこと 16）: 満杯の本文の�
   // R1 を行の無い兄弟の後ろへ → R1 の行が本文の最後へ（見える並びが変わる: 書く）
   ok(move(db, R1, 'pfull', K[0]), 'page.move');
   assert.deepStrictEqual(kidsInList(db, 'pfull'), [R2, R1, ...K]);
+}));
+
+// ---------------------------------------------------------------- 0.15.0 PH-8 直し（2026-11-04 の e235d8b..831ce7c の点検 rv31。計画の R69）
+test('PH-8 直し（rv31・R54・R67）: 本文 [K1 の行, トグル[K2 の行]] で K2 を同じ親へ afterId なしで動かす（［移動先…］）と、行はトグルの中から本文の最上位の最後へ動き、書く（行の並びの形は親も見る）', T, () => withDb((db) => {
+  const P = create(db);
+  const K1 = create(db, P); const K2 = create(db, P);
+  const tg = insert(db, P, subRow(db, P, K1).id, 'toggle');
+  ok(call(db, 'block.update', { pageId: P, blockId: tg, patch: { text: 'まとめ' } }), 'block.update');
+  ok(call(db, 'block.move', { pageId: P, blockId: subRow(db, P, K2).id, afterId: '', parentId: tg }), 'block.move');
+  const shape = () => bodyOf(db, P).map((b) => (b.type === 'subpage' ? `page:${b.page}` : `${b.type}[${(b.children || []).map((c) => (c.type === 'subpage' ? `page:${c.page}` : c.type)).join(',')}]`));
+  assert.deepStrictEqual(shape(), [`page:${K1}`, `toggle[page:${K2}]`], '前提: K2 の行はトグルの中（行の順は K1・K2 のまま）');
+  const n0 = oplogN(db);
+  const r = ok(move(db, K2, P), 'page.move');
+  assert.strictEqual(oplogN(db), n0 + 1);
+  assert.ok(opsOf(db, r.tx).length > 0, '行の並びの順が同じでも親が替わるのに書かなかった');
+  assert.deepStrictEqual(shape(), [`page:${K1}`, 'toggle[]', `page:${K2}`], '行がトグルの中から本文の最上位の最後へ動かない');
 }));
