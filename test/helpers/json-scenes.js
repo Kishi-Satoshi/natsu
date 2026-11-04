@@ -1166,6 +1166,15 @@ module.exports = {
       c.out.ui = await c.handlers['ui:get']({});
       c.out.again = await c.handlers['ui:get']({});
     } },
+  // 0.15.0 PL-1（計画 docs/plans/2026-11-03-150.md の決めたこと 37・F119）: ui:get はアイコンの選びの最近使ったもの（emojiRecent）も返す（辞書に無い値・重なりは
+  // 読むときに落とす）。ui:set で足した値も同じ照らしで覚え、次の ui:get に出る
+  'ws-emoji-get': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS({ emojiRecent: ['🚀', 'x', '🚀', '\u202e', '📄'] }) },
+    act: async (c) => {
+      c.out.ui = await c.handlers['ui:get']({});
+      c.out.set = await c.handlers['ui:set']({}, { emojiRecent: ['🌸', '🦕', '🚀'] });
+      c.out.again = await c.handlers['ui:get']({});
+    } },
   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・F116）: 白紙のページの page:summarize は断る（Claude Code を呼ばない・ページを書かない）。
   // 画面と同じ役 app の口で白紙のページを作り、ページの rev・更新の時刻と、呼んだ子のプロセスを見る
   'blank-summarize': { files: { 'settings.json': pretty(TYPICAL) },

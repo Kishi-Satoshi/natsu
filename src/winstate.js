@@ -16,6 +16,8 @@
  *   - タブは形の正しい鍵だけ。録音中のページ（live）は覚えない。無いページは外す
  *   - 0.15.0 PH-1（計画 docs/plans/2026-11-03-150.md の決めたこと 19）: サイドバーの木の開いている行（tree.open）は、ページの ID の形の
  *     ものだけを重なり無しで 500 まで（無いページは main の ui:get が落とす）
+ *   - 0.15.0 PL-1（決めたこと 37・F119）: アイコンの選びの最近使ったもの（emojiRecent）は、辞書（src/emojiDict.js）の絵文字だけを
+ *     重なり無しで新しい順に 24 まで
  *   - 0.9.0 U-1（SP3・D24）: 設定はタブでなくポップアップで開くので、前の版が覚えた settings は黙って落とす
  *     （無いページとして数えない。数えると main が「無いページのタブを N 個外した」と事実と違う記録を書く）
  *
@@ -25,7 +27,8 @@
 'use strict';
 
 const path = require('path');
-const blockEdit = require('./blockEdit');   // 0.13.0 ED-5（EQ8 (b)）: / メニューの「最近使ったもの」の照らし（recentCheck）
+const blockEdit = require('./blockEdit');
+const emojiDict = require('./emojiDict');   // 0.15.0 PL-1: 最近使ったアイコンの照らし（isPageIcon）   // 0.13.0 ED-5（EQ8 (b)）: / メニューの「最近使ったもの」の照らし（recentCheck）
 
 const DEFAULT_SIZE = { width: 1120, height: 780 };
 const MIN_SIZE = { width: 820, height: 560 };
@@ -41,6 +44,8 @@ const TAB_RETIRED = 'settings';   // 0.8.0 までの設定のタブ（読むと�
 // 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行の ID（ページの ID の形。タブの鍵の page: の後ろと同じ形）と、覚える数の上限
 const TREE_ID_RE = /^p[a-z0-9]{1,40}$/;
 const TREE_MAX = 500;
+// 0.15.0 PL-1（決めたこと 37）: アイコンの選びの最近使ったもの（新しい順）の数の上限
+const EMOJI_RECENT_MAX = 24;
 
 function isObj(v) {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
@@ -66,6 +71,7 @@ function defaults() {
     tabs: { open: [], active: '' },
     slashRecent: [],   // 0.13.0 ED-5（決めたこと 37〜40）: / メニューで選んだ鍵だけ（新しい順に3つまで。会議の題名・行の文・ID は持たない）
     tree: { open: [] },   // 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行のページの ID（題名は持たない）
+    emojiRecent: [],   // 0.15.0 PL-1（決めたこと 37）: アイコンの選びで最近使った絵文字（辞書の絵文字だけ・新しい順に 24 まで）
   };
 }
 
@@ -156,6 +162,17 @@ function normTree(t) {
   return { open: open.slice(-TREE_MAX) };
 }
 
+// 0.15.0 PL-1（決めたこと 37・F119）: 最近使ったアイコン。辞書に無い値・重なりは落とし、新しい（先の）24 個を残す（ほかの項目は残す）
+function normEmojiRecent(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const e of list) {
+    if (!emojiDict.isPageIcon(e) || out.includes(e)) continue;
+    out.push(e);
+  }
+  return out.slice(0, EMOJI_RECENT_MAX);
+}
+
 function sameTree(a, raw) {
   return isObj(raw) && Array.isArray(raw.open) && Object.keys(raw).length === 1
     && raw.open.length === a.open.length && raw.open.every((k, i) => k === a.open[i]);
@@ -205,6 +222,10 @@ function normalize(raw, displays) {
     state.tree = normTree(raw.tree);
     if (!sameTree(state.tree, raw.tree)) repaired.push('tree');
   }
+  if (raw.emojiRecent !== undefined) {
+    state.emojiRecent = normEmojiRecent(raw.emojiRecent);
+    if (JSON.stringify(state.emojiRecent) !== JSON.stringify(raw.emojiRecent)) repaired.push('emojiRecent');
+  }
   return { state, repaired };
 }
 
@@ -251,11 +272,12 @@ function applyUi(state, patch) {
   }
   if (patch.slashRecent !== undefined) next.slashRecent = blockEdit.recentCheck(patch.slashRecent);
   if (isObj(patch.tree) && Array.isArray(patch.tree.open)) next.tree = normTree(patch.tree);   // 0.15.0 PH-1: 画面から来た開け閉めも同じ照らし
+  if (patch.emojiRecent !== undefined) next.emojiRecent = normEmojiRecent(patch.emojiRecent);   // 0.15.0 PL-1: 画面から来た最近使ったものも同じ照らし
   return next;
 }
 
 module.exports = {
-  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS, TREE_MAX,
+  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS, TREE_MAX, EMOJI_RECENT_MAX,
   statePath, defaults, shapeOk, normalize, onScreen, boundsOf,
   zoomDir, stepZoom, tabKeyOk, keepTabs, applyUi,
 };

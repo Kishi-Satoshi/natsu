@@ -3,6 +3,7 @@
  * main.js を偽の Electron の上で本当に動かす（helpers/mainrun.js の --json-scene）。
  * PH-3（決めたこと 19・F118）: ui:get のサイドバーの木の開け閉め（tree.open）は今あるページだけ（無いページは落とし、数だけを記録に1行）。
  * PH-4（決めたこと 24・F116）: 白紙のページの page:summarize は断る（Claude Code を呼ばない・ページを書かない）。
+ * PL-1（決めたこと 37・F119）: ui:get はアイコンの最近使ったもの（emojiRecent）も返す（辞書の絵文字だけ）。
  */
 'use strict';
 const test = require('node:test');
@@ -33,4 +34,11 @@ test('PH-4・F116: page:summarize に白紙のページの ID → 断り（「�
   assert.deepStrictEqual(r.sum, { ok: false, error: '白紙のページは要約できません' }, '白紙のページの要約を断らない');
   assert.deepStrictEqual([r.after.rev, r.after.updatedAt, r.after.kind, r.after.blocks], [r.before.rev, r.before.updatedAt, 'blank', []], '断ったのにページを書いた');
   assert.ok(!r.spawns.some((s) => /claude/i.test(JSON.stringify(s))), `Claude Code を呼んだ: ${JSON.stringify(r.spawns)}`);
+});
+
+test('PL-1・F119: ui:get は最近使ったアイコン（emojiRecent）も返す（覚え書きの辞書に無い値・重なりは落とす）。ui:set で足した値も照らして次の ui:get に出る', { timeout: sceneTimeout(20000) }, async () => {
+  const r = await run(['text', '--json-scene=ws-emoji-get']);
+  assert.deepStrictEqual(r.ui.emojiRecent, ['🚀', '📄'], '辞書に無い値・重なりを返した');
+  assert.deepStrictEqual(r.set, { ok: true });
+  assert.deepStrictEqual(r.again.emojiRecent, ['🌸', '🚀'], 'ui:set の値を照らさないか、覚えない');
 });

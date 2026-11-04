@@ -6931,7 +6931,8 @@ function setupIpc() {
     }
     return { sidebar: { ...winState.sidebar }, tabs: { open: winState.tabs.open.slice(), active: winState.tabs.active },
       slashRecent: Array.isArray(winState.slashRecent) ? winState.slashRecent.slice() : [],   // 0.13.0 ED-5（決めたこと 39）
-      tree: { open: treeOpen.slice() } };
+      tree: { open: treeOpen.slice() },
+      emojiRecent: Array.isArray(winState.emojiRecent) ? winState.emojiRecent.slice() : [] };   // 0.15.0 PL-1（決めたこと 37）: アイコンの選びの最近使ったもの
   });
   ipcMain.handle('ui:set', (_e, patch) => {
     winState = W.applyUi(winState, patch);

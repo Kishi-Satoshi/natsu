@@ -1338,6 +1338,8 @@ const IDS_150 = [
   'ph-row-dup', 'ph-row-turn', 'ph-row-paste', 'ph-row-merge', 'ph-row-trash-elsewhere', 'ph-row-restore-place', 'ph-row-order',
   // 0.15.0 PR-2（表の行の順に）
   'ph-row-unplaced', 'ph-row-title',
+  // 0.15.0 PL-1（表の行の順に）
+  'pl-icon-dict', 'pl-icon-one', 'pl-icon-default', 'pl-look-font', 'pl-look-keys', 'pl-look-empty', 'pl-find-yomi', 'pl-find-kata', 'pl-recent-max', 'pl-recent-dict',
 ];
 // 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足す
 const BUILT_150 = [
@@ -1349,6 +1351,7 @@ const BUILT_150 = [
   ['ph-delete-count', 'ph-trash-show'],   // PH-6
   ['ph-search-path', 'ph-mcp-blank'],   // PH-7
   ['ph-row-create', 'ph-row-title'],   // PR-1（ph-row-create〜ph-row-order）・PR-2（ph-row-unplaced・ph-row-title）
+  ['pl-icon-dict', 'pl-recent-dict'],   // PL-1
 ];
 // 表の ph-・pl- の行（作りながら足すので、IDS_150 は今まで作ったタスクの行だけ: R1。表の全部とちょうど同じかは Task G で見る）
 function planRows150() {
