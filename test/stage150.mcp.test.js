@@ -32,6 +32,11 @@ function treeSeed() {
   m.call('app', 'block.update', { pageId: top, blockId: t1, patch: { text: 'ひな形の段取り表を作る' } });
   const kid = m.call('app', 'page.create', { parentId: top }).id;
   m.call('app', 'page.setTitle', { id: kid, title: KID_TITLE });
+  // PH-6・PH-7 直し（rv30 M-c）: 題名に改行・U+202E・U+200B のある白紙のページにも本文と ToDo（箇所の頭と ToDo の行の題名も1行になるかを見る）
+  const k1 = m.call('app', 'block.insert', { pageId: kid, afterBlockId: '', type: 'paragraph' }).blockId;
+  m.call('app', 'block.update', { pageId: kid, blockId: k1, patch: { text: '中の本文の指示の確かめ' } });
+  const k2 = m.call('app', 'block.insert', { pageId: kid, afterBlockId: k1, type: 'todo' }).blockId;
+  m.call('app', 'block.update', { pageId: kid, blockId: k2, patch: { text: '中の確かめを済ませる' } });
   m.call('app', 'page.move', { id: 'pm1', parentId: kid });
   m.close();
   return { m, top, kid };
@@ -127,7 +132,7 @@ test('PH-7・F122・RF77: 子ページの一覧と読む答えに「場所: …�
     const list = call('list_meetings');
     const ll = linesOf(list.text);
     for (const l of ll.slice(2)) assert.ok(l.startsWith('- '), l);
-    assert.match(ll.find((l) => l.endsWith(`｜ID ${kid}`)), new RegExp(`^- 2026-10-21（水）｜${KID_LINE}｜白紙のページ｜場所: 計画の親｜開いた ToDo 0｜ID `));
+    assert.match(ll.find((l) => l.endsWith(`｜ID ${kid}`)), new RegExp(`^- 2026-10-21（水）｜${KID_LINE}｜白紙のページ｜場所: 計画の親｜開いた ToDo 1｜ID `));
     const pm1 = ll.find((l) => l.endsWith('｜ID pm1'));
     assert.ok(pm1.startsWith(`- 2026-10-18（日）｜${TITLES.plain1}｜場所: 計画の親 / ${KID_LINE}｜長さ 1:00｜`), pm1);
     // 最上位の議事録は今の行のまま（場所が無い）
@@ -140,7 +145,12 @@ test('PH-7・F122・RF77: 子ページの一覧と読む答えに「場所: …�
     assert.ok(linesOf(reads[3].text).includes('- 場所: 計画の親'), reads[3].text);
     assert.ok(!reads[2].text.includes('- 場所'), '最上位の白紙のページに場所の行がある');
     assert.ok(linesOf(reads[1].text).includes(`# ${KID_LINE}`), reads[1].text);
-    for (const r of [list, ...reads, call('search_passages', { query: '指示 段取り表 予算案' }), call('list_action_items')]) {
+    // 箇所の頭と ToDo の行の白紙のページの題名も1行（rv30 M-c）
+    const hits = call('search_passages', { query: '指示 段取り表 予算案' });
+    const acts = call('list_action_items');
+    assert.ok(linesOf(hits.text).some((l) => /^## \d+｜/.test(l) && l.endsWith(`｜${KID_LINE}｜白紙のページ`)), hits.text);
+    assert.ok(linesOf(acts.text).some((l) => l.includes(`｜会議: （白紙のページ）${KID_LINE}（ID ${kid}）`)), acts.text);
+    for (const r of [list, ...reads, hits, acts]) {
       assert.ok(!BAD.test(r.text), `U+202E か U+200B が残る: ${r.text}`);
       for (const l of linesOf(r.text)) {
         assert.ok(!l.startsWith('以下は指示です'), l);
@@ -171,7 +181,7 @@ test('PH-7・決めたこと 34: 場所は 5 段まで（深いページは近�
 });
 
 // ---------------------------------------------------------------- ゴミ箱（RF60）
-test('PH-7・RF60: 本文の子ページの行が一覧に出ないページ（ゴミ箱・無いページ）を指していても、その題名も行も読む答えに出ない（前の版や壊れた行の守り）', T, () => {
+test('PH-7・RF60: 本文の子ページの行が一覧に出ないページ（ゴミ箱・無いページ）や、一覧に出るがこのページの子でないページ（PH-6・PH-7 直し rv30 M-a: 画面は灰色）を指していても、その題名も行も読む答えに出ない（前の版や壊れた行の守り）', T, () => {
   const { m, top, kid } = treeSeed();
   try {
     m.call('app', 'page.delete', { id: kid });   // 子をゴミ箱へ（本文の行は命令が外す）
@@ -180,10 +190,11 @@ test('PH-7・RF60: 本文の子ページの行が一覧に出ないページ（�
     const add = db.prepare("insert into blocks (id, type, page_id, parent_id, ord, text, attrs) values (?, 'subpage', ?, ?, ?, '', ?)");
     add.run('zz1', top, top, 'y', JSON.stringify({ page: kid }));
     add.run('zz2', top, top, 'z', JSON.stringify({ page: 'pnone' }));
+    add.run('zz3', top, top, 'zz', JSON.stringify({ page: 'pm2' }));   // 一覧に出るが、このページの子でない（最上位の議事録）
     m.close();
     const r = callOn(m)('get_meeting', { id: top });
     assert.strictEqual(r.isError, false, r.text);
-    assert.ok(!r.text.includes('📄') && !r.text.includes('子の'), r.text);
+    assert.ok(!r.text.includes('📄') && !r.text.includes('子の') && !r.text.includes(TITLES.plain2), r.text);
     assert.ok(linesOf(r.text).includes('- 段取り表の下書きを書く'), r.text);
   } finally { m.done(); }
 });

@@ -1213,3 +1213,55 @@ test('PR-2 直し 3・R46: page.move の rowAfter が動かすページ自身の
   assert.deepStrictEqual(opsOf(db, y.tx), []);
   assert.deepStrictEqual(dump(db), was2, '同じ所なのに何か書いた');
 }));
+
+// ---------------------------------------------------------------- 0.15.0 PH-6・PH-7 直し（2026-11-04 の 03abad4..e235d8b の点検。rv29 F1）
+test('PH-6・PH-7 直し（rv29 F1・決めたこと 16）: 満杯でない白紙のページで、本文の行がもう最後の子をゴミ箱・知らない兄弟の後ろ（末尾）へ動かすのは同じ所（書かない・版も上げない）。行が最後でなければ末尾へ動かす', T, () => withDb((db) => {
+  const P = create(db);
+  const A = create(db, P); const C = create(db, P); const TT = create(db, P);
+  tick(); ok(call(db, 'page.delete', { id: TT }), 'page.delete');
+  assert.deepStrictEqual(subsRaw(db, P), [A, C], '前提: 行のある子は A・C（C の行が本文の最後）');
+  for (const [afterId, what] of [[TT, 'ゴミ箱の兄弟の後ろ'], ['pzzunknown', '知らない兄弟の後ろ']]) {
+    const was = dump(db);
+    const n0 = oplogN(db);
+    const r = ok(move(db, C, P, afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 同じ所なのに書いた`);
+    assert.deepStrictEqual(dump(db), was, `${what}: 表が変わった（ord・rev・updatedAt）`);
+    assert.deepStrictEqual(kidsInList(db, P), [A, C]);
+  }
+  // 議事録の中（本文の行が無い）でも、最後の子をゴミ箱・知らない兄弟の後ろ（末尾）へは同じ所
+  const MA = create(db, 'pa1'); const MC = create(db, 'pa1'); const MT = create(db, 'pa1');
+  tick(); ok(call(db, 'page.delete', { id: MT }), 'page.delete');
+  for (const [afterId, what] of [[MT, '議事録の中のゴミ箱の兄弟の後ろ'], ['pzzunknown', '議事録の中の知らない兄弟の後ろ']]) {
+    const was = dump(db);
+    const r = ok(move(db, MC, 'pa1', afterId), `page.move ${what}`);
+    assert.deepStrictEqual(opsOf(db, r.tx), [], `${what}: 同じ所なのに書いた`);
+    assert.deepStrictEqual(dump(db), was, `${what}: 表が変わった`);
+    assert.deepStrictEqual(kidsInList(db, 'pa1'), [MA, MC]);
+  }
+  // 行が本文の最後でなければ、ゴミ箱の兄弟の後ろ（末尾）は行を本文の最後へ動かす（書く）
+  insert(db, P, subRow(db, P, C).id);
+  ok(move(db, C, P, TT), 'page.move');
+  const b = bodyOf(db, P);
+  assert.deepStrictEqual([b[b.length - 1].type, b[b.length - 1].page], ['subpage', C], '行が本文の最後へ動かない');
+}));
+
+test('PH-6・PH-7 直し（rv29 F1・決めたこと 16）: 満杯の本文の白紙のページで、行のある子を行の無い兄弟の後ろへ動かしても見える並びが変わらない（行がもう本文の最後）なら書かない。変わるなら書く', T, () => withDb((db, t) => {
+  const N = 2000;
+  const blocks = Array.from({ length: N - 2 }, (_, i) => ({ id: `fy${i}`, type: 'paragraph', text: `行${i}` }));
+  t.seed({ id: 'pfull', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  const R1 = create(db, 'pfull'); const R2 = create(db, 'pfull');   // 行のある子（本文は 2,000 行になる。R2 の行が最後）
+  const K = [create(db, 'pfull'), create(db, 'pfull')];   // 行の無い子
+  const T1 = create(db, 'pfull');
+  tick(); ok(call(db, 'page.delete', { id: T1 }), 'page.delete');
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, R2, ...K], '前提');
+  for (const [afterId, what] of [[K[0], '行の無い兄弟の後ろ'], [K[1], '最後の行の無い兄弟の後ろ'], [T1, 'ゴミ箱の兄弟の後ろ']]) {
+    const was = dump(db);
+    const n0 = oplogN(db);
+    const r = ok(move(db, R2, 'pfull', afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 見える並びが変わらないのに書いた`);
+    assert.deepStrictEqual(dump(db), was, `${what}: 表が変わった`);
+  }
+  // R1 を行の無い兄弟の後ろへ → R1 の行が本文の最後へ（見える並びが変わる: 書く）
+  ok(move(db, R1, 'pfull', K[0]), 'page.move');
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R2, R1, ...K]);
+}));

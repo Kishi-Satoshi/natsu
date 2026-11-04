@@ -263,7 +263,8 @@ function placesOf(rows) {
   const tree = PT.pageTree(rows);
   return {
     place: (id) => (byId.has(id) ? PT.placeText(tree, (x) => nameOf(byId.get(x)), id) : ''),
-    title: (id) => (byId.has(id) ? nameOf(byId.get(id)) : null),
+    // PH-6・PH-7 直し（rv30 M-a）: 本文の子ページの行の題名は、そのページが今も host の子のときだけ（画面が灰色にする行は出さない: 決めたこと 55）
+    kidTitle: (host) => (id) => (byId.has(id) && byId.get(id).parentId === host ? nameOf(byId.get(id)) : null),
   };
 }
 
@@ -368,7 +369,7 @@ function getMeeting(db, args) {
   if (!page) return { error: 'not-found' };
   const segments = commands.readSegments(db, args.id);
   if (args.transcript_from && !segments.some((s) => s.id === args.transcript_from)) return { error: 'no-seg' };
-  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS, place: places.place(args.id), subTitle: places.title });
+  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS, place: places.place(args.id), subTitle: places.kidTitle(args.id) });
   return { text: md.text, count: 1 };
 }
 
@@ -416,7 +417,7 @@ function getMeetings(db, args, { now }) {
     if (!page) continue;
     const segments = commands.readSegments(db, id);
     const from = k === startIdx && startSeg && segments.some((s) => s.id === startSeg) ? startSeg : null;
-    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false, place: places.place(id), subTitle: places.title };
+    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false, place: places.place(id), subTitle: places.kidTitle(id) };
     const full = F.meetingMarkdown(page, segments, { ...opts, budget: 1e9 });
     if (full.text.length <= left) {
       parts.push(full.text);

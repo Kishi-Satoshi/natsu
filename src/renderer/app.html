@@ -3159,6 +3159,8 @@
   // ---- pageTree の写しはここまで
   // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
   function rowTitle(p) {
+    // PH-6・PH-7 直し（2026-11-04 の持ち主の答え「日付だけにする」・F116）: 白紙のページは日付だけ（長さ・要約なし・種類は会議の欄）
+    if (isBlankPage(p)) return String(p.date || '');
     const parts = [String(p.date || ''), fmtDur(Number(p.durationSec) || 0)];
     if (!p.hasSummary) parts.push('要約なし');
     // 0.11.0 V-1（P12）: 種類は選べる鍵のときだけ（決まらなかった・前の版の一般・その他は出さない）
@@ -4297,9 +4299,14 @@
   async function refreshTrash() {
     let r = null;
     try { r = await window.koeApp.pagesTrash(); } catch (_) { r = null; }
+    // PH-6・PH-7 直し（rv30 M-b）: 窓が開いている間に読み直したら（onPagesUpdated など）、フォーカスのあった行の［戻す］へ戻す。
+    // その行が無くなったら同じ位置の近い行へ（空になれば今どおり閉じる）
+    const was = trashOn ? trashButtons().indexOf(document.activeElement) : -1;
+    const wasId = was >= 0 && trashHeads[was] ? trashHeads[was].id : null;
     trashHeads = Array.isArray(r) ? r.filter((x) => x && typeof x.id === 'string') : [];
     $('tabBtnTrash').hidden = !trashHeads.length;   // BQ6 (a): ゴミ箱に何かあるときだけ
-    if (trashOn) { if (trashHeads.length) renderTrash(0); else closeTrash(false); }
+    const keep = trashHeads.findIndex((h) => h.id === wasId);
+    if (trashOn) { if (trashHeads.length) renderTrash(keep >= 0 ? keep : Math.max(0, was)); else closeTrash(false); }
   }
   const trashTime = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
   function renderTrash(at) {
@@ -4310,13 +4317,15 @@
       row.className = 'tprow'; row.setAttribute('role', 'listitem'); row.dataset.pid = h.id;
       const body = document.createElement('div'); body.className = 'tpb';
       const t = document.createElement('div'); t.className = 'tpt';
-      t.textContent = `${pageEmoji(h)} ${oneLine(h.title) || (isBlankPage(h) ? blankUntitled() : '(無題の議事録)')}`;
+      const name = oneLine(h.title) || (isBlankPage(h) ? blankUntitled() : '(無題の議事録)');
+      t.textContent = `${pageEmoji(h)} ${name}`;
       const m = document.createElement('div'); m.className = 'tpm';
       const n = Number(h.count) || 0;
       m.textContent = `${trashTime(h.trashedAt)}${n > 0 ? `・中のページ ${n}` : ''}`;
       body.append(t, m);
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'ghost'; b.textContent = '戻す';
+      b.setAttribute('aria-label', `『${name}』を戻す`);   // PH-6・PH-7 直し（2026-11-04 の持ち主の答え）: どの行の［戻す］か読み上げで分かる名前（見える字は「戻す」のまま）
       b.onclick = () => restoreTrash(i);
       row.append(body, b);
       list.appendChild(row);

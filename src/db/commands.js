@@ -911,7 +911,10 @@ function pageMove(db, a, ctx) {
   const blank = (id) => id !== null && tree.byId.has(id) && isBlankPage(tree.byId.get(id).attrs);   // 本文を読むのは白紙のページだけ
   // PH-5 直し 2（R56・M-5）: 本文に行のある子を同じ白紙の親へ afterId なしで動かす（［移動先…］で親だけを選ぶ）と、最後の兄弟でも行を本文の最後へ（R54）。
   // 行がもう本文の最後なら同じ所
-  const toEnd = a.afterId === undefined && me.parentId === to && blank(to) && subRowNotLast(db, to, a.id);
+  // PH-6・PH-7 直し（rv29 F1・決めたこと 16）: ゴミ箱・録音中の写し・知らない・兄弟でない afterId は末尾（placeKeys と placeSubRow と同じ）なので、
+  // 末尾として「同じ所」を見る（sameSpot も同じ決まり）
+  const endAfter = a.afterId === undefined || (a.afterId !== '' && a.afterId !== a.id && !(tree.parent.get(a.afterId) === to && isListedRow(tree.byId.get(a.afterId))));
+  const toEnd = endAfter && me.parentId === to && blank(to) && subRowNotLast(db, to, a.id);
   // 同じ所は書かない（操作の空の行だけ: 決めたこと 16）。PH-2 直し（R12）: 答えの一覧は同じ所のときだけ作る（前は毎回作って、動かすと一覧を2回作った）
   if (!toEnd && sameSpot(rows, me, to, a.afterId)) return { ops: [], pageIds: [], result: listPages(db) };
   // PH-2 直し（R16）: 兄弟は一覧に出るページだけ（ゴミ箱・録音中の写しの兄弟は並びに数えない）。同じ鍵の後ろの兄弟は付け直す（R15）
@@ -924,13 +927,18 @@ function pageMove(db, a, ctx) {
   const hosts = [];
   const put = (p) => placeSubRow(p, newSubRow(db, ctx, a.id), { afterPage: a.afterId, sibs });
   const add = (id, list) => { if (list) { ops.push(...list); hosts.push(id); } };
-  if (me.parentId === to) { if (blank(to)) add(to, bodyOps(db, to, ctx, put)); }
+  // PH-6・PH-7 直し（rv29 F1）: 同じ白紙の親の中で、本文の行の並びが変わらない（行がもう置く所にある）なら、見える並び（本文の行の順: HR14）も
+  // 変わらないので書かない（行の無い兄弟の後ろ・満杯の本文でも）
+  let still = false;
+  const putSame = (p, was) => { const sig = rowSig(p.blocks); put(p, was); if (subSpot(p.blocks, a.id) && rowSig(p.blocks) === sig) { still = true; return false; } return undefined; };
+  if (me.parentId === to) { if (blank(to)) add(to, bodyOps(db, to, ctx, putSame)); }
   else {
     if (blank(me.parentId)) add(me.parentId, bodyOps(db, me.parentId, ctx, (p, was) => (takeSubRow(p, was, a.id) ? undefined : false)));
     if (blank(to)) add(to, bodyOps(db, to, ctx, put));
   }
   // PH-5 直し 2（R56。R53 を直す）: 白紙の親の本文に行を置けなかった（満杯の本文: R33）子は、行の無い子の中で表の ord で並ぶ（withBodyOrds）ので、
   // 鍵は本文の順から作った鍵でなく、行の無い兄弟の表の ord の間で作る（afterId が行の無い兄弟ならその後ろ・'' か行のある兄弟なら行の無い子の頭・無ければ末尾）
+  if (still) return { ops: [], pageIds: [], result: listPages(db) };
   const rowless = blank(to) && !hosts.includes(to) ? rowlessSpot(db, raw, others, to, me, a.afterId === a.id ? undefined : a.afterId) : null;
   // PH-5 直し 4（R61）: 行の無い子の中で今と同じ所（頭を頭へ・前の兄弟の後ろへ・最後をゴミ箱の兄弟の後ろへ）なら書かない（決めたこと 16）
   if (rowless && rowless.same) return { ops: [], pageIds: [], result: listPages(db) };
@@ -1009,6 +1017,7 @@ function sameSpot(rows, me, to, afterId) {
   if (afterId === me.id) return true;
   const sibs = PT.pageTree(rows.filter((r) => r.id === me.id || isListedRow(r))).kids.get(to) || [];
   const i = sibs.indexOf(me.id);
+  if (afterId !== undefined && afterId !== '' && !sibs.includes(afterId)) afterId = undefined;   // PH-6・PH-7 直し（rv29 F1）: 兄弟でない ID は末尾（placeKeys と同じ）
   if (afterId === undefined) return i === sibs.length - 1;
   if (afterId === '') return i === 0;
   return i > 0 && sibs[i - 1] === afterId;
@@ -1108,6 +1117,8 @@ function placeSubRow(p, row, { placeAt, afterPage, sibs } = {}) {
   }
   p.blocks.push(me);
 }
+// 本文の行の並びの形（行の ID と本文の中の親の並び。文や飾りは見ない）。PH-6・PH-7 直し（rv29 F1）: 行を置いても並びが変わらないかを見る
+const rowSig = (blocks) => BT.walk(blocks).map((w) => `${w.b.id}<${w.parentId}`).join('\n');
 // 本文からそのページの行を外す → 外した行の置き場 { parent（本文の中の親の行の ID か、最上位ならページの ID）, ord }（子の attrs.rowAt の形）か null
 function takeSubRow(p, was, pageId) {
   const l = subSpot(p.blocks, pageId);

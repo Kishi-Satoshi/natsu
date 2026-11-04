@@ -2478,8 +2478,9 @@ test('PH-7・F122: 検索の結果の子ページの2行目に「場所: 親 / �
   const base = (id) => `${row(id).date} ・ 10分0秒`;   // 一覧の行の rowTitle（日付・長さ。要約あり・種類なし）
   assert.strictEqual(got.get('pa3'), base('pa3'), '最上位のページの2行目が今の文でない');
   assert.strictEqual(got.get('pa2'), base('pa2'));
-  assert.strictEqual(got.get('k1'), `場所: ${row('pa2').title} ・ ${base('k1')}`);
-  assert.strictEqual(got.get('g1'), `場所: ${row('pa2').title} / ${row('k1').title} ・ ${base('g1')}`);
+  // PH-6・PH-7 直し（2026-11-04 の持ち主の答え「日付だけにする」）で意図して変えた: 白紙のページ（k1・g1）の2行目は日付だけ（長さ・要約なしを出さない）
+  assert.strictEqual(got.get('k1'), `場所: ${row('pa2').title} ・ ${row('k1').date}`);
+  assert.strictEqual(got.get('g1'), `場所: ${row('pa2').title} / ${row('k1').title} ・ ${row('g1').date}`);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -2495,6 +2496,104 @@ test('PH-7・HR19（第3版）: 白紙のページの ToDo が、検索の窓の
     assert.ok(srcs.some(([id, t]) => id === 'pb2' && t === '（白紙のページ）無題のページ'), JSON.stringify(srcs));
     const mine = srcs.filter(([id]) => id === 'pa1');
     assert.ok(mine.length > 0 && mine.every(([, t]) => t === `${meet.date} ${meet.title}`), JSON.stringify(mine));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-6・PH-7 直し（2026-11-04 の持ち主の答え「日付だけにする」・F116）: 白紙のページの検索の結果の2行目とサイドバーの行の title は日付だけ（「0分0秒」「要約なし」を出さない）。議事録は今の文のまま', T, async () => {
+  const list = [ROW('pz1', AT('22T00:00:00'), { kind: 'blank', durationSec: 0, hasSummary: false }), ROW('pz2', AT('21T00:00:00'), { durationSec: 0, hasSummary: false }),
+    ROW('pz3', AT('21T06:00:00'), { kind: 'blank', durationSec: 0, hasSummary: false, parentId: 'pz2' })];
+  const l = await boot({ returns: { pagesSearch: () => list, pageGet: pageOfList(list) } });
+  assert.strictEqual(rowOf(l, 'pz1').getAttribute('title'), '2026-10-22', '白紙のページの行の title が日付だけでない');
+  assert.strictEqual(rowOf(l, 'pz2').getAttribute('title'), '2026-10-21 ・ 0秒 ・ 要約なし', '議事録の行の title が今の文でない');
+  $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+  const got = new Map(palLines(l));
+  assert.strictEqual(got.get('pz1'), '2026-10-22');
+  assert.strictEqual(got.get('pz2'), '2026-10-21 ・ 0秒 ・ 要約なし');
+  assert.strictEqual(got.get('pz3'), `場所: ${list[1].title} ・ 2026-10-21`);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// ---------------------------------------------------------------- PH-6・PH-7 直し（2026-11-04 の 03abad4..e235d8b の点検 rv30 と持ち主の答え）
+const trashBtns = (l) => trashRows(l).map((e) => e.querySelector('button'));
+test('PH-6・PH-7 直し（2026-11-04 の持ち主の答え・rv30 M-e）: ［戻す］の読み上げの名前は「『題名』を戻す」（無題は行と同じ「無題のページ」・「(無題の議事録)」）。見える字は「戻す」のまま', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '計画', BODY()), BLANK('pb2', '', [])], open: 'pa1' });
+  try {
+    l.window.confirm = () => true;
+    await treeMenuDo(l, 'pb1', '削除');
+    await treeMenuDo(l, 'pb2', '削除');
+    l.call('page.setTitle', { id: 'pa1', title: '' });
+    await treeMenuDo(l, 'pa1', '削除');
+    $(l, 'tabBtnTrash').dispatchEvent({ type: 'click' }); await l.drain();
+    const want = { pa1: '『(無題の議事録)』を戻す', pb2: '『無題のページ』を戻す', pb1: '『計画』を戻す' };
+    assert.deepStrictEqual(trashRows(l).map((e) => e.dataset.pid).sort(), Object.keys(want).sort(), '前提');
+    for (const e of trashRows(l)) assert.deepStrictEqual([e.querySelector('button').textContent, e.querySelector('button').getAttribute('aria-label')], ['戻す', want[e.dataset.pid]], e.dataset.pid);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-6・PH-7 直し（rv30 M-b）: ゴミ箱の窓が開いている間に一覧が変わった（onPagesUpdated）ら、フォーカスのあった行の［戻す］のまま。その行が無くなれば近い行へ・空になれば閉じる', T, async () => {
+  const l = await openDb({ blanks: [BLANK('pb1', '計画', BODY()), BLANK('pb2', '予定', [])], open: 'pa1' });
+  try {
+    l.window.confirm = () => true;
+    for (const id of ['pb1', 'pb2', 'pa1']) await treeMenuDo(l, id, '削除');
+    $(l, 'tabBtnTrash').dispatchEvent({ type: 'click' }); await l.drain();
+    const [x1, x2, x3] = trashRows(l).map((e) => e.dataset.pid);
+    assert.deepStrictEqual([x1, x2, x3].sort(), ['pa1', 'pb1', 'pb2'], '前提');
+    l.key({ key: 'ArrowDown' }, $(l, 'trashList')); l.key({ key: 'ArrowDown' }, $(l, 'trashList'));
+    assert.ok(l.document.activeElement === trashBtns(l)[2], '前提: 3つ目の［戻す］');
+    l.fire('onPagesUpdated'); await l.drain(); await l.drain();
+    assert.ok(l.document.activeElement === trashBtns(l)[2], '読み直すと1つ目の［戻す］へ跳んだ');
+    l.key({ key: 'ArrowUp' }, $(l, 'trashList'));
+    assert.ok(l.document.activeElement === trashBtns(l)[1], '前提: 2つ目の［戻す］');
+    l.call('page.restore', { id: x2 });   // フォーカスの行が無くなった → 同じ位置の近い行（x3。頭へ跳ばない）
+    l.fire('onPagesUpdated'); await l.drain(); await l.drain();
+    assert.deepStrictEqual(trashRows(l).map((e) => e.dataset.pid), [x1, x3]);
+    assert.ok(l.document.activeElement === trashBtns(l)[1], 'フォーカスの行が無くなって同じ位置の近い行へ移らない');
+    l.call('page.restore', { id: x1 });   // ほかの所で先頭の行が戻った → フォーカスの行（x3）は2つ目から1つ目へ
+    l.fire('onPagesUpdated'); await l.drain(); await l.drain();
+    assert.deepStrictEqual(trashRows(l).map((e) => e.dataset.pid), [x3]);
+    assert.ok(l.document.activeElement === trashBtns(l)[0], '行が動いてもフォーカスの行の［戻す］に留まらない');
+    l.call('page.restore', { id: x3 });
+    l.fire('onPagesUpdated'); await l.drain(); await l.drain();
+    assert.deepStrictEqual([$(l, 'trashPop').hidden, $(l, 'tabBtnTrash').hidden], [true, true], '空になっても窓が閉じない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PH-6・PH-7 直し（rv30 M-d）: 子ページの行を消した後の Ctrl+Z・やり直し（答えに trashed の無い edit.revert）でも［ゴミ箱］を読み直し、やり直しでゴミ箱へ入ったページのタブを閉じる。行の × で消しても同じ', T, async () => {
+  const l = await rowsDb();
+  try {
+    const { k1 } = l.made;
+    const btn = $(l, 'tabBtnTrash');
+    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' }); await l.drain();
+    const pbTab = async () => { $(l, 'tabbar').querySelectorAll('.tabitem').find((t) => t.dataset.key === 'page:pb1').dispatchEvent({ type: 'click' }); await l.drain(); };
+    const openK1 = async () => { rowOf(l, k1).dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain(); await pbTab(); };
+    await openK1();
+    assert.ok(tabKeys150(l).includes(`page:${k1}`), '前提: k1 のタブ');
+    const t = subEl(l, k1)._txt;
+    t.focus();
+    l.key({ key: 'Backspace' }, t); await l.drain(); await l.drain();
+    assert.strictEqual(btn.hidden, false, '前提: 行を消すと［ゴミ箱］が出る');
+    assert.ok(!tabKeys150(l).includes(`page:${k1}`), '前提: タブが閉じる');
+    noteTxt(l, 'q2').focus();
+    await undo(l);
+    assert.ok(listNow(l).some((p) => p.id === k1), '前提: Ctrl+Z でページが戻る');
+    assert.strictEqual(btn.hidden, true, 'Ctrl+Z で戻ってゴミ箱が空になったのに［ゴミ箱］が残る');
+    await openK1();
+    noteTxt(l, 'q2').focus();
+    l.key({ key: 'z', code: 'KeyZ', ctrlKey: true, shiftKey: true }, l.document.activeElement); await l.drain(); await l.drain();
+    assert.ok(!listNow(l).some((p) => p.id === k1), '前提: やり直しでもう一度ゴミ箱へ');
+    assert.strictEqual(btn.hidden, false, 'やり直しでゴミ箱へ入ったのに［ゴミ箱］が出ない');
+    assert.ok(!tabKeys150(l).includes(`page:${k1}`), 'やり直しでゴミ箱へ入ったページのタブが残る');
+    // 行の × で消す
+    await undo(l);
+    assert.strictEqual(btn.hidden, true, '前提: Ctrl+Z で戻る');
+    await openK1();
+    subEl(l, k1).querySelector('.del').dispatchEvent({ type: 'click' }); await l.drain(); await l.drain();
+    assert.ok(!listNow(l).some((p) => p.id === k1), '前提: × でゴミ箱へ');
+    assert.strictEqual(btn.hidden, false, '× で消したのに［ゴミ箱］が出ない');
+    assert.ok(!tabKeys150(l).includes(`page:${k1}`), '× で消したページのタブが残る');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
