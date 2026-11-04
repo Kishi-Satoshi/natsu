@@ -908,27 +908,52 @@ function pageMove(db, a, ctx) {
   if (to !== null && rawChainHas(tree.byId, to, a.id)) throw refuse('bad-args');   // PH-2 直し（R13）: 壊れた輪の上の親をたどって自分に戻る所へも動かさない
   // 0.15.0 PR-2 直し（R44・決めたこと 55）: rowAfter（と rowParent）は、同じ白紙のページの子の行を本文のその所へ置く（行の無い子を「このページの中のページ」から引っ張って置く）
   if (a.rowAfter !== undefined || a.rowParent !== undefined) return placeInBody(db, a, ctx, me, to, tree);
+  const blank = (id) => id !== null && tree.byId.has(id) && isBlankPage(tree.byId.get(id).attrs);   // 本文を読むのは白紙のページだけ
+  // PH-5 直し 2（R56・M-5）: 本文に行のある子を同じ白紙の親へ afterId なしで動かす（［移動先…］で親だけを選ぶ）と、最後の兄弟でも行を本文の最後へ（R54）。
+  // 行がもう本文の最後なら同じ所
+  const toEnd = a.afterId === undefined && me.parentId === to && blank(to) && subRowNotLast(db, to, a.id);
   // 同じ所は書かない（操作の空の行だけ: 決めたこと 16）。PH-2 直し（R12）: 答えの一覧は同じ所のときだけ作る（前は毎回作って、動かすと一覧を2回作った）
-  if (sameSpot(rows, me, to, a.afterId)) return { ops: [], pageIds: [], result: listPages(db) };
+  if (!toEnd && sameSpot(rows, me, to, a.afterId)) return { ops: [], pageIds: [], result: listPages(db) };
   // PH-2 直し（R16）: 兄弟は一覧に出るページだけ（ゴミ箱・録音中の写しの兄弟は並びに数えない）。同じ鍵の後ろの兄弟は付け直す（R15）
   const others = rows.filter((r) => r.id !== a.id && isListedRow(r));
-  const place = to === null ? { ord: PT.TOP_ORD, rekey: [] } : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
-  const ops = [{ op: 'move', id: a.id, ord: place.ord, old: stored.get(a.id), ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
-    ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: stored.get(id) }))];
   // 0.15.0 PR-1（決めたこと 45・46・48・HR12）: 同じ命令で、前の親（白紙のページ）の本文の行を外し、新しい親（白紙のページ）の本文に置く
   // （兄弟の後ろなら兄弟の行のすぐ後ろ・頭なら兄弟の最初の行の前・ほかは本文の最後）。同じ白紙のページの中の並べ替えは行を動かす
+  // PH-5 直し 2（R56）: 本文の操作を先に作り、ページの行の move はその後で頭に積む（行を置けたかで並びの鍵の作り方が替わる）
+  const ops = [];
   const sibs = new Set(to === null ? [] : PT.pageTree(others).kids.get(to) || []);
   const hosts = [];
   const put = (p) => placeSubRow(p, newSubRow(db, ctx, a.id), { afterPage: a.afterId, sibs });
   const add = (id, list) => { if (list) { ops.push(...list); hosts.push(id); } };
-  const blank = (id) => id !== null && tree.byId.has(id) && isBlankPage(tree.byId.get(id).attrs);   // 本文を読むのは白紙のページだけ
   if (me.parentId === to) { if (blank(to)) add(to, bodyOps(db, to, ctx, put)); }
   else {
     if (blank(me.parentId)) add(me.parentId, bodyOps(db, me.parentId, ctx, (p, was) => (takeSubRow(p, was, a.id) ? undefined : false)));
     if (blank(to)) add(to, bodyOps(db, to, ctx, put));
   }
+  // PH-5 直し 2（R56。R53 を直す）: 白紙の親の本文に行を置けなかった（満杯の本文: R33）子は、行の無い子の中で表の ord で並ぶ（withBodyOrds）ので、
+  // 鍵は本文の順から作った鍵でなく、行の無い兄弟の表の ord の間で作る（afterId が行の無い兄弟ならその後ろ・'' か行のある兄弟なら行の無い子の頭・無ければ末尾）
+  const place = to === null ? { ord: PT.TOP_ORD, rekey: [] }
+    : blank(to) && !hosts.includes(to) ? rowlessPlace(db, raw, others, stored, to, a.afterId === a.id ? undefined : a.afterId)
+      : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
+  ops.unshift({ op: 'move', id: a.id, ord: place.ord, old: stored.get(a.id), ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
+    ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: stored.get(id) })));
   applyOps(db, ops);
   return { ops, pageIds: [a.id, ...hosts], result: listPages(db) };
+}
+// PH-5 直し 2（R56）: 白紙のページの本文で、そのページの行が本文の最後（最上位の並びの末尾）に無いか（行が無ければ偽）
+function subRowNotLast(db, hostId, pageId) {
+  const rows = db.prepare(HOT_QUERIES.bodyRows).all(hostId, hostId);
+  if (!rows.some((r) => r.type === 'subpage' && r.sub === pageId)) return false;
+  const top = rows.filter((r) => (r.parent_id ?? hostId) === hostId);
+  const last = top[top.length - 1];
+  return !(last && last.type === 'subpage' && last.sub === pageId);
+}
+// PH-5 直し 2（R56）: 行の無い兄弟（白紙の親 to の一覧に出る子で、本文に行の無いもの）の表の ord の間の鍵（placeKeys の形 { ord, rekey }）
+function rowlessPlace(db, raw, others, stored, to, afterId) {
+  const rowed = new Set(bodySubOrder(db.prepare(HOT_QUERIES.bodyRows).all(to, to), to));
+  const byId = new Map(raw.map((r) => [r.id, r]));
+  const rowless = others.filter((r) => r.parentId === to && !rowed.has(r.id)).map((r) => byId.get(r.id));
+  const at = afterId === undefined ? undefined : rowless.some((r) => r.id === afterId) ? afterId : '';
+  return PT.placeKeys(PT.pageTree([byId.get(to), ...rowless]), stored, to, at);
 }
 // 0.15.0 PR-2 直し（R44・決めたこと 55）: 白紙のページの子（me）の行を、同じ本文の rowAfter の行のすぐ後ろ（'' は頭・rowParent があればその子の頭。
 // block.move の afterId・parentId と同じ置き場: BT.spotOf）へ。行が無ければ作り（上限を越えるなら too-big。本文もページも変えない）、あれば動かす（同じページを

@@ -2332,6 +2332,7 @@
   $('sideExpand').onclick = () => setSideCollapsed(false);
   // Ctrl+\ で畳む・出す（JIS の配列では ¥ の刻印のキー）
   document.addEventListener('keydown', (ev) => {
+    if (popOpen()) return;   // PH-5 直し 2（R56 I-1）: ［移動先…］・「新しいページ」の窓の間は後ろを替えない（0.14.0 R155 と同じ考え）
     if (!ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey || settingsOpen()) return;   // 設定のポップアップの間は後ろを替えない（0.9.0 U-1）
     if (!(ev.key === '\\' || ev.key === '¥' || ev.code === 'Backslash' || ev.code === 'IntlYen')) return;
     ev.preventDefault();
@@ -2465,14 +2466,23 @@
     if (back && m.btn.parentNode) m.btn.focus();
   }
   function crumbPage(id) { return pages.find((p) => p && p.id === id) || null; }
+  let crumbSig = '';   // PH-5 直し 2（R56 M-1）: 描いた段の形（ページ・アイコン・題名・隠れた段）
   function renderCrumbPath(id) {
     const c = $('crumb');
-    closeCrumbMore();
-    for (const e of [...c.children]) if (e.dataset && e.dataset.crumb) c.removeChild(e);
-    const ups = id ? pageTreeView.crumbsOf(treeNow(), id).filter((a) => crumbPage(a)) : [];
-    if (!ups.length) return;
+    const ups = id ? pageTreeView.crumbsOf(treeNow(), id) : [];   // 祖先はどれも一覧の木の行（一覧にあるページ）
     const hide = ups.length + 1 > CRUMB_MAX ? ups.slice(1, -1) : [];
     const shown = hide.length ? [ups[0], '', ups[ups.length - 1]] : ups;
+    // PH-5 直し 2（R56 M-1）: 一覧を読み直すたび（行の保存・ほかの窓の変更）にも呼ばれるので、段の形が同じなら描き直さない（「…」の一覧とフォーカスを残す）。
+    // 変わったら描き直し、段（か「…」の一覧）にあったフォーカスは同じ段へ戻す
+    const seg = (a) => (a ? [a, pageEmoji(crumbPage(a)), oneLine(crumbPage(a).title)] : '');
+    const sig = JSON.stringify([shown.map(seg), hide.map(seg)]);
+    if (sig === crumbSig) return;
+    crumbSig = sig;
+    const fa = document.activeElement;
+    const had = fa && fa.dataset && fa.dataset.crumb && fa.parentNode === c ? (fa.dataset.pid || fa.dataset.crumb) : crumbMore && isIn(fa, crumbMore.box) ? 'more' : '';
+    closeCrumbMore();
+    for (const e of [...c.children]) if (e.dataset && e.dataset.crumb) c.removeChild(e);
+    if (!ups.length) return;
     const at = c.querySelector('.ci');
     for (const a of shown) {
       const b = document.createElement('button');
@@ -2495,6 +2505,8 @@
       c.insertBefore(b, at);
       c.insertBefore(sep, at);
     }
+    const back = had ? [...c.children].find((x) => x.dataset && x.dataset.crumb && x.dataset.crumb !== 'sep' && (x.dataset.pid || x.dataset.crumb) === had) : null;
+    if (back) back.focus();
   }
   // 「…」の一覧（隠れた段を根に近い順に。押すとそのページ・Esc で閉じて「…」へ戻る）
   function openCrumbMore(btn, ids) {
@@ -2639,6 +2651,7 @@
   }
   // Ctrl+Tab／Ctrl+Shift+Tab で次・前のタブ
   document.addEventListener('keydown', (ev) => {
+    if (popOpen()) return;   // PH-5 直し 2（R56 I-1）: ［移動先…］・「新しいページ」の窓の間は後ろを替えない（0.14.0 R155 と同じ考え）
     if (!ev.ctrlKey || ev.altKey || ev.metaKey || ev.key !== 'Tab' || !openTabs.length) return;
     if (settingsOpen()) return;   // 設定のポップアップの間は後ろのタブを替えない（0.9.0 U-1・SP2）
     if (palOpen || regenAsking) return;   // 0.14.0 EK-4 直し（R155）: 検索の窓・［要約を再生成］の確かめの間も
@@ -3449,6 +3462,7 @@
   // 満杯の本文の知らせも同じ: R38・R51。親だけを選ぶので本文の行は新しい親の本文の最後: 決めたこと 45・48）、Esc で閉じてフォーカスを戻す。探す語は覚えない
   const MOVE_TOP = 'いちばん上へ';
   const MOVE_SHOW_MAX = 200;   // 描く候補の数（探す語で絞る）
+  function popOpen() { return Boolean(movePop) || newPopOn; }   // PH-5 直し 2（R56 I-1）: ［移動先…］か「新しいページ」の窓が開いている
   let movePop = null;          // 開いているとき { id, from（戻すフォーカス）, tree（木の行から開いたらその ID）, cands, rows, at }
   const moveFold = (s) => String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
   function moveCands(id) {
@@ -3457,7 +3471,7 @@
     const out = [];
     const walk = (ids) => { for (const x of ids) { if (no.has(x)) continue; out.push(x); walk(tree.kids.get(x) || []); } };
     walk(tree.roots);
-    return out.filter((x) => crumbPage(x));
+    return out;   // どれも一覧の木の行（一覧にあるページ）
   }
   function openMovePop(id, o = {}) {
     if (!id || !crumbPage(id)) return;
@@ -3533,9 +3547,8 @@
     const m = movePop;
     if (!m || !m.rows[i]) return;
     const target = m.rows[i].id;
-    closeMovePop(true);
+    closeMovePop(true);   // 木の行から開いたらその行へ（動かした後の描き直しも同じ行へフォーカスを戻す: 決めたこと 20）
     await movePageTo(m.id, target);
-    if (m.tree) focusTreeRow(m.id);
   }
   $('moveSearch').oninput = () => { if (movePop) { movePop.at = 0; renderMoveList(); } };
   $('moveSearch').onkeydown = (ev) => {
@@ -3546,14 +3559,23 @@
     else if (ev.key === 'Tab') ev.preventDefault();   // 窓の中で届くのは探す欄だけ（候補は ↑↓）
   };
   $('movePop').onclick = (ev) => { if (ev && ev.target === $('movePop')) closeMovePop(true); };   // 後ろの全面を押すと閉じる
+  // PH-5 直し 2（R56 M-2）: 窓の中のフォーカスを取れない所（見出し・候補・余白）を押してもフォーカスを探す欄から外さない（キーは探す欄で受ける）
+  $('movePop').addEventListener('mousedown', (ev) => { if (ev && ev.target !== $('moveSearch') && typeof ev.preventDefault === 'function') ev.preventDefault(); });
   // 新しいページの選び（決めたこと 28・BQ7 (a)）: Ctrl+Shift+N（窓のどこでも。変換中は抜ける・設定や検索の窓・確かめが開いているときは何もしない）で
   // 「新しいページ」に［📄 白紙のページ］［🎙️ 議事録（録音の前のページ）］。↑↓・Enter・Esc。項目は表で持つ（0.17.0 で［データベース］を足せる並び）。
   // ［白紙のページ］は最上位に作って開く（pageCreate()）、［議事録］は［＋ 新しい議事録］と同じ（録音の前のページを開くだけ。録音中・作成中は灰色で「録音中です」）
   const NEW_BUSY = '録音中です';
+  // PH-5 直し 2（R56 M-3）: 選んだ後のフォーカス。白紙のページは作ったページの題名（createPageIn）・作れなければ開く前の所（無ければ見出しの［＋］）、
+  // 議事録は［＋ 新しい議事録］（サイドバーから開いたときと同じ: F83）
   const NEW_ITEMS = Object.freeze([
-    Object.freeze({ key: 'blank', label: '📄 白紙のページ', busy: () => false, run: () => createPageIn() }),
-    Object.freeze({ key: 'meeting', label: '🎙️ 議事録（録音の前のページ）', busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: () => openReady() }),
+    Object.freeze({ key: 'blank', label: '📄 白紙のページ', busy: () => false, run: async (from) => { if (!(await createPageIn())) focusAlive(from, $('newPageBtn')); } }),
+    Object.freeze({ key: 'meeting', label: '🎙️ 議事録（録音の前のページ）', busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: async () => { await openReady(); $('mtToggleBtn').focus(); } }),
   ]);
+  function focusAlive(el, fallback) {
+    const body = document.body;
+    const alive = el && (!body || typeof body.contains !== 'function' || body.contains(el));
+    (alive ? el : fallback).focus();
+  }
   let newPopOn = false;
   let newPopFrom = null;
   function openNewPop() {
@@ -3561,16 +3583,21 @@
     const fa = document.activeElement;
     newPopFrom = fa && fa !== document.body && typeof fa.focus === 'function' ? fa : null;
     newPopOn = true;
+    renderNewItems(0);
+    $('newPop').hidden = false;
+  }
+  // 項目を描いて at 番目にフォーカス（PH-5 直し 2（R56 M-4）: 開いている間に録音が始まった・終わったら描き直して、［議事録］の灰色を今の状態に）
+  function renderNewItems(at) {
     const list = $('newList');
     list.textContent = '';
     for (const it of NEW_ITEMS) {
       const off = it.busy() ? NEW_BUSY : '';
-      const b = menuItem(list, it.label, () => { closeNewPop(false); it.run(); }, { key: it.key, off });
+      const b = menuItem(list, it.label, () => { const from = newPopFrom; closeNewPop(false); it.run(from); }, { key: it.key, off });
       if (off) { const n = document.createElement('span'); n.className = 'npnote'; n.textContent = off; b.append(n); }
     }
-    $('newPop').hidden = false;
-    const first = menuItems(list)[0];
-    if (first) first.focus();
+    const items = menuItems(list);
+    const el = items[Math.max(0, Math.min(at, items.length - 1))];
+    if (el) el.focus();
   }
   function closeNewPop(back) {
     if (!newPopOn) return;
@@ -3589,6 +3616,8 @@
     else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
   };
   $('newPop').onclick = (ev) => { if (ev && ev.target === $('newPop')) closeNewPop(true); };
+  // PH-5 直し 2（R56 M-2）: 窓の中を押してもフォーカスを項目から外さない（キーは項目の並びで受ける。項目は押すと click で動く）
+  $('newPop').addEventListener('mousedown', (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); });
   document.addEventListener('keydown', (ev) => {
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || regenAsking) return;   // Ctrl+Shift+N: 変換中・設定・検索・［移動先…］・確かめの間は開かない
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
@@ -3604,7 +3633,7 @@
     ev.preventDefault();
     const id = isPageKey(activeTab) ? activeTab.slice(5) : '';
     const up = id ? treeNow().parent.get(id) || null : null;   // 木の親（輪・親の無い行は最上位: HR2）
-    if (up && crumbPage(up)) openPageTab(up);
+    if (up) openPageTab(up);
   });
   // ---------------- 0.10.0 L-2（D58・D70・決めたこと 101）: 一覧で選んでリンクを写す ----------------
   // 選びの決まりは DOM に頼らない純粋な selStep・selLines（後のデータベースの表でも使う。test/repo.test.js が字面で取り出して当てる）。
@@ -3831,6 +3860,7 @@
   });
   // Ctrl+P で開く（Shift・Alt・Meta なし。Ctrl+Shift+P は一時停止）。変換中・ほかの受け口が先に止めた打鍵（ホットキーの欄）では開かない
   document.addEventListener('keydown', (ev) => {
+    if (popOpen()) return;   // PH-5 直し 2（R56 I-1）: ［移動先…］・「新しいページ」の窓の間は後ろを替えない（0.14.0 R155 と同じ考え）
     if (imeEnter(ev) || settingsOpen()) return;   // 設定のポップアップの間は開かない（0.9.0 U-1・SP2）
     if (!ev.ctrlKey || ev.shiftKey || ev.altKey || ev.metaKey) return;
     if (!(ev.code === 'KeyP' || String(ev.key).toLowerCase() === 'p')) return;
@@ -10069,6 +10099,7 @@
     mtPausedMs = st.pausedMs || 0;
     mtPausedAt = st.paused ? Date.now() : null;
     mtSt = st;
+    if (newPopOn) { const items = menuItems($('newList')); renderNewItems(Math.max(0, items.indexOf(document.activeElement))); }   // PH-5 直し 2（R56 M-4）
     const phase = meetingPhase(st);
     const phaseChanged = phase !== mtPhase;
     mtPhase = phase;
@@ -10347,6 +10378,7 @@
   // 左下に一言（始めた会議のメモを消さない）。設定のポップアップの間と変換中は何もしない
   const LIVE_CLOSE_NO = '録音中のページは閉じられません（［■ 終了して作成］で止めます）';
   document.addEventListener('keydown', (ev) => {
+    if (popOpen()) return;   // PH-5 直し 2（R56 I-1）: ［移動先…］・「新しいページ」の窓の間は後ろを替えない（0.14.0 R155 と同じ考え）
     if (imeEnter(ev) || settingsOpen()) return;
     if (palOpen || regenAsking) return;   // EK-4 直し（R155）: 検索の窓・［要約を再生成］の確かめの後ろのタブは閉じない
     if (!ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey) return;   // Shift・Alt・Meta つきは Ctrl+W でない（pal-ctrlp-shift の字を写さない）

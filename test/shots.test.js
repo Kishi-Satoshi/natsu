@@ -1121,7 +1121,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.0 PH-5（計画の決めたこと 22・26〜28・R54）: パンくずの祖先の段と「…」・議事録の子ページの一覧（#pKids）・［移動先…］の窓（#movePop）・「新しいページ」（#newPop）・
   // 「···」と行のメニューの［移動先…］・Ctrl+Shift+N・Ctrl+Shift+U・SHORTCUTS の写しの行。変わる画面は足した NEW_150 の4枚と RETAKEN_150 の settings-shortcuts-light・
   // page-menu-link の2枚（edit-slash-light・dark は計画の表のとおり取り直し待ちに入れた）。値を今の app.html に合わせた（前の値は 1c6fedc2…）
-  assert.strictEqual(sha, '5f265eec1c5af7eb8f2698be848805b904c36287744bdb9755e258a0baac055f',
+  // 0.15.0 PH-5 直し 2（計画の R56〜R58）: 窓の間の近道の照らし・パンくずの描き直しの省き・窓の mousedown・選んだ後のフォーカス・録音の状態の描き直し
+  // （<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は 5f265eec…）
+  assert.strictEqual(sha, '0d9ce3c21a3a33099a3234ae19b60f03bb64d183cffbbdb33be320f629705548',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
