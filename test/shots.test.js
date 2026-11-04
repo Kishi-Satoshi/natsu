@@ -214,7 +214,8 @@ const ADDED_140 = [...NEW_140, ...RETAKEN_140];
 // PH-3 でサイドバーの木の明暗と拡大 200% の3枚を足した（NEW_150。足した画面で、まだ基準が無い）。PH-4 で白紙のページの明暗の2枚を足した
 // PR-2 で白紙のページの本文の子ページの行の明暗の2枚を足した
 const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
-  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light'];   // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚
+  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light',   // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚
+  'trash-pop-light'];   // PH-6 で足したゴミ箱の窓
 // PH-4 で / メニューに［ページ］が増えるので、語の無い / メニューを開く edit-slash-recent-light（今の基準がある）を取り直す（RETAKEN_150。R25）
 // PH-5 で近道の表に行が増える settings-shortcuts-light・「···」に［移動先…］が増える page-menu-link の2枚と、計画の表のとおり edit-slash-light・edit-slash-dark を取り直す
 // PH-5 直し（R55）: 近道の表が伸びる設定の［一般］の3枚も（0.14.0 EK-5 と同じ）
@@ -1124,7 +1125,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.0 PH-5 直し 2（計画の R56〜R58）: 窓の間の近道の照らし・パンくずの描き直しの省き・窓の mousedown・選んだ後のフォーカス・録音の状態の描き直し
   // （<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は 5f265eec…）
   // 0.15.0 PH-5 直し 3（計画の R59）: 「新しいページ」は窓を見せてから項目にフォーカスする（<script> の中だけ）。値を今の app.html に合わせた（前の値は 0d9ce3c2…）
-  assert.strictEqual(sha, '2845f0bd2c38436e81ad91ae2ce94051a3d374b992dee7837d2ea1e28f4cc4d5',
+  // 0.15.0 PH-6（計画の決めたこと 30〜32・R60）: 削除の確かめの文・子孫のタブを閉じる・［🗑️ ゴミ箱］（ゴミ箱に何かあるときだけ。.side-row[hidden] の CSS）とゴミ箱の窓（#trashPop）。
+  // ゴミ箱が空の今の撮る画面は変わらない見込みで、変わる画面は足した NEW_150 の trash-pop-light。値を今の app.html に合わせた（前の値は 2845f0bd…）
+  assert.strictEqual(sha, 'f73b973783cff608cd1b3e62f74434cc61b47f39f5fecfe5df2f363560db2075',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

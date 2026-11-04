@@ -99,6 +99,7 @@
   .side-row:hover { background: var(--hover); }
   .side-row.active { background: var(--tint); color: var(--text); font-weight: 500; }
   .side-row:disabled { opacity: .5; cursor: default; }
+  .side-row[hidden] { display: none; }   /* 0.15.0 PH-6: ［ゴミ箱］はゴミ箱に何かあるときだけ（.side-row は display を持つので hidden を負けさせない） */
   /* 「議事録」は見出し（12px・500・--muted・高さ 30px・上に 12px）。押すと今どおり goNotes。
      showSection が付ける .active の地と太さは見出しには付けない（ホバーの地だけ） */
   #tabBtnNotes, #tabBtnNotes.active { display: flex; align-items: center; width: 100%; height: 30px; margin-top: 12px; padding: 0 8px; flex: none;
@@ -305,6 +306,13 @@
   .npbox .mitem:hover, .npbox .mitem:focus { background: var(--hover); outline: none; }
   .npbox .mitem.off { color: var(--muted); cursor: default; }
   .npbox .mitem .npnote { margin-left: 8px; font-size: 12px; }
+  /* 0.15.0 PH-6: ゴミ箱の窓の説明と行（アイコン・題名、灰色の消した日時と中のページの数、右に［戻す］） */
+  .mpbox .tpnote { flex: none; padding: 0 14px 8px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .mplist .tprow { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 8px; border-radius: 4px; font-size: 14px; }
+  .mplist .tprow .tpb { flex: 1 1 0; min-width: 0; }
+  .mplist .tprow .tpt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mplist .tprow .tpm { font-size: 12px; color: var(--muted); }
+  .mplist .tprow button { flex: none; }
   @media (max-width: 760px) {
     .mpbox, .npbox { top: 16px; }
     .mpbox { max-height: calc(100vh - 32px); }
@@ -1112,6 +1120,8 @@
     </div>
     <div class="plist" id="plist" role="tree" aria-label="議事録の一覧"></div>
     <button id="tabBtnDictation" class="side-row"><span class="ic">🎤</span>音声入力</button>
+    <!-- 0.15.0 PH-6（決めたこと 32・BQ6 (a)）: ［🗑️ ゴミ箱］（ゴミ箱に何かあるときだけ。押すと #trashPop） -->
+    <button id="tabBtnTrash" class="side-row" type="button" hidden><span class="ic">🗑️</span>ゴミ箱</button>
     <button id="tabBtnSettings" class="side-row"><span class="ic">⚙️</span>設定</button>
     <div class="side-grip" id="sideGrip" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅" tabindex="0" aria-valuemin="200" aria-valuemax="480" aria-valuenow="260"></div>
   </aside>
@@ -1221,6 +1231,14 @@
     <div class="npbox">
       <div class="nphead" id="newPopHead">新しいページ</div>
       <div id="newList" role="menu" aria-labelledby="newPopHead"></div>
+    </div>
+  </div>
+  <!-- 0.15.0 PH-6（決めたこと 31・32・BQ6 (a)）: ゴミ箱の窓（一緒に消したまとまりの頭の行・消した日時・中のページ n・［戻す］）。見た目は［移動先…］と同じ浮く部品 -->
+  <div class="movepop" id="trashPop" role="dialog" aria-modal="true" aria-labelledby="trashPopHead" hidden>
+    <div class="mpbox">
+      <div class="mphead" id="trashPopHead">ゴミ箱</div>
+      <div class="tpnote" id="trashNote">ゴミ箱のページは、戻すまで一覧と検索と Claude には出ません</div>
+      <div class="mplist" id="trashList" role="list" aria-labelledby="trashPopHead"></div>
     </div>
   </div>
   </div>
@@ -3462,7 +3480,7 @@
   // 満杯の本文の知らせも同じ: R38・R51。親だけを選ぶので本文の行は新しい親の本文の最後: 決めたこと 45・48）、Esc で閉じてフォーカスを戻す。探す語は覚えない
   const MOVE_TOP = 'いちばん上へ';
   const MOVE_SHOW_MAX = 200;   // 描く候補の数（探す語で絞る）
-  function popOpen() { return Boolean(movePop) || newPopOn; }   // PH-5 直し 2（R56 I-1）: ［移動先…］か「新しいページ」の窓が開いている
+  function popOpen() { return Boolean(movePop) || newPopOn || trashOn; }   // PH-6: ゴミ箱の窓も   // PH-5 直し 2（R56 I-1）: ［移動先…］か「新しいページ」の窓が開いている
   let movePop = null;          // 開いているとき { id, from（戻すフォーカス）, tree（木の行から開いたらその ID）, cands, rows, at }
   const moveFold = (s) => String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
   function moveCands(id) {
@@ -3619,6 +3637,7 @@
   // PH-5 直し 2（R56 M-2）: 窓の中を押してもフォーカスを項目から外さない（キーは項目の並びで受ける。項目は押すと click で動く）
   $('newPop').addEventListener('mousedown', (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); });
   document.addEventListener('keydown', (ev) => {
+    if (trashOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も開かない
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || regenAsking) return;   // Ctrl+Shift+N: 変換中・設定・検索・［移動先…］・確かめの間は開かない
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
     if (!(ev.code === 'KeyN' || String(ev.key).toLowerCase() === 'n')) return;
@@ -3627,6 +3646,7 @@
   });
   // Ctrl+Shift+U（決めたこと 26・K-31）: 開いているページの親のページへ（今のタブ）。いちばん上のページでは何もしない
   document.addEventListener('keydown', (ev) => {
+    if (trashOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も何もしない
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || newPopOn || regenAsking) return;
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
     if (!(ev.code === 'KeyU' || String(ev.key).toLowerCase() === 'u')) return;
@@ -4198,8 +4218,16 @@
     if (!blank) refreshPending();   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
   }
   // ページを消す（「···」の［削除］とサイドバーの行のメニューの［削除］。0.15.0 PH-3 で1つの関数にした）
+  // 0.15.0 PH-6（決めたこと 30・32・F121）: 確かめの文。子があれば中のページの数（ゴミ箱に入っていない子孫）・子の無い白紙のページはその文・子の無い議事録は今の文
+  const DEL_ASK_KIDS = (n) => `このページと中のページ ${n} 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）`;
+  const DEL_ASK_BLANK = 'このページをゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）';
   async function deletePageFlow(id) {
-    if (!id || !confirm('この議事録を削除します。よろしいですか？')) return;
+    if (!id) return;
+    const page = pages.find((p) => p && p.id === id) || (curId === id ? curPage : null);
+    const kids = pageTreeView.descendants(treeNow(), id);
+    const ask = kids.length ? DEL_ASK_KIDS(kids.length) : isBlankPage(page) ? DEL_ASK_BLANK : 'この議事録を削除します。よろしいですか？';
+    if (!confirm(ask)) return;
+    const gone = [id, ...kids];   // PH-6（決めたこと 32・F118）: 消したら、そのページと子孫のタブを閉じる
     const from = (pages.find((p) => p && p.id === id) || {}).parentId || '';   // 0.15.0 PR-2 直し（R38）: 消す前の親
     await window.koeApp.pageDelete(id);
     if (curId === id) { curId = null; curPage = null; curSegs = []; }
@@ -4208,8 +4236,110 @@
     // 0.15.0 PR-2 直し（R38・F123）: 開いている白紙のページの子を消したら、DB が同じ命令で本文の行を消したので開き直して描く（movePageTo と同じ）。
     // 前は今のメモリのページを描き直すだけで、消した子の行が灰色の「（このページはここにありません）」で残った
     if (curId && from === curId && isBlankPage(curPage)) await openPage(curId);
-    closeTab(`page:${id}`);   // 消したページのタブを残さない（選んでいたら隣へ、無ければ空のページ）
+    closeTabsOf(gone);   // 消したページと子孫のタブを残さない（選んでいたら隣へ、無ければ空のページ）
+    await refreshTrash();   // PH-6: ［ゴミ箱］を出す
   }
+  // 0.15.0 PH-6（決めたこと 32・F118）: ページのタブをまとめて閉じる。選んでいるタブは最後に閉じる（隣へ移る先に、閉じるはずのタブを選ばない）
+  function closeTabsOf(ids) {
+    const keys = ids.map((x) => `page:${x}`).filter((k) => hasTab(k));
+    keys.sort((a, b) => Number(a === activeTab) - Number(b === activeTab));
+    for (const k of keys) closeTab(k);
+  }
+  // 本文の子ページの行がゴミ箱へ入った（決めたこと 49）・戻った（Ctrl+Z）後: 一覧に無くなったページ（near の中。行の指していたページと子孫）のタブを閉じ、［ゴミ箱］を読み直す
+  function afterSubRows(near) {
+    closeTabsOf(near.filter((x) => !pages.some((p) => p && p.id === x)));
+    return refreshTrash();
+  }
+  const bodySubs = () => (curPage && isBlankPage(curPage) ? flattenBlocks(curPage.blocks).filter((b) => b && b.type === 'subpage').map((b) => b.page) : []);
+  const subsNear = (subs) => subs.flatMap((x) => [x, ...pageTreeView.descendants(treeNow(), x)]);
+  // ---------------- 0.15.0 PH-6（計画 docs/plans/2026-11-03-150.md の決めたこと 31・32・BQ6 (a)・HR6・F121）: ゴミ箱の窓
+  // ［🗑️ ゴミ箱］はゴミ箱に何かあるときだけ。押すと、一緒に消したまとまりの頭の行（消した新しい順。DB の pages.trash）に、アイコン・題名・消した日時・
+  // 「中のページ n」と［戻す］。［戻す］は page.restore（一緒に消した子孫も戻る・親がゴミ箱なら最上位へ: HR6）→ 一覧とゴミ箱を読み直す。
+  // 戻したページの親が開いている白紙のページなら開き直し（行が戻る: R38）、満杯の本文なら知らせる（R51）。↑↓ で［戻す］を移り、Esc で閉じて［ゴミ箱］へ
+  const TRASH_BACK = '戻しました';
+  const TRASH_BACK_BAD = 'ページを戻せませんでした。';
+  let trashHeads = [];
+  let trashOn = false;
+  let trashFrom = null;
+  async function refreshTrash() {
+    let r = null;
+    try { r = await window.koeApp.pagesTrash(); } catch (_) { r = null; }
+    trashHeads = Array.isArray(r) ? r.filter((x) => x && typeof x.id === 'string') : [];
+    $('tabBtnTrash').hidden = !trashHeads.length;   // BQ6 (a): ゴミ箱に何かあるときだけ
+    if (trashOn) { if (trashHeads.length) renderTrash(0); else closeTrash(false); }
+  }
+  const trashTime = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  function renderTrash(at) {
+    const list = $('trashList');
+    list.textContent = '';
+    trashHeads.forEach((h, i) => {
+      const row = document.createElement('div');
+      row.className = 'tprow'; row.setAttribute('role', 'listitem'); row.dataset.pid = h.id;
+      const body = document.createElement('div'); body.className = 'tpb';
+      const t = document.createElement('div'); t.className = 'tpt';
+      t.textContent = `${pageEmoji(h)} ${oneLine(h.title) || (isBlankPage(h) ? blankUntitled() : '(無題の議事録)')}`;
+      const m = document.createElement('div'); m.className = 'tpm';
+      const n = Number(h.count) || 0;
+      m.textContent = `${trashTime(h.trashedAt)}${n > 0 ? `・中のページ ${n}` : ''}`;
+      body.append(t, m);
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'ghost'; b.textContent = '戻す';
+      b.onclick = () => restoreTrash(i);
+      row.append(body, b);
+      list.appendChild(row);
+    });
+    const btns = trashButtons();
+    const el = btns[Math.max(0, Math.min(at, btns.length - 1))];
+    if (el) el.focus();
+  }
+  const trashButtons = () => [...$('trashList').querySelectorAll('button')];
+  function openTrash() {
+    if (trashOn || !trashHeads.length) return;
+    const fa = document.activeElement;
+    trashFrom = fa && fa !== document.body && typeof fa.focus === 'function' ? fa : null;
+    trashOn = true;
+    $('trashPop').hidden = false;   // 先に見せてから［戻す］にフォーカス（R59）
+    renderTrash(0);
+  }
+  function closeTrash(back) {
+    if (!trashOn) return;
+    trashOn = false;
+    $('trashPop').hidden = true;
+    $('trashList').textContent = '';
+    const to = trashFrom; trashFrom = null;
+    if (back) focusAlive(to, $('tabBtnSettings'));
+  }
+  async function restoreTrash(i) {
+    const h = trashHeads[i];
+    if (!h) return;
+    let bad = false;
+    try { await window.koeApp.pageRestore(h.id); } catch (_) { bad = true; }
+    if (bad) { toast(TRASH_BACK_BAD); return; }
+    toast(TRASH_BACK);
+    await refreshList();
+    const parent = (pages.find((p) => p && p.id === h.id) || {}).parentId || '';
+    // R38: 開いている白紙のページの子を戻したら、DB が同じ命令で本文に行を戻したので開き直して描く。R51: 満杯の本文なら行を置けず一度知らせる
+    const fresh = Boolean(parent) && curId === parent && isBlankPage(curPage) ? await openPage(curId) : false;
+    if (parent) await noteRowless(parent, h.id, fresh);
+    await refreshTrash();
+    if (trashOn) { renderTrash(i); return; }
+    if (revealInTree(h.id)) renderList();   // 空になって窓を閉じたら、戻したページの行へ（HR5）
+    focusTreeRow(h.id);
+  }
+  $('tabBtnTrash').onclick = () => openTrash();
+  $('trashList').onkeydown = (ev) => {
+    if (imeEnter(ev)) return;
+    const btns = trashButtons();
+    const i = btns.indexOf(document.activeElement);
+    const j = ev.key === 'ArrowDown' ? (i + 1) % btns.length : ev.key === 'ArrowUp' ? (i + btns.length - 1) % btns.length
+      : ev.key === 'Home' ? 0 : ev.key === 'End' ? btns.length - 1 : ev.key === 'Tab' ? (i + (ev.shiftKey ? btns.length - 1 : 1)) % btns.length : -1;
+    if (ev.key === 'Escape') { ev.preventDefault(); closeTrash(true); return; }
+    if (j < 0 || !btns.length) return;
+    ev.preventDefault();   // Tab も窓の中で回る
+    btns[j].focus();
+  };
+  $('trashPop').onclick = (ev) => { if (ev && ev.target === $('trashPop')) closeTrash(true); };   // 後ろの全面を押すと閉じる
+  $('trashPop').addEventListener('mousedown', (ev) => { if (ev && ev.target !== $('trashPop') && !(ev.target && ev.target.tagName === 'BUTTON') && typeof ev.preventDefault === 'function') ev.preventDefault(); });
   // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
   // ページのアイコンと丸いタブを隠して空の文だけを出す（第1b2回 P-2）
   function syncNoPage() {
@@ -7430,6 +7560,8 @@
   function editAnswer(pid, send, where) { return inFlight(editAnswerRun(pid, send, where)); }   // EB-3 直し（R109）: 答えを待つ間は Ctrl+Z が待つ
   async function editAnswerRun(pid, send, where) {
     pendingEdits += 1;
+    const subs0 = pid === curId ? bodySubs() : null;   // 0.15.0 PH-6: 子ページの行が消えた・戻ったら、タブとゴミ箱を読み直す
+    const near = subs0 ? subsNear(subs0) : [];
     let r = null;
     try { r = await send(); } catch (e) {
       toast(`変更を保存できませんでした: ${e && e.message ? e.message : e}`);
@@ -7437,7 +7569,13 @@
     } finally { pendingEdits -= 1; }
     if (!r) return null;
     applyEditAnswer(pid, Array.isArray(r.blocks) ? r : r.page, where ? where(r) : null);
-    if (pid === curId) { refreshList(); refreshEditMeta(pid); }
+    const subs1 = pid === curId && subs0 ? bodySubs() : null;
+    const moved = Boolean(subs1) && (subs0.some((x) => !subs1.includes(x)) || subs1.some((x) => !subs0.includes(x)));
+    if (pid === curId) {
+      const listed = refreshList();
+      refreshEditMeta(pid);
+      if (moved || Number(r.trashed) > 0) listed.then(() => afterSubRows(near)).catch(() => {});   // PH-6（F118・R38 の申し送り）: ゴミ箱へ入ったページと子孫のタブを閉じる
+    }
     noteTrashed(r);   // 0.15.0 PR-2（決めたこと 49・HR21）: 子ページの行を消してページをゴミ箱へ入れたら一度知らせる
     return r;
   }
@@ -9216,7 +9354,11 @@
 
       const del = document.createElement('button');
       del.className = 'del'; del.textContent = '×'; del.title = 'この行を削除';
-      del.onclick = async () => { noteTrashed(await window.koeApp.blockRemove(curId, b.id)); await openPage(curId); };   // 0.15.0 PR-2: 子ページの行ならページも（知らせる）
+      del.onclick = async () => {
+        const near = subsNear(bodySubs());   // 0.15.0 PH-6: 子ページの行ならページと子孫のタブを閉じる
+        noteTrashed(await window.koeApp.blockRemove(curId, b.id)); await openPage(curId);   // 0.15.0 PR-2: 子ページの行ならページも（知らせる）
+        if (b.type === 'subpage') { await refreshList(); await afterSubRows(near); }
+      };
       tail.appendChild(del);
       el.appendChild(tail);
     },
@@ -10561,7 +10703,7 @@
     if (!p.message) { e.style.display = 'none'; return; }
     e.style.display = ''; e.textContent = p.message;
   });
-  window.koeApp.onPagesUpdated(() => refreshList());
+  window.koeApp.onPagesUpdated(() => { refreshList(); refreshTrash(); });   // 0.15.0 PH-6: ほかの窓・Claude の変更でゴミ箱も
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
   // 0.13.0 RDY-3（RD13）: 受けはこの1か所。記録中のタブが録音の前のページなら置き換えずに新しいタブで開く（次の会議の準備を消さない: F86）
   function pageOpenFromMain(id, o) {
@@ -11772,6 +11914,7 @@
     history = await window.koeApp.getHistory();
     renderHistory();
     await refreshList();
+    await refreshTrash();   // 0.15.0 PH-6: ゴミ箱に何かあれば［ゴミ箱］
     renderPage();
     setMeetingUi(await window.koeApp.meetingStatus());
     // 0.13.0 RDY-3（RD15）: 画面を読み直したとき main に録音の前のページがあれば、記録中のタブを録音の前の形で戻す（選ぶのはほかに選んでいるタブが無いときだけ）

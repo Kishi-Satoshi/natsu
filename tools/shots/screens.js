@@ -103,6 +103,13 @@ const OPEN_NEW = `(async () => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true, bubbles: true }));
   return 1;
 })()`;
+// 0.15.0 PH-6: 1行目のページを開いて、サイドバーの［🗑️ ゴミ箱］を押す
+const OPEN_TRASH = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('tabBtnTrash').click();
+  return 1;
+})()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -437,6 +444,8 @@ const SCREENS = [
   { name: 'page-kids-light', page: 'app', theme: 'light', get answers() { return kidsAnswers(); }, act: OPEN_KIDS },
   { name: 'move-pop-light', page: 'app', theme: 'light', get answers() { return moveAnswers(); }, act: OPEN_MOVE },
   { name: 'new-pop-light', page: 'app', theme: 'light', act: OPEN_NEW },
+  // 0.15.0 PH-6（計画の「取り直す画面」）: ゴミ箱の窓（一緒に消したまとまりの頭の行・消した日時・中のページ n・［戻す］）。種にゴミ箱のページを持つのはこの画面だけ（ほかの画面は空）
+  { name: 'trash-pop-light', page: 'app', theme: 'light', get answers() { return trashAnswers(); }, act: OPEN_TRASH },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -551,7 +560,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 「···」に［移動先…］が増える page-menu-link の2枚・計画の表のとおり / メニューの edit-slash-light・edit-slash-dark（今の基準がある）。
 // PH-5 直し（R55。CI run 41758331037 の画像）: 近道の表が伸びて「ホットキー」のカードの下が下がり、捲り棒のつまみも変わる設定の［一般］の3枚（今の基準がある）
 const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
-  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light',
+  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light', 'trash-pop-light',
   'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
   'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
@@ -773,6 +782,14 @@ function moveAnswers() {
   const page = fixtures()['koeApp.pageGet'].page;
   const p2 = LIST[1];
   return { ...a, 'koeApp.pageGet': { page: { ...page, id: p2.id, title: p2.title, date: p2.date, createdAt: p2.createdAt, durationSec: p2.durationSec }, segments: SEGMENTS } };
+}
+
+/** 0.15.0 PH-6: ゴミ箱の頭の行（DB の pages.trash の形。消した新しい順。白紙のページは中のページ 3 つと一緒に・議事録は1つで） */
+function trashAnswers() {
+  return { 'koeApp.pagesTrash': [
+    { id: 'pt1', title: '去年の計画', kind: 'blank', trashedAt: '2026-10-17T05:10:00.000Z', count: 3 },
+    { id: 'pt2', title: lib.meetingTitleAt('2026-10-02T01:00:00.000Z', JST_MIN), trashedAt: '2026-10-16T08:30:00.000Z', count: 0 },
+  ] };
 }
 
 /** 0.13.0 RDY-3: 録音の前のページ（main の meetingStatus() の形。録音していない・prep は空のメモと「自動」・クラウドで文字起こしする PC） */

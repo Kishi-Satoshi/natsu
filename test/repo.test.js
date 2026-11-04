@@ -286,7 +286,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の R7）で足したページの木の4つ（pageCreate・pageMove・pageRestore・pagesTrash）は、
   // サイドバーの木（PH-3）・白紙のページ（PH-4）・ゴミ箱（PH-6）が呼び始めたら外す
   // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の R7・R23）で意図して変えた: サイドバーの木が pageCreate・pageMove を呼び始めたので外した（残りは PH-6 で外す）
-  const PENDING_APP = new Set(['pageRestore', 'pagesTrash']);
+  // 0.15.0 PH-6 で意図して変えた: ゴミ箱の窓が pageRestore・pagesTrash を呼び始めたので外して空に戻した
+  const PENDING_APP = new Set([]);
   // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
   // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
   const KEPT_APP = new Set(['pageSetMemo']);
