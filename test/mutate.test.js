@@ -1315,7 +1315,7 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の�
 });
 
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「変異の表」の ph-・pl- の表）: ページの階層・白紙のページ・本文の子ページの行・ゴミ箱・検索と MCP（ph-）と、
-// ページの見た目（pl-）の直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足す（PH-1 から。1つの版: BQ1）。頭は前の版の照らしに当たらない
+// ページの見た目（pl-）の直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足した（PH-1 から。1つの版: BQ1）。Task G で表の全部とちょうど同じにそろえた（R78）。頭は前の版の照らしに当たらない
 const IDS_150 = [
   // 0.15.0 PH-1（表の行の順に）
   'ph-tree-cycle', 'ph-tree-orphan', 'ph-tree-top-order', 'ph-tree-kid-order', 'ph-desc-self', 'ph-move-self', 'ph-move-cycle',
@@ -1343,20 +1343,7 @@ const IDS_150 = [
   // 0.15.0 PL-3（表の行の順に。pl-icon-default は PL-1 の行）
   'pl-icon-sidebar', 'pl-icon-tab', 'pl-icon-crumb', 'pl-pop-esc', 'pl-look-leak', 'pl-look-scope', 'pl-look-check', 'pl-look-save',
 ];
-// 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足す
-const BUILT_150 = [
-  ['ph-tree-cycle', 'ph-ws-tree-max'],   // PH-1
-  ['ph-create-id', 'ph-role'],   // PH-2
-  ['ph-tree-render', 'ph-ui-tree'],   // PH-3
-  ['ph-blank-tabs', 'ph-slash-page'],   // PH-4
-  ['ph-crumb-chain', 'ph-new-live'],   // PH-5
-  ['ph-delete-count', 'ph-trash-show'],   // PH-6
-  ['ph-search-path', 'ph-mcp-blank'],   // PH-7
-  ['ph-row-create', 'ph-row-title'],   // PR-1（ph-row-create〜ph-row-order）・PR-2（ph-row-unplaced・ph-row-title）
-  ['pl-icon-dict', 'pl-recent-dict'],   // PL-1
-  ['pl-icon-sidebar', 'pl-look-save'],   // PL-3
-];
-// 表の ph-・pl- の行（作りながら足すので、IDS_150 は今まで作ったタスクの行だけ: R1。表の全部とちょうど同じかは Task G で見る）
+// 表の ph-・pl- の行。0.15.0 Task G（R78）で意図して変えた: 前は作ったタスクの行の範囲（BUILT_150）とちょうど同じかを見ていた（R1）。PL-3 で表の 93 行が全部そろったので、表の全部とちょうど同じかを見る
 function planRows150() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-03-150.md'), 'utf8');
   const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
@@ -1364,7 +1351,7 @@ function planRows150() {
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   return [...table.matchAll(/^\| ((?:ph|pl)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
 }
-test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の「変異の表」の行の順で、作ったタスクの行とちょうど同じ。ph-・pl- の変異は IDS_150 にある。どれも決まったテストのファイルを持ち、why が 0.15.0 で始まる', { timeout: 5000 }, () => {
+test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の「変異の表」の ph-・pl- の行とちょうど同じ（行の順）。ph-・pl- の変異は IDS_150 にある。どれも決まったテストのファイルを持ち、why が 0.15.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_150.filter((id) => !byId.has(id)), [], 'IDS_150 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_150).size, IDS_150.length, 'IDS_150 に重なり');
@@ -1374,13 +1361,7 @@ test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の�
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_150.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_150, rows.filter((id) => IDS_150.includes(id)), 'IDS_150 が表の行の順でない');
-  // 作ったタスクの表の行（BUILT_150 の範囲。どれも表の続いた行）とちょうど同じ（R1。範囲の外の行は足していない・範囲の中の行は全部ある）
-  const built = BUILT_150.flatMap(([from, to]) => {
-    const i = rows.indexOf(from); const j = rows.indexOf(to);
-    assert.ok(i >= 0 && j >= i, `作ったタスクの範囲 ${from}〜${to} が表に無い`);
-    return rows.slice(i, j + 1);
-  });
-  assert.deepStrictEqual(IDS_150, rows.filter((id) => built.includes(id)), 'IDS_150 が作ったタスクの表の行とちょうど同じでない');
+  assert.deepStrictEqual(IDS_150, rows, 'IDS_150 が計画の「変異の表」の ph-・pl- の 93 行とちょうど同じでない（行の順）');
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/]) {
     assert.deepStrictEqual(IDS_150.filter((id) => re.test(id)), [], `${re} に当たる 0.15.0 の id`);
   }
