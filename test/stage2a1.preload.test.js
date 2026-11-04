@@ -40,9 +40,10 @@ test('ST5: ページの 35 の名前は口に頼み、返事をそのまま返�
   assert.deepStrictEqual(await pr, { page: { id: 'pa1' }, blockId: 'bx' });
   l.exposed.koeApp.pageGet('pa1');
   assert.strictEqual(p.sent[1].tx, undefined, '読む頼みに tx を付けた');
-  // 0.15.0 PL-2: アイコン（文字でない値は '' に）と見た目は書く頼み（tx が付く）
-  l.exposed.koeApp.pageSetIcon('pa1', '🚀'); l.exposed.koeApp.pageSetIcon('pa1'); l.exposed.koeApp.pageSetLook('pa1', { wide: true });
-  assert.deepStrictEqual(p.sent.slice(2).map((x) => [x.cmd, x.args]), [['page.setIcon', { id: 'pa1', icon: '🚀' }], ['page.setIcon', { id: 'pa1', icon: '' }], ['page.setLook', { id: 'pa1', look: { wide: true } }]]);
+  // 0.15.0 PL-2: アイコンと見た目は書く頼み（tx が付く）。PL-2 直し（R75・rv33 M4）で意図して直した: 文字でない値（undefined）は '' に替えずにそのまま送る（DB が bad-args で断る）
+  l.exposed.koeApp.pageSetIcon('pa1', '🚀'); l.exposed.koeApp.pageSetIcon('pa1', ''); l.exposed.koeApp.pageSetIcon('pa1'); l.exposed.koeApp.pageSetLook('pa1', { wide: true });
+  assert.deepStrictEqual(p.sent.slice(2).map((x) => [x.cmd, x.args]), [['page.setIcon', { id: 'pa1', icon: '🚀' }], ['page.setIcon', { id: 'pa1', icon: '' }], ['page.setIcon', { id: 'pa1', icon: undefined }], ['page.setLook', { id: 'pa1', look: { wide: true } }]]);
+  assert.ok(Object.hasOwn(p.sent[4].args, 'icon') && p.sent[4].args.icon === undefined, 'undefined を \'\' に替えた');
   for (const x of p.sent.slice(2)) assert.match(x.tx, /^a:[0-9a-f-]{36}$/);
 });
 

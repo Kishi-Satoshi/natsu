@@ -257,6 +257,9 @@ test('PL-2・F119: ページのアイコンと見た目を付けても、MCP の
     m.call('app', 'page.setIcon', { id: top, icon: '🦉' });
     m.call('app', 'page.setIcon', { id: 'pm2', icon: '🦉' });
     m.call('app', 'page.setLook', { id: top, look: { wide: true, font: 'mono' } });
+    // PL-2 直し（R75・rv33 M2）: 前提: 本当に保存した（付けずに答えが同じなのを見ていない）
+    const got = (id) => { const g = m.call('app', 'page.get', { id }).page; return [g.icon, g.look]; };
+    assert.deepStrictEqual([got(top), got('pm2')], [['🦉', { wide: true, font: 'mono' }], ['🦉', undefined]], '前提: アイコンと見た目が保存されていない');
     m.close();
     const after = ask();
     for (const t of after) for (const w of ['🦉', 'mono', 'wide', 'look']) assert.ok(!t.includes(w), `${w}: ${t}`);

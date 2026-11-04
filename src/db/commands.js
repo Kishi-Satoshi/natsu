@@ -201,6 +201,14 @@ function setPageAttr(p, key, value) {
   if (isLive(p)) throw refuse('bad-args');
   if (value === undefined) delete p[key]; else p[key] = structuredClone(value);
 }
+// 0.15.0 PL-2 直し（R75）: 今と同じアイコン・見た目（無い欄と '' や全部既定の見た目は同じ）は何も書かない（答えは今のページ）。
+// editPage の saveOps は updatedAt を今にし、markShortBlocks は手を付けていないページの印も書くので、forWrite の前に照らす（setMemoDoc と同じ形）。
+// 録音中の写しは同じ値でも setPageAttr が断る
+function pageAttrCmd(db, id, ctx, key, value) {
+  const l = loadPage(db, id);
+  if (l && !isLive(l.page) && isDeepStrictEqual(l.page[key], value)) return { ops: [], pageIds: [], result: readPage(db, id) };
+  return editPage(db, id, ctx, (p) => setPageAttr(p, key, value));
+}
 // 0.15.0 PL-2（決めたこと 35・39）: 要約の書き戻し（page.put）はアイコンと見た目を書き換えない（送ったページに無くても、違っても、DB の今の値のまま）
 function keepStoredLook(was, page) {
   for (const k of ['icon', 'look']) {
@@ -1318,9 +1326,9 @@ const DEFS = {
   // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の決めたこと 13・15・16・35・36・39・F119）: ページのアイコンと見た目（役 app だけ・元に戻すの歩みにしない）。
   // アイコンは辞書の絵文字だけ（'' は欄を消して既定に戻す）・見た目は決まった形だけ（全部既定なら欄を消す）。同じ値は書かない。録音中の写しは断る（締めがページを書き直すため）
   'page.setIcon': { roles: ['app'], write: true, args: { id: 'id', icon: 'pageIcon' },
-    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => setPageAttr(p, 'icon', a.icon === '' ? undefined : a.icon)), dupResult: reread },
+    run: (db, a, ctx) => pageAttrCmd(db, a.id, ctx, 'icon', a.icon === '' ? undefined : a.icon), dupResult: reread },
   'page.setLook': { roles: ['app'], write: true, args: { id: 'id', look: 'pageLook' },
-    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => setPageAttr(p, 'look', pageLookLib.isPlainLook(a.look) ? undefined : a.look)), dupResult: reread },
+    run: (db, a, ctx) => pageAttrCmd(db, a.id, ctx, 'look', pageLookLib.isPlainLook(a.look) ? undefined : a.look), dupResult: reread },
   'page.setTitle': { roles: ['app', 'main'], write: true, args: { id: 'id', title: 'title' },
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.title = a.title; }), dupResult: reread },
   'page.setMemo': { roles: ['app', 'main'], write: true, args: { id: 'id', memo: 'text?' },

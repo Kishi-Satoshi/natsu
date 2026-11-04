@@ -221,8 +221,9 @@ contextBridge.exposeInMainWorld('koeApp', {
     ...(row && row.afterId !== undefined ? { rowAfter: row.afterId } : {}), ...(row && row.parentId ? { rowParent: row.parentId } : {}) }),
   pageRestore: (id) => dbCall('page.restore', { id }),
   pagesTrash: () => dbCall('pages.trash', {}),
-  // 0.15.0 PL-2（決めたこと 35・39）: ページのアイコン（'' は外して既定に戻す）と見た目（{ wide?, small?, font? }）。どちらも元に戻すの歩みにしない
-  pageSetIcon: (id, icon) => dbCall('page.setIcon', { id, icon: typeof icon === 'string' ? icon : '' }),
+  // 0.15.0 PL-2（決めたこと 35・39）: ページのアイコン（'' は外して既定に戻す）と見た目（{ wide?, small?, font? }）。どちらも元に戻すの歩みにしない。
+  // PL-2 直し（R75・rv33 M4）: 文字でない値も '' に替えずにそのまま送り、DB が bad-args で断る（画面の誤りでアイコンが黙って外れない）
+  pageSetIcon: (id, icon) => dbCall('page.setIcon', { id, icon }),
   pageSetLook: (id, look) => dbCall('page.setLook', { id, look }),
   pageSetTitle: (id, title) => dbCall('page.setTitle', { id, title }),
   pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
