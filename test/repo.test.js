@@ -287,8 +287,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // サイドバーの木（PH-3）・白紙のページ（PH-4）・ゴミ箱（PH-6）が呼び始めたら外す
   // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の R7・R23）で意図して変えた: サイドバーの木が pageCreate・pageMove を呼び始めたので外した（残りは PH-6 で外す）
   // 0.15.0 PH-6 で意図して変えた: ゴミ箱の窓が pageRestore・pagesTrash を呼び始めたので外して空に戻した
-  // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の R7 と同じ決まり）: アイコンと見た目の口は PL-3 の画面が呼び始める（呼び始めたら外す）
-  const PENDING_APP = new Set(['pageSetIcon', 'pageSetLook']);
+  // 0.15.0 PL-3 で画面がアイコンと見た目の口（pageSetIcon・pageSetLook）を呼び始めたので外した
+  const PENDING_APP = new Set([]);
   // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
   // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
   const KEPT_APP = new Set(['pageSetMemo']);
@@ -1439,7 +1439,8 @@ test('0.10.0 D76: README・INSTALL に「0.10.0 からポータブル版はあ�
 // 0.10.0 SH-1（D71・決めたこと 140）: ページの頭（題名の所）の見た目を 0.10.0 で変えない。.phead・.picon・.ptitle・.pprops を含む CSS の規則の文と、
 // #pIcon・#pTitle・#pProps の DOM の行の sha256 が 0.9.3（746ea67）の値と同じ（題名の文字が変わるので、画素で比べる守りは置かない）
 test('0.10.0 D71: .phead・.picon・.ptitle・.pprops とその子の CSS の規則の文と、#pIcon・#pTitle・#pProps の DOM の写しが、0.9.3 の値（HEAD_HASH）と同じ', () => {
-  const HEAD_HASH = '57fe8d58d84819e19a719e56cbbcc811753ae9a0e7d0502fd958a34a8f8a856e';
+  // 0.15.0 PL-3（計画 docs/plans/2026-11-03-150.md の決めたこと 37）で意図して変えた: #pIcon は押せる button（aria-label「アイコンを変える」）。CSS の規則の文は 0.9.3 のまま（前の値は 57fe8d58…）
+  const HEAD_HASH = '8e5ee74ec7c67abe3c8de405fcea5481f60b406cbb3685b68f24a0a8d8f73c82';
   const html = read('src/renderer/app.html');
   const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
   const rules = [...css.matchAll(/[^{}]*\{[^{}]*\}/g)].map((m) => m[0].trim()).filter((r) => /\.(phead|picon|ptitle|pprops)\b/.test(r.slice(0, r.indexOf('{'))));

@@ -215,7 +215,9 @@ const ADDED_140 = [...NEW_140, ...RETAKEN_140];
 // PR-2 で白紙のページの本文の子ページの行の明暗の2枚を足した
 const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
   'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light',   // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚
-  'trash-pop-light'];   // PH-6 で足したゴミ箱の窓
+  'trash-pop-light',   // PH-6 で足したゴミ箱の窓
+  // PL-3 で足したアイコンの選びの明暗・全幅（拡大 200% も）・小さい文字と明朝・等幅・「···」の見た目の項目の7枚
+  'icon-pop-light', 'icon-pop-dark', 'look-wide-light', 'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light'];
 // PH-4 で / メニューに［ページ］が増えるので、語の無い / メニューを開く edit-slash-recent-light（今の基準がある）を取り直す（RETAKEN_150。R25）
 // PH-5 で近道の表に行が増える settings-shortcuts-light・「···」に［移動先…］が増える page-menu-link の2枚と、計画の表のとおり edit-slash-light・edit-slash-dark を取り直す
 // PH-5 直し（R55）: 近道の表が伸びる設定の［一般］の3枚も（0.14.0 EK-5 と同じ）
@@ -281,7 +283,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
     ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2],
-    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2], ['sidebar-tree-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直しで意図して足した
+    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2], ['sidebar-tree-zoom200-light', 2], ['look-wide-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直し・0.15.0 PL-3（全幅の拡大 200%）で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -1133,7 +1135,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // （<script> の中だけ。撮る画面の種は最上位の議事録だけなので写らない見込み）。値を今の app.html に合わせた（前の値は f5eab969…）
   // 0.15.0 PH-6・PH-7 直し（計画の R66・R67）: 白紙のページの rowTitle は日付だけ（撮る画面の種に白紙のページの検索の結果は無く、行の title は写らない）・
   // ［戻す］の aria-label・ゴミ箱の窓の読み直しのフォーカス（<script> の中だけ）。値を今の app.html に合わせた（前の値は 8b6e11c0…）
-  assert.strictEqual(sha, 'f4444d21d798f12daff81a125f0eb3208f501129e9cfdb449f2aa6a79d2a59bc',
+  // 0.15.0 PL-3（計画の決めたこと 35〜42・U2・U5・U6）: ページの頭のアイコンを押せるボタンに（#pIcon）・アイコンの選び（#iconPop）・
+  // 「···」の［全幅］［小さい文字］［書体 ▸］と #pageWrap の look-* の CSS・タブのアイコンを CSS の attr(data-icon) で描く（議事録は今までどおり 🎙️）。
+  // 変わる画面は足した NEW_150 の icon-pop-*・look-*・page-menu-look-light の見込み。値を今の app.html に合わせた（前の値は f4444d21…）
+  assert.strictEqual(sha, '54fa8c3773828d6ffc0ee44cde9a057d35c0af12458b63c604af020e0de23bbd',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

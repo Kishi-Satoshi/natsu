@@ -110,6 +110,21 @@ const OPEN_TRASH = `(async () => {
   document.getElementById('tabBtnTrash').click();
   return 1;
 })()`;
+// 0.15.0 PL-3: 1行目のページを開いて（非同期なので少し待つ）、ページの頭のアイコンを押してアイコンの選びを開く
+const OPEN_ICON = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('pIcon').click();
+  return 1;
+})()`;
+// 0.15.0 PL-3: 1行目のページを開いて「···」のメニューを開き、［書体 ▸］を押して 標準・明朝・等幅 を出す
+const OPEN_LOOK_MENU = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('pMore').click();
+  [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '書体 ▸').click();
+  return 1;
+})()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -446,6 +461,15 @@ const SCREENS = [
   { name: 'new-pop-light', page: 'app', theme: 'light', act: OPEN_NEW },
   // 0.15.0 PH-6（計画の「取り直す画面」）: ゴミ箱の窓（一緒に消したまとまりの頭の行・消した日時・中のページ n・［戻す］）。種にゴミ箱のページを持つのはこの画面だけ（ほかの画面は空）
   { name: 'trash-pop-light', page: 'app', theme: 'light', get answers() { return trashAnswers(); }, act: OPEN_TRASH },
+  // 0.15.0 PL-3（計画の「取り直す画面」）: アイコンの選び（最近使ったもの・分類の見出しと並び）の明暗・全幅（拡大 200% で横の捲り棒が出ない）・
+  // 小さい文字と明朝・等幅・「···」の見た目の項目（全幅に印・［書体 ▸］を開いて明朝に印）。足した画面（まだ基準が無い）
+  { name: 'icon-pop-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON },
+  { name: 'icon-pop-dark', page: 'app', theme: 'dark', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON },
+  { name: 'look-wide-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true }); }, act: OPEN_PAGE },
+  { name: 'look-wide-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ wide: true }); }, act: OPEN_PAGE },
+  { name: 'look-small-serif-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ small: true, font: 'serif' }); }, act: OPEN_PAGE },
+  { name: 'look-mono-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ font: 'mono' }); }, act: OPEN_PAGE },
+  { name: 'page-menu-look-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true, font: 'serif' }); }, act: OPEN_LOOK_MENU },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -561,6 +585,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // PH-5 直し（R55。CI run 41758331037 の画像）: 近道の表が伸びて「ホットキー」のカードの下が下がり、捲り棒のつまみも変わる設定の［一般］の3枚（今の基準がある）
 const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
   'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light', 'trash-pop-light',
+  'icon-pop-light', 'icon-pop-dark', 'look-wide-light', 'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light',
   'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
   'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
@@ -782,6 +807,12 @@ function moveAnswers() {
   const page = fixtures()['koeApp.pageGet'].page;
   const p2 = LIST[1];
   return { ...a, 'koeApp.pageGet': { page: { ...page, id: p2.id, title: p2.title, date: p2.date, createdAt: p2.createdAt, durationSec: p2.durationSec }, segments: SEGMENTS } };
+}
+
+/** 0.15.0 PL-3: 見本のページ（一覧の1行目の page:get）に見た目 look を付けた答え */
+function lookAnswers(look) {
+  const a = fixtures()['koeApp.pageGet'];
+  return { 'koeApp.pageGet': { ...a, page: { ...a.page, look } } };
 }
 
 /** 0.15.0 PH-6: ゴミ箱の頭の行（DB の pages.trash の形。消した新しい順。白紙のページは中のページ 3 つと一緒に・議事録は1つで） */

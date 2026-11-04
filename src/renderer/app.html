@@ -78,7 +78,7 @@
   .tabitem:hover { background: var(--hover); color: var(--text); }
   .tabitem.active { background: var(--bg); color: var(--text); font-weight: 500; }
   /* タブの頭のアイコンは CSS で足す（textContent は変えない）。記録中のタブは今の「● 記録中」の文のまま */
-  .tabitem[data-key^="page:"] .tt::before { content: '🎙\FE0F\00a0'; }
+  .tabitem[data-key^="page:"] .tt::before { content: attr(data-icon) '\00a0'; }   /* 0.15.0 PL-3（決めたこと 38）: ページのアイコン（data-icon。前は 🎙️ の決まった字） */
   .tabitem[data-key="dictation"] .tt::before { content: '🎤\00a0'; }
   .tabitem .tx { background: none; border: none; color: var(--muted); font: inherit; font-weight: 400; line-height: 1;
     padding: 2px 4px; border-radius: 4px; cursor: pointer; flex: none; }
@@ -313,6 +313,21 @@
   .mplist .tprow .tpt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mplist .tprow .tpm { font-size: 12px; color: var(--muted); }
   .mplist .tprow button { flex: none; }
+  /* 0.15.0 PL-3（決めたこと 37）: アイコンの選び（探す欄と［外す］・最近使ったもの・分類の見出しと 10 列の並び）。窓は［移動先…］と同じ浮く部品 */
+  .mpbox.icbox { width: min(420px, calc(100vw - 32px)); }
+  .icbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 8px 14px; border-bottom: 1px solid var(--line); }
+  .icbar #iconSearch { flex: 1 1 auto; min-width: 0; height: 30px; font-size: 14px; }
+  .iclist .ichead { font-size: 12px; color: var(--text-2); padding: 8px 4px 4px; }
+  .iclist .icgrid { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 2px; }
+  .iclist .icopt { height: 34px; padding: 0; border: none; border-radius: 4px; background: transparent; color: var(--text); font-family: inherit; font-size: 22px; line-height: 34px; cursor: pointer; }
+  .iclist .icopt:hover { background: var(--hover); }
+  .iclist .icopt.on { background: var(--tint); }
+  .iclist .icopt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .iclist .icnone { font-size: 13px; color: var(--muted); padding: 8px 4px; }
+  /* 0.15.0 PL-3（決めたこと 40）: 「···」の見た目の項目（全幅・小さい文字は印のある menuitemcheckbox・書体の3つは menuitemradio。書体の3つは［書体 ▸］の下に字下げ） */
+  .pacts .pmenu .mitem[role="menuitemcheckbox"]::before, .pacts .pmenu .mitem[role="menuitemradio"]::before { content: ''; display: inline-block; width: 1.3em; }
+  .pacts .pmenu .mitem[aria-checked="true"]::before { content: '✓'; }
+  .pacts .pmenu .mitem.lookfont { padding-left: 22px; }
   @media (max-width: 760px) {
     .mpbox, .npbox { top: 16px; }
     .mpbox { max-height: calc(100vh - 32px); }
@@ -523,6 +538,26 @@
   .ptitle { font-size: 40px; font-weight: 700; line-height: 48px; outline: none; border-radius: 4px; padding: 0 2px;
     overflow-wrap: anywhere; }
   .ptitle:focus { background: var(--hover); }
+  /* 0.15.0 PL-3（決めたこと 37）: ページの頭のアイコンは押せる button（見た目は今の頭のアイコンの規則のまま。button の地・線・余白を外す。その規則は D71 のまま） */
+  #pIcon { display: block; padding: 0; border: none; border-radius: 6px; background: transparent; color: inherit; font-family: inherit; cursor: pointer; }
+  #pIcon[hidden] { display: none; }
+  #pIcon:hover { background: var(--hover); }
+  #pIcon[aria-disabled="true"] { cursor: default; }
+  #pIcon[aria-disabled="true"]:hover { background: transparent; }
+  #pIcon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* 0.15.0 PL-3（決めたこと 39〜42・F120）: ページごとの見た目。#pageWrap の組だけで効く（サイドバー・タブ・上の帯・設定・録音中のページには効かない）。
+     全幅は列の 720px を外して左右 48px・小さい文字はページの中の字を約 1 段小さく・明朝と等幅は OS の書体だけ（色と明暗の語は変えない） */
+  #pageWrap.look-wide { padding-left: 48px; padding-right: 48px; }
+  #pageWrap.look-wide .pcol, #pageWrap.look-wide .mblock { max-width: none; }
+  #pageWrap.look-small #pTitle { font-size: 32px; line-height: 40px; }
+  #pageWrap.look-small .prop { font-size: 13px; }
+  #pageWrap.look-small .blk .txt { font-size: 14px; line-height: 22px; }
+  #pageWrap.look-small .blk.heading .txt { font-size: 18px; line-height: 24px; }
+  #pageWrap.look-small .blk.heading.h1 .txt { font-size: 22px; line-height: 30px; }
+  #pageWrap.look-small .blk.heading.h3 .txt { font-size: 15px; line-height: 22px; }
+  #pageWrap.look-small .seg { font-size: 13px; line-height: 22px; }
+  #pageWrap.look-serif, #pageWrap.look-serif #pTitle { font-family: "Yu Mincho", "BIZ UDMincho", "MS Mincho", serif; }
+  #pageWrap.look-mono, #pageWrap.look-mono #pTitle { font-family: "BIZ UDGothic", "Cascadia Mono", Consolas, monospace; }
   /* プロパティは「アイコン・名前・値」の行（.k に「灰色のアイコン（.ic） 名前」、.v に値）。要約タイプの行 #pTypeRow も同じ形 */
   .pprops { margin-top: 12px; }
   .prop { display: flex; align-items: center; gap: 8px; font-size: 14px; line-height: 21px; min-height: 34px; margin-bottom: 4px; padding: 0 2px; }
@@ -1145,7 +1180,7 @@
         <div class="page" id="pageWrap">
           <div class="phead">
             <div class="pcol">
-            <div class="picon" id="pIcon" aria-hidden="true">🎙️</div>
+            <button type="button" class="picon" id="pIcon" aria-label="アイコンを変える">🎙️</button>
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
             <div class="pprops" id="pProps"></div>
             <div class="prop" id="pTypeRow">
@@ -1239,6 +1274,14 @@
       <div class="mphead" id="trashPopHead">ゴミ箱</div>
       <div class="tpnote" id="trashNote">ゴミ箱のページは、戻すまで一覧と検索と Claude には出ません</div>
       <div class="mplist" id="trashList" role="list" aria-labelledby="trashPopHead"></div>
+    </div>
+  </div>
+  <!-- 0.15.0 PL-3（決めたこと 37）: アイコンの選び（探す欄・［外す］・最近使ったもの・分類の見出しと並び）。見た目は［移動先…］と同じ浮く部品。描くのは textContent だけ -->
+  <div class="movepop" id="iconPop" role="dialog" aria-modal="true" aria-labelledby="iconPopHead" hidden>
+    <div class="mpbox icbox">
+      <div class="mphead" id="iconPopHead">アイコン</div>
+      <div class="icbar"><input type="text" id="iconSearch" placeholder="名前やよみで探す" aria-label="アイコンを名前やよみで探す" autocomplete="off" spellcheck="false" /><button type="button" class="ghost" id="iconClear">外す</button></div>
+      <div class="mplist iclist" id="iconList"></div>
     </div>
   </div>
   </div>
@@ -2369,6 +2412,8 @@
   const tabTitles = new Map();   // ページの id → 題名（一覧・開いたページ・打ち替えた題名から）
   const isPageKey = (k) => typeof k === 'string' && k.startsWith('page:') && k.length > 5;
   const hasTab = (k) => openTabs.some((t) => t.key === k);
+  // 0.15.0 PL-3: ページのタブのアイコン（一覧の行か開いているページ。無ければ既定）
+  function tabIcon(id) { return pageEmoji(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null)); }
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
     if (k === 'live') return readyNow() ? '新しい議事録' : mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';   // 0.13.0 RDY-2（RT1）: 録音の前のページ
@@ -2397,6 +2442,7 @@
       el.setAttribute('aria-selected', key === activeTab ? 'true' : 'false');
       el.tabIndex = key === reach ? 0 : -1;   // 選んでいるタブだけ Tab で届く（ほかは ←／→）
       const t = document.createElement('span'); t.className = 'tt'; t.textContent = tabLabel(key);
+      if (isPageKey(key)) t.setAttribute('data-icon', tabIcon(key.slice(5)));   // 0.15.0 PL-3（決めたこと 38）: ページのタブの頭のアイコン（CSS の ::before が attr で描く）
       el.title = tabLabel(key);
       const x = document.createElement('button');
       x.type = 'button'; x.className = 'tx'; x.textContent = '×'; x.tabIndex = key === reach ? 0 : -1;   // 選んでいるタブの × だけ Tab で届く
@@ -2701,7 +2747,9 @@
       try { st = await window.koeApp.uiState(); } catch (_) { st = null; }
       const tb = st && st.tabs;
       if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);
-      slashRecent = recentCheck(st && st.slashRecent);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
+      slashRecent = recentCheck(st && st.slashRecent);
+      // 0.15.0 PL-3（決めたこと 37）: アイコンの選びの最近使ったもの（main が照らした値。辞書に無い値はここでも落とす）
+      if (st && Array.isArray(st.emojiRecent)) iconRecent = st.emojiRecent.filter((e) => emojiView.isPageIcon(e)).slice(0, ICON_RECENT_MAX);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
       // 0.15.0 PH-3（決めたこと 19）: サイドバーの木の開け閉め（main が今あるページだけに絞って渡す）。届く前に開け閉めしていたら上書きしない
       const to = st && st.tree && Array.isArray(st.tree.open) ? st.tree.open : null;
       if (to && !treeTouched) { treeOpen = new Set(to.filter((id) => typeof id === 'string').slice(-TREE_OPEN_MAX)); renderList(); }   // PH-3 直し（R28 (2)）: 新しい 500 個
@@ -3157,6 +3205,631 @@
     return { pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, pageDropSpot, placeText };
   })();
   // ---- pageTree の写しはここまで
+  // ---- emojiDict の写し（0.15.0 PL-3。src/emojiDict.js の CATS から pageIconOf まで。字は同じで、行の頭に4つの空白を足した。
+  // 画面は部品を読めないので写す。test/stage150.look.app.test.js が字と答えを照らす。辞書の名前とよみは NaTsu が書いたもの: R68）
+  const emojiView = (() => {
+    const CATS = Object.freeze([
+      { key: 'face', label: '顔' },
+      { key: 'people', label: '人と手' },
+      { key: 'nature', label: '動物と自然' },
+      { key: 'food', label: '食べ物' },
+      { key: 'activity', label: '活動' },
+      { key: 'travel', label: '旅と場所' },
+      { key: 'thing', label: '物' },
+      { key: 'symbol', label: '記号' },
+    ].map((c) => Object.freeze(c)));
+
+    // 辞書の元の表（分類ごとに「絵文字 名前 よみ」の1行。名前とよみに空白は無い）
+    const TABLE = {
+      face: `
+    😀 笑顔 えがお
+    😃 大笑い おおわらい
+    😄 満面の笑み まんめんのえみ
+    😁 歯を見せて笑う はをみせてわらう
+    😆 目を閉じて笑う めをとじてわらう
+    😅 冷や汗の笑顔 ひやあせのえがお
+    🤣 笑い転げる わらいころげる
+    😂 うれし泣き うれしなき
+    🙂 ほほえみ ほほえみ
+    😉 ウインク ういんく
+    😊 照れ笑い てれわらい
+    😇 天使の顔 てんしのかお
+    🥰 大好きの顔 だいすきのかお
+    😍 目がハート めがはーと
+    🤩 きらきらの目 きらきらのめ
+    😘 投げキス なげきす
+    😋 おいしい顔 おいしいかお
+    😜 ふざけた顔 ふざけたかお
+    🤗 ハグ はぐ
+    🤫 静かに しずかに
+    🤔 考える かんがえる
+    🤐 口にチャック くちにちゃっく
+    😐 無表情 むひょうじょう
+    😏 にやり にやり
+    🙄 目を上に向ける めをうえにむける
+    😬 気まずい きまずい
+    😌 ほっとする ほっとする
+    😔 しょんぼり しょんぼり
+    😪 眠い ねむい
+    😴 寝ている ねている
+    😷 マスク ますく
+    🤒 熱がある ねつがある
+    🤕 頭にけが あたまにけが
+    🤢 気分が悪い きぶんがわるい
+    🤧 くしゃみ くしゃみ
+    🥵 暑い あつい
+    😵 目が回る めがまわる
+    🤯 頭が爆発 あたまがばくはつ
+    🥳 お祝い おいわい
+    😎 サングラスの顔 さんぐらすのかお
+    🧐 じっくり見る じっくりみる
+    😕 困った顔 こまったかお
+    😟 心配 しんぱい
+    😮 口を開ける くちをあける
+    😲 驚き おどろき
+    😳 赤面 せきめん
+    🥺 お願いの顔 おねがいのかお
+    😢 涙 なみだ
+    😭 大泣き おおなき
+    😱 恐怖 きょうふ
+    😞 がっかり がっかり
+    😓 冷や汗 ひやあせ
+    😩 疲れた つかれた
+    😡 怒り いかり
+    🤬 激怒 げきど
+    😈 小悪魔 こあくま
+    💀 どくろ どくろ
+    🤡 ピエロ ぴえろ
+    👻 おばけ おばけ
+    👽 宇宙人 うちゅうじん
+    🤖 ロボット ろぼっと
+    😺 笑う猫 わらうねこ
+    🙈 見ざる みざる
+    🙉 聞かざる きかざる
+    🙊 言わざる いわざる
+    `,
+      people: `
+    👋 手を振る てをふる
+    ✋ 手のひら てのひら
+    🖐️ 開いた手 ひらいたて
+    👌 オーケー おーけー
+    ✌️ ピース ぴーす
+    🤞 指を重ねる ゆびをかさねる
+    🤘 ロックの手 ろっくのて
+    🤙 電話してね でんわしてね
+    👈 左を指す ひだりをさす
+    👉 右を指す みぎをさす
+    👆 上を指す うえをさす
+    👇 下を指す したをさす
+    ☝️ 人さし指 ひとさしゆび
+    👍 いいね いいね
+    👎 よくない よくない
+    ✊ こぶし こぶし
+    👊 パンチ ぱんち
+    👏 拍手 はくしゅ
+    🙌 ばんざい ばんざい
+    👐 両手を広げる りょうてをひろげる
+    🤝 握手 あくしゅ
+    🙏 お願いします おねがいします
+    ✍️ 書く かく
+    💪 力こぶ ちからこぶ
+    👂 耳 みみ
+    👃 鼻 はな
+    🧠 脳 のう
+    👀 目 め
+    👄 口 くち
+    👶 赤ちゃん あかちゃん
+    🧒 子ども こども
+    👦 男の子 おとこのこ
+    👧 女の子 おんなのこ
+    🧑 人 ひと
+    👨 男の人 おとこのひと
+    👩 女の人 おんなのひと
+    👴 おじいさん おじいさん
+    👵 おばあさん おばあさん
+    🙋 手を挙げる てをあげる
+    🙆 丸の人 まるのひと
+    🙅 ばつの人 ばつのひと
+    💁 案内する あんないする
+    🙇 お辞儀 おじぎ
+    🤦 頭を抱える あたまをかかえる
+    🤷 肩をすくめる かたをすくめる
+    👮 警察官 けいさつかん
+    👷 作業員 さぎょういん
+    🕵️ 探偵 たんてい
+    👸 お姫さま おひめさま
+    🤴 王子さま おうじさま
+    🧙 魔法使い まほうつかい
+    🎅 サンタクロース さんたくろーす
+    🦸 ヒーロー ひーろー
+    🚶 歩く人 あるくひと
+    🏃 走る人 はしるひと
+    💃 踊る人 おどるひと
+    🧘 瞑想 めいそう
+    🛌 眠る人 ねむるひと
+    👫 二人 ふたり
+    👪 家族 かぞく
+    🗣️ 話す人 はなすひと
+    👤 人の影 ひとのかげ
+    👥 人々 ひとびと
+    👣 足あと あしあと
+    `,
+      nature: `
+    🐶 犬 いぬ
+    🐱 猫 ねこ
+    🐰 うさぎ うさぎ
+    🦊 きつね きつね
+    🐻 くま くま
+    🐼 パンダ ぱんだ
+    🐯 とら とら
+    🦁 ライオン らいおん
+    🐮 牛 うし
+    🐷 豚 ぶた
+    🐸 かえる かえる
+    🐔 にわとり にわとり
+    🐧 ペンギン ぺんぎん
+    🐦 小鳥 ことり
+    🦉 ふくろう ふくろう
+    🐴 馬 うま
+    🦄 ユニコーン ゆにこーん
+    🐝 みつばち みつばち
+    🦋 ちょう ちょう
+    🐞 てんとう虫 てんとうむし
+    🐢 かめ かめ
+    🐙 たこ たこ
+    🐟 魚 さかな
+    🐬 いるか いるか
+    🐳 くじら くじら
+    🦈 さめ さめ
+    🐘 ぞう ぞう
+    🐑 ひつじ ひつじ
+    🐾 動物の足あと どうぶつのあしあと
+    🐉 竜 りゅう
+    🌵 サボテン さぼてん
+    🌲 もみの木 もみのき
+    🌳 木 き
+    🌴 ヤシの木 やしのき
+    🌱 芽生え めばえ
+    🌿 葉っぱ はっぱ
+    🍀 四つ葉 よつば
+    🍂 落ち葉 おちば
+    🍁 もみじ もみじ
+    🍄 きのこ きのこ
+    🌾 稲穂 いなほ
+    💐 花束 はなたば
+    🌷 チューリップ ちゅーりっぷ
+    🌹 バラ ばら
+    🌺 ハイビスカス はいびすかす
+    🌸 桜 さくら
+    🌼 小さな花 ちいさなはな
+    🌻 ひまわり ひまわり
+    🌙 三日月 みかづき
+    🌕 満月 まんげつ
+    ⭐ 星 ほし
+    🌟 輝く星 かがやくほし
+    ✨ きらきら きらきら
+    ⚡ 雷 かみなり
+    🔥 炎 ほのお
+    🌈 虹 にじ
+    ☀️ 晴れ はれ
+    ⛅ 晴れときどきくもり はれときどきくもり
+    ☁️ 雲 くも
+    🌧️ 雨 あめ
+    ⛈️ 雷雨 らいう
+    ❄️ 雪の結晶 ゆきのけっしょう
+    ☃️ 雪だるま ゆきだるま
+    🌊 波 なみ
+    💧 しずく しずく
+    🌍 地球 ちきゅう
+    `,
+      food: `
+    🍎 りんご りんご
+    🍊 みかん みかん
+    🍋 レモン れもん
+    🍌 バナナ ばなな
+    🍉 すいか すいか
+    🍇 ぶどう ぶどう
+    🍓 いちご いちご
+    🍒 さくらんぼ さくらんぼ
+    🍍 パイナップル ぱいなっぷる
+    🍅 トマト とまと
+    🥑 アボカド あぼかど
+    🥦 ブロッコリー ぶろっこりー
+    🌶️ とうがらし とうがらし
+    🌽 とうもろこし とうもろこし
+    🥕 にんじん にんじん
+    🥔 じゃがいも じゃがいも
+    🥐 クロワッサン くろわっさん
+    🍞 食パン しょくぱん
+    🧀 チーズ ちーず
+    🥚 たまご たまご
+    🍳 目玉焼き めだまやき
+    🥞 パンケーキ ぱんけーき
+    🍗 チキン ちきん
+    🍖 骨付き肉 ほねつきにく
+    🍔 ハンバーガー はんばーがー
+    🍟 フライドポテト ふらいどぽてと
+    🍕 ピザ ぴざ
+    🥪 サンドイッチ さんどいっち
+    🍝 パスタ ぱすた
+    🍜 ラーメン らーめん
+    🍲 鍋 なべ
+    🍛 カレー かれー
+    🍣 寿司 すし
+    🍱 お弁当 おべんとう
+    🍙 おにぎり おにぎり
+    🍚 ごはん ごはん
+    🍡 だんご だんご
+    🍤 えびフライ えびふらい
+    🥟 ぎょうざ ぎょうざ
+    🍦 ソフトクリーム そふとくりーむ
+    🍧 かき氷 かきごおり
+    🍩 ドーナツ どーなつ
+    🍪 クッキー くっきー
+    🎂 誕生日のケーキ たんじょうびのけーき
+    🍰 ケーキ けーき
+    🍫 チョコレート ちょこれーと
+    🍬 キャンディ きゃんでぃ
+    🍮 プリン ぷりん
+    🍯 はちみつ はちみつ
+    🥛 牛乳 ぎゅうにゅう
+    ☕ コーヒー こーひー
+    🍵 お茶 おちゃ
+    🍶 日本酒 にほんしゅ
+    🍺 ビール びーる
+    🍻 乾杯 かんぱい
+    🍷 ワイン わいん
+    🍸 カクテル かくてる
+    🥤 ジュース じゅーす
+    🍴 ナイフとフォーク ないふとふぉーく
+    🥢 はし はし
+    `,
+      activity: `
+    ⚽ サッカー さっかー
+    ⚾ 野球 やきゅう
+    🏀 バスケットボール ばすけっとぼーる
+    🏐 バレーボール ばれーぼーる
+    🏈 アメフト あめふと
+    🎾 テニス てにす
+    🏸 バドミントン ばどみんとん
+    🏓 卓球 たっきゅう
+    ⛳ ゴルフ ごるふ
+    🎣 釣り つり
+    🥊 ボクシング ぼくしんぐ
+    🎿 スキー すきー
+    🏂 スノーボード すのーぼーど
+    🚴 自転車に乗る じてんしゃにのる
+    🏊 水泳 すいえい
+    🏄 サーフィン さーふぃん
+    🏆 トロフィー とろふぃー
+    🥇 金メダル きんめだる
+    🥈 銀メダル ぎんめだる
+    🥉 銅メダル どうめだる
+    🏅 メダル めだる
+    🎫 チケット ちけっと
+    🎪 サーカス さーかす
+    🎭 演劇 えんげき
+    🎨 絵の具 えのぐ
+    🎬 映画の撮影 えいがのさつえい
+    🎤 マイク まいく
+    🎧 ヘッドホン へっどほん
+    🎼 楽譜 がくふ
+    🎹 ピアノ ぴあの
+    🥁 ドラム どらむ
+    🎷 サックス さっくす
+    🎺 トランペット とらんぺっと
+    🎸 ギター ぎたー
+    🎻 バイオリン ばいおりん
+    🎲 サイコロ さいころ
+    ♟️ チェス ちぇす
+    🎯 的 まと
+    🎳 ボウリング ぼうりんぐ
+    🎮 ゲーム げーむ
+    🧩 パズル ぱずる
+    🎉 クラッカー くらっかー
+    🎊 くす玉 くすだま
+    🎈 風船 ふうせん
+    🎁 プレゼント ぷれぜんと
+    🎀 リボン りぼん
+    🎆 花火 はなび
+    🎃 かぼちゃのランタン かぼちゃのらんたん
+    🎄 クリスマスツリー くりすますつりー
+    🎍 門松 かどまつ
+    🎋 七夕の笹 たなばたのささ
+    🎎 ひな人形 ひなにんぎょう
+    🎏 こいのぼり こいのぼり
+    🎐 風鈴 ふうりん
+    🎑 お月見 おつきみ
+    🧧 お年玉 おとしだま
+    `,
+      travel: `
+    🚗 車 くるま
+    🚕 タクシー たくしー
+    🚌 バス ばす
+    🚓 パトカー ぱとかー
+    🚑 救急車 きゅうきゅうしゃ
+    🚒 消防車 しょうぼうしゃ
+    🚚 トラック とらっく
+    🚲 自転車 じてんしゃ
+    🛵 スクーター すくーたー
+    🚃 電車 でんしゃ
+    🚄 新幹線 しんかんせん
+    🚇 地下鉄 ちかてつ
+    🚉 駅 えき
+    ✈️ 飛行機 ひこうき
+    🛫 出発 しゅっぱつ
+    🛬 到着 とうちゃく
+    🚁 ヘリコプター へりこぷたー
+    🚀 ロケット ろけっと
+    ⛵ ヨット よっと
+    🚢 船 ふね
+    ⚓ いかり いかり
+    ⛽ ガソリンスタンド がそりんすたんど
+    🚧 工事中 こうじちゅう
+    🚦 信号 しんごう
+    🗺️ 地図 ちず
+    🗾 日本地図 にほんちず
+    🧭 方位磁針 ほういじしん
+    ⛰️ 山 やま
+    🗻 富士山 ふじさん
+    🏕️ キャンプ きゃんぷ
+    🏖️ 浜辺 はまべ
+    🏝️ 島 しま
+    🏞️ 公園 こうえん
+    🏟️ スタジアム すたじあむ
+    🏠 家 いえ
+    🏡 庭のある家 にわのあるいえ
+    🏢 ビル びる
+    🏣 郵便局 ゆうびんきょく
+    🏥 病院 びょういん
+    🏦 銀行 ぎんこう
+    🏨 ホテル ほてる
+    🏪 コンビニ こんびに
+    🏫 学校 がっこう
+    🏬 デパート でぱーと
+    🏭 工場 こうじょう
+    🏯 城 しろ
+    🗼 タワー たわー
+    ⛩️ 神社 じんじゃ
+    ⛲ 噴水 ふんすい
+    ⛺ テント てんと
+    🌃 夜景 やけい
+    🏙️ 街並み まちなみ
+    🌅 日の出 ひので
+    🌇 夕焼け ゆうやけ
+    🌉 夜の橋 よるのはし
+    🎡 観覧車 かんらんしゃ
+    🎢 ジェットコースター じぇっとこーすたー
+    🌐 世界 せかい
+    `,
+      thing: `
+    📄 書類 しょるい
+    📝 メモ めも
+    📋 クリップボード くりっぷぼーど
+    📁 フォルダ ふぉるだ
+    📂 開いたフォルダ ひらいたふぉるだ
+    🗂️ 仕切りの書類入れ しきりのしょるいいれ
+    📅 カレンダー かれんだー
+    🗓️ 予定表 よていひょう
+    📈 上がるグラフ あがるぐらふ
+    📊 棒グラフ ぼうぐらふ
+    📌 画びょう がびょう
+    📍 ピン ぴん
+    📎 クリップ くりっぷ
+    📏 定規 じょうぎ
+    ✂️ はさみ はさみ
+    🖊️ ペン ぺん
+    ✏️ 鉛筆 えんぴつ
+    📒 ノート のーと
+    📕 赤い本 あかいほん
+    📘 青い本 あおいほん
+    📚 本の山 ほんのやま
+    📖 開いた本 ひらいたほん
+    🔖 しおり しおり
+    📰 新聞 しんぶん
+    ✉️ 封筒 ふうとう
+    📧 メール めーる
+    📦 荷物 にもつ
+    📮 ポスト ぽすと
+    💼 かばん かばん
+    🎒 リュック りゅっく
+    👓 めがね めがね
+    👔 ネクタイ ねくたい
+    👕 Tシャツ てぃーしゃつ
+    👗 ワンピース わんぴーす
+    👟 運動ぐつ うんどうぐつ
+    💎 宝石 ほうせき
+    📱 スマホ すまほ
+    ☎️ 電話 でんわ
+    🔋 電池 でんち
+    💻 ノートパソコン のーとぱそこん
+    🖥️ パソコン ぱそこん
+    ⌨️ キーボード きーぼーど
+    📷 カメラ かめら
+    📺 テレビ てれび
+    🎙️ スタジオマイク すたじおまいく
+    ⏰ 目覚まし時計 めざましどけい
+    ⌚ 腕時計 うでどけい
+    ⏳ 砂時計 すなどけい
+    💡 電球 でんきゅう
+    💰 お金の袋 おかねのふくろ
+    💳 カード かーど
+    🧾 レシート れしーと
+    ⚖️ てんびん てんびん
+    🔧 スパナ すぱな
+    🔨 かなづち かなづち
+    🛠️ 工具 こうぐ
+    ⚙️ 歯車 はぐるま
+    🧰 道具箱 どうぐばこ
+    📡 アンテナ あんてな
+    💊 薬 くすり
+    🧪 試験管 しけんかん
+    🔑 かぎ かぎ
+    🔒 錠 じょう
+    🔓 開いた錠 ひらいたじょう
+    🚪 ドア どあ
+    🛏️ ベッド べっど
+    🛋️ ソファ そふぁ
+    🧹 ほうき ほうき
+    🛒 買い物カート かいものかーと
+    🧸 くまのぬいぐるみ くまのぬいぐるみ
+    🔍 虫めがね むしめがね
+    📢 拡声器 かくせいき
+    📣 メガホン めがほん
+    🔔 ベル べる
+    🏮 ちょうちん ちょうちん
+    `,
+      symbol: `
+    ❤️ 赤いハート あかいはーと
+    🧡 だいだい色のハート だいだいいろのはーと
+    💛 黄色いハート きいろいはーと
+    💚 緑のハート みどりのはーと
+    💙 青いハート あおいはーと
+    💜 紫のハート むらさきのはーと
+    🖤 黒いハート くろいはーと
+    💔 割れたハート われたはーと
+    💕 ふたつのハート ふたつのはーと
+    💯 百点 ひゃくてん
+    💢 怒りの印 いかりのしるし
+    💥 衝突 しょうとつ
+    💫 めまい めまい
+    💦 汗のしずく あせのしずく
+    💨 ダッシュ だっしゅ
+    💬 吹き出し ふきだし
+    💭 考え中 かんがえちゅう
+    💤 ぐうぐう ぐうぐう
+    ✅ 済み すみ
+    ☑️ チェック欄 ちぇっくらん
+    ✔️ チェック ちぇっく
+    ❌ ばつ ばつ
+    ➕ 足す たす
+    ➖ 引く ひく
+    ❓ 疑問 ぎもん
+    ❗ 注意 ちゅうい
+    ⚠️ 警告 けいこく
+    🚫 禁止 きんし
+    ⛔ 進入禁止 しんにゅうきんし
+    ♻️ リサイクル りさいくる
+    🔰 初心者の印 しょしんしゃのしるし
+    ⭕ 丸 まる
+    🔴 赤い丸 あかいまる
+    🔵 青い丸 あおいまる
+    ⚫ 黒い丸 くろいまる
+    ⚪ 白い丸 しろいまる
+    🔶 だいだい色のひし形 だいだいいろのひしがた
+    🔷 青いひし形 あおいひしがた
+    🔺 赤い三角 あかいさんかく
+    ⬆️ 上の矢印 うえのやじるし
+    ⬇️ 下の矢印 したのやじるし
+    ⬅️ 左の矢印 ひだりのやじるし
+    ➡️ 右の矢印 みぎのやじるし
+    ↩️ 戻る もどる
+    🔄 くり返し くりかえし
+    ▶️ 再生 さいせい
+    ⏸️ 一時停止 いちじていし
+    ⏩ 早送り はやおくり
+    🔊 音量 おんりょう
+    🎵 音符 おんぷ
+    🎶 メロディ めろでぃ
+    🆕 新しい あたらしい
+    🆓 無料 むりょう
+    🆘 助けて たすけて
+    ㊗️ 祝 いわい
+    🔜 もうすぐ もうすぐ
+    ♾️ 無限 むげん
+    🔢 数字 すうじ
+    ℹ️ 情報 じょうほう
+    ♿ 車いす くるまいす
+    📶 電波 でんぱ
+    🔆 明るさ あかるさ
+    `,
+    };
+
+    // [{ e, n, y, c }]（e: 絵文字・n: 名前・y: よみ・c: 分類の key）。並びは分類の順・表の順
+    const EMOJI = Object.freeze(Object.entries(TABLE).flatMap(([c, text]) => text.trim().split('\n').map((line) => {
+      const [e, n, y] = line.trim().split(/\s+/);
+      return Object.freeze({ e, n, y, c });
+    })));
+    const BY_E = new Set(EMOJI.map((x) => x.e));
+
+    // 既定のアイコン（決めたこと 36。icon が無ければ議事録は 🎙️・白紙のページは 📄）
+    const DEFAULT_ICON = Object.freeze({ meeting: '🎙️', blank: '📄' });
+
+    // 辞書の絵文字（ちょうどその1つ）か。書記素が1つでないもの・文・辞書に無い絵文字は偽
+    function isPageIcon(v) {
+      return typeof v === 'string' && v !== '' && BY_E.has(v);
+    }
+
+    // 探す語と名前を寄せる: 全角と半角（NFKC）・英字の大小・カタカナをひらがなに・空白を除く
+    function fold(s) {
+      return String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
+    }
+    const FOLDED = EMOJI.map((x) => ({ e: x.e, keys: [fold(x.n), x.y] }));
+
+    // 名前とよみで探す → [e]（前方一致が先・どちらも辞書の順。空の語は []）
+    function findEmoji(q) {
+      const k = fold(q);
+      if (!k) return [];
+      const head = [];
+      const part = [];
+      for (const x of FOLDED) {
+        if (x.keys.some((s) => s.startsWith(k))) head.push(x.e);
+        else if (x.keys.some((s) => s.includes(k))) part.push(x.e);
+      }
+      return [...head, ...part];
+    }
+
+    // 一覧の1行（か、ページ）のアイコン: icon が辞書の絵文字ならそれ、無ければ（'' も辞書に無い値も）kind の既定（決めたこと 36・38）
+    function pageIconOf(entry) {
+      if (entry && isPageIcon(entry.icon)) return entry.icon;
+      return entry && entry.kind === 'blank' ? DEFAULT_ICON.blank : DEFAULT_ICON.meeting;
+    }
+    return { CATS, EMOJI, DEFAULT_ICON, isPageIcon, findEmoji, pageIconOf, fold };
+  })();
+  // ---- emojiDict の写しはここまで
+  // ---- pageLook の写し（0.15.0 PL-3。src/pageLook.js の FONTS から lookClasses まで。字は同じで、行の頭に4つの空白を足した）
+  const lookView = (() => {
+    const FONTS = Object.freeze(['serif', 'mono']);
+    const KEYS = Object.freeze(['wide', 'small', 'font']);
+
+    const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+    const bad = (what) => { const e = new Error(`見た目の形が違う: ${what}`); e.code = 'bad-look'; return e; };
+
+    // 照らして決まった形にする → { wide?, small?, font? }（並びは wide・small・font）。外れれば投げる
+    function normalizeLook(v) {
+      if (!isObj(v)) throw bad('物でない');
+      for (const k of Object.keys(v)) if (!KEYS.includes(k)) throw bad(`知らない欄 ${k.slice(0, 20)}`);
+      const out = {};
+      for (const k of ['wide', 'small']) {
+        if (v[k] === undefined) continue;
+        if (v[k] !== true) throw bad(`${k} は true だけ`);
+        out[k] = true;
+      }
+      if (v.font !== undefined) {
+        if (!FONTS.includes(v.font)) throw bad('決まった書体でない');
+        out.font = v.font;
+      }
+      return out;
+    }
+
+    // 既定の見た目（全部無し）か（DB は欄ごと消す: 決めたこと 39・PL-2）
+    function isPlainLook(look) {
+      return isObj(look) && Object.keys(look).length === 0;
+    }
+
+    // 見た目の class（照らせない値は []）→ ['look-wide', 'look-small', 'look-serif' | 'look-mono'] の部分集合
+    function lookClasses(look) {
+      let l;
+      try { l = normalizeLook(look); } catch (_) { return []; }
+      const out = [];
+      if (l.wide) out.push('look-wide');
+      if (l.small) out.push('look-small');
+      if (l.font) out.push(`look-${l.font}`);
+      return out;
+    }
+    return { FONTS, normalizeLook, isPlainLook, lookClasses };
+  })();
+  // ---- pageLook の写しはここまで
   // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
   function rowTitle(p) {
     // PH-6・PH-7 直し（2026-11-04 の持ち主の答え「日付だけにする」・F116）: 白紙のページは日付だけ（長さ・要約なし・種類は会議の欄）
@@ -3486,7 +4159,7 @@
   // 満杯の本文の知らせも同じ: R38・R51。親だけを選ぶので本文の行は新しい親の本文の最後: 決めたこと 45・48）、Esc で閉じてフォーカスを戻す。探す語は覚えない
   const MOVE_TOP = 'いちばん上へ';
   const MOVE_SHOW_MAX = 200;   // 描く候補の数（探す語で絞る）
-  function popOpen() { return Boolean(movePop) || newPopOn || trashOn; }   // PH-6: ゴミ箱の窓も   // PH-5 直し 2（R56 I-1）: ［移動先…］か「新しいページ」の窓が開いている
+  function popOpen() { return Boolean(movePop) || newPopOn || trashOn || iconPopOn; }   // 0.15.0 PL-3: アイコンの選びも   // PH-6: ゴミ箱の窓も   // PH-5 直し 2（R56 I-1）: ［移動先…］か「新しいページ」の窓が開いている
   let movePop = null;          // 開いているとき { id, from（戻すフォーカス）, tree（木の行から開いたらその ID）, cands, rows, at }
   const moveFold = (s) => String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
   function moveCands(id) {
@@ -3665,6 +4338,7 @@
   $('newPop').addEventListener('mousedown', (ev) => { if (keepPopFocus(ev, [])) ev.preventDefault(); });
   document.addEventListener('keydown', (ev) => {
     if (trashOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も開かない
+    if (iconPopOn) return;   // 0.15.0 PL-3: アイコンの選びの間も開かない
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || regenAsking) return;   // Ctrl+Shift+N: 変換中・設定・検索・［移動先…］・確かめの間は開かない
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
     if (!(ev.code === 'KeyN' || String(ev.key).toLowerCase() === 'n')) return;
@@ -3674,6 +4348,7 @@
   // Ctrl+Shift+U（決めたこと 26・K-31）: 開いているページの親のページへ（今のタブ）。いちばん上のページでは何もしない
   document.addEventListener('keydown', (ev) => {
     if (trashOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も何もしない
+    if (iconPopOn) return;   // 0.15.0 PL-3: アイコンの選びの間も何もしない
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || newPopOn || regenAsking) return;
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
     if (!(ev.code === 'KeyU' || String(ev.key).toLowerCase() === 'u')) return;
@@ -3795,7 +4470,7 @@
     for (const p of hits) {
       const el = document.createElement('div');
       el.className = 'pitem' + (p.id === curId ? ' sel' : '');
-      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = '🎙️';
+      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p);   // 0.15.0 PL-3（決めたこと 33・38）: ページのアイコン
       const pb = document.createElement('div'); pb.className = 'pb';
       const t = document.createElement('div'); t.className = 't'; t.textContent = p.title;
       const m = document.createElement('div'); m.className = 'm';
@@ -4009,7 +4684,8 @@
   // 0.15.0 PH-4（決めたこと 24・36）: 白紙のページ（ページの kind が 'blank'。一覧の行の kind も同じ）。アイコンは今は既定だけ（議事録 🎙️・白紙のページ 📄。選べるのは PL-3）
   // （描く関数は script の上の方からも呼ばれるので、どれも巻き上がる関数の宣言にする）
   function isBlankPage(p) { return Boolean(p && typeof p === 'object' && p.kind === 'blank'); }
-  function pageEmoji(p) { return isBlankPage(p) ? '📄' : '🎙️'; }
+  // 0.15.0 PL-3（決めたこと 36・38）: どこのアイコンも一覧の1行（かページ）の icon と kind から pageIconOf の1つで決める（辞書に無い値・無い値は既定）
+  function pageEmoji(p) { return emojiView.pageIconOf(p); }
   function blankUntitled() { return '無題のページ'; }   // 無題の白紙のページの名前と題名の欄の手引き（議事録の「(無題の議事録)」は変えない）
   // 0.10.0 LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵。src/mainlib.js の summaryLock の写し（repo が同じ表を両方に当てる）。
   // 上から順に見て、最初に当たった行の符号（鍵なしは ''）。making は画面の［要約を生成］の最中と、main が知らせる自動の要約の最中
@@ -4136,6 +4812,8 @@
     const blank = isBlankPage(curPage);
     $('pageWrap').classList.toggle('blank', blank);
     $('pIcon').textContent = pageEmoji(curPage);
+    applyLook(curPage);   // 0.15.0 PL-3（決めたこと 41）: ページを替えたら前のページの見た目を外す
+    syncIconBtn();
     if (blank) $('pTitle').setAttribute('data-ph', blankUntitled()); else $('pTitle').removeAttribute('data-ph');
     if (!curPage) {
       $('pTitle').textContent = '';
@@ -4241,6 +4919,7 @@
         await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
       }, false, true);
       mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない
+      lookMenuItems(mk);   // 0.15.0 PL-3（決めたこと 40）: 見た目（議事録にも白紙のページにも。録音中の写しには出さない: R71）
     }
     mk('削除', () => deletePageFlow(curId), false, true);
 
@@ -4382,6 +5061,205 @@
   };
   $('trashPop').onclick = (ev) => { if (ev && ev.target === $('trashPop')) closeTrash(true); };   // 後ろの全面を押すと閉じる
   $('trashPop').addEventListener('mousedown', (ev) => { if (!(ev && ev.target && ev.target.tagName === 'BUTTON') && keepPopFocus(ev, [$('trashPop'), $('trashList')])) ev.preventDefault(); });
+  // ---------------- 0.15.0 PL-3（計画 docs/plans/2026-11-03-150.md の決めたこと 35〜38・F119）: アイコンの選び（#iconPop）
+  // ページの頭のアイコン（#pIcon。button）を押すと開く。探す欄（名前とよみ。ひらがなとカタカナ・全角と半角・英字の大小を寄せる: emojiView.findEmoji）・
+  // ［外す］（pageSetIcon(id, '')。既定に戻る）・［最近使ったもの］（24 まで。window-state.json の emojiRecent）・分類の見出しと 10 列の並び。
+  // ↑↓←→ で選び Enter・押すで pageSetIcon の1回。Esc と後ろの全面で閉じてフォーカスを #pIcon へ。描くのは textContent だけ。
+  // 録音中の写し（R71: DB が断る）と録音中のページでは開かない（#pIcon は aria-disabled）
+  const ICON_COLS = 10;
+  const ICON_RECENT_MAX = 24;
+  const ICON_NONE = '当てはまるアイコンはありません';
+  let iconRecent = [];
+  let iconPop = null;   // 開いているとき { id, at }
+  let iconPopOn = false;
+  const iconOpts = () => [...$('iconList').querySelectorAll('.icopt')];
+  function iconLocked() { return !curPage || isLiveCopy(curPage); }   // 巻き上がる宣言（renderPage から呼ぶ）。記録中のタブ・録音の前のページでは curPage が null（showLive）
+  function syncIconBtn() {
+    const b = $('pIcon');
+    if (iconLocked()) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
+  }
+  function iconButton(e, name, cur) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'icopt' + (e === cur ? ' on' : ''); b.tabIndex = -1;
+    b.textContent = e;
+    b.title = name; b.setAttribute('aria-label', name);
+    b.dataset.e = e;
+    b.onclick = () => pickIcon(e);
+    b.onkeydown = iconKey;   // 受け口は部品ごと（偽 DOM は泡立たない。本物の窓でも1回だけ）
+    return b;
+  }
+  function renderIconList() {
+    const box = $('iconList');
+    box.textContent = '';
+    const cur = curPage && emojiView.isPageIcon(curPage.icon) ? curPage.icon : '';
+    const nameOf = new Map(emojiView.EMOJI.map((x) => [x.e, x.n]));
+    const section = (label, list) => {
+      const h = document.createElement('div'); h.className = 'ichead'; h.textContent = label;
+      const g = document.createElement('div'); g.className = 'icgrid'; g.setAttribute('role', 'group'); g.setAttribute('aria-label', label);
+      for (const e of list) g.appendChild(iconButton(e, nameOf.get(e) || e, cur));
+      box.append(h, g);
+    };
+    const q = $('iconSearch').value;
+    if (q.trim()) {
+      const hits = emojiView.findEmoji(q);
+      if (hits.length) section('見つかったもの', hits);
+      else { const d = document.createElement('div'); d.className = 'icnone'; d.textContent = ICON_NONE; box.appendChild(d); }
+    } else {
+      const recent = iconRecent.filter((e) => emojiView.isPageIcon(e));
+      if (recent.length) section('最近使ったもの', recent);
+      for (const c of emojiView.CATS) section(c.label, emojiView.EMOJI.filter((x) => x.c === c.key).map((x) => x.e));
+    }
+    const opts = iconOpts();
+    if (iconPop) iconPop.at = Math.max(0, Math.min(iconPop.at, opts.length - 1));
+    opts.forEach((b, i) => { b.tabIndex = iconPop && i === iconPop.at ? 0 : -1; });
+  }
+  function openIconPop() {
+    if (iconPopOn || iconLocked() || popOpen()) return;
+    iconPop = { id: curId, at: 0 };
+    iconPopOn = true;
+    $('iconSearch').value = '';
+    $('iconPop').hidden = false;   // 先に見せてから欄にフォーカス（R59）
+    renderIconList();
+    $('iconSearch').focus();
+  }
+  function closeIconPop(back) {
+    if (!iconPopOn) return;
+    iconPopOn = false; iconPop = null;
+    $('iconPop').hidden = true;
+    $('iconList').textContent = '';
+    if (back) focusAlive($('pIcon'), $('pTitle'));
+  }
+  async function pickIcon(e) {
+    const id = iconPop && iconPop.id;
+    if (!id) return;
+    closeIconPop(true);
+    let r = null;
+    try { r = await window.koeApp.pageSetIcon(id, e); } catch (_) { r = null; }
+    if (!r || typeof r !== 'object') { toast('アイコンを変えられませんでした。'); return; }
+    if (e) { iconRecent = [e, ...iconRecent.filter((x) => x !== e)].slice(0, ICON_RECENT_MAX); saveUi({ emojiRecent: iconRecent }); }
+    if (curId === id && curPage) {
+      if (typeof r.icon === 'string' && r.icon) curPage.icon = r.icon; else delete curPage.icon;
+      $('pIcon').textContent = pageEmoji(curPage);
+    }
+    await refreshList();   // renderList がタブも描き直す（タブの頭のアイコン）
+  }
+  function iconMove(i) {
+    const opts = iconOpts();
+    if (!opts.length || !iconPop) return;
+    iconPop.at = Math.max(0, Math.min(i, opts.length - 1));
+    opts.forEach((b, k) => { b.tabIndex = k === iconPop.at ? 0 : -1; });
+    opts[iconPop.at].focus();
+  }
+  $('pIcon').onclick = () => openIconPop();
+  $('iconSearch').oninput = () => { if (iconPop) iconPop.at = 0; renderIconList(); };
+  $('iconClear').onclick = () => pickIcon('');
+  function iconKey(ev) {
+    if (imeEnter(ev)) return;
+    if (ev.key === 'Escape') { ev.preventDefault(); closeIconPop(true); return; }
+    const opts = iconOpts();
+    const a = document.activeElement;
+    const i = opts.indexOf(a);
+    if (ev.key === 'Tab') {   // 窓の中で回る（探す欄・［外す］・選んでいる絵文字）
+      ev.preventDefault();
+      const ring = [$('iconSearch'), $('iconClear'), ...(opts.length ? [opts[iconPop ? iconPop.at : 0]] : [])];
+      const k = ring.indexOf(i >= 0 ? ring[ring.length - 1] : a);
+      ring[(Math.max(0, k) + (ev.shiftKey ? ring.length - 1 : 1)) % ring.length].focus();
+      return;
+    }
+    if (a === $('iconSearch')) {
+      if (ev.key === 'ArrowDown' && opts.length) { ev.preventDefault(); iconMove(0); }
+      else if (ev.key === 'Enter' && opts.length) { ev.preventDefault(); pickIcon(opts[0].dataset.e); }
+      return;
+    }
+    if (i < 0) return;
+    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: ICON_COLS, ArrowUp: -ICON_COLS }[ev.key];
+    if (step !== undefined) {
+      ev.preventDefault();
+      if (step === -ICON_COLS && i < ICON_COLS) { $('iconSearch').focus(); return; }
+      iconMove(i + step);
+    } else if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); iconMove(ev.key === 'Home' ? 0 : opts.length - 1); }
+    else if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pickIcon(opts[i].dataset.e); }
+  }
+  $('iconSearch').onkeydown = iconKey;
+  $('iconClear').onkeydown = iconKey;
+  $('iconPop').onclick = (ev) => { if (ev && ev.target === $('iconPop')) closeIconPop(true); };   // 後ろの全面を押すと閉じる
+  $('iconPop').addEventListener('mousedown', (ev) => { if (!(ev && ev.target && ev.target.tagName === 'BUTTON') && keepPopFocus(ev, [$('iconPop'), $('iconList'), $('iconSearch')])) ev.preventDefault(); });
+  // ---------------- 0.15.0 PL-3（決めたこと 39〜42・F120）: ページごとの見た目（全幅・小さい文字・書体）
+  // #pageWrap に lookView.lookClasses の組だけを付ける（ページを替えたら前の組を外す。録音中の写しと録音中のページには付けない）
+  const LOOK_FONTS = [['', '標準'], ['serif', '明朝'], ['mono', '等幅']];
+  // 巻き上がる宣言（renderPage・lockLiveTitle から呼ぶ。組の名前はこの中に持つ）
+  function applyLook(page) {
+    const w = $('pageWrap');
+    for (const c of ['look-wide', 'look-small', 'look-serif', 'look-mono']) w.classList.remove(c);
+    if (!page || isLiveCopy(page)) return;   // 録音中のタブの curPage は録音中の写し（lockLiveTitle は null で呼ぶ）
+    for (const c of lookView.lookClasses(page.look)) w.classList.add(c);
+  }
+  const lookNow = () => { try { return lookView.normalizeLook(curPage && curPage.look !== undefined ? curPage.look : {}); } catch (_) { return {}; } };
+  async function setLook(next) {
+    const id = curId;
+    if (!id || !curPage) return;
+    let r = null;
+    try { r = await window.koeApp.pageSetLook(id, next); } catch (_) { r = null; }
+    if (!r || typeof r !== 'object') { toast('見た目を変えられませんでした。'); return; }
+    if (curId !== id || !curPage) return;
+    if (r.look && typeof r.look === 'object') curPage.look = r.look; else delete curPage.look;
+    applyLook(curPage);
+    syncLookItems();
+  }
+  // 「···」の見た目の項目の aria-checked を今のページの見た目に合わせる（変えた後。項目はページを描くたびに作り直す）
+  function syncLookItems() {
+    const look = lookNow();
+    for (const b of $('pMenu').querySelectorAll('.mitem')) {
+      if (b.dataset.look) b.setAttribute('aria-checked', look[b.dataset.look] ? 'true' : 'false');
+      else if (b.dataset.font !== undefined) b.setAttribute('aria-checked', (look.font || '') === b.dataset.font ? 'true' : 'false');
+    }
+  }
+  // 「···」の［全幅］［小さい文字］（menuitemcheckbox）と［書体 ▸］（押すと下に 標準・明朝・等幅 の menuitemradio。← か Esc で［書体 ▸］へ戻る）
+  function lookMenuItems(mk) {
+    const look = lookNow();
+    const flag = (label, key) => {
+      const b = mk(label, () => setLook({ ...lookNow(), [key]: lookNow()[key] ? undefined : true }), false, true);
+      b.setAttribute('role', 'menuitemcheckbox');
+      b.dataset.look = key;
+      b.setAttribute('aria-checked', look[key] ? 'true' : 'false');
+      return b;
+    };
+    flag('全幅', 'wide');
+    flag('小さい文字', 'small');
+    const menu = $('pMenu');
+    const head = document.createElement('button');
+    head.type = 'button'; head.className = 'mitem'; head.setAttribute('role', 'menuitem'); head.tabIndex = -1;
+    head.textContent = '書体 ▸';
+    head.setAttribute('aria-haspopup', 'true'); head.setAttribute('aria-expanded', 'false');
+    // 書体の3つは［書体 ▸］を開いたときだけ置く（閉じている間はメニューに無い）
+    const radios = LOOK_FONTS.map(([v, label]) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'mitem lookfont'; b.setAttribute('role', 'menuitemradio'); b.tabIndex = -1;
+      b.textContent = label;
+      b.dataset.font = v;
+      b.setAttribute('aria-checked', (look.font || '') === v ? 'true' : 'false');
+      b.onclick = () => { setMoreOpen(false); return setLook({ ...lookNow(), font: v || undefined }); };
+      b.onkeydown = (ev) => {
+        if (imeEnter(ev)) return;
+        if (ev.key === 'ArrowLeft' || ev.key === 'Escape') { ev.preventDefault(); showFonts(false); head.focus(); return; }
+        onMenuKey(ev);
+      };
+      return b;
+    });
+    const showFonts = (on) => {
+      for (const b of radios) if (b.parentNode) b.remove();
+      if (on) { const next = head.nextSibling; for (const b of radios) head.parentNode.insertBefore(b, next); }
+      head.setAttribute('aria-expanded', on ? 'true' : 'false');
+      if (on) (radios.find((b) => b.getAttribute('aria-checked') === 'true') || radios[0]).focus();
+    };
+    head.onclick = () => showFonts(head.getAttribute('aria-expanded') !== 'true');
+    head.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'ArrowRight' || ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showFonts(true); return; }
+      onMenuKey(ev);
+    };
+    menu.append(head);
+  }
   // 何も開いていない（ページも記録中のタブも無い）ときは #pageWrap に nopage を付け、
   // ページのアイコンと丸いタブを隠して空の文だけを出す（第1b2回 P-2）
   function syncNoPage() {
@@ -10440,6 +11318,8 @@
     t.setAttribute('contenteditable', 'false');
     $('pIcon').hidden = false;
     $('pageWrap').classList.add('live-on');
+    applyLook(null);   // 0.15.0 PL-3（決めたこと 41）: 録音中のページには見た目を効かせない
+    syncIconBtn();
   }
 
   // ---------------- 0.13.0 RDY-2（計画 docs/plans/2026-10-24-130.md の第2部 RD1・RD2・RD5〜RD7・RD9〜RD11・RD14・RD18・RD20）: 録音の前のページ

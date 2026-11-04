@@ -851,3 +851,20 @@ test('PH-8 直し（rv31）・PL-1・PH-8 直し 2（rv32）: PH-8 の記事が�
   // 白紙のページの2行目は日付だけ（R66）
   assert.ok(read(fileOf('find/search')).includes('白紙のページでは日付だけです'), 'find/search に白紙のページの2行目が日付だけなことが無い');
 });
+
+// ---------------------------------------------------------------- 0.15.0 PL-3（計画の Task PL-3・決めたこと 35〜42）: ページのアイコンと見た目の記事
+test('PL-3: 記事 find/page-look の ［…］ はアプリにある文字だけで、updated は 2026-11-04 から。pre は使わない。site.json の find にあり、アイコンの選び・見た目の3つ・効く所・録音中の節がある', { timeout: 5000 }, () => {
+  const app = L.appLabelText(ROOT);
+  const a = articles.find((x) => x.ref === 'find/page-look');
+  assert.ok(a, 'find/page-look の記事が無い');
+  assert.deepStrictEqual(L.missingLabels(a.text, app), [], 'アプリに無い ［…］');
+  assert.ok(metaOf(a).updated >= '2026-11-04');
+  assert.ok(!/<pre|```/.test(a.text), 'pre の要素を使った');
+  assert.ok(site.categories.find((c) => c.id === 'find').articles.includes('page-look'));
+  for (const w of ['［全幅］', '［小さい文字］', '［書体 ▸］', '［外す］', '［最近使ったもの］', '標準・明朝・等幅', '{#icon}', '{#look}', '{#live}', '[[Esc]]', '約 500', '旗', 'Claude から読む答えには出ません', 'ほかのページには効きません', '録音中の会議のページでは、アイコンと見た目は変えられません']) {
+    assert.ok(a.text.includes(w), `find/page-look に「${w}」が無い`);
+  }
+  assert.ok(!/notion/i.test(a.text), 'Notion の名前がある');
+  // 記事の絵文字の一覧の分類は辞書の分類と同じ並び
+  assert.ok(a.text.includes(`（${require('../src/emojiDict').CATS.map((c) => c.label).join('・')}）`), '分類の並びが辞書と違う');
+});

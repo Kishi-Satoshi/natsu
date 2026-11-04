@@ -494,7 +494,8 @@ test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・
     assert.strictEqual($(l, 'pTypeRow').style.display, 'none', '白紙のページに会議の種類の行が出る');
     assert.strictEqual($(l, 'pProps').textContent, '', '白紙のページにプロパティが出る');
     assert.deepStrictEqual([...$(l, 'pActs').children].map((b) => b.id), ['pMore', 'pMenu'], '白紙のページに［要約を生成］が出る');
-    assert.deepStrictEqual(menuLabels(l), ['コピー', 'リンクを写す', '移動先…', '削除']);
+    // 0.15.0 PL-3（決めたこと 40）で意図して変えた: ［移動先…］と［削除］の間に見た目の項目（［全幅］［小さい文字］［書体 ▸］）
+    assert.deepStrictEqual(menuLabels(l), ['コピー', 'リンクを写す', '移動先…', '全幅', '小さい文字', '書体 ▸', '削除']);
     assert.strictEqual($(l, 'pIcon').textContent, '📄');
     assert.deepStrictEqual([$(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['', '無題のページ']);
     assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id), ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], '本文の行が無いか、書いた順でない');
@@ -1727,7 +1728,8 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   // 「···」の［移動先…］（［削除］の前）
   $(l, 'pMore').dispatchEvent({ type: 'click' });
   const labels = $(l, 'pMenu').querySelectorAll('.mitem').map((b) => b.textContent);
-  assert.deepStrictEqual(labels.slice(-2), ['移動先…', '削除'], '「···」に［移動先…］が無い');
+  // 0.15.0 PL-3（決めたこと 40）で意図して変えた: ［移動先…］の後ろに見た目の項目
+  assert.deepStrictEqual(labels.slice(-5), ['移動先…', '全幅', '小さい文字', '書体 ▸', '削除'], '「···」に［移動先…］が無い');
   $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' });
   await l.drain();
   const pop = $(l, 'movePop');
