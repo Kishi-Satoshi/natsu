@@ -34,7 +34,8 @@ const itemNamed = (l, name) => menuItems(l).find((b) => b.textContent === name);
 
 test('D58・D78・決めたこと 100: ページの「···」に［リンクを写す］。押すと koeApp.copy に「NaTsu の議事録「題名」（日付）https://…/open#p=<ID>」の1行が渡り、左下に「リンクを写しました。」', T, async () => {
   const l = await openPage('pa1');
-  assert.deepStrictEqual(menuItems(l).map((b) => b.textContent), ['コピー', 'リンクを写す', '削除']);
+  // 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 22）で意図して変えた: ［リンクを写す］と［削除］の間に［移動先…］
+  assert.deepStrictEqual(menuItems(l).map((b) => b.textContent), ['コピー', 'リンクを写す', '移動先…', '削除']);
   const b = itemNamed(l, 'リンクを写す');
   assert.strictEqual(b.getAttribute('role'), 'menuitem');
   b.dispatchEvent({ type: 'click' }); await l.drain();

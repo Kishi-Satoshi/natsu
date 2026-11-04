@@ -283,6 +283,32 @@
   .pitem.dropbefore::before { top: -1px; }
   .pitem.dropafter::after { bottom: -1px; }
   .treemenu { position: fixed; z-index: 20; }
+  /* 0.15.0 PH-5（決めたこと 22・28）: ［移動先…］の窓と「新しいページ」の選び（浮く部品: メニューと同じ枠と角丸 6px と --shadow。後ろの全面は透明で、押すと閉じる） */
+  .movepop, .newpop { position: fixed; inset: 0; z-index: 50; display: block; background: transparent; }
+  .movepop[hidden], .newpop[hidden] { display: none; }
+  .mpbox, .npbox { position: absolute; top: 12vh; left: 0; right: 0; margin: 0 auto; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .mpbox { width: min(480px, calc(100vw - 32px)); max-height: calc(76vh - 32px); }
+  .npbox { width: min(320px, calc(100vw - 32px)); padding: 4px 4px 6px; }
+  .mphead, .nphead { flex: none; padding: 10px 14px 6px; font-size: 12px; color: var(--text-2); }
+  .mpbox #moveSearch, .mpbox #moveSearch:focus { flex: none; height: 40px; margin: 0; padding: 0 14px; font-size: 14px;
+    background: transparent; border: none; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .mpbox #moveSearch:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .mplist { overflow-y: auto; padding: 4px 6px 8px; }
+  .mplist .mvopt { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 5px 8px; border-radius: 4px; font-size: 14px; cursor: pointer; }
+  .mplist .mvopt[aria-selected="true"] { background: var(--tint); }
+  .mplist .mvopt .mvi { flex: none; }
+  .mplist .mvopt .mvt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mplist .mvopt .mvp { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+  .npbox .mitem { background: transparent; border: none; color: var(--text); font: inherit; font-size: 14px; text-align: left;
+    padding: 7px 10px; border-radius: 4px; cursor: pointer; }
+  .npbox .mitem:hover, .npbox .mitem:focus { background: var(--hover); outline: none; }
+  .npbox .mitem.off { color: var(--muted); cursor: default; }
+  .npbox .mitem .npnote { margin-left: 8px; font-size: 12px; }
+  @media (max-width: 760px) {
+    .mpbox, .npbox { top: 16px; }
+    .mpbox { max-height: calc(100vh - 32px); }
+  }
   /* 0.15.0 PH-4（決めたこと 24・BQ2 (a)）: 白紙のページは頭（アイコンと題名）と本文だけ。3つのタブは出さず、本文は会議のブロックの枠で囲まない。
      無題の題名の欄と空の本文は灰色の手引き */
   #pageWrap.blank .ptabs { display: none; }
@@ -516,6 +542,14 @@
   .crumb .ci { flex: none; font-size: 16px; line-height: 1; }
   .crumb .ct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .crumb .ci:empty { display: none; }
+  /* 0.15.0 PH-5（決めたこと 26・H3）: パンくずの祖先の段（押すとそのページ）・「…」（押すと隠れた段の一覧）・段の間の「/」 */
+  .crumb .cseg, .crumb .cmore { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 14em; height: 22px; padding: 0 4px;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; }
+  .crumb .cseg:hover, .crumb .cmore:hover { background: var(--hover); color: var(--text); }
+  .crumb .cseg .cst { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crumb .cseg .csi { flex: none; }
+  .crumb .cmore { flex: none; }
+  .crumb .csep { flex: none; color: var(--muted); font-size: 13px; }
   /* 操作は上の帯の右端: 主ボタン［要約を生成］（要約の無いページだけ）と「···」（中に 要約を再生成・コピー・削除）。
      .pacts は display を持つので、hidden を負けさせない規則を置く（無いと本物の画面で設定のタブでも［削除］が見える: G6） */
   .pacts { display: flex; justify-content: flex-end; align-items: center; gap: 6px; position: relative; margin-left: auto; flex: none; }
@@ -1131,6 +1165,8 @@
             <div id="pNote" class="pane active" role="tabpanel" aria-labelledby="paneBtnNote"></div>
             <!-- 0.15.0 PR-2（決めたこと 55・HR16）: 白紙のページの本文に行の無い子の一覧（「このページの中のページ」。子が無ければ隠す） -->
             <div id="bodyKids" class="bodykids" hidden></div>
+            <!-- 0.15.0 PH-5（決めたこと 27・BQ3）: 議事録の［AI 要約］の欄の最後の「このページの中のページ」（子が無ければ隠す。本文のブロックではない） -->
+            <div id="pKids" class="bodykids" hidden></div>
             <div id="pPending" class="pendline" role="status" hidden><span id="pPendingText"></span><button type="button" class="ghost" id="pRetranscribe">もう一度文字起こし</button></div>
             <div id="pScript" class="pane" role="tabpanel" aria-labelledby="paneBtnScript"></div>
             <div id="pMemo" class="pane" role="tabpanel" aria-labelledby="paneBtnMemo"></div>
@@ -1171,6 +1207,20 @@
         </div>
       </div>
       <div class="plist" id="palList" role="listbox" aria-label="検索の結果"></div>
+    </div>
+  </div>
+  <!-- 0.15.0 PH-5（決めたこと 22・28・BQ7 (a)）: ［移動先…］の窓（探す欄と候補）と、Ctrl+Shift+N の「新しいページ」の選び（項目は NEW_ITEMS の表から描く） -->
+  <div class="movepop" id="movePop" role="dialog" aria-modal="true" aria-labelledby="movePopHead" hidden>
+    <div class="mpbox">
+      <div class="mphead" id="movePopHead">移動先</div>
+      <input type="text" id="moveSearch" placeholder="ページを探す" aria-label="ページを探す" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="moveList" />
+      <div class="mplist" id="moveList" role="listbox" aria-labelledby="movePopHead"></div>
+    </div>
+  </div>
+  <div class="newpop" id="newPop" role="dialog" aria-modal="true" aria-labelledby="newPopHead" hidden>
+    <div class="npbox">
+      <div class="nphead" id="newPopHead">新しいページ</div>
+      <div id="newList" role="menu" aria-labelledby="newPopHead"></div>
     </div>
   </div>
   </div>
@@ -1848,6 +1898,8 @@
     { keys: 'Ctrl+W', what: '選んでいるタブを閉じる（窓は閉じません）', where: '窓のどこでも', codes: [] },
     { keys: 'Ctrl+Tab・Ctrl+Shift+Tab', what: '次・前のタブへ', where: '窓のどこでも', codes: [] },
     { keys: 'Ctrl+P', what: '検索の窓を開く', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+Shift+N', what: '新しいページを作る（白紙のページか議事録を選ぶ）', where: '窓のどこでも', codes: [] },
+    { keys: 'Ctrl+Shift+U', what: '開いているページの親のページへ（いちばん上のページでは何もしない）', where: '窓のどこでも', codes: [] },
     { keys: 'Ctrl+Shift+P', what: '録音の一時停止・再開', where: '窓のどこでも', codes: [] },
     { keys: 'Ctrl+\\', what: 'サイドバーを畳む・出す', where: '窓のどこでも', codes: [] },
     { keys: 'Ctrl+Shift+L', what: 'ライトとダークを切り替える', where: '窓のどこでも', codes: [] },
@@ -1887,6 +1939,14 @@
     { keys: 'Tab', what: '選びを外して、欄の外の次の部品へ', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Shift+Tab', what: '選びを外して、［AI 要約］のタブへ', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Esc', what: '選びを外して ⠿ へ', where: '要約の行を選んでいるとき', codes: [] },
+    // 0.15.0 のサイドバーのページの一覧（木の決まり: 決めたこと 20）
+    { keys: '↑・↓', what: '見えているページの行を上・下へ移る', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: '→', what: '行を開く（開いていれば最初の中のページへ）', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: '←', what: '行を閉じる（閉じていれば親のページへ）', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Home・End', what: '最初・最後の行へ', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Enter', what: 'ページを今のタブで開く', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Ctrl+Enter', what: 'ページを新しいタブで開く', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Shift+F10', what: '行のメニューを開く（中にページを作る・移動先・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
   ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
   // 効く所が替わる所に見出しの行（th colspan=2）を入れ、キーは「・」で区切った1つずつを <kbd> で（文字は textContent で入れる）
   function renderShortcuts() {
@@ -2383,12 +2443,84 @@
     } else if (k === 'dictation') { icon = '🎤'; title = '音声入力'; }
     else if (k === 'live') { icon = '🎙️'; title = readyNow() ? '新しい議事録' : '記録中の会議'; }
     const c = $('crumb');
+    renderCrumbPath(isPageKey(k) ? k.slice(5) : '');   // 0.15.0 PH-5（決めたこと 26・H3）: 根から親までの段
     c.querySelector('.ci').textContent = icon;
     c.querySelector('.ct').textContent = title;
     c.title = title;
     const on = isPageKey(k) && Boolean(curPage) && k.slice(5) === curId;
     if (!on && !$('pMenu').hidden) setMoreOpen(false);
     $('pActs').hidden = !on;
+  }
+  // 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 26・H3）: パンくずの祖先の段（根から親まで。今のページの段は .ci・.ct のまま）。
+  // 祖先の段は押すとそのページを今のタブで開く。5 段を越えたら、最初の段・「…」（押すと隠れた段の一覧）・最後の2段（親と今のページ）。題名は textContent
+  const CRUMB_MAX = 5;
+  const CRUMB_MORE = '隠れた段';
+  let crumbMore = null;   // 開いている「…」の一覧 { box, btn }
+  function closeCrumbMore(back) {
+    const m = crumbMore;
+    if (!m) return;
+    crumbMore = null;
+    if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
+    m.btn.setAttribute('aria-expanded', 'false');
+    if (back && m.btn.parentNode) m.btn.focus();
+  }
+  function crumbPage(id) { return pages.find((p) => p && p.id === id) || null; }
+  function renderCrumbPath(id) {
+    const c = $('crumb');
+    closeCrumbMore();
+    for (const e of [...c.children]) if (e.dataset && e.dataset.crumb) c.removeChild(e);
+    const ups = id ? pageTreeView.crumbsOf(treeNow(), id).filter((a) => crumbPage(a)) : [];
+    if (!ups.length) return;
+    const hide = ups.length + 1 > CRUMB_MAX ? ups.slice(1, -1) : [];
+    const shown = hide.length ? [ups[0], '', ups[ups.length - 1]] : ups;
+    const at = c.querySelector('.ci');
+    for (const a of shown) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      if (a) {
+        const p = crumbPage(a);
+        b.className = 'cseg'; b.dataset.crumb = 'up'; b.dataset.pid = a; b.title = oneLine(p.title);
+        const ic = document.createElement('span'); ic.className = 'csi'; ic.textContent = pageEmoji(p);
+        const t = document.createElement('span'); t.className = 'cst'; t.textContent = oneLine(p.title);
+        b.append(ic, t);
+        b.onclick = () => openPageTab(a);
+      } else {
+        b.className = 'cmore'; b.dataset.crumb = 'more'; b.textContent = '…';
+        b.setAttribute('aria-label', CRUMB_MORE); b.title = CRUMB_MORE;
+        b.setAttribute('aria-haspopup', 'menu'); b.setAttribute('aria-expanded', 'false');
+        b.onclick = () => (crumbMore ? closeCrumbMore(true) : openCrumbMore(b, hide));
+      }
+      const sep = document.createElement('span');
+      sep.className = 'csep'; sep.dataset.crumb = 'sep'; sep.setAttribute('aria-hidden', 'true'); sep.textContent = '/';
+      c.insertBefore(b, at);
+      c.insertBefore(sep, at);
+    }
+  }
+  // 「…」の一覧（隠れた段を根に近い順に。押すとそのページ・Esc で閉じて「…」へ戻る）
+  function openCrumbMore(btn, ids) {
+    closeCrumbMore();
+    const box = document.createElement('div');
+    box.className = 'blockmenu treemenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', CRUMB_MORE);
+    crumbMore = { box, btn };
+    for (const a of ids) {
+      const p = crumbPage(a);
+      if (p) menuItem(box, `${pageEmoji(p)} ${oneLine(p.title)}`, () => { closeCrumbMore(); openPageTab(a); });
+    }
+    box.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (menuStep(box, ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); closeCrumbMore(true); }
+      else if (ev.key === 'Tab') closeCrumbMore();
+      else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
+    };
+    box.addEventListener('focusout', () => setTimeout(() => { if (crumbMore && crumbMore.box === box && !isIn(document.activeElement, box) && document.activeElement !== btn) closeCrumbMore(); }, 0));
+    const rc = btn.getBoundingClientRect();
+    box.style.left = `${Math.round(rc.left || 0)}px`;
+    box.style.top = `${Math.round((rc.bottom || 0) + 4)}px`;
+    document.body.appendChild(box);
+    btn.setAttribute('aria-expanded', 'true');
+    const first = menuItems(box)[0];
+    if (first) first.focus();
   }
   // ←／→ は隣、Home／End は端のタブへ移って選ぶ（移ったタブにフォーカス）
   function onTabKey(ev, key) {
@@ -3160,6 +3292,7 @@
     }
     if (want) { const el = treeRowEl(want); if (el) { treeFocus = want; el.focus(); } }
     paintBodyPages();   // 0.15.0 PR-2（決めたこと 56）: 一覧を読み直したら、白紙のページの本文の子ページの行の題名とアイコンも今の値に
+    renderKids();   // 0.15.0 PH-5（決めたこと 27）: 議事録の子ページの一覧も今の一覧の並びと題名で
   }
   // ---------------- 0.15.0 PH-3（決めたこと 18・21・25・HR4）: 行の［＋］・行のメニュー・引っ張って動かす
   // 中にページを作る（parentId が無ければ最上位）→ 一覧を読み直して今のタブで開く（親の行は開く）
@@ -3181,7 +3314,7 @@
     if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
     return r.id;
   }
-  // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［新しいタブで開く］［削除］（HR4。［移動先…］は窓を作る PH-5 で足す: R24）
+  // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［移動先…］［新しいタブで開く］［削除］（HR4。［移動先…］は PH-5: R24）
   let treeMenu = null;   // 開いているとき { id, box }
   function closeTreeMenu(back) {
     const m = treeMenu;
@@ -3199,6 +3332,7 @@
     treeMenu = { id, box };
     const run = (fn) => () => { closeTreeMenu(); fn(); };
     menuItem(box, '中にページを作る', run(() => createPageIn(id)));
+    menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
     menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true })));
     menuItem(box, '削除', run(() => deletePageFlow(id)));
     box.onkeydown = (ev) => {
@@ -3284,6 +3418,194 @@
     if (!bad && curId && isBlankPage(curPage) && (curId === from || curId === (parentId || ''))) await openPage(curId);
     if (!bad && parentId && parentId !== from) await noteRowless(parentId, id, true);   // PR-2 直し 4（R51）: 満杯の本文の白紙のページの中へ動かし入れたら知らせる
   }
+  // ---------------- 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 22・27・28・HR10〜HR13・F117）
+  // 議事録の子ページの一覧（決めたこと 27・BQ3）: ［AI 要約］の欄の最後（打ち合わせの質のカードより後）に「このページの中のページ」と「アイコン 題名」の行
+  // （押す・Enter で開く・Ctrl で新しいタブ。並びはサイドバーと同じ）。子が無ければ何も出さない。本文のブロックではないので、要約の行の命令・元に戻す・
+  // ［コピー］・出典は今と1文字も同じ。白紙のページの子は本文の子ページの行と #bodyKids（決めたこと 55）
+  function renderKids() {
+    const box = $('pKids');
+    const on = Boolean(curPage) && !isBlankPage(curPage) && pane === 'note' && activeTab === `page:${curId}`;
+    const kids = on ? (treeNow().kids.get(curId) || []).filter((id) => crumbPage(id)) : [];
+    box.textContent = '';
+    box.hidden = !kids.length;
+    if (!kids.length) return;
+    const h = document.createElement('div'); h.className = 'kidshead'; h.textContent = SUB_KIDS_HEAD;
+    box.appendChild(h);
+    for (const id of kids) {
+      const p = crumbPage(id);
+      const r = document.createElement('div');
+      r.className = 'kidrow'; r.tabIndex = 0; r.setAttribute('role', 'link'); r.title = SUB_OPEN_TITLE; r.dataset.pid = id;
+      r.textContent = `${pageEmoji(p)} ${oneLine(p.title)}`;
+      r.onclick = (ev) => openPageTab(id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
+      r.onkeydown = (ev) => {
+        if (imeEnter(ev)) return;
+        if (ev.key === 'Enter') { ev.preventDefault(); openPageTab(id, { newTab: Boolean(ev.ctrlKey || ev.metaKey) }); }
+      };
+      box.appendChild(r);
+    }
+  }
+  // ［移動先…］の窓（決めたこと 22・HR11・HR12）: 候補は一覧に出るページ（ゴミ箱・録音中の写しは一覧に無い）から、動かすページと子孫を除いたもの（木の順）。
+  // 先頭は［いちばん上へ］。題名と場所で探す（ひらがなとカタカナ・全角と半角を寄せる）。↑↓ と Enter で動かし（movePageTo: 開いている白紙のページの読み直しと
+  // 満杯の本文の知らせも同じ: R38・R51。親だけを選ぶので本文の行は新しい親の本文の最後: 決めたこと 45・48）、Esc で閉じてフォーカスを戻す。探す語は覚えない
+  const MOVE_TOP = 'いちばん上へ';
+  const MOVE_SHOW_MAX = 200;   // 描く候補の数（探す語で絞る）
+  let movePop = null;          // 開いているとき { id, from（戻すフォーカス）, tree（木の行から開いたらその ID）, cands, rows, at }
+  const moveFold = (s) => String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
+  function moveCands(id) {
+    const tree = treeNow();
+    const no = new Set([id, ...pageTreeView.descendants(tree, id)]);   // 自分と子孫の下へは動かせない（決めたこと 5）
+    const out = [];
+    const walk = (ids) => { for (const x of ids) { if (no.has(x)) continue; out.push(x); walk(tree.kids.get(x) || []); } };
+    walk(tree.roots);
+    return out.filter((x) => crumbPage(x));
+  }
+  function openMovePop(id, o = {}) {
+    if (!id || !crumbPage(id)) return;
+    closeNewPop();
+    const fa = o.from || null;
+    movePop = { id, from: fa && typeof fa.focus === 'function' ? fa : null, tree: o.tree || '', cands: moveCands(id), rows: [], at: 0 };
+    $('moveSearch').value = '';
+    $('movePop').hidden = false;
+    renderMoveList();
+    $('moveSearch').focus();
+  }
+  function closeMovePop(back) {
+    const m = movePop;
+    if (!m) return;
+    movePop = null;
+    $('movePop').hidden = true;
+    $('moveList').textContent = '';
+    $('moveSearch').removeAttribute('aria-activedescendant');
+    if (!back) return;
+    if (m.tree) { focusTreeRow(m.tree); return; }
+    const body = document.body;
+    const alive = m.from && (!body || typeof body.contains !== 'function' || body.contains(m.from));
+    if (alive) m.from.focus();
+  }
+  function renderMoveList() {
+    const m = movePop;
+    if (!m) return;
+    const tree = treeNow();
+    const titleOf = (x) => oneLine((crumbPage(x) || {}).title);
+    const q = moveFold($('moveSearch').value);
+    const rows = [{ id: '' }];
+    for (const x of m.cands) {
+      if (rows.length > MOVE_SHOW_MAX) break;
+      const place = pageTreeView.placeText(tree, titleOf, x);
+      if (q && !moveFold(`${titleOf(x)} ${place}`).includes(q)) continue;
+      rows.push({ id: x, title: titleOf(x), place });
+    }
+    m.rows = rows;
+    m.at = Math.max(0, Math.min(m.at, rows.length - 1));
+    const box = $('moveList');
+    box.textContent = '';
+    rows.forEach((r, i) => {
+      const el = document.createElement('div');
+      el.className = 'mvopt'; el.id = `mvopt${i}`; el.setAttribute('role', 'option');
+      el.setAttribute('aria-selected', i === m.at ? 'true' : 'false');
+      if (r.id) {
+        el.dataset.pid = r.id;
+        const mi = document.createElement('span'); mi.className = 'mvi'; mi.textContent = pageEmoji(crumbPage(r.id));
+        const mt = document.createElement('span'); mt.className = 'mvt'; mt.textContent = r.title;
+        el.append(mi, mt);
+        if (r.place) { const pl = document.createElement('span'); pl.className = 'mvp'; pl.textContent = r.place; el.append(pl); }
+      } else {
+        el.dataset.pid = '';
+        const t = document.createElement('span'); t.className = 'mvt'; t.textContent = MOVE_TOP;
+        el.append(t);
+      }
+      el.onclick = () => movePick(i);
+      box.appendChild(el);
+    });
+    $('moveSearch').setAttribute('aria-activedescendant', `mvopt${m.at}`);
+  }
+  function moveStep(d) {
+    const m = movePop;
+    if (!m || !m.rows.length) return;
+    m.at = (m.at + d + m.rows.length) % m.rows.length;
+    const box = $('moveList');
+    for (const el of box.children) el.setAttribute('aria-selected', el.id === `mvopt${m.at}` ? 'true' : 'false');
+    $('moveSearch').setAttribute('aria-activedescendant', `mvopt${m.at}`);
+    const el = box.children[m.at];
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+  }
+  async function movePick(i) {
+    const m = movePop;
+    if (!m || !m.rows[i]) return;
+    const target = m.rows[i].id;
+    closeMovePop(true);
+    await movePageTo(m.id, target);
+    if (m.tree) focusTreeRow(m.id);
+  }
+  $('moveSearch').oninput = () => { if (movePop) { movePop.at = 0; renderMoveList(); } };
+  $('moveSearch').onkeydown = (ev) => {
+    if (imeEnter(ev)) return;   // 変換の確定の Enter・↑↓ は欄の中
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); moveStep(ev.key === 'ArrowDown' ? 1 : -1); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); if (movePop) movePick(movePop.at); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); closeMovePop(true); }
+    else if (ev.key === 'Tab') ev.preventDefault();   // 窓の中で届くのは探す欄だけ（候補は ↑↓）
+  };
+  $('movePop').onclick = (ev) => { if (ev && ev.target === $('movePop')) closeMovePop(true); };   // 後ろの全面を押すと閉じる
+  // 新しいページの選び（決めたこと 28・BQ7 (a)）: Ctrl+Shift+N（窓のどこでも。変換中は抜ける・設定や検索の窓・確かめが開いているときは何もしない）で
+  // 「新しいページ」に［📄 白紙のページ］［🎙️ 議事録（録音の前のページ）］。↑↓・Enter・Esc。項目は表で持つ（0.17.0 で［データベース］を足せる並び）。
+  // ［白紙のページ］は最上位に作って開く（pageCreate()）、［議事録］は［＋ 新しい議事録］と同じ（録音の前のページを開くだけ。録音中・作成中は灰色で「録音中です」）
+  const NEW_BUSY = '録音中です';
+  const NEW_ITEMS = Object.freeze([
+    Object.freeze({ key: 'blank', label: '📄 白紙のページ', busy: () => false, run: () => createPageIn() }),
+    Object.freeze({ key: 'meeting', label: '🎙️ 議事録（録音の前のページ）', busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: () => openReady() }),
+  ]);
+  let newPopOn = false;
+  let newPopFrom = null;
+  function openNewPop() {
+    if (newPopOn) return;
+    const fa = document.activeElement;
+    newPopFrom = fa && fa !== document.body && typeof fa.focus === 'function' ? fa : null;
+    newPopOn = true;
+    const list = $('newList');
+    list.textContent = '';
+    for (const it of NEW_ITEMS) {
+      const off = it.busy() ? NEW_BUSY : '';
+      const b = menuItem(list, it.label, () => { closeNewPop(false); it.run(); }, { key: it.key, off });
+      if (off) { const n = document.createElement('span'); n.className = 'npnote'; n.textContent = off; b.append(n); }
+    }
+    $('newPop').hidden = false;
+    const first = menuItems(list)[0];
+    if (first) first.focus();
+  }
+  function closeNewPop(back) {
+    if (!newPopOn) return;
+    newPopOn = false;
+    $('newPop').hidden = true;
+    $('newList').textContent = '';
+    const to = newPopFrom; newPopFrom = null;
+    const body = document.body;
+    if (back && to && (!body || typeof body.contains !== 'function' || body.contains(to))) to.focus();
+  }
+  $('newList').onkeydown = (ev) => {
+    if (imeEnter(ev)) return;
+    if (menuStep($('newList'), ev)) return;
+    if (ev.key === 'Escape') { ev.preventDefault(); closeNewPop(true); }
+    else if (ev.key === 'Tab') ev.preventDefault();   // 窓の中で回る（↑↓）
+    else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
+  };
+  $('newPop').onclick = (ev) => { if (ev && ev.target === $('newPop')) closeNewPop(true); };
+  document.addEventListener('keydown', (ev) => {
+    if (imeEnter(ev) || settingsOpen() || palOpen || movePop || regenAsking) return;   // Ctrl+Shift+N: 変換中・設定・検索・［移動先…］・確かめの間は開かない
+    if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
+    if (!(ev.code === 'KeyN' || String(ev.key).toLowerCase() === 'n')) return;
+    ev.preventDefault();
+    openNewPop();
+  });
+  // Ctrl+Shift+U（決めたこと 26・K-31）: 開いているページの親のページへ（今のタブ）。いちばん上のページでは何もしない
+  document.addEventListener('keydown', (ev) => {
+    if (imeEnter(ev) || settingsOpen() || palOpen || movePop || newPopOn || regenAsking) return;
+    if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
+    if (!(ev.code === 'KeyU' || String(ev.key).toLowerCase() === 'u')) return;
+    ev.preventDefault();
+    const id = isPageKey(activeTab) ? activeTab.slice(5) : '';
+    const up = id ? treeNow().parent.get(id) || null : null;   // 木の親（輪・親の無い行は最上位: HR2）
+    if (up && crumbPage(up)) openPageTab(up);
+  });
   // ---------------- 0.10.0 L-2（D58・D70・決めたこと 101）: 一覧で選んでリンクを写す ----------------
   // 選びの決まりは DOM に頼らない純粋な selStep・selLines（後のデータベースの表でも使う。test/repo.test.js が字面で取り出して当てる）。
   // sel = { on, ids（選んだ順）, anchor }。ev は { type: 'toggleMode' }・{ type: 'click', id, shift }・{ type: 'clear' }・{ type: 'keep', ids }。
@@ -3558,6 +3880,7 @@
     $('pScript').classList.toggle('active', p === 'script');
     $('pMemo').classList.toggle('active', p === 'memo');
     renderPending();   // 0.13.2 LN-5: 「文字起こし」の欄だけに出す
+    renderKids();   // 0.15.0 PH-5（決めたこと 27）: 議事録の子ページの一覧は［AI 要約］の欄だけ
   }
   $('paneBtnNote').onclick = () => setPane('note');
   $('paneBtnScript').onclick = () => setPane('script');
@@ -3832,6 +4155,7 @@
         if (!base) { toast('リンクを写せませんでした。'); return; }
         await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
       }, false, true);
+      mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない
     }
     mk('削除', () => deletePageFlow(curId), false, true);
 

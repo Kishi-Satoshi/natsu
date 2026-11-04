@@ -193,7 +193,8 @@ test('PH-3・F118: 開け閉めを uiSave({ tree }) で覚え、uiState の tree
   assert.deepStrictEqual([...l.errors, ...l2.errors, ...l3.errors].map(fmt), []);
 });
 
-test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったページを今のタブで開き、親の行は開く。行のメニュー（右クリック・Shift+F10）は［中にページを作る］［新しいタブで開く］［削除］', T, async () => {
+test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったページを今のタブで開き、親の行は開く。行のメニュー（右クリック・Shift+F10）は［中にページを作る］［移動先…］［新しいタブで開く］［削除］', T, async () => {
+  // 0.15.0 PH-5 で意図して変えた: 行のメニューに［移動先…］を足した（HR4 の4つ。R24 の申し送り）
   // PH-3 直し（R28 (2)）で意図して変えた: 覚えるのは子のある行だけなので、作った後の一覧（DB の pages.list と同じ）に作った子を入れる
   let made = '';
   const l = await boot({ returns: {
@@ -215,10 +216,10 @@ test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったペ�
   assert.ok(menuOf(), '右クリックで行のメニューが出ない');
   assert.strictEqual(menuOf().getAttribute('role'), 'menu');
   assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map((b) => [b.textContent, b.getAttribute('role')]),
-    [['中にページを作る', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
+    [['中にページを作る', 'menuitem'], ['移動先…', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
   assert.ok(l.document.activeElement === menuOf().querySelectorAll('.mitem')[0], 'メニューの1つ目にフォーカスが無い');
   l.key({ key: 'ArrowDown' }, menuOf());
-  assert.strictEqual(l.document.activeElement.textContent, '新しいタブで開く');
+  assert.strictEqual(l.document.activeElement.textContent, '移動先…');
   l.key({ key: 'Escape' }, menuOf());
   await l.drain();
   assert.deepStrictEqual([menuOf() === null, focused(l)], [true, 'pa2'], 'Esc で閉じて行へ戻らない');
@@ -229,13 +230,13 @@ test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったペ�
   assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [['pa1'], ['pa2']], '［中にページを作る］が行の中に作らない');
   assert.ok(menuOf() === null, '［中にページを作る］の後もメニューが残る');
   await key(l, 'pa3', { key: 'ContextMenu' });
-  menuOf().querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  menuOf().querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.ok($(l, 'tabbar').querySelectorAll('.tabitem').some((t) => t.dataset.key === 'page:pa3'), '［新しいタブで開く］で開かない');
   assert.strictEqual($(l, 'tabbar').querySelectorAll('.tabitem').length, 2, '新しいタブで開かない');
   // ［削除］は確かめる（この台の confirm は［キャンセル］なので消さない）
   await key(l, 'pa3', { key: 'ContextMenu' });
-  menuOf().querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });
+  menuOf().querySelectorAll('.mitem')[3].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(l.called('pageDelete'), [], '確かめずに消した');
   assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -481,7 +482,8 @@ const noteTxt = (l, id) => noteRows(l).find((e) => e.dataset.id === id).querySel
 const menuLabels = (l) => { $(l, 'pMore').dispatchEvent({ type: 'click' }); const r = $(l, 'pMenu').querySelectorAll('.mitem').map((b) => b.textContent); $(l, 'pMore').dispatchEvent({ type: 'click' }); return r; };
 
 // ---------------------------------------------------------------- PH-4
-test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・プロパティ・3つのタブ・［要約を生成］が無い・本文の行がある・「···」は［コピー］［リンクを写す］［削除］・アイコンは 📄）。議事録は今の形のまま', T, async () => {
+test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・プロパティ・3つのタブ・［要約を生成］が無い・本文の行がある・「···」は［コピー］［リンクを写す］［移動先…］［削除］・アイコンは 📄）。議事録は今の形のまま', T, async () => {
+  // 0.15.0 PH-5 で意図して変えた: 「···」に［移動先…］を足した（決めたこと 24。R24・R25 の申し送り）
   const l = await openDb({ blanks: [BLANK('pb1', '', BODY())], open: 'pb1' });
   try {
     assert.ok($(l, 'pageWrap').classList.contains('blank'), '白紙のページの印が無い');
@@ -490,7 +492,7 @@ test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・
     assert.strictEqual($(l, 'pTypeRow').style.display, 'none', '白紙のページに会議の種類の行が出る');
     assert.strictEqual($(l, 'pProps').textContent, '', '白紙のページにプロパティが出る');
     assert.deepStrictEqual([...$(l, 'pActs').children].map((b) => b.id), ['pMore', 'pMenu'], '白紙のページに［要約を生成］が出る');
-    assert.deepStrictEqual(menuLabels(l), ['コピー', 'リンクを写す', '削除']);
+    assert.deepStrictEqual(menuLabels(l), ['コピー', 'リンクを写す', '移動先…', '削除']);
     assert.strictEqual($(l, 'pIcon').textContent, '📄');
     assert.deepStrictEqual([$(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['', '無題のページ']);
     assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id), ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], '本文の行が無いか、書いた順でない');
@@ -1617,4 +1619,344 @@ test('PR-2 直し 4・R51（2026-11-04 の持ち主の答え「ページは通�
     assert.strictEqual(fulls(), 3);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- 0.15.0 PH-5（計画の Task PH-5・決めたこと 22・26〜28・BQ3・BQ7 (a)・H3・U3・F117）
+// パンくず（根から今まで・6 段では「…」）・議事録の子ページの一覧・［移動先…］・Ctrl+Shift+U・Ctrl+Shift+N の「新しいページ」
+const TT = (id, list = LIST()) => list.find((p) => p.id === id).title;
+// #crumb の段: 祖先の段は ['up', 題名]・「…」は ['more', '…']・今のページは ['now', 題名]（区切りの「/」とアイコンの欄は除く）
+const crumbOf = (l) => $(l, 'crumb').children.flatMap((e) => {
+  if (e.dataset && e.dataset.crumb === 'up') return [['up', e.querySelector('.cst').textContent]];
+  if (e.dataset && e.dataset.crumb === 'more') return [['more', e.textContent]];
+  if (e.classList.contains('ct')) return [['now', e.textContent]];
+  return [];
+});
+const crumbBtn = (l, kind, pid) => $(l, 'crumb').children.find((e) => e.dataset && e.dataset.crumb === kind && (!pid || e.dataset.pid === pid));
+// 6 段の木（d0 > d1 > … > d5）
+const DEEP = () => [ROW('d0', AT('12T00:00:00')), ...Array.from({ length: 5 }, (_, i) => ROW(`d${i + 1}`, AT(`12T0${i + 1}:00:00`), { parentId: `d${i}` }))];
+const pageOfList = (list) => (id) => { const p = list.find((x) => x.id === id); return p ? { page: { id, title: p.title, date: p.date, createdAt: p.createdAt, durationSec: 600, blocks: [], memo: '', meetingType: 'general', ...(p.kind ? { kind: p.kind } : {}) }, segments: [] } : null; };
+const tabKeys150 = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => t.dataset.key);
+
+test('PH-5・H3: パンくずが根から今まで（祖先の段はアイコンと題名・押すとそのページを今のタブで）。6 段では最初の段・「…」・最後の2段で、「…」は隠れた段の一覧（押すとそのページ・Esc で「…」へ戻る）。5 段までは全部の段', T, async () => {
+  const l = await boot();
+  l.fire('onPageOpen', 'g1'); await l.drain();
+  assert.deepStrictEqual(crumbOf(l), [['up', TT('pa2')], ['up', TT('k1')], ['now', TT('g1')]], 'パンくずが根から今までの段でない');
+  assert.deepStrictEqual(['pa2', 'k1'].map((id) => crumbBtn(l, 'up', id).querySelector('.csi').textContent), ['🎙️', '📄']);
+  assert.strictEqual($(l, 'crumb').querySelectorAll('.csep').length, 2, '段の間の「/」が無い');
+  const n0 = l.called('pageGet').length;
+  crumbBtn(l, 'up', 'pa2').dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageGet').slice(n0).map((c) => c.args[0]), ['pa2'], '祖先の段を押してもそのページを開かない');
+  assert.deepStrictEqual(tabKeys150(l), ['page:pa2'], '祖先の段は今のタブで開かない');
+  assert.deepStrictEqual(crumbOf(l), [['now', TT('pa2')]], '最上位のページに祖先の段が残る');
+  // 6 段
+  const deep = DEEP();
+  const d = await boot({ returns: { pagesSearch: () => deep, pageGet: pageOfList(deep) } });
+  d.fire('onPageOpen', 'd5'); await d.drain();
+  assert.deepStrictEqual(crumbOf(d), [['up', TT('d0', deep)], ['more', '…'], ['up', TT('d4', deep)], ['now', TT('d5', deep)]], '6 段で最初の段・「…」・最後の2段でない');
+  const more = crumbBtn(d, 'more');
+  assert.deepStrictEqual([more.getAttribute('aria-label'), more.getAttribute('aria-haspopup'), more.getAttribute('aria-expanded')], ['隠れた段', 'menu', 'false']);
+  more.dispatchEvent({ type: 'click' });
+  await d.drain();
+  const menuOf = () => d.document.querySelector('.treemenu');
+  assert.ok(menuOf(), '「…」を押しても隠れた段の一覧が出ない');
+  assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map((b) => b.textContent), ['d1', 'd2', 'd3'].map((id) => `🎙️ ${TT(id, deep)}`), '隠れた段の一覧が根に近い順の d1〜d3 でない');
+  assert.ok(d.document.activeElement === menuOf().querySelectorAll('.mitem')[0], '一覧の1つ目にフォーカスが無い');
+  assert.strictEqual(crumbBtn(d, 'more').getAttribute('aria-expanded'), 'true');
+  d.key({ key: 'Escape' }, menuOf());
+  await d.drain();
+  assert.ok(menuOf() === null && d.document.activeElement === crumbBtn(d, 'more'), 'Esc で閉じて「…」へ戻らない');
+  crumbBtn(d, 'more').dispatchEvent({ type: 'click' });
+  menuOf().querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  await d.drain();
+  assert.deepStrictEqual(tabKeys150(d), ['page:d2'], '隠れた段を押してもそのページを今のタブで開かない');
+  assert.deepStrictEqual(crumbOf(d), [['up', TT('d0', deep)], ['up', TT('d1', deep)], ['now', TT('d2', deep)]]);
+  // 5 段（祖先 4 と今のページ）は全部の段
+  d.fire('onPageOpen', 'd4'); await d.drain();
+  assert.deepStrictEqual(crumbOf(d), [...['d0', 'd1', 'd2', 'd3'].map((id) => ['up', TT(id, deep)]), ['now', TT('d4', deep)]], '5 段で「…」に隠した');
+  assert.deepStrictEqual([...l.errors, ...d.errors].map(fmt), []);
+});
+
+test('PH-5・BQ3（決めたこと 27）: 議事録の［AI 要約］の欄の最後に子ページの一覧がサイドバーと同じ順で出る（押すと開く・Ctrl+クリックで新しいタブ）。子が無ければ何も足さない。メモの欄・白紙のページには出ない。要約の［コピー］は今と1文字も同じ', T, async () => {
+  const blocks = [{ id: 'b1', type: 'heading', level: 2, text: '目的' }, { id: 'b2', type: 'bullet', text: '見積もりを出す日を決める。', cites: [] }];
+  const get = (list) => (id) => { const r = pageOfList(list)(id); if (r && id === 'pa2') r.page.blocks = blocks; return r; };
+  const copied = async (list) => {
+    const l = await boot({ returns: { pagesSearch: () => list, pageGet: get(list), copy: () => true } });
+    l.fire('onPageOpen', 'pa2'); await l.drain();
+    $(l, 'pMore').dispatchEvent({ type: 'click' });
+    $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === 'コピー').dispatchEvent({ type: 'click' });
+    await l.drain();
+    return [l, l.called('copy').map((c) => c.args[0])];
+  };
+  const [l, withKids] = await copied(LIST());
+  const box = $(l, 'pKids');
+  assert.strictEqual(box.hidden, false, '子のある議事録に子ページの一覧が出ない');
+  assert.strictEqual(box.querySelector('.kidshead').textContent, 'このページの中のページ');
+  assert.deepStrictEqual(box.querySelectorAll('.kidrow').map((r) => [r.textContent, r.title]), ['k1', 'k2'].map((id) => [`📄 ${TT(id)}`, '開く（Ctrl+クリックで新しいタブ）']), 'サイドバーと同じ順（並びの鍵の順）でない');
+  // 子ページの一覧は［コピー］に入らない（子の無い同じ議事録の［コピー］と1文字も同じ）
+  const [l0, noKids] = await copied(LIST().filter((p) => !['k1', 'k2', 'g1'].includes(p.id)));
+  assert.strictEqual(withKids.length, 1);
+  assert.deepStrictEqual(withKids, noKids, '子ページの一覧で要約の［コピー］が変わった');
+  assert.strictEqual($(l0, 'pKids').hidden, true, '子の無い議事録に一覧の枠が出る');
+  assert.strictEqual($(l0, 'pKids').textContent, '', '子の無い議事録に何か足した');
+  // 押すと開く・Ctrl+クリックで新しいタブ・Enter で開く
+  box.querySelectorAll('.kidrow')[1].dispatchEvent({ type: 'click', ctrlKey: true });
+  await l.drain();
+  assert.deepStrictEqual(tabKeys150(l), ['page:pa2', 'page:k2'], 'Ctrl+クリックで新しいタブに開かない');
+  l.fire('onPageOpen', 'pa2'); await l.drain();
+  l.key({ key: 'Enter' }, $(l, 'pKids').querySelectorAll('.kidrow')[0]);
+  await l.drain();
+  assert.ok(tabKeys150(l).includes('page:k1') && !tabKeys150(l).includes('page:pa2'), 'Enter で今のタブに開かない');
+  // メモの欄では出さない・白紙のページ（k1）は本文の子ページの行で並ぶので出さない
+  assert.strictEqual($(l, 'pKids').hidden, true, '白紙のページに議事録の子ページの一覧が出る');
+  l.fire('onPageOpen', 'pa2'); await l.drain();
+  $(l, 'paneBtnMemo').dispatchEvent({ type: 'click' });
+  assert.strictEqual($(l, 'pKids').hidden, true, 'メモの欄に子ページの一覧が出る');
+  $(l, 'paneBtnNote').dispatchEvent({ type: 'click' });
+  assert.strictEqual($(l, 'pKids').hidden, false, '［AI 要約］の欄に戻っても一覧が出ない');
+  assert.deepStrictEqual([...l.errors, ...l0.errors].map(fmt), []);
+});
+
+test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分・子孫・ゴミ箱が無い・先頭は［いちばん上へ］・題名と場所で探す（ひらがなとカタカナを寄せる）・↑↓ と Enter で pageMove・Esc でフォーカスが戻る・変換中の Enter は抜ける', T, async () => {
+  const list = LIST().map((p) => (p.id === 'pa1' ? { ...p, title: 'みつもりの資料' } : p.id === 'pa2' ? { ...p, title: '週のまとめ' } : p));   // 利用者が付け直した題名（D77）
+  const l = await boot({ returns: { pagesSearch: () => list, pageGet: pageOfList(list) } });
+  l.fire('onPageOpen', 'pa2'); await l.drain();
+  // 「···」の［移動先…］（［削除］の前）
+  $(l, 'pMore').dispatchEvent({ type: 'click' });
+  const labels = $(l, 'pMenu').querySelectorAll('.mitem').map((b) => b.textContent);
+  assert.deepStrictEqual(labels.slice(-2), ['移動先…', '削除'], '「···」に［移動先…］が無い');
+  $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' });
+  await l.drain();
+  const pop = $(l, 'movePop');
+  assert.strictEqual(pop.hidden, false, '［移動先…］の窓が出ない');
+  assert.strictEqual($(l, 'movePopHead').textContent, '移動先');
+  assert.strictEqual($(l, 'moveSearch').getAttribute('placeholder'), 'ページを探す');
+  assert.ok(l.document.activeElement === $(l, 'moveSearch'), '探す欄にフォーカスが無い');
+  const opts = () => $(l, 'moveList').querySelectorAll('.mvopt').map((e) => e.dataset.pid);
+  const sel = () => $(l, 'moveList').querySelectorAll('.mvopt').filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.pid);
+  assert.deepStrictEqual(opts(), ['', 'pa3', 'pa1'], '候補に自分（pa2）か子孫（k1・k2・g1）が出る');
+  assert.strictEqual($(l, 'moveList').querySelectorAll('.mvopt')[0].textContent, 'いちばん上へ');
+  assert.deepStrictEqual(sel(), ['']);
+  // Esc で閉じて「···」へ戻る（動かさない）
+  l.key({ key: 'Escape' }, $(l, 'moveSearch'));
+  await l.drain();
+  assert.ok(pop.hidden && l.document.activeElement === $(l, 'pMore'), 'Esc で閉じて「···」へ戻らない');
+  assert.deepStrictEqual(l.called('pageMove'), []);
+  // 行のメニューの［移動先…］（4つの項目: HR4）。k1 は自分と子 g1 を除く（木の順）
+  rowOf(l, 'pa2').querySelector('.pi').dispatchEvent({ type: 'click' });
+  await l.drain();
+  rowOf(l, 'k1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+  await l.drain();
+  const menu = l.document.querySelector('.treemenu');
+  assert.deepStrictEqual(menu.querySelectorAll('.mitem').map((b) => b.textContent), ['中にページを作る', '移動先…', '新しいタブで開く', '削除']);
+  menu.querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(opts(), ['', 'pa3', 'pa2', 'k2', 'pa1'], '候補が木の順でないか、自分（k1）・子孫（g1）が出る');
+  const k2opt = $(l, 'moveList').querySelectorAll('.mvopt').find((e) => e.dataset.pid === 'k2');
+  assert.deepStrictEqual([k2opt.querySelector('.mvt').textContent, k2opt.querySelector('.mvp').textContent], [TT('k2'), '週のまとめ'], '候補に場所（親）が出ない');
+  // 探す: カタカナで、ひらがなの題名に当たる・場所でも当たる
+  const type = async (s) => { $(l, 'moveSearch').value = s; $(l, 'moveSearch').dispatchEvent({ type: 'input' }); await l.drain(); };
+  await type('ミツモリ');
+  assert.deepStrictEqual(opts(), ['', 'pa1'], 'カタカナで、ひらがなの題名に当たらない');
+  await type('まとめ');
+  assert.deepStrictEqual(opts(), ['', 'pa2', 'k2'], '場所（親の題名）で子に当たらない');
+  await type('');
+  // 変換中の Enter は抜ける
+  l.key({ key: 'ArrowDown' }, $(l, 'moveSearch'));
+  assert.deepStrictEqual(sel(), ['pa3']);
+  l.key({ key: 'Enter', isComposing: true }, $(l, 'moveSearch'));
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageMove'), [], '変換中の Enter で動かした');
+  assert.strictEqual(pop.hidden, false);
+  // ↑ で頭から回る・↓↓ で pa2・Enter → pageMove(k1, pa2)（親だけを選ぶ: 本文の最後）・閉じて行へ戻る
+  l.key({ key: 'ArrowUp' }, $(l, 'moveSearch'));
+  l.key({ key: 'ArrowUp' }, $(l, 'moveSearch'));
+  assert.deepStrictEqual(sel(), ['pa1'], '↑ で頭から末尾へ回らない');
+  l.key({ key: 'ArrowDown' }, $(l, 'moveSearch'));
+  l.key({ key: 'ArrowDown' }, $(l, 'moveSearch'));
+  l.key({ key: 'ArrowDown' }, $(l, 'moveSearch'));
+  assert.deepStrictEqual(sel(), ['pa2']);
+  l.key({ key: 'Enter' }, $(l, 'moveSearch'));
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [['k1', 'pa2', undefined]], 'Enter で選んだ親への pageMove でない');
+  assert.strictEqual(pop.hidden, true);
+  assert.strictEqual(focused(l), 'k1', '動かした後に行へ戻らない');
+  // ［いちばん上へ］（Enter で頭の行）→ pageMove(k1, '')
+  rowOf(l, 'k1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+  await l.drain();
+  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  await l.drain();
+  l.key({ key: 'Enter' }, $(l, 'moveSearch'));
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageMove').map((c) => c.args)[1], ['k1', '', undefined], '［いちばん上へ］が最上位への pageMove でない');
+  // 行のメニューから開いた窓の Esc は、その行へフォーカスを戻す
+  rowOf(l, 'pa3').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+  await l.drain();
+  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  await l.drain();
+  l.key({ key: 'Escape' }, $(l, 'moveSearch'));
+  await l.drain();
+  assert.deepStrictEqual([pop.hidden, focused(l)], [true, 'pa3'], '行のメニューから開いた窓の Esc で行へ戻らない');
+  assert.strictEqual(l.called('pageMove').length, 2, 'Esc で動かした');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PH-5・R38・R51・決めたこと 45・48: ［移動先…］で開いている白紙のページの外へ動かすと本文を開き直して行を消す・中へ動かすと本文の最後に行（page.move。もう行のある子も blockMove でない）・満杯の本文の中へは通して1回知らせる・ゴミ箱のページは候補に無い', T, async () => {
+  const l = await rowsDb({ more: (call) => {
+    const gone = call('page.create', { parentId: 'pb1' }).id;
+    call('page.setTitle', { id: gone, title: '消した子' });   // 利用者が付け直した題名（D77）
+    call('page.delete', { id: gone });
+    return { gone };
+  } });
+  try {
+    const { k1, k2, gone } = l.made;
+    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });
+    await l.drain();
+    const openMove = async (id) => {
+      rowOf(l, id).dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+      await l.drain();
+      l.document.querySelector('.treemenu').querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' });
+      await l.drain();
+    };
+    const pick = async (pid) => {
+      $(l, 'moveList').querySelectorAll('.mvopt').find((e) => e.dataset.pid === pid).dispatchEvent({ type: 'click' });
+      await l.drain(); await l.drain();
+    };
+    await openMove(k1);
+    const cands = $(l, 'moveList').querySelectorAll('.mvopt').map((e) => e.dataset.pid);
+    assert.ok(!cands.includes(gone) && !cands.includes(k1), 'ゴミ箱のページか自分が候補に出る');
+    // もう本文に行のある子を同じ白紙の親へ（親だけを選ぶ）: page.move で本文の最後へ（blockMove でない: 決めたこと 45・48）
+    const bm0 = l.called('blockMove').length;
+    await pick('pb1');
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k1, 'pb1', undefined]]);
+    assert.strictEqual(l.called('blockMove').length, bm0, '［移動先…］で blockMove を送った');
+    assert.strictEqual(topIds(l).slice(-1)[0], `page:${k1}`, '本文の最後に行を動かさない');
+    assert.strictEqual(subEls(l).slice(-1)[0]._b.page, k1, '開いている本文を描き直さない');
+    // 外へ（いちばん上へ）: 本文の行が消えて描き直す（灰色の行を残さない: R38）
+    await openMove(k2);
+    await pick('');
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args)[1], [k2, '', undefined]);
+    assert.ok(!subEl(l, k2), '外へ動かした子の行が開いている本文に残る');
+    assert.strictEqual(noteRows(l).filter((e) => e.classList.contains('gone')).length, 0, '灰色の行が残る');
+    assert.ok(!flatB(l.page('pb1').blocks).some((b) => b.type === 'subpage' && b.page === k2));
+    // 中へ（もう一度 pb1 へ）: 本文の最後に行が足されて描き直す
+    await openMove(k2);
+    await pick('pb1');
+    assert.strictEqual(subEls(l).slice(-1)[0]._b.page, k2, '中へ動かした子の行が開いている本文に無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  // 満杯の本文の白紙のページの中へ（議事録 pa1 を）: ページは通し、知らせを1回（R51）
+  const big = Array.from({ length: 2000 }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: `行${i}` }));
+  const f = await openDb({ blanks: [BLANK('pf1', '大きな本文', big)], open: 'pf1' });
+  try {
+    const te = $(f, 'toast');
+    let cur = te.textContent;
+    const seen = [];
+    Object.defineProperty(te, 'textContent', { configurable: true, get: () => cur, set: (v) => { cur = v; seen.push(String(v)); } });
+    $(f, 'pMore').dispatchEvent({ type: 'click' });   // 開いているのは pf1。pa1 をサイドバーの行のメニューから
+    $(f, 'pMore').dispatchEvent({ type: 'click' });
+    rowOf(f, 'pa1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
+    await f.drain();
+    f.document.querySelector('.treemenu').querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' });
+    await f.drain();
+    $(f, 'moveList').querySelectorAll('.mvopt').find((e) => e.dataset.pid === 'pf1').dispatchEvent({ type: 'click' });
+    await f.drain(); await f.drain();
+    assert.deepStrictEqual(f.called('pageMove').map((c) => c.args), [['pa1', 'pf1', undefined]]);
+    assert.strictEqual(f.call('pages.list', { q: '' }).find((p) => p.id === 'pa1').parentId, 'pf1', 'ページを通さない');
+    assert.strictEqual(seen.filter((x) => x === '本文が 2,000 行に達しているので、ページの行は本文の最後の一覧に置きました。').length, 1, '満杯の本文の中へ動かして知らせを1回出さない');
+    assert.deepStrictEqual($(f, 'bodyKids').querySelectorAll('.kidrow').length, 1, '開いている満杯の本文を開き直さない（行の無い子の一覧に出ない）');
+    assert.deepStrictEqual(f.errors.map(fmt), []);
+  } finally { f.done(); }
+});
+
+test('PH-5・F117: Ctrl+Shift+U で開いているページの親へ（今のタブ）。最上位では何もしない。変換中・設定の間は何もしない', T, async () => {
+  const l = await boot();
+  l.fire('onPageOpen', 'g1'); await l.drain();
+  const CU = { key: 'U', code: 'KeyU', ctrlKey: true, shiftKey: true };
+  let n0 = l.called('pageGet').length;
+  l.key({ ...CU, isComposing: true }); await l.drain();
+  assert.strictEqual(l.called('pageGet').length, n0, '変換中に親へ移った');
+  const ev = l.key(CU); await l.drain();
+  assert.strictEqual(ev.defaultPrevented, true);
+  assert.deepStrictEqual(l.called('pageGet').slice(n0).map((c) => c.args[0]), ['k1'], '親（k1）でなく、ほかのページへ移った');
+  assert.deepStrictEqual(tabKeys150(l), ['page:k1'], '今のタブで開かない');
+  l.key(CU); await l.drain();
+  assert.deepStrictEqual(tabKeys150(l), ['page:pa2']);
+  n0 = l.called('pageGet').length;
+  l.key(CU); await l.drain();
+  assert.strictEqual(l.called('pageGet').length, n0, '最上位で何かを開いた');
+  assert.deepStrictEqual(tabKeys150(l), ['page:pa2']);
+  // 設定の間は何もしない
+  l.fire('onPageOpen', 'k2'); await l.drain();
+  $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
+  n0 = l.called('pageGet').length;
+  l.key(CU); await l.drain();
+  assert.strictEqual(l.called('pageGet').length, n0, '設定の間に親へ移った');
+  // 行の文の中でも効く（行の近道ではない）
+  l.key({ key: 'Escape' }); await l.drain();
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PH-5・BQ7 (a)・F117: Ctrl+Shift+N で「新しいページ」（#newPop）。変換中と設定・検索の窓が開いているときは開かない。［白紙のページ］→ pageCreate()・［議事録］→ meetingPrepare。録音中は［議事録］が灰色で「録音中です」。↑↓・Esc でフォーカスが戻る', T, async () => {
+  let rec = false;
+  const l = await boot({ returns: { meetingStatus: () => ({ active: rec, finalizing: false, segments: [], memo: '', paused: false, pauses: [], pausedMs: 0, stt: null }) } });
+  l.fire('onPageOpen', 'pa1'); await l.drain();
+  const CN = { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true };
+  const pop = $(l, 'newPop');
+  const items = () => $(l, 'newList').querySelectorAll('.mitem');
+  // 変換中・設定・検索の窓の間は開かない
+  l.key({ ...CN, isComposing: true }); l.key({ ...CN, keyCode: 229 }); await l.drain();
+  assert.strictEqual(pop.hidden, true, '変換中に開いた');
+  $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
+  l.key(CN); await l.drain();
+  assert.strictEqual(pop.hidden, true, '設定の間に開いた');
+  l.key({ key: 'Escape' }); await l.drain();
+  $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+  l.key(CN); await l.drain();
+  assert.strictEqual(pop.hidden, true, '検索の窓の間に開いた');
+  l.key({ key: 'Escape' }, $(l, 'searchBox')); await l.drain();
+  // 開く: 見出し・2つの項目・1つ目にフォーカス
+  rowOf(l, 'pa1').focus();
+  const ev = l.key(CN); await l.drain();
+  assert.strictEqual(ev.defaultPrevented, true);
+  assert.strictEqual(pop.hidden, false, 'Ctrl+Shift+N で開かない');
+  assert.strictEqual($(l, 'newPopHead').textContent, '新しいページ');
+  assert.deepStrictEqual(items().map((b) => [b.textContent, b.getAttribute('aria-disabled')]), [['📄 白紙のページ', null], ['🎙️ 議事録（録音の前のページ）', null]]);
+  assert.ok(l.document.activeElement === items()[0], '1つ目にフォーカスが無い');
+  l.key({ key: 'ArrowDown' }, $(l, 'newList'));
+  assert.ok(l.document.activeElement === items()[1], '↓ で次の項目へ移らない');
+  l.key({ key: 'Escape' }, $(l, 'newList')); await l.drain();
+  assert.ok(pop.hidden && focused(l) === 'pa1', 'Esc で閉じてフォーカスが戻らない');
+  assert.deepStrictEqual(l.called('meetingPrepare'), []);
+  // ［白紙のページ］→ pageCreate()（最上位）
+  l.key(CN); await l.drain();
+  l.key({ key: 'Enter' }, $(l, 'newList')); await l.drain();
+  assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [[]], '［白紙のページ］が最上位の pageCreate() でない');
+  assert.strictEqual(pop.hidden, true);
+  // ［議事録］→ meetingPrepare（録音の前のページを開くだけ）
+  l.key(CN); await l.drain();
+  items()[1].dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('meetingPrepare').length, 1, '［議事録］で録音の前のページを開かない');
+  assert.deepStrictEqual(l.called('meetingStart'), [], '［議事録］で録音を始めた');
+  // 録音中は［議事録］が灰色で「録音中です」・押しても何もしない
+  rec = true;
+  l.fire('onMeetingUpdate', { active: true, finalizing: false, segments: [], memo: '', paused: false, pauses: [], pausedMs: 0, stt: null }); await l.drain();
+  l.key(CN); await l.drain();
+  assert.deepStrictEqual([items()[1].getAttribute('aria-disabled'), items()[1].classList.contains('off'), items()[1].textContent], ['true', true, '🎙️ 議事録（録音の前のページ）録音中です'], '録音中に［議事録］が灰色でない');
+  items()[1].dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('meetingPrepare').length, 1, '録音中に［議事録］が押せる');
+  assert.strictEqual(pop.hidden, false, '灰色の項目を押して閉じた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PH-5（決めたこと 20・28・U3）: SHORTCUTS に Ctrl+Shift+N・Ctrl+Shift+U・サイドバーのページの一覧のキーの行があり、設定の表に同じ行が出る', T, async () => {
+  const SC = require('../src/shortcuts');
+  const has = (keys, where) => SC.SHORTCUTS.some((r) => r.keys === keys && r.where === where);
+  assert.ok(has('Ctrl+Shift+N', '窓のどこでも') && has('Ctrl+Shift+U', '窓のどこでも'), 'Ctrl+Shift+N・Ctrl+Shift+U の行が無い');
+  for (const k of ['↑・↓', '→', '←', 'Home・End', 'Enter', 'Ctrl+Enter', 'Shift+F10']) assert.ok(has(k, 'サイドバーのページの一覧'), `木のキー ${k} の行が無い`);
+  const l = await boot();
+  $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
+  const text = $(l, 'shortcutTable').textContent;
+  for (const w of ['Ctrl+Shift+N', 'Ctrl+Shift+U', 'サイドバーのページの一覧', 'Shift+F10']) assert.ok(text.includes(w), `設定の表に ${w} が無い`);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
 });

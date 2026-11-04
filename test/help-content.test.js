@@ -681,13 +681,13 @@ test('EK-7: 直した記事（要約を書き直す・会議の種類とメモ�
   assert.match(cat('summary'), /メモ/);
 });
 
-test('EK-7・U3（決めたこと 38）: settings/hotkeys の「NaTsu の窓の中だけで効くキー」の表は、効く所の見出しごとに SHORTCUTS と一字ずつ同じ（並びも）。Ctrl+Shift+N の行は無い。表の下に音声入力のキーの一言と Ctrl+W の決まり', { timeout: 5000 }, () => {
+test('EK-7・U3（決めたこと 38）: settings/hotkeys の「NaTsu の窓の中だけで効くキー」の表は、効く所の見出しごとに SHORTCUTS と一字ずつ同じ（並びも）。表の下に音声入力のキーの一言と Ctrl+W の決まり（0.15.0 PH-5 で意図して変えた: Ctrl+Shift+N の行がある）', { timeout: 5000 }, () => {
   const t = read(fileOf('settings/hotkeys'));
   const sec = ek7Sec(t, 'in-app');
   const got = tableRows(sec);
   const want = SHORTCUTS.map((r) => [r.where, keyCell(r.keys), r.what]);
   assert.deepStrictEqual(got, want, '近道の表が SHORTCUTS と違う（src/shortcuts.js の表を写す）');
-  assert.ok(!/Ctrl\+Shift\+N/.test(t), 'Ctrl+Shift+N の行がある（BQ8: 0.15.0 で決める）');
+  assert.ok(/\[\[Ctrl\+Shift\+N\]\]/.test(sec), 'Ctrl+Shift+N の行が無い（0.15.0 PH-5・BQ7 (a)）');
   assert.ok(sec.includes('NaTsu の文字の欄でも使えます'), '音声入力のキーの一言が無い');
   assert.ok(sec.includes('](dictation/dictation.md#in-natsu)'), 'NaTsu の中の音声入力の節へのリンクが無い');
   for (const w of ['録音中のページは閉じられません（［■ 終了して作成］で止めます）', '窓は閉じません', '空のページ']) assert.ok(sec.includes(w), `Ctrl+W の決まりに「${w}」が無い`);

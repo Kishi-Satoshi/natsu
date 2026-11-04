@@ -73,6 +73,36 @@ const FOCUS_TREE = `(async () => {
   row.querySelector('.tw').style.display = 'flex';
   return 1;
 })()`;
+// 0.15.0 PH-5: 6 段目のページ（d5）を開いて（祖先の行は開いた覚え書き）、パンくずの「…」を押して隠れた段の一覧を出す
+const OPEN_DEEP = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem[data-pid="d5"]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.querySelector('#crumb [data-crumb="more"]').click();
+  return 1;
+})()`;
+// 0.15.0 PH-5: 子のある議事録（一覧の1行目 p1）を開いて、［AI 要約］の欄の最後の「このページの中のページ」まで捲る
+const OPEN_KIDS = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  document.getElementById('pKids').scrollIntoView({ block: 'end' });
+  return 1;
+})()`;
+// 0.15.0 PH-5: サイドバーの木の p2 を開いて「···」の［移動先…］を押す（候補は p2 と子孫を除いた木の順・場所つき）
+const OPEN_MOVE = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem[data-pid="p2"]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('pMore').click();
+  [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '移動先…').click();
+  return 1;
+})()`;
+// 0.15.0 PH-5: 1行目のページを開いて Ctrl+Shift+N（「新しいページ」の選び）
+const OPEN_NEW = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true, bubbles: true }));
+  return 1;
+})()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -401,6 +431,12 @@ const SCREENS = [
   // 0.15.0 PR-2（計画 docs/plans/2026-11-03-150.md の「取り直す画面」）: 白紙のページの本文の子ページの行（見出し・箇条書きの間・トグルの中・灰色の行・行の無い子の一覧）
   { name: 'page-rows-light', page: 'app', theme: 'light', get answers() { return rowsAnswers(); }, act: OPEN_PAGE },
   { name: 'page-rows-dark', page: 'app', theme: 'dark', get answers() { return rowsAnswers(); }, act: OPEN_PAGE },
+  // 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の「取り直す画面」）: 6 段のパンくずの「…」と隠れた段の一覧・議事録の［AI 要約］の下の子ページの一覧・
+  // ［移動先…］の窓・Ctrl+Shift+N の「新しいページ」の選び。足した画面（まだ基準が無い）
+  { name: 'crumb-deep-light', page: 'app', theme: 'light', get answers() { return deepAnswers(); }, act: OPEN_DEEP },
+  { name: 'page-kids-light', page: 'app', theme: 'light', get answers() { return kidsAnswers(); }, act: OPEN_KIDS },
+  { name: 'move-pop-light', page: 'app', theme: 'light', get answers() { return moveAnswers(); }, act: OPEN_MOVE },
+  { name: 'new-pop-light', page: 'app', theme: 'light', act: OPEN_NEW },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -510,7 +546,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // （2026-11-03）と答えたので、CI run 41612673475（036c020）の artifact 13220336274 の .after.png（32 枚）をバイトのまま基準にし、空に戻した（基準は 175 枚）
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）: PH-3 で足したサイドバーの木の明暗と拡大 200% の3枚（まだ基準が無い）
 // PH-4 で足した白紙のページの明暗の2枚（まだ基準が無い）と、/ メニューに［ページ］が増える edit-slash-recent-light（今の基準がある）
-const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark', 'edit-slash-recent-light']);
+// PR-2 で足した白紙のページの本文の子ページの行の明暗の2枚（まだ基準が無い）
+// PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚（まだ基準が無い）と、近道の表に行が増える settings-shortcuts-light・
+// 「···」に［移動先…］が増える page-menu-link の2枚・計画の表のとおり / メニューの edit-slash-light・edit-slash-dark（今の基準がある）
+const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
+  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light',
+  'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -694,6 +735,42 @@ function rowsAnswers() {
   const row = (id, title, ord, parentId) => ({ id, title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId, ord, kind: 'blank' });
   const kids = [row('pk1', '週の予定', 'i', 'pr1'), row('pk2', '見積もりの内訳', 'r', 'pr1'), row('pk3', '取引先の一覧', 't', 'pr1'), row('pk4', '前の版で行を消した子', 'v', 'pr1')];
   return { 'koeApp.pagesSearch': [row('pr1', page.title, 'i', null), ...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
+}
+
+/** 0.15.0 PH-5: 6 段の白紙のページの木（d0〜d5。祖先の行は開いた覚え書き）。開く d5 の page:get は白紙のページ */
+function deepAnswers() {
+  const at = (h) => `2026-10-17T0${h}:00:00.000Z`;
+  const titles = ['プロジェクトの資料', '見積もり', '見積もりの下書き', '見積もりの内訳', '数の根拠', '根拠の出どころ'];
+  const rows = titles.map((title, i) => ({ id: `d${i}`, title, date: '2026-10-17', durationSec: 0, createdAt: at(i), updatedAt: at(i), meetingType: '', hasSummary: true,
+    parentId: i ? `d${i - 1}` : null, ord: 'i', kind: 'blank' }));
+  const page = { id: 'd5', kind: 'blank', title: titles[5], date: '2026-10-17', memo: '', createdAt: at(5), updatedAt: at(5), blocks: [
+    { id: 'q1', type: 'paragraph', text: '見積もりの数の出どころを書き足す。', citeState: 'manual', cites: [] },
+  ] };
+  return {
+    'koeApp.pagesSearch': [...rows.slice().reverse(), ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
+    'koeApp.uiState': { tree: { open: ['d0', 'd1', 'd2', 'd3', 'd4'] } },
+    'koeApp.pageGet': { page, segments: [] },
+  };
+}
+
+/** 0.15.0 PH-5: 議事録 p1（見本のページ）の中に白紙のページ2つと議事録1つ（並びの鍵の順） */
+function kidsAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const kid = (id, title, ord, kind) => ({ id, title, date: '2026-10-17', durationSec: kind ? 0 : 900, createdAt: at, updatedAt: at, meetingType: kind ? '' : 'general', hasSummary: true,
+    parentId: 'p1', ord, ...(kind ? { kind } : {}) });
+  return {
+    'koeApp.pagesSearch': [kid('pk1', '決まったことの続き', 'i', 'blank'), kid('pk2', '見積もりの内訳', 'r', 'blank'), kid('pk3', lib.meetingTitleAt('2026-10-17T00:00:00.000Z', JST_MIN), 'v', ''),
+      ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
+    'koeApp.uiState': { tree: { open: ['p1'] } },
+  };
+}
+
+/** 0.15.0 PH-5: サイドバーの木（treeAnswers と同じ）で、開く p2 の page:get は p2（見本のページの中身） */
+function moveAnswers() {
+  const a = treeAnswers();
+  const page = fixtures()['koeApp.pageGet'].page;
+  const p2 = LIST[1];
+  return { ...a, 'koeApp.pageGet': { page: { ...page, id: p2.id, title: p2.title, date: p2.date, createdAt: p2.createdAt, durationSec: p2.durationSec }, segments: SEGMENTS } };
 }
 
 /** 0.13.0 RDY-3: 録音の前のページ（main の meetingStatus() の形。録音していない・prep は空のメモと「自動」・クラウドで文字起こしする PC） */

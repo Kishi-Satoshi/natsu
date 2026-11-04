@@ -213,9 +213,11 @@ const ADDED_140 = [...NEW_140, ...RETAKEN_140];
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.15.0 の表の画面だけ（RETAKE_150）。
 // PH-3 でサイドバーの木の明暗と拡大 200% の3枚を足した（NEW_150。足した画面で、まだ基準が無い）。PH-4 で白紙のページの明暗の2枚を足した
 // PR-2 で白紙のページの本文の子ページの行の明暗の2枚を足した
-const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark'];
+const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
+  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light'];   // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚
 // PH-4 で / メニューに［ページ］が増えるので、語の無い / メニューを開く edit-slash-recent-light（今の基準がある）を取り直す（RETAKEN_150。R25）
-const RETAKEN_150 = ['edit-slash-recent-light'];
+// PH-5 で近道の表に行が増える settings-shortcuts-light・「···」に［移動先…］が増える page-menu-link の2枚と、計画の表のとおり edit-slash-light・edit-slash-dark を取り直す
+const RETAKEN_150 = ['edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark'];
 const RETAKE_150 = [...NEW_150, ...RETAKEN_150];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -1114,7 +1116,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // （<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は 03f39669…）
   // 0.15.0 PR-2 直し 5（計画の R52。2026-11-04 の a812237..44f4272 の点検の Minor）: 開いている小さな白紙のページの中に作るときは本文を読み直さない
   // （<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は eb23b21c…）
-  assert.strictEqual(sha, '1c6fedc2928c5bf4853ac80c388a5e219e64c9b918362d276c0ae3d16c2d2352',
+  // 0.15.0 PH-5（計画の決めたこと 22・26〜28・R54）: パンくずの祖先の段と「…」・議事録の子ページの一覧（#pKids）・［移動先…］の窓（#movePop）・「新しいページ」（#newPop）・
+  // 「···」と行のメニューの［移動先…］・Ctrl+Shift+N・Ctrl+Shift+U・SHORTCUTS の写しの行。変わる画面は足した NEW_150 の4枚と RETAKEN_150 の settings-shortcuts-light・
+  // page-menu-link の2枚（edit-slash-light・dark は計画の表のとおり取り直し待ちに入れた）。値を今の app.html に合わせた（前の値は 1c6fedc2…）
+  assert.strictEqual(sha, '5f265eec1c5af7eb8f2698be848805b904c36287744bdb9755e258a0baac055f',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

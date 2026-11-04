@@ -2522,7 +2522,7 @@ async function bootW(o = {}) {
 const tabKeys = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => t.dataset.key);
 const activeTabKey = (l) => { const t = $(l, 'tabbar').querySelector('.tabitem.active'); return t ? t.dataset.key : ''; };
 
-test('EK-5（決めたこと 36・BQ7 (a)）: Ctrl+W → 選んでいるタブを閉じて隣へ移る・1つだけなら閉じて空のページ（窓は閉じない）。設定の間と変換中は何もしない。Ctrl+Shift+N は何もしない（BQ8）', T, async () => {
+test('EK-5（決めたこと 36・BQ7 (a)）: Ctrl+W → 選んでいるタブを閉じて隣へ移る・1つだけなら閉じて空のページ（窓は閉じない）。設定の間と変換中は何もしない。Ctrl+Shift+N は会議の口を呼ばずタブも作らない（0.15.0 PH-5 で「新しいページ」の選びを開くだけにした）', T, async () => {
   const l = await bootW({ tabs: { open: ['page:pk1', 'page:pk2', 'dictation'], active: 'page:pk1' } });
   assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['page:pk1', 'page:pk2', 'dictation'], 'page:pk1'], '前提: 覚えたタブ');
   // 設定のポップアップの間は何もしない（後ろのタブを替えない）
@@ -2550,10 +2550,11 @@ test('EK-5（決めたこと 36・BQ7 (a)）: Ctrl+W → 選んでいるタブ�
   assert.match($(l, 'pNote').textContent, /左の一覧から議事録を選んでください/);
   ev = l.key(CW); await l.drain();   // タブが無ければ何もしない
   assert.deepStrictEqual(tabKeys(l), []);
-  // Ctrl+Shift+N は何もしない（BQ8: 録音の前のページを開かない・録音を始めない）
+  // Ctrl+Shift+N は録音の前のページを開かない・録音を始めない（0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 28・BQ7 (a)）で意図して変えた: 「新しいページ」の選びを開くだけ）
   ev = l.key({ key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true }); await l.drain();
   assert.deepStrictEqual(l.s.calls.filter((c) => /^meeting(Prepare|Start|Toggle)$/.test(c)), [], 'Ctrl+Shift+N で会議の口を呼んだ');
   assert.deepStrictEqual(tabKeys(l), [], 'Ctrl+Shift+N でタブができた');
+  assert.strictEqual($(l, 'newPop').hidden, false, 'Ctrl+Shift+N で「新しいページ」の選びが出ない');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -2596,7 +2597,7 @@ const scRowsWant = () => {
   }
   return out;
 };
-test('EK-5（決めたこと 38・U3）: 設定の［一般］の「ホットキー」の下に「NaTsu の窓の中の近道」の表があり、SHORTCUTS と同じ行（効く所の見出しで区切る・キーは <kbd>）。Ctrl+Shift+N の行は無く、表の下に音声入力のキーの一言', T, async () => {
+test('EK-5（決めたこと 38・U3）: 設定の［一般］の「ホットキー」の下に「NaTsu の窓の中の近道」の表があり、SHORTCUTS と同じ行（効く所の見出しで区切る・キーは <kbd>）。表の下に音声入力のキーの一言（0.15.0 PH-5 で意図して変えた: Ctrl+Shift+N の行がある）', T, async () => {
   const l = await bootW();
   $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
   const card = $(l, 'shortcutTable').closest('.card');
@@ -2618,7 +2619,7 @@ test('EK-5（決めたこと 38・U3）: 設定の［一般］の「ホットキ
     const td = tr.querySelector('td');
     assert.strictEqual(td.querySelectorAll('kbd').map((k) => k.textContent).join('・'), td.textContent, 'キーが <kbd> でない');
   }
-  assert.ok(!/Ctrl\+Shift\+N/.test($(l, 'shortcutTable').textContent), 'Ctrl+Shift+N の行がある');
+  assert.ok(/Ctrl\+Shift\+N/.test($(l, 'shortcutTable').textContent), 'Ctrl+Shift+N の行が無い（0.15.0 PH-5・BQ7 (a)）');
   const note = $(l, 'shortcutNote');
   assert.strictEqual(note.textContent, SC_NOTE);
   assert.strictEqual(kids.indexOf(note), kids.indexOf($(l, 'shortcutTable')) + 1, '一言が表のすぐ下に無い');

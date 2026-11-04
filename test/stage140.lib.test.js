@@ -962,12 +962,12 @@ test('EK-5（決めたこと 38・R70 (G4)）: keyAction と SHORTCUTS が同じ
   assert.strictEqual(new Set(groups).size, groups.length, '同じ効く所が離れて並ぶ');
 });
 
-test('EK-5（決めたこと 37・BQ8）: Ctrl+Shift+N は入れない（keyAction は null・SHORTCUTS に行が無い）。全体の音声入力のキーも表に入れない', () => {
+test('EK-5（決めたこと 37・BQ8）: Ctrl+Shift+N は行の近道でない（keyAction は null。0.15.0 PH-5 で意図して変えた: SHORTCUTS の「窓のどこでも」に「新しいページ」の行がある）。全体の音声入力のキーも表に入れない', () => {
   const K = (o) => E.keyAction({ ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, isComposing: false, key: '', code: '', ...o });
   assert.strictEqual(K({ ctrlKey: true, shiftKey: true, code: 'KeyN', key: 'N' }), null);
   assert.strictEqual(K({ ctrlKey: true, code: 'KeyW', key: 'w' }), null, 'Ctrl+W は行の近道でない（窓の受け口）');
   for (const r of SC.SHORTCUTS) {
-    assert.ok(!/Ctrl\+Shift\+N\b/.test(r.keys), `Ctrl+Shift+N の行: ${r.keys}`);
+    if (/Ctrl\+Shift\+N\b/.test(r.keys)) assert.deepStrictEqual([r.keys, r.where, r.codes], ['Ctrl+Shift+N', '窓のどこでも', []], `Ctrl+Shift+N の行: ${r.keys}`);
     assert.ok(!/Space/.test(r.keys) && !/音声入力/.test(r.what), `音声入力のキーの行: ${r.keys}`);
   }
 });
