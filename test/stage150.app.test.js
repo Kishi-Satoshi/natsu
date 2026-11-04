@@ -1475,6 +1475,23 @@ test('PR-2 直し 4・R49（2026-11-04 の持ち主の答え「本文に行が�
     assert.deepStrictEqual(l.called('blockMove').slice(-1)[0].args, ['pb1', rowIdOf(l, k2), { afterId: '', parentId: tp }]);
     assert.deepStrictEqual(l.page('pb1').blocks.find((b) => b.id === tp).children.map((b) => b.page), [k2], '下の文の子の頭に置かない');
     assert.deepStrictEqual(l.called('pageMove'), []);
+    // PR-2 直し 5（R52 の1）: 閉じたトグルの下へ 24px ほど右へずらして落とすと、トグルの子の頭（blockMove の parentId）に入れ、トグルは画面だけで開く
+    // （入れた行が見える。DB のトグルの開け閉めは書かない: 本文の ⠿ の引っ張りの NR18 と同じ）
+    const tg = l.call('block.insert', { pageId: 'pb1', afterBlockId: 'q4', type: 'toggle' }).blockId;
+    l.call('block.update', { pageId: 'pb1', blockId: tg, patch: { text: 'まとめ' } });
+    l.call('block.setOpen', { pageId: 'pb1', blockId: tg, open: false });
+    l.fire('onPageOpen', 'pb1'); await l.drain();
+    assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id).slice(5, 9), ['q3', 'q4', tg, 'q6'], '前提: 閉じたトグルが q4 の後ろにある');
+    sideDrag(l, k2, 40);
+    bodyRects(l);
+    // q6 の行（上端 80）の上半分・トグルの左の端から 30px 右（自分の行は数えない: R46）
+    await box150(l).ondrop(pageEv(82, 350));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('blockMove').slice(-1)[0].args, ['pb1', rowIdOf(l, k2), { afterId: '', parentId: tg }]);
+    assert.deepStrictEqual(l.page('pb1').blocks.find((b) => b.id === tg).children.map((b) => b.page), [k2], 'トグルの子の頭に置かない');
+    assert.strictEqual(subEl(l, k2) ? subEl(l, k2).dataset.parent : '（描いていない）', tg, '閉じたトグルの中へ入れた行が画面に見えない（トグルを画面だけで開かない）');
+    assert.strictEqual(l.page('pb1').blocks.find((b) => b.id === tg).open, false, 'トグルの開け閉めを DB に書いた（画面だけで開く）');
+    assert.deepStrictEqual(l.called('pageMove'), []);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -1550,6 +1567,18 @@ test('PR-2 直し 4・R51（2026-11-04 の持ち主の答え「ページは通�
     assert.strictEqual(fulls(), 3, 'サイドバーで動かし入れて知らせを1回出さない');
     assert.strictEqual(l.page('pf1').blocks.length, N, '満杯の本文に行を足した');
     assert.strictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').length, 3, '行の無い子が本文の最後の一覧に無い');
+    // PR-2 直し 5（R52 の2）: 同じ親の中の並べ替え（行の無い子をサイドバーで兄弟の後ろへ）では知らせない（行は動くだけ: movePageTo の parentId !== from）
+    const sibs = () => ids(l).filter((id) => kidsOf('pf1').includes(id));
+    const was = sibs();
+    assert.strictEqual(was.length, 3, '前提: pf1 の子がサイドバーに3つ見える');
+    for (const r of rows(l)) r._rect = { top: 0, height: 30 };
+    rowOf(l, was[0]).dispatchEvent({ type: 'dragstart', target: rowOf(l, was[0]), dataTransfer: { effectAllowed: '', setData() {} } });
+    rowOf(l, was[1]).dispatchEvent({ type: 'drop', clientY: 28, dataTransfer: { types: [PAGE_TYPE] }, preventDefault() {} });
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args)[1], [was[0], 'pf1', was[1]]);
+    assert.deepStrictEqual(sibs().slice().sort(), was.slice().sort(), '前提: 子は同じ親の中のまま');
+    assert.strictEqual(l.page('pf1').blocks.length, N);
+    assert.strictEqual(fulls(), 3, '同じ親の中の並べ替えで知らせた');
     // 行を置けた白紙のページ（あと1行の pf2 に置けて 2,000 行になった・小さな pb1）・最上位では出さない
     for (const id of ['pf2', 'pb1']) {
       rowOf(l, id).querySelector('.padd').dispatchEvent({ type: 'click' });
@@ -1560,6 +1589,32 @@ test('PR-2 直し 4・R51（2026-11-04 の持ち主の答え「ページは通�
     await l.drain(); await l.drain();
     assert.strictEqual(l.called('pageCreate').length, 6);
     assert.strictEqual(fulls(), 3, '行を置けたのに知らせた');
+    // PR-2 直し 5（R52 の3）: 開いている小さな白紙のページの中に作る（行の［＋］・/ページ）ときは、親の本文を読み直さない（pageGet は作ったページを開く1回だけ。
+    // 本文が 2,000 行に満たなければ行は必ず置ける: R33）
+    const madeIn = async (fn) => {
+      l.fire('onPageOpen', 'pb1'); await l.drain();
+      const kids0 = kidsOf('pb1');
+      const n0 = l.called('pageGet').length;
+      await fn();
+      await l.drain(); await l.drain();
+      const made = kidsOf('pb1').filter((id) => !kids0.includes(id));
+      assert.strictEqual(made.length, 1, '前提: pb1 の中に1つ作った');
+      return [made[0], l.called('pageGet').slice(n0).map((c) => c.args[0])];
+    };
+    let [made, got] = await madeIn(() => rowOf(l, 'pb1').querySelector('.padd').dispatchEvent({ type: 'click' }));
+    assert.deepStrictEqual(got, [made], '開いている小さな白紙のページの中に行の［＋］で作って、親の本文を読み直した');
+    [made, got] = await madeIn(async () => {
+      const q = noteTxt(l, 'q2');
+      q.focus();
+      q.textContent = `${q.textContent} /page`;
+      l.caret.set(q, q.textContent.length);
+      q.dispatchEvent({ type: 'input' });
+      await l.drain();
+      l.key({ key: 'Enter', code: 'Enter' }, q);
+    });
+    assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args).slice(-1), [['pb1', 'q2']]);
+    assert.deepStrictEqual(got, [made], '開いている小さな白紙のページの中に /ページ で作って、親の本文を読み直した');
+    assert.strictEqual(fulls(), 3);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

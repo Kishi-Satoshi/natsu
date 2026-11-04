@@ -3165,11 +3165,17 @@
   // 中にページを作る（parentId が無ければ最上位）→ 一覧を読み直して今のタブで開く（親の行は開く）
   async function createPageIn(parentId, placeAt) {
     flushEdits();
+    // PR-2 直し 5（R52 の3・R51 の文のとおり）: 開いている白紙のページの中に作るときは、命令の前の本文の行の数を見る（2,000 行に満たなければ行は必ず置ける: R33）
+    const openHost = Boolean(parentId) && parentId === curId && isBlankPage(curPage);
+    const fullBefore = openHost && flattenBlocks(curPage.blocks).length >= BODY_ROWS_MAX;
     let r = null;
     try { r = await (parentId ? (placeAt ? window.koeApp.pageCreate(parentId, placeAt) : window.koeApp.pageCreate(parentId)) : window.koeApp.pageCreate()); } catch (_) { r = null; }
     if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
     await refreshList();
-    await noteRowless(parentId, r.id);   // PR-2 直し 4（R51）: 満杯の本文の白紙のページの中に作ったら知らせる
+    // PR-2 直し 4（R51）: 満杯の本文の白紙のページの中に作ったら知らせる。PR-2 直し 5（R52 の3）: 開いている親は、満杯のときだけ命令の後に開き直した本文で見る
+    // （小さな本文は読み直さない）。開いていない親だけ pageGet の1回
+    if (!openHost) await noteRowless(parentId, r.id);
+    else if (fullBefore) await noteRowless(parentId, r.id, await openPage(parentId));
     if (parentId) setTreeOpen(parentId, true);   // PH-3 直し（R28 (2)）: 覚えるのは子のある行だけなので、作った子が一覧に入ってから開く
     const ok = await openPageTab(r.id);
     if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
@@ -8635,6 +8641,7 @@
   // （本文が 2,000 行で行を足せなかった: R33。ページは通す）一度知らせる。命令の答えの形は変えない（page.move の答えは一覧）ので、親の本文を見て決める
   // （fresh は curPage が命令の後に読み直した本文のとき。ほかは pageGet の1回。白紙のページの親のときだけ読む）
   const SUB_ROW_FULL = '本文が 2,000 行に達しているので、ページの行は本文の最後の一覧に置きました。';
+  const BODY_ROWS_MAX = 2000;   // 本文の行の上限（子孫も数える。validate.LIMITS.blocks。PR-2 直し 5: R52 の3）
   async function noteRowless(hostId, id, fresh = false) {
     const host = hostId ? pages.find((p) => p && p.id === hostId) : null;
     if (!host || !isBlankPage(host)) return;
