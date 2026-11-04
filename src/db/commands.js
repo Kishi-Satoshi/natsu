@@ -59,6 +59,7 @@ const PT = require('../pageTree');
 const { evenKeys } = require('./keys');
 // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜6・14〜16・R60・R72）: 戻せる命令の表（画面の元に戻すの列と同じ）と飾りの整え
 const { UNDO_CMDS } = require('../undoBook');
+const pageLookLib = require('../pageLook');   // 0.15.0 PL-2: 全部既定の見た目は欄を消す（isPlainLook）
 const RT = require('../richText');
 const S = require('./search');
 const { LIMITS } = require('./validate');
@@ -195,6 +196,17 @@ function summaryLockedPage(db, page) {
 }
 
 // 0.13.1 NR14: view が真の命令（トグルの開け閉め。見た目だけの欄 open）は鍵を見るが、手直しの印（summaryEdited）を付けない
+// 0.15.0 PL-2: ページの欄 key を value にする（undefined は欄を消す）。録音中の写しは断る。今と同じ値なら saveOps が何も書かない（決めたこと 16。答えは今のページ）
+function setPageAttr(p, key, value) {
+  if (isLive(p)) throw refuse('bad-args');
+  if (value === undefined) delete p[key]; else p[key] = structuredClone(value);
+}
+// 0.15.0 PL-2（決めたこと 35・39）: 要約の書き戻し（page.put）はアイコンと見た目を書き換えない（送ったページに無くても、違っても、DB の今の値のまま）
+function keepStoredLook(was, page) {
+  for (const k of ['icon', 'look']) {
+    if (Object.hasOwn(was, k)) page[k] = structuredClone(was[k]); else delete page[k];
+  }
+}
 function editPage(db, id, ctx, fn, { summary = false, view = false } = {}) {
   const w = forWrite(db, id);
   if (!w) return { ops: [], pageIds: [], result: null };
@@ -1303,6 +1315,12 @@ const DEFS = {
     } },
 
   // ---- 画面の書き込み（app と main。答えは今の main の IPC と同じ）
+  // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の決めたこと 13・15・16・35・36・39・F119）: ページのアイコンと見た目（役 app だけ・元に戻すの歩みにしない）。
+  // アイコンは辞書の絵文字だけ（'' は欄を消して既定に戻す）・見た目は決まった形だけ（全部既定なら欄を消す）。同じ値は書かない。録音中の写しは断る（締めがページを書き直すため）
+  'page.setIcon': { roles: ['app'], write: true, args: { id: 'id', icon: 'pageIcon' },
+    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => setPageAttr(p, 'icon', a.icon === '' ? undefined : a.icon)), dupResult: reread },
+  'page.setLook': { roles: ['app'], write: true, args: { id: 'id', look: 'pageLook' },
+    run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => setPageAttr(p, 'look', pageLookLib.isPlainLook(a.look) ? undefined : a.look)), dupResult: reread },
   'page.setTitle': { roles: ['app', 'main'], write: true, args: { id: 'id', title: 'title' },
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.title = a.title; }), dupResult: reread },
   'page.setMemo': { roles: ['app', 'main'], write: true, args: { id: 'id', memo: 'text?' },
@@ -1752,6 +1770,7 @@ const DEFS = {
       if (was.page.rev !== a.baseRev) throw refuse('conflict');
       const page = clone(a.page);
       keepStoredMemo(was.page, page);   // 0.14.0 MB-3（R165）: メモを送らない書き戻しは保存してあるメモのまま
+      keepStoredLook(was.page, page);   // 0.15.0 PL-2: アイコンと見た目も保存してあるまま
       if (!Array.isArray(page.blocks)) page.blocks = [];
       const ops = saveOps(was, page, ctx.now);
       applyOps(db, ops);

@@ -17,7 +17,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
   'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'blocks.setColor',
   'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'page.setMemoDoc',
-  'page.create', 'page.move', 'page.restore', 'pages.trash']);
+  'page.create', 'page.move', 'page.restore', 'pages.trash', 'page.setIcon', 'page.setLook']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -221,6 +221,9 @@ contextBridge.exposeInMainWorld('koeApp', {
     ...(row && row.afterId !== undefined ? { rowAfter: row.afterId } : {}), ...(row && row.parentId ? { rowParent: row.parentId } : {}) }),
   pageRestore: (id) => dbCall('page.restore', { id }),
   pagesTrash: () => dbCall('pages.trash', {}),
+  // 0.15.0 PL-2（決めたこと 35・39）: ページのアイコン（'' は外して既定に戻す）と見た目（{ wide?, small?, font? }）。どちらも元に戻すの歩みにしない
+  pageSetIcon: (id, icon) => dbCall('page.setIcon', { id, icon: typeof icon === 'string' ? icon : '' }),
+  pageSetLook: (id, look) => dbCall('page.setLook', { id, look }),
   pageSetTitle: (id, title) => dbCall('page.setTitle', { id, title }),
   pageSetMemo: (id, memo) => dbCall('page.setMemo', { id, memo }),
   // 0.14.0 MB-2（決めたこと 61・R74）: メモの行（doc は行の並び）。1回が元に戻すの1歩（onEditStep の pageId は id）

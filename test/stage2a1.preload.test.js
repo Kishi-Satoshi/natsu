@@ -29,7 +29,8 @@ function load(timers = { setTimeout, clearTimeout }) {
 // 0.14.0 EK-2 で意図して直した: 貼り付けの block.paste と選んだ行の blocks.remove・move・duplicate・turnInto を足して 28（照らしは同じ）
 // 0.14.0 MB-2 で意図して直した: メモの行を保存する page.setMemoDoc を足して 29（照らしは同じ）
 // 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」）で意図して直した: ページの木の4つ（page.create・page.move・page.restore・pages.trash）を足して 33（照らしは同じ）
-test('ST5: ページの 33 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
+// 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の Task PL-2）で意図して直した: ページのアイコンと見た目の2つ（page.setIcon・page.setLook）を足して 35（照らしは同じ）
+test('ST5: ページの 35 の名前は口に頼み、返事をそのまま返す（今の IPC と同じ引数の形）', { timeout: 5000 }, async () => {
   const l = load(); const p = l.givePort();
   const pr = l.exposed.koeApp.blockInsert('pa1', 'b2', 'todo');
   const m = p.sent[0];
@@ -39,6 +40,10 @@ test('ST5: ページの 33 の名前は口に頼み、返事をそのまま返�
   assert.deepStrictEqual(await pr, { page: { id: 'pa1' }, blockId: 'bx' });
   l.exposed.koeApp.pageGet('pa1');
   assert.strictEqual(p.sent[1].tx, undefined, '読む頼みに tx を付けた');
+  // 0.15.0 PL-2: アイコン（文字でない値は '' に）と見た目は書く頼み（tx が付く）
+  l.exposed.koeApp.pageSetIcon('pa1', '🚀'); l.exposed.koeApp.pageSetIcon('pa1'); l.exposed.koeApp.pageSetLook('pa1', { wide: true });
+  assert.deepStrictEqual(p.sent.slice(2).map((x) => [x.cmd, x.args]), [['page.setIcon', { id: 'pa1', icon: '🚀' }], ['page.setIcon', { id: 'pa1', icon: '' }], ['page.setLook', { id: 'pa1', look: { wide: true } }]]);
+  for (const x of p.sent.slice(2)) assert.match(x.tx, /^a:[0-9a-f-]{36}$/);
 });
 
 test('F7: 口も口を返す関数もページに出さない・app に無い命令は送らずに断る', { timeout: 5000 }, async () => {

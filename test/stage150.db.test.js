@@ -362,16 +362,17 @@ function loadPreload() {
   return { k: exposed.koeApp, givePort };
 }
 
-test('PH-2: preload の 33 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
+// 0.15.0 PL-2 で意図して直した: page.setIcon・page.setLook を足して 35（ページの命令は UNDO_CMDS に無い: 決めたこと 15）
+test('PH-2: preload の 35 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 33);
+  assert.strictEqual(names.length, 35);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   for (const cmd of ['page.create', 'page.move', 'page.restore', 'pages.trash']) assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd);
   assert.strictEqual(core.COMMANDS['pages.trash'].write, false);
   const reads = [.../const DB_READS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
   assert.ok(reads.includes('pages.trash'), 'pages.trash が読む命令でない');
   const undo = [.../const UNDO_CMDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  for (const cmd of ['page.create', 'page.move', 'page.restore', 'page.delete', 'pages.trash']) {
+  for (const cmd of ['page.create', 'page.move', 'page.restore', 'page.delete', 'pages.trash', 'page.setIcon', 'page.setLook']) {
     assert.ok(!UNDO_CMDS.has(cmd), `UNDO_CMDS に ${cmd}`);
     assert.ok(!undo.includes(cmd), `preload の UNDO_CMDS に ${cmd}`);
   }
@@ -1290,4 +1291,110 @@ test('PH-8 直し（rv31・R54・R67）: 本文 [K1 の行, トグル[K2 の行]
   assert.strictEqual(oplogN(db), n0 + 1);
   assert.ok(opsOf(db, r.tx).length > 0, '行の並びの順が同じでも親が替わるのに書かなかった');
   assert.deepStrictEqual(shape(), [`page:${K1}`, 'toggle[]', `page:${K2}`], '行がトグルの中から本文の最上位の最後へ動かない');
+}));
+
+// ---------------------------------------------------------------- 0.15.0 PL-2（計画の決めたこと 13・15・16・35・36・39・F119）: ページのアイコンと見た目を保存する命令
+const attrsOf = (db, id) => JSON.parse(rowOf(db, id).attrs);
+const listOf = (db) => call(db, 'pages.list', {}).result;
+test('PL-2・F119: page.setIcon は辞書の絵文字だけ（ほかは bad-args）・\'\' で欄が消える・同じ値は書かない・pages.list の行に icon。議事録にも白紙のページにも付く。役は app だけ・録音中の写しとゴミ箱のページは書かない', T, () => withDb((db) => {
+  const P = create(db);
+  const r = ok(call(db, 'page.setIcon', { id: P, icon: '🚀' }), 'page.setIcon');
+  assert.strictEqual(r.result.icon, '🚀', '答えのページに icon が無い');
+  assert.strictEqual(attrsOf(db, P).icon, '🚀');
+  assert.strictEqual(listOf(db).find((p) => p.id === P).icon, '🚀', 'pages.list の行に icon が無い');
+  // 同じ値は書かない（操作の空の行だけ・rev も更新の時刻も変えない）
+  const was = dump(db);
+  const n0 = oplogN(db);
+  const same = ok(call(db, 'page.setIcon', { id: P, icon: '🚀' }), '同じ値');
+  assert.deepStrictEqual([opsOf(db, same.tx), oplogN(db) - n0], [[], 1], '同じアイコンなのに書いた');
+  assert.deepStrictEqual(dump(db), was);
+  // 辞書に無い値は断る（何も書かない）
+  for (const icon of ['🦕', 'a', '📄📄', '‮', '🎙', '👍🏻', 'x'.repeat(600), 5, null]) {
+    const b = call(db, 'page.setIcon', { id: P, icon });
+    assert.strictEqual(b.code, 'bad-args', JSON.stringify(icon));
+  }
+  assert.deepStrictEqual(dump(db), was, '断ったのに書いた');
+  // '' で欄が消える（既定に戻る）
+  ok(call(db, 'page.setIcon', { id: P, icon: '' }), '外す');
+  assert.ok(!Object.hasOwn(attrsOf(db, P), 'icon'), '外しても欄が残る');
+  assert.ok(!Object.hasOwn(listOf(db).find((p) => p.id === P), 'icon'));
+  const n1 = oplogN(db);
+  const none = ok(call(db, 'page.setIcon', { id: P, icon: '' }), 'もう無いのを外す');
+  assert.deepStrictEqual([opsOf(db, none.tx), oplogN(db) - n1], [[], 1], '無いアイコンを外して書いた');
+  // 議事録にも付く
+  ok(call(db, 'page.setIcon', { id: 'pa1', icon: '📊' }), '議事録');
+  assert.strictEqual(listOf(db).find((p) => p.id === 'pa1').icon, '📊');
+  // 役は app だけ
+  assert.deepStrictEqual(core.COMMANDS['page.setIcon'].roles, ['app']);
+  assert.strictEqual(call(db, 'page.setIcon', { id: P, icon: '🚀' }, 'main').code, 'forbidden');
+  // 録音中の写しは書かない（bad-args）・ゴミ箱と無いページは書かない
+  call(db, 'meeting.begin', { pageId: 'plive9', startedAt: Date.parse('2026-11-03T00:00:00.000Z'), localOnly: false }, 'main');
+  const live = dump(db);
+  assert.strictEqual(call(db, 'page.setIcon', { id: 'plive9', icon: '🚀' }).code, 'bad-args', '録音中の写しにアイコンを書いた');
+  tick(); ok(call(db, 'page.delete', { id: 'pa2' }), 'page.delete');
+  const trashed = dump(db);
+  for (const id of ['pa2', 'pnone']) {
+    const x = call(db, 'page.setIcon', { id, icon: '🚀' });
+    assert.ok(!x.ok || x.result === null, `${id}: 書けた`);
+    assert.deepStrictEqual(dump(db), trashed, `${id}: 何か書いた`);
+  }
+  assert.ok(live, '前提');
+}));
+
+test('PL-2・F119: page.setLook は照らした形だけ保存（並びも決まった形）・全部既定で欄が消える・同じ見た目は書かない・知らない欄・決まった書体のほか・真でない値は bad-args', T, () => withDb((db) => {
+  const P = create(db);
+  const r = ok(call(db, 'page.setLook', { id: P, look: { font: 'serif', wide: true } }), 'page.setLook');
+  assert.deepStrictEqual(r.result.look, { wide: true, font: 'serif' });
+  assert.deepStrictEqual(attrsOf(db, P).look, { wide: true, font: 'serif' });
+  const was = dump(db);
+  const n0 = oplogN(db);
+  const same = ok(call(db, 'page.setLook', { id: P, look: { wide: true, font: 'serif' } }), '同じ見た目');
+  assert.deepStrictEqual([opsOf(db, same.tx), oplogN(db) - n0], [[], 1], '同じ見た目なのに書いた');
+  assert.deepStrictEqual(dump(db), was);
+  for (const look of [{ font: 'gothic' }, { wide: 1 }, { wide: false }, { color: 'red' }, { wide: true, extra: 1 }, 'wide', null, ['wide']]) {
+    assert.strictEqual(call(db, 'page.setLook', { id: P, look }).code, 'bad-args', JSON.stringify(look));
+  }
+  assert.deepStrictEqual(dump(db), was, '断ったのに書いた');
+  ok(call(db, 'page.setLook', { id: P, look: { small: true } }), '替える');
+  assert.deepStrictEqual(attrsOf(db, P).look, { small: true });
+  ok(call(db, 'page.setLook', { id: P, look: {} }), '全部既定');
+  assert.ok(!Object.hasOwn(attrsOf(db, P), 'look'), '全部既定でも欄が残る');
+  const n1 = oplogN(db);
+  const none = ok(call(db, 'page.setLook', { id: P, look: {} }), 'もう既定');
+  assert.deepStrictEqual([opsOf(db, none.tx), oplogN(db) - n1], [[], 1], '既定の見た目をもう一度既定にして書いた');
+  ok(call(db, 'page.setLook', { id: 'pa1', look: { font: 'mono' } }), '議事録');
+  assert.deepStrictEqual(attrsOf(db, 'pa1').look, { font: 'mono' });
+  assert.deepStrictEqual(core.COMMANDS['page.setLook'].roles, ['app']);
+  call(db, 'meeting.begin', { pageId: 'plive9', startedAt: Date.parse('2026-11-03T00:00:00.000Z'), localOnly: false }, 'main');
+  assert.strictEqual(call(db, 'page.setLook', { id: 'plive9', look: { wide: true } }).code, 'bad-args', '録音中の写しに見た目を書いた');
+}));
+
+test('PL-2: page.put（要約の書き戻し）は icon・look を消さない（送ったページに無くても、DB の今の値のまま）・送ったページの icon・look で書き換えない。どちらの命令も UNDO_CMDS に無い', T, () => withDb((db) => {
+  ok(call(db, 'page.setIcon', { id: 'pa1', icon: '📊' }), 'page.setIcon');
+  ok(call(db, 'page.setLook', { id: 'pa1', look: { wide: true } }), 'page.setLook');
+  const p = call(db, 'page.get', { id: 'pa1' }).result.page;
+  assert.strictEqual(p.icon, '📊', '前提: page.get に icon');
+  // 読んだページのまま書き戻す
+  const { rev, ...rest } = p;
+  ok(call(db, 'page.put', { page: { ...rest, title: '要約の題' }, baseRev: rev }, 'main'), 'page.put');   // 利用者が付け直した題名（D77）
+  assert.deepStrictEqual([attrsOf(db, 'pa1').icon, attrsOf(db, 'pa1').look], ['📊', { wide: true }]);
+  // icon・look の無い（か違う）ページを送っても、DB の今の値のまま
+  const p2 = call(db, 'page.get', { id: 'pa1' }).result.page;
+  const { rev: rev2, icon: _i, look: _l, ...bare } = p2;
+  void _i; void _l;
+  ok(call(db, 'page.put', { page: { ...bare, icon: '🦕', look: { font: 'gothic' } }, baseRev: rev2 }, 'main'), 'page.put');
+  assert.deepStrictEqual([attrsOf(db, 'pa1').icon, attrsOf(db, 'pa1').look], ['📊', { wide: true }], '書き戻しでアイコンか見た目が変わった');
+  const p3 = call(db, 'page.get', { id: 'pa1' }).result.page;
+  const { rev: rev3, icon: _i3, look: _l3, ...bare3 } = p3;
+  void _i3; void _l3;
+  ok(call(db, 'page.put', { page: bare3, baseRev: rev3 }, 'main'), 'page.put');
+  assert.deepStrictEqual([attrsOf(db, 'pa1').icon, attrsOf(db, 'pa1').look], ['📊', { wide: true }], '書き戻しでアイコンか見た目が消えた');
+  // 保存してあるアイコン・見た目が無いページに、送ったページの icon・look で付けない
+  const q = call(db, 'page.get', { id: 'pa2' }).result.page;
+  const { rev: rev4, ...q4 } = q;
+  ok(call(db, 'page.put', { page: { ...q4, icon: '📊', look: { wide: true } }, baseRev: rev4 }, 'main'), 'page.put');
+  assert.ok(!Object.hasOwn(attrsOf(db, 'pa2'), 'icon') && !Object.hasOwn(attrsOf(db, 'pa2'), 'look'), '書き戻しでアイコンか見た目が付いた');
+  // 同じ値の命令の答えも今のページ（null でない）
+  assert.strictEqual(ok(call(db, 'page.setIcon', { id: 'pa1', icon: '📊' }), '同じ値').result.icon, '📊');
+  for (const cmd of ['page.setIcon', 'page.setLook']) assert.ok(!UNDO_CMDS.has(cmd), `UNDO_CMDS に ${cmd}`);
 }));

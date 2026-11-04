@@ -245,3 +245,21 @@ test('PH-7・HR19（第3版）: 白紙のページの ToDo が MCP の list_acti
     assert.ok(linesOf(call('get_meeting', { id: top }).text).includes('# 無題のページ'));
   } finally { m.done(); }
 });
+
+// ---------------------------------------------------------------- PL-2（F119・決めたこと 34: アイコンと見た目は答えに出さない）
+test('PL-2・F119: ページのアイコンと見た目を付けても、MCP のどの道具の答えにもアイコンと見た目の値が出ず、議事録の答えは付ける前と1文字も同じ', T, () => {
+  const { m, top } = treeSeed();
+  try {
+    const call = callOn(m);
+    const ask = () => [call('list_meetings'), call('get_meeting', { id: top }), call('get_meeting', { id: 'pm2' }), call('get_meetings', { ids: [top, 'pm2'] }),
+      call('search_passages', { query: '段取り表 予算案' }), call('list_action_items')].map((r) => r.text);
+    const before = ask();
+    m.call('app', 'page.setIcon', { id: top, icon: '🦉' });
+    m.call('app', 'page.setIcon', { id: 'pm2', icon: '🦉' });
+    m.call('app', 'page.setLook', { id: top, look: { wide: true, font: 'mono' } });
+    m.close();
+    const after = ask();
+    for (const t of after) for (const w of ['🦉', 'mono', 'wide', 'look']) assert.ok(!t.includes(w), `${w}: ${t}`);
+    assert.deepStrictEqual(after, before, 'アイコンと見た目で答えが変わった');
+  } finally { m.done(); }
+});
