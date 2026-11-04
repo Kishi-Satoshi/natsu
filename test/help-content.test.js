@@ -819,31 +819,34 @@ test('PH-8: 直した記事に Notion の名前が無い（ほかのアプリの
 });
 
 // ---------------------------------------------------------------- 0.15.0 PH-8 直し（2026-11-04 の e235d8b..831ce7c の点検 rv31。計画の R69）
-// PH-8 の記事が「…」で写した画面の文（確かめの文・知らせ・手引き・見出し）は、記事にその形であり、アプリの文字（src/ の .html と .js）にもある。
-// 文の中の「…」は数や題名の入る所で、その前後の切れ端がどれもアプリにあるかを見る（parts があればその切れ端だけを見る）
+// PH-8 の記事が「…」で写した画面の文（確かめの文・知らせ・手引き・見出し）は、記事にその形であり、アプリのその文を作るコードの字（文字列の書き方のまま）にもある。
+// PL-1・PH-8 直し 2（rv32。計画の R72）で意図して直した: 前は src/ の全部の文字（注を含む）に切れ端があるかを見ていたので、短い文（「戻しました」「## 本文」）は
+// 注やほかの文に残った古い字で通ってしまった。今は文ごとに、作る所のファイルと、そこの文字列の書き方（'…' や `…${…}…`）を決めて照らす
 const PH8_QUOTES = [
-  ['find/page-tree', 'ここに書く（/ で行の型を選べます）'],
-  ['find/page-tree', '無題のページ'],
-  ['find/page-tree', '新しいページ'],
-  ['find/page-tree', '録音中です'],
-  ['find/page-tree', 'ページ … 件をゴミ箱に入れました（Ctrl+Z で戻せます）'],
-  ['find/page-tree', 'ページの行は複製できません'],
-  ['find/page-tree', 'このページの中のページ'],
-  ['find/delete-and-backups', 'この議事録を削除します。よろしいですか？'],
-  ['find/delete-and-backups', 'このページをゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）'],
-  ['find/delete-and-backups', 'このページと中のページ … 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）'],
-  ['find/delete-and-backups', '戻しました'],
-  ['find/delete-and-backups', 'このページの中のページ'],
-  ['find/search', '場所: 親 / 子 ・ ', ['場所: ', ' ・ ']],
-  ['find/search', '（白紙のページ）題名', ['（白紙のページ）']],
-  ['start/claude-mcp', '（白紙のページ）題名', ['（白紙のページ）']],
-  ['start/claude-mcp', '## 本文'],
+  ['find/page-tree', 'ここに書く（/ で行の型を選べます）', [['src/renderer/app.html', "const BODY_HINT = 'ここに書く（/ で行の型を選べます）';"]]],
+  ['find/page-tree', '無題のページ', [['src/renderer/app.html', "function blankUntitled() { return '無題のページ'; }"]]],
+  ['find/page-tree', '新しいページ', [['src/renderer/app.html', '<div class="nphead" id="newPopHead">新しいページ</div>']]],
+  ['find/page-tree', '録音中です', [['src/renderer/app.html', "const NEW_BUSY = '録音中です';"]]],
+  ['find/page-tree', 'ページ … 件をゴミ箱に入れました（Ctrl+Z で戻せます）', [['src/renderer/app.html', 'toast(`ページ ${n} 件をゴミ箱に入れました（Ctrl+Z で戻せます）`)']]],
+  ['find/page-tree', 'ページの行は複製できません', [['src/renderer/app.html', "const SUB_NO_DUP = 'ページの行は複製できません';"]]],
+  ['find/page-tree', 'このページの中のページ', [['src/renderer/app.html', "const SUB_KIDS_HEAD = 'このページの中のページ';"]]],
+  ['find/delete-and-backups', 'この議事録を削除します。よろしいですか？', [['src/renderer/app.html', "isBlankPage(page) ? DEL_ASK_BLANK : 'この議事録を削除します。よろしいですか？';"]]],
+  ['find/delete-and-backups', 'このページをゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）', [['src/renderer/app.html', "const DEL_ASK_BLANK = 'このページをゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）';"]]],
+  ['find/delete-and-backups', 'このページと中のページ … 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）', [['src/renderer/app.html', 'const DEL_ASK_KIDS = (n) => `このページと中のページ ${n} 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）`;']]],
+  ['find/delete-and-backups', '戻しました', [['src/renderer/app.html', "const TRASH_BACK = '戻しました';"]]],
+  ['find/delete-and-backups', 'このページの中のページ', [['src/renderer/app.html', "const SUB_KIDS_HEAD = 'このページの中のページ';"]]],
+  ['find/search', '場所: 親 / 子 ・ ', [['src/renderer/app.html', 'if (place) s1.textContent = `場所: ${place} ・ ${s1.textContent}`;']]],
+  ['find/search', '（白紙のページ）題名', [['src/renderer/app.html', "x.kind === 'blank' ? `（白紙のページ）${oneLine(x.pageTitle) || blankUntitled()}`"]]],
+  ['start/claude-mcp', '（白紙のページ）題名', [['src/mcp/tools.js', 'F.isBlank(a) ? `（${F.BLANK_LABEL}）${F.titleLine('], ['src/mcp/format.js', "const BLANK_LABEL = '白紙のページ';"]]],
+  ['start/claude-mcp', '場所: 親 / 子', [['src/mcp/format.js', 'const at = place ? [`- 場所: ${place}`] : [];']]],
+  ['start/claude-mcp', '## 本文', [['src/mcp/format.js', "const out = [blank ? '## 本文' : '## 要約'];"]]],
 ];
-test('PH-8 直し（rv31）: PH-8 の記事が「…」で写した画面の文は、記事にその形であり、アプリの文字にもある（確かめの文・知らせを直すと記事も直す）', { timeout: 5000 }, () => {
-  const app = L.appLabelText(ROOT);
-  for (const [ref, quote, parts] of PH8_QUOTES) {
+test('PH-8 直し（rv31）・PL-1・PH-8 直し 2（rv32）: PH-8 の記事が「…」で写した画面の文は、記事にその形であり、その文を作るコードの文字列にもある（確かめの文・知らせを直すと記事も直す）', { timeout: 5000 }, () => {
+  const src = new Map();
+  const code = (f) => { if (!src.has(f)) src.set(f, read(f)); return src.get(f); };
+  for (const [ref, quote, lits] of PH8_QUOTES) {
     assert.ok(read(fileOf(ref)).includes(`「${quote}」`), `${ref} に「${quote}」が無い`);
-    for (const p of parts || quote.split('…').map((x) => x.trim()).filter(Boolean)) assert.ok(app.includes(p), `${ref} の「${quote}」の「${p}」がアプリの文字に無い`);
+    for (const [f, lit] of lits) assert.ok(code(f).includes(lit), `${ref} の「${quote}」を作る文字列が ${f} に無い（画面の文を変えたら記事も直す）: ${lit}`);
   }
   // 白紙のページの2行目は日付だけ（R66）
   assert.ok(read(fileOf('find/search')).includes('白紙のページでは日付だけです'), 'find/search に白紙のページの2行目が日付だけなことが無い');

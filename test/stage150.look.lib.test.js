@@ -46,6 +46,8 @@ test('PL-1: findEmoji の表（名前・よみ。カタカナはひらがなに�
   assert.deepStrictEqual(D.findEmoji('しょるい'), ['📄', '🗂️'], '前方一致（書類）が中の一致（仕切りの書類入れ）より先でない');
   assert.ok(D.findEmoji('コーヒー').includes('☕') && D.findEmoji('こーひー').includes('☕'));
   assert.ok(D.findEmoji('ｺｰﾋｰ').includes('☕'), '半角のカタカナを寄せない');
+  // PL-1・PH-8 直し 2（rv32）: 英字の大小を寄せる（名前「Tシャツ」）。全角の英字も
+  for (const q of ['tしゃつ', 'Tシャツ', 'ｔしゃつ', 'Ｔシャツ']) assert.strictEqual(D.findEmoji(q)[0], '👕', q);
   assert.ok(D.findEmoji('ねこ').includes('🐱') && D.findEmoji('猫').includes('🐱'));
   // 前方一致（ねこ・ねずみ…ではなく「ね」で始まる名前とよみ）が先で、中の一致（笑う猫）は後ろ
   const neko = D.findEmoji('ねこ');

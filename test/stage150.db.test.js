@@ -426,6 +426,9 @@ test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子
       ['page.restore（1 ページ）', () => call(db, 'page.restore', { id: 'pp03000' })],
     ];
     // 3回の組（命令は今と同じ並び: 動かす → 子孫ごと消す → 戻す → 1ページ消す → 戻す）→ { 名前: 中央値(命令) − 中央値(前後の一覧) }
+    // PL-1・PH-8 直し 2（rv32。R73）: 動かす先は組をまたいで交互（moved の数で決める）。前は組ごとに k で決めていたので、計り直しの組の最初の move が
+    // もういる所への同じ所（何も書かない）になり、中央値を下へずらしていた
+    let moved = 0;
     const writeRound = () => {
       const cmd = new Map(WRITES.map(([n]) => [n, []]));
       const lists = new Map(WRITES.map(([n]) => [n, []]));
@@ -433,8 +436,9 @@ test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子
         for (const [n, f, g] of WRITES) {
           tick();
           lists.get(n).push(listMs());
-          const [ms, r] = timed(g && k % 2 ? g : f);
+          const [ms, r] = timed(g ? (moved++ % 2 ? g : f) : f);
           assert.strictEqual(r.ok, true, `${n}: ${r.code}`);
+          assert.ok(opsOf(db, r.tx).length > 0, `${n}: 計った命令が何も書かなかった（同じ所への動かしは速さを測れない）`);
           cmd.get(n).push(ms);
           lists.get(n).push(listMs());
         }
@@ -462,8 +466,21 @@ test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子
     const firstAll = { 'pages.trash': trashRound(), ...first };
     // 目安を越えた名前だけ、3回の組をもう2回まるごと計り直し、はじめと合わせた3回の中央値で決める（RF59・PG1 の PF.recheck と同じ決まり。目安の値は変えない）
     const judged = Object.entries(BUDGET).map(([name, b]) => ({ name, ms: Number(firstAll[name].toFixed(2)), budget: b, ok: firstAll[name] < b }));
+    // PL-1・PH-8 直し 2（rv32。R73）: 計り直しの2回の組は、越えた名前のどれもが同じ組を読む（越えた名前ごとに組をまるごと計り直すと、6つとも越えたときに
+    // 2 × 6 回の組で 100 秒を越え、テストの時間切れで赤になって計り直しの値も残らなかった）。はじめの値は計り直しの前に出す
+    tc.diagnostic(`はじめ: ${judged.map((x) => `${x.name} ${x.ms.toFixed(1)}${x.ok ? '' : '（越えた）'}`).join('・')} ミリ秒`);
+    const extra = [];
+    const seen = new Map();
+    const againRound = (i) => {
+      if (!extra[i]) extra[i] = { 'pages.trash': trashRound(), ...writeRound() };
+      return extra[i];
+    };
     const logs = [];
-    const out = await PF.recheck(judged, async (name) => Number((name === 'pages.trash' ? trashRound() : writeRound()[name]).toFixed(2)), { rounds: 2, log: (l) => logs.push(l) });
+    const out = await PF.recheck(judged, async (name) => {
+      const i = seen.get(name) || 0;
+      seen.set(name, i + 1);
+      return Number(againRound(i)[name].toFixed(2));
+    }, { rounds: 2, log: (l) => logs.push(l) });
     tc.diagnostic(`${out.map((x) => `${x.name} ${x.ms.toFixed(1)}${x.tries ? `（${x.tries.join('・')}）` : ''}`).join('・')} ミリ秒（書く命令は中央値(命令) − 中央値(前後の一覧)）${logs.length ? `。${logs.join('。')}` : ''}`);
     for (const x of out) assert.ok(x.ok, `${x.name} ${x.ms.toFixed(1)} ミリ秒（目安 ${x.budget}${x.tries ? `・計り直し ${x.tries.join('・')}` : ''}）`);
   } finally { t.done(); }

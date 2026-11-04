@@ -27,8 +27,8 @@
 'use strict';
 
 const path = require('path');
-const blockEdit = require('./blockEdit');
-const emojiDict = require('./emojiDict');   // 0.15.0 PL-1: 最近使ったアイコンの照らし（isPageIcon）   // 0.13.0 ED-5（EQ8 (b)）: / メニューの「最近使ったもの」の照らし（recentCheck）
+const blockEdit = require('./blockEdit');   // 0.13.0 ED-5（EQ8 (b)）: / メニューの「最近使ったもの」の照らし（recentCheck）
+const emojiDict = require('./emojiDict');   // 0.15.0 PL-1: 最近使ったアイコンの照らし（isPageIcon）
 
 const DEFAULT_SIZE = { width: 1120, height: 780 };
 const MIN_SIZE = { width: 820, height: 560 };
