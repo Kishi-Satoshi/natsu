@@ -1,7 +1,7 @@
 ---
 title: ページの中のページ・白紙のページ
 description: 会議でないことを書く白紙のページと、ページの中にページを入れる木。サイドバーの木・引っ張って動かす・［移動先…］・パンくず・新しいページの近道
-updated: 2026-11-04
+updated: 2026-11-06
 sources: src/renderer/app.html, src/pageTree.js, src/db/commands.js, src/shortcuts.js, src/mcp/tools.js
 related: find/delete-and-backups, find/page-look, settings/hotkeys
 ---
@@ -70,6 +70,6 @@ NaTsu のページには、録音して作る議事録と、録音しないで�
 
 ## 消す・戻す・探す {#more}
 
-- 中のページのあるページを消すと、中のページも一緒にゴミ箱へ入ります。［ゴミ箱］ から戻すと、一緒に消した中のページも戻ります（[ページを消す・戻す・毎日の控え](find/delete-and-backups.md)）。
+- 中のページのあるページを消すと、中のページも一緒にゴミ箱へ入ります。［ゴミ箱］ から戻すと、一緒に消した中のページも戻ります（[ページを消す・戻す・毎日の控え](find/delete-and-backups.md)）。0.15.0 より前の版で消した議事録も ［ゴミ箱］ に並び、戻せます（[ゴミ箱から戻す](find/delete-and-backups.md#restore)）。
 - 検索の窓の結果では、中のページの2行目の頭に「場所: 親 / 子 ・ 」が出ます（[議事録を探す](find/search.md)）。
 - Claude から読むときも、中のページには場所が付き、白紙のページも読めます（[Claude から議事録を読む](start/claude-mcp.md)）。

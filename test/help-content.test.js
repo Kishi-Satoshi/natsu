@@ -915,3 +915,19 @@ test('0.15.0 Task G: README の「画面の使い方」にページの階層・�
     assert.ok(row && row.includes('（2026-11-03 の 0.15.0 の'), `notion-behavior の ${id} に答えが無い`);
   }
 });
+
+// ---------------------------------------------------------------- 0.15.0 最後の点検の直し（R80・2026-11-06 の a3f0925..707ad1e の点検）: 前の版で消した議事録もゴミ箱に並ぶ
+test('R80: find/delete-and-backups と find/page-tree に、0.15.0 より前の版で消した議事録も［ゴミ箱］に並び戻せること、ゴミ箱を空にできないことがある', { timeout: 5000 }, () => {
+  const del = articles.find((x) => x.ref === 'find/delete-and-backups');
+  const restore = del.text.slice(del.text.indexOf('## ゴミ箱から戻す {#restore}'), del.text.indexOf('\n## ', del.text.indexOf('## ゴミ箱から戻す {#restore}') + 3));
+  for (const w of ['0.15.0 より前の版で消した議事録も、［ゴミ箱］ に並びます', '200 まで', '［戻す］ で戻せます', 'ゴミ箱を空にすることはできません']) {
+    assert.ok(restore.includes(w), `find/delete-and-backups の「ゴミ箱から戻す」に「${w}」が無い`);
+  }
+  assert.ok(metaOf(del).updated >= '2026-11-06');
+  const tree = articles.find((x) => x.ref === 'find/page-tree');
+  assert.ok(tree.text.includes('0.15.0 より前の版で消した議事録も ［ゴミ箱］ に並び、戻せます（[ゴミ箱から戻す](find/delete-and-backups.md#restore)）'), 'find/page-tree に前の版で消した議事録のことが無い');
+  const app = L.appLabelText(ROOT);
+  for (const a of [del, tree]) assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${a.ref}: アプリに無い ［…］`);
+  // CHANGELOG の 0.15.0 の節にも、持ち主が承認した文がそのまま
+  assert.ok(read('CHANGELOG.md').includes('今までに消した議事録も［ゴミ箱］に並び、戻せます。'), 'CHANGELOG に前の版で消した議事録の文が無い');
+});
