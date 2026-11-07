@@ -68,7 +68,7 @@ const filterText = (v) => typeof v === 'string' && v !== '' && v.length <= FILTE
 function condValueOk(col, cmp, v) {
   if (NO_VALUE.includes(cmp)) return v === undefined;
   const t = col.type;
-  if (FILTER_OPS[t] === TEXT_OPS) return filterText(v);
+  if (FILTER_OPS[t] === TEXT_OPS) return filterText(v) && searchFold(v) !== '';   // 寄せると空になる語（記号だけ）は全部に当たるので落とす（DS-1 直し F4）
   if (FILTER_OPS[t] === NUM_OPS) return typeof v === 'number' && Number.isFinite(v);
   if (FILTER_OPS[t] === DATE_OPS) {
     if (cmp === 'between') return isObj(v) && realDay(v.from) && realDay(v.to) && v.from <= v.to && Object.keys(v).length === 2;
@@ -87,7 +87,15 @@ function textValue(col, v) {
   if (Array.isArray(v)) return v.join(', ');
   return typeof v === 'string' ? v : String(v);
 }
-function matchCond(c, row, byId, now) {
+// memo（applyView の1回の中だけ）: 行と列ごとの寄せた文字（同じ行の同じ列を何度も寄せない: DS-1 直し F10）
+function foldedText(col, row, v, memo) {
+  if (!memo) return searchFold(textValue(col, v));
+  const k = `${row.id}\u0000${col.id}`;
+  let s = memo.get(k);
+  if (s === undefined) { s = searchFold(textValue(col, v)); memo.set(k, s); }
+  return s;
+}
+function matchCond(c, row, byId, now, memo) {
   const col = byId.get(c.col);
   if (!col || !isObj(c) || !(FILTER_OPS[col.type] || []).includes(c.cmp)) return true;   // 無い列・消した列・知らない条件は無いのと同じ
   const v = DM.cellValue(row, col);
@@ -96,7 +104,7 @@ function matchCond(c, row, byId, now) {
   if (c.cmp === 'notEmpty') return !empty;
   switch (col.type) {
     case 'title': case 'text': case 'person': case 'url': case 'email': case 'phone': {
-      const s = searchFold(textValue(col, v)); const w = searchFold(c.value);
+      const s = foldedText(col, row, v, memo); const w = searchFold(c.value);
       if (c.cmp === 'contains') return s.includes(w);
       if (c.cmp === 'notContains') return !s.includes(w);
       if (c.cmp === 'is') return s === w;
@@ -135,19 +143,19 @@ function matchCond(c, row, byId, now) {
     }
   }
 }
-function matchTree(tree, row, byId, now) {
+function matchTree(tree, row, byId, now, memo) {
   if (!isObj(tree)) return true;
-  if (!Array.isArray(tree.items)) return matchCond(tree, row, byId, now);
+  if (!Array.isArray(tree.items)) return matchCond(tree, row, byId, now, memo);
   const items = tree.items;
   if (items.length === 0) return true;
-  const one = (it) => matchTree(it, row, byId, now);
+  const one = (it) => matchTree(it, row, byId, now, memo);
   return tree.op === 'or' ? items.some(one) : items.every(one);
 }
 const liveCols = (cols) => (Array.isArray(cols) ? cols.filter((c) => c && !c.gone && Object.hasOwn(DM.COLS, c.type)) : []);
 const colMap = (cols) => new Map(liveCols(cols).map((c) => [c.id, c]));
-// 行が絞り込みに当たるか（tree が無ければ通る）
+// 行が絞り込みに当たるか（tree が無ければ通る。now が無ければ今の時刻: DS-1 直し F12）
 function matchFilter(tree, row, cols, now) {
-  return matchTree(tree, row, colMap(cols), now);
+  return matchTree(tree, row, colMap(cols), Number.isFinite(now) ? now : Date.now());
 }
 
 // ---------------------------------------------------------------- 並べ替え（決めたこと 17）
@@ -302,11 +310,17 @@ function normGroupBy(g, byId, bad) {
   const col = isObj(g) ? byId.get(g.col) : null;
   if (!col || !GROUP_TYPES.includes(col.type)) { bad(); return null; }
   const out = { col: g.col };
-  const strs = (a) => Array.isArray(a) && a.length <= 1000 && a.every((x) => typeof x === 'string' && x.length <= 64) && new Set(a).size === a.length;
+  // 隠す・手で並べるグループの鍵（グループの鍵はテキストの値そのままなので、セルと同じ長さまで。悪い鍵と重なりだけを落とす: DS-1 直し F1）
+  const keysOf = (a) => {
+    const keep = [];
+    for (const x of a.slice(0, 1000)) { if (typeof x === 'string' && x.length <= DM.MAX.text && !keep.includes(x)) keep.push(x); else bad(); }
+    if (a.length > 1000) bad();
+    return keep;
+  };
   for (const k of Object.keys(g)) {
     if (k === 'col') continue;
     if (k === 'by' && (GROUP_BY[col.type] || []).includes(g.by)) out.by = g.by;
-    else if ((k === 'hide' || k === 'order') && strs(g[k])) { if (g[k].length) out[k] = [...g[k]]; }
+    else if ((k === 'hide' || k === 'order') && Array.isArray(g[k])) { const keep = keysOf(g[k]); if (keep.length) out[k] = keep; }
     else if (k === 'hideEmpty' && typeof g.hideEmpty === 'boolean') { if (g.hideEmpty) out.hideEmpty = true; }
     else bad();
   }
@@ -375,9 +389,11 @@ function applyView(rows, view, cols, opts = {}) {
   const byId = colMap(cols);
   const live = liveCols(cols);
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
-  let list = (Array.isArray(rows) ? rows : []).filter((r) => matchTree(view && view.filter, r, byId, now));
+  const memo = new Map();
+  let list = (Array.isArray(rows) ? rows : []).filter((r) => matchTree(view && view.filter, r, byId, now, memo));
   const q = typeof opts.q === 'string' ? searchFold(opts.q) : '';
-  if (q) list = list.filter((r) => searchFold(`${r.title || ''}\u0001${DM.foldCells(live, r.cells)}`).includes(q));
+  // 欄ごとに寄せて \u0001 でつなぐ（欄をまたいで当たらない: DS-1 直し F3。行の検索の欄 fold と同じ形）
+  if (q) list = list.filter((r) => [r.title || '', ...DM.foldCells(live, r.cells).split('\n')].map(searchFold).join('\u0001').includes(q));
   // 並べ替え（重ねた列の順。同じなら並びの鍵）。並べ替えの無いビューは並びの鍵の順（手で並べる: 決めたこと 17）
   const sorts = (view && Array.isArray(view.sort) ? view.sort : []).map((s) => ({ col: byId.get(s.col), dir: s.dir })).filter((s) => s.col);
   if (sorts.length) {
@@ -401,7 +417,8 @@ function applyView(rows, view, cols, opts = {}) {
   }
   const g = view && view.group;
   const gcol = g ? byId.get(g.col) : null;
-  if (!gcol) return { order: list.map((r) => ({ id: r.id, depth: 0, hasKids: false })), groups: null, agg, total: list.length };
+  // total は絞り込んだ行の数、shown は並べる行の数（グループでは1つの行がいくつものグループに出る・隠したグループの行は出ない。窓は shown で切る: DS-1 直し F2）
+  if (!gcol) return { order: list.map((r) => ({ id: r.id, depth: 0, hasKids: false })), groups: null, agg, total: list.length, shown: list.length };
   // グループ: 鍵ごとに行を分ける（複数選択とユーザーは、どの値のグループにも行が出る）
   const members = new Map();
   for (const r of list) {
@@ -425,7 +442,7 @@ function applyView(rows, view, cols, opts = {}) {
     groups.push({ key, count: rs.length });
     for (const r of rs) order.push({ id: r.id, depth: 0, hasKids: false, g: at });
   }
-  return { order, groups, agg, total: list.length };
+  return { order, groups, agg, total: list.length, shown: order.length };
 }
 
 // ---------------------------------------------------------------- 見える行の切り出し（決めたこと 32）

@@ -5,6 +5,9 @@
  * 列・選択肢・行の名前は作った物で、実在の人名・社名は使わない。時計は偽物（決まった時刻）。
  */
 'use strict';
+// DS-1 直し（2026-11-07 の点検 rv38 の F6）: 「今日」と作成日時の日はその PC の時刻で見る。UTC の CI でも取り違えが見えるよう、このテストの中だけ
+// 東京の時刻にし、偽の今を朝 8 時（UTC ではまだ前の日）に置く
+process.env.TZ = 'Asia/Tokyo';
 const test = require('node:test');
 const assert = require('node:assert');
 const M = require('../src/dbModel.js');
@@ -22,8 +25,8 @@ const URL1 = { id: 'c8', name: '資料の住所', type: 'url' };
 const STA = { id: 'c9', name: '状態', type: 'status', ...M.COLS.status.defaults() };
 const TITLE = { id: 'title', name: '名前', type: 'title' };
 const COLS = [TITLE, SEL, MUL, NUM, TXT, DAT, CHK, PER, URL1, STA];
-// 偽の今（2026-11-04 の昼。その PC の時刻の日で見る）
-const NOW = new Date(2026, 10, 4, 12, 0, 0).getTime();
+// 偽の今（その PC の時刻で 2026-11-04 の朝 8 時。UTC ではまだ 11-03: DS-1 直し）
+const NOW = new Date(2026, 10, 4, 8, 0, 0).getTime();
 const row = (id, ord, title, cells = {}, extra = {}) => ({ id, ord, title, cells, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', by: { c: 'me', u: 'me' }, no: 1, ...extra });
 
 // ---------------------------------------------------------------- dbModel
@@ -478,4 +481,110 @@ test('DS-1・F139: 1万行の applyView（絞り込み・2つの列の並べ替�
   times.sort((a, b) => a - b);
   assert.ok(out.total > 5000 && out.total < 10000, `絞り込んだ数 ${out.total}`);
   assert.ok(times[1] <= 200, `1万行の applyView の中央値 ${times[1].toFixed(1)} ミリ秒`);
+});
+
+// ---------------------------------------------------------------- DS-1 直し（2026-11-07 の点検 rv38。計画の R18〜R27）
+test('DS-1 直し・F6: R5 の日付の絞り込みの表（前は始まり・後は終わり・その日は期間・間は始まり・次の n 日は今日を含む）と、今日・作成日時の日はその PC の時刻', () => {
+  assert.strictEqual(new Date(NOW).toISOString().slice(0, 10), '2026-11-03', '偽の今は UTC ではまだ前の日');
+  const c = (cmp, value) => ({ op: 'and', items: [value === undefined ? { col: 'c5', cmp } : { col: 'c5', cmp, value }] });
+  const span = row('r', 'a', '期間', { c5: { start: '2026-11-01', end: '2026-11-06' } });
+  const day = (d) => row('r', 'a', '日', { c5: { start: d } });
+  assert.ok(V.matchFilter(c('before', '2026-11-02'), span, COLS, NOW), '前は始まりの日で見る');
+  assert.ok(V.matchFilter(c('after', '2026-11-05'), span, COLS, NOW), '後は終わりの日で見る');
+  assert.ok(!V.matchFilter(c('after', '2026-11-06'), span, COLS, NOW));
+  assert.ok(V.matchFilter(c('on', '2026-11-03'), span, COLS, NOW), 'その日は期間に入るか');
+  assert.ok(!V.matchFilter(c('on', '2026-11-07'), span, COLS, NOW));
+  assert.ok(!V.matchFilter(c('between', { from: '2026-11-05', to: '2026-11-07' }), span, COLS, NOW), '間は始まりの日で見る');
+  assert.ok(V.matchFilter(c('between', { from: '2026-10-30', to: '2026-11-01' }), span, COLS, NOW));
+  assert.ok(V.matchFilter(c('nextDays', 3), day('2026-11-04'), COLS, NOW), '次の n 日は今日を含む');
+  assert.ok(V.matchFilter(c('today'), day('2026-11-04'), COLS, NOW), '今日はその PC の時刻の日（UTC の日でない）');
+  assert.ok(!V.matchFilter(c('today'), day('2026-11-03'), COLS, NOW));
+  // 作成日時（UTC の 11-03 16:00 は東京の 11-04 01:00）
+  const CT = { id: 'c10', name: '作成日時', type: 'ctime' };
+  const made = row('r', 'a', '作った', {}, { createdAt: '2026-11-03T16:00:00.000Z' });
+  assert.ok(V.matchFilter({ op: 'and', items: [{ col: 'c10', cmp: 'today' }] }, made, [...COLS, CT], NOW), '作成日時の日はその PC の時刻の日');
+  assert.ok(V.matchFilter({ op: 'and', items: [{ col: 'c10', cmp: 'on', value: '2026-11-04' }] }, made, [...COLS, CT], NOW));
+  assert.strictEqual(M.fmtCell(CT, '2026-11-03T16:00:00.000Z'), '2026/11/04 01:00', '作成日時はその PC の時刻で見せる');
+  // 時計を渡さない matchFilter は今の時刻（NaN の日にしない: F12）
+  const todayRow = row('r', 'a', '今日', { c5: { start: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })() } });
+  assert.ok(V.matchFilter(c('today'), todayRow, COLS));
+});
+
+test('DS-1 直し・F6: 表に足した行（R9 の値のある件数・R7 の y・ステータスの選択肢ごとのグループ・リレーションの重なり・メールの見えない文字・消した列の検索・新しいステータスの選択肢・チェックの降順・空の数と ≠・週は月曜から・日付の既定は月・同じ値は並びの鍵）', () => {
+  const AT = '@';
+  assert.strictEqual(V.aggregate(MUL, [['o1', 'o2'], ['o2'], null], 'values'), 3, '値のある件数は値ごと');
+  assert.strictEqual(V.aggregate(MUL, [['o1', 'o2'], ['o2'], null], 'filled'), 2);
+  assert.strictEqual(M.convertCell(TXT, CHK, 'y').value, true);
+  assert.strictEqual(M.convertCell(TXT, CHK, 'Y').value, true);
+  const base = V.defaultView('v1', 'table', COLS);
+  const sg = V.applyView([row('s1', 'a', 'x', { c9: 'o3' }), row('s2', 'b', 'y', {})], { ...base, group: { col: 'c9', by: 'option' } }, COLS, { now: NOW });
+  assert.deepStrictEqual(sg.groups.map((g) => [g.key, g.count]), [['o1', 0], ['o2', 0], ['o3', 1], ['', 1]], 'ステータスを選択肢ごと');
+  throwsBad(() => M.cellOf({ id: 'r', name: 'つなぐ', type: 'rel', db: 'pdb' }, ['rA', 'rA']), 'リレーションの重なり');
+  throwsBad(() => M.cellOf({ id: 'e', name: 'メール', type: 'email' }, `a​${AT}example.com`), 'メールの見えない文字');
+  assert.strictEqual(M.foldCells([TITLE, { ...TXT, gone: true }], { c4: '消した列の文字' }), '', '消した列は検索の欄に入れない');
+  const st = M.addOpt(STA, '保留');
+  assert.ok(st.col.groups.todo.includes(st.id) && !st.col.groups.done.includes(st.id), '新しいステータスの選択肢は未着手');
+  assert.deepStrictEqual([null, true, null].sort((a, b) => V.compareCells(CHK, a, b, 'desc')), [true, null, null], 'チェックの降順は済みが先');
+  assert.ok(V.matchFilter({ op: 'and', items: [{ col: 'c3', cmp: 'ne', value: 10 }] }, row('r', 'a', 'x', {}), COLS, NOW), '空の数は「≠」に当たる');
+  const dates = [row('d1', 'a', 'x', { c5: { start: '2026-11-04' } }), row('d2', 'b', 'y', { c5: { start: '2026-11-08' } }), row('d3', 'c', 'z', { c5: { start: '2026-11-09' } }), row('d4', 'd', 'w', { c5: { start: '2026-12-01' } })];
+  assert.deepStrictEqual(V.applyView(dates, { ...base, group: { col: 'c5', by: 'week' } }, COLS, { now: NOW }).groups.map((g) => [g.key, g.count]),
+    [['2026-11-02', 2], ['2026-11-09', 1], ['2026-11-30', 1]], '週は月曜から（11-08 の日曜は 11-02 の週）');
+  assert.deepStrictEqual(V.applyView(dates, { ...base, group: { col: 'c5' } }, COLS, { now: NOW }).groups.map((g) => [g.key, g.count]), [['2026-11', 3], ['2026-12', 1]], '日付の既定は月ごと');
+  const same = [row('t1', 'q', 'x', { c3: 5 }), row('t2', 'b', 'y', { c3: 5 }), row('t3', 'k', 'z', { c3: 1 })];
+  assert.deepStrictEqual(V.applyView(same, { ...base, sort: [{ col: 'c3', dir: 'asc' }] }, COLS, { now: NOW }).order.map((o) => o.id), ['t3', 't2', 't1'], '同じ値は並びの鍵の順');
+});
+
+test('DS-1 直し・F1〜F5・F7〜F9・F11・F13: グループの長い鍵・出す行の数・検索の欄の境・記号だけの絞り込み・4 桁の年・見えない文字・消えた選択肢・指数の数・最終更新の既定・リレーションどうし・色の表・住所の利用者の欄', () => {
+  const AT = '@';
+  // F1: テキストの値のグループの鍵は 64 字を越えてもよい。悪い鍵だけを落とす
+  const long = 'あ'.repeat(300);
+  const g = V.normalizeView({ id: 'v', name: 'x', layout: 'table', group: { col: 'c4', hide: [long, 'short', 5], order: [long] } }, COLS);
+  assert.deepStrictEqual(g.view.group, { col: 'c4', hide: [long, 'short'], order: [long] });
+  assert.deepStrictEqual(g.repaired, ['group']);
+  // F2: グループで行がいくつものグループに出るとき、total は絞り込んだ行の数・shown は並べる行の数（窓はこれで切る）
+  const base = V.defaultView('v1', 'table', COLS);
+  const mg = V.applyView([row('m1', 'a', 'x', { c2: ['o1', 'o2'] }), row('m2', 'b', 'y', { c2: ['o1'] })], { ...base, group: { col: 'c2', hide: ['o2'] } }, COLS, { now: NOW });
+  assert.deepStrictEqual([mg.total, mg.shown, mg.order.length], [2, 2, 2]);
+  const mg2 = V.applyView([row('m1', 'a', 'x', { c2: ['o1', 'o2'] }), row('m2', 'b', 'y', { c2: ['o1'] })], { ...base, group: { col: 'c2' } }, COLS, { now: NOW });
+  assert.deepStrictEqual([mg2.total, mg2.shown], [2, 3]);
+  assert.strictEqual(V.applyView([row('m1', 'a', 'x')], base, COLS, { now: NOW }).shown, 1);
+  // F3: データベースの中の検索は欄をまたいで当たらない
+  const cross = [row('x1', 'a', '題', { c4: 'ab', c8: 'https://example.com', c2: ['o1', 'o2'] })];
+  assert.deepStrictEqual(V.applyView(cross, base, COLS, { now: NOW, q: 'bhttps' }).order, []);
+  assert.deepStrictEqual(V.applyView(cross, base, COLS, { now: NOW, q: '議資' }).order, []);
+  assert.deepStrictEqual(V.applyView(cross, base, COLS, { now: NOW, q: '題ab' }).order, []);
+  assert.strictEqual(V.applyView(cross, base, COLS, { now: NOW, q: 'example' }).order.length, 1);
+  // F4: 寄せると空になる文字（記号だけ）の絞り込みは落とす
+  const f = V.normalizeView({ id: 'v', name: 'x', layout: 'table', filter: { op: 'and', items: [{ col: 'c4', cmp: 'contains', value: '・' }, { col: 'c4', cmp: 'is', value: ' - ' }] } }, COLS);
+  assert.strictEqual(f.view.filter, null);
+  // F5: 年は 1000〜9999
+  throwsBad(() => M.cellOf(DAT, { start: '0999-03-03' }), '3 桁の年');
+  assert.deepStrictEqual(M.cellOf(DAT, { start: '1000-01-01' }), { start: '1000-01-01' });
+  assert.strictEqual(M.convertCell(TXT, DAT, '0050/3/3').value, null);
+  // F7: 見えない文字・向きの文字・空に見える文字は名前と住所に入れない（絵文字の合わせの文字は名前に入れてよい）
+  for (const bad of ['W­eb', 'ㅤ', 'a؜b', 'a᠎b', 'a͏b', '⠀', 'a b']) assert.ok(!M.optNameOk([{ id: 'o1', name: 'Web', color: 'default' }], bad), `名前 ${JSON.stringify(bad)}`);
+  for (const good of ['❤️', '👩‍💻', '🔥 急ぎ']) assert.ok(M.optNameOk([], good), `名前 ${good}`);
+  throwsBad(() => M.cellOf(URL1, 'https://exa­mple.com'), '住所の見えない文字');
+  throwsBad(() => M.cellOf(PER, ['佐​藤']), '人の名前の見えない文字');
+  // F8: 消えた選択肢の ID を含む複数選択は、分かる名前だけを読み替える
+  assert.strictEqual(M.convertCell(MUL, TXT, ['o1', 'o9']).value, '会議');
+  // F9: 指数の形の数も読める（NaTsu が数を文字にした形）
+  assert.strictEqual(M.convertCell(TXT, NUM, '1e+21').value, 1e21);
+  assert.strictEqual(M.convertCell(TXT, NUM, '1e-7').value, 1e-7);
+  assert.strictEqual(M.convertCell(NUM, NUM, 1e21).value, 1e21);
+  assert.strictEqual(M.convertCell(TXT, NUM, M.convertCell(NUM, TXT, 1e-7).value).value, 1e-7, '数 → 文字 → 数で同じ');
+  // F11 (a): 最終更新日時・最終更新者が無ければ作成日時・作成者
+  // データベースの行の題名（D77 の会議の題名でない）
+  const old = { id: 'r', ord: 'a', title: 'x', cells: {}, createdAt: '2026-11-01T00:00:00.000Z', by: { c: 'claude' }, no: 1 };
+  assert.strictEqual(M.cellValue(old, { id: 'x', name: 'x', type: 'mtime' }), '2026-11-01T00:00:00.000Z');
+  assert.strictEqual(M.cellValue(old, { id: 'x', name: 'x', type: 'mby' }), 'claude');
+  // F11 (d): リレーションからリレーションへは値のまま
+  const REL = { id: 'r', name: 'つなぐ', type: 'rel', db: 'pdb' };
+  assert.deepStrictEqual(M.convertCell(REL, { ...REL, id: 'r2' }, ['rA']).value, ['rA']);
+  // F11 (f): 選択肢の色は既定と、行の色の9色（src/richText.js の COLORS）
+  assert.deepStrictEqual(M.OPT_COLORS, ['default', ...require('../src/richText.js').COLORS]);
+  // F13: 住所に利用者の欄（@ の前）を入れない（見た目の住所を偽らせない: SEC2）
+  throwsBad(() => M.cellOf(URL1, `https://trusted.example${AT}evil.example/`), '住所の利用者の欄');
+  throwsBad(() => M.cellOf(URL1, `https://user:pw${AT}example.com`), '住所の利用者の欄と暗証');
+  assert.strictEqual(M.cellOf(URL1, `https://example.com/a${AT}b`), `https://example.com/a${AT}b`, '道の中の @ はよい');
 });

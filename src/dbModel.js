@@ -31,8 +31,12 @@ const PHONE_RE = /^[0-9+\-() ]+$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+$/;
 const OPT_COMMA_RE = /[,，]/;                                       // 選択肢の名前に入れない（J-20）
 const NAME_SPLIT_RE = /[、,，]/;                                    // 文字 → 複数選択・ユーザーの区切り（R7）
-// 名前と住所に入れない文字: 制御の文字・幅の無い文字・向きの制御の文字（F145: 答えと画面の形を偽らせない）
-const UNSAFE_RE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2028\u2029\u2060-\u2069\ufeff]/;
+// 名前と住所に入れない文字: 制御の文字・書式の文字（幅の無い文字・向きの制御の文字・ソフトハイフンなど \p{Cf}）・行と段落の区切り・
+// 見えない文字と空に見える文字（結合の書記素の結び・ハングルの空き・点字の空き・異体字の選び）（F145: 答えと画面の形を偽らせない。DS-1 直し F7）
+const UNSAFE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u034f\u115f\u1160\u180e\u2800\u3164\uffa0\ufe00-\ufe0f]/u;
+// 名前（列・選択肢・人）では、絵文字の後の異体字の選び（U+FE0F）と、絵文字どうしをつなぐ U+200D だけは通す（❤️・👩‍💻）
+const EMOJI_JOIN_RE = /(\p{Extended_Pictographic})\ufe0f|(\p{Extended_Pictographic}\ufe0f?)\u200d(?=\p{Extended_Pictographic})/gu;
+const nameUnsafe = (s) => UNSAFE_RE.test(s.replace(EMOJI_JOIN_RE, (m, a, b) => a || b));
 
 function fail(why) { const e = new Error(why); e.code = 'bad-args'; return e; }
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -41,7 +45,7 @@ const isBlank = (v) => missing(v) || v === '' || v === false || (Array.isArray(v
 const has = (o, k) => isObj(o) && Object.hasOwn(o, k);
 // 名前の寄せ方（大文字小文字と全角半角: J-20）
 const foldName = (s) => String(s).normalize('NFKC').toLowerCase();
-const nameOk = (s, max) => typeof s === 'string' && s.length >= 1 && s.length <= max && s === s.trim() && !UNSAFE_RE.test(s);
+const nameOk = (s, max) => typeof s === 'string' && s.length >= 1 && s.length <= max && s === s.trim() && !nameUnsafe(s);
 const optOf = (col, id) => (Array.isArray(col.opts) ? col.opts.find((o) => isObj(o) && o.id === id) : undefined);
 // 頭の文字と数の ID（o<数>・c<数>）の、今ある一番大きい数の次（R2）
 function nextId(head, ids) {
@@ -56,7 +60,7 @@ function realDay(s) {
   const m = typeof s === 'string' && DAY_RE.exec(s);
   if (!m) return false;
   const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3]);
-  if (y < 1 || mo < 1 || mo > 12 || d < 1) return false;
+  if (y < 1000 || mo < 1 || mo > 12 || d < 1) return false;   // 年は 1000〜9999（4 桁: DS-1 直し F5）
   const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
   return d <= days;
@@ -67,7 +71,9 @@ const realTime = (s) => typeof s === 'string' && TIME_RE.test(s);
 const HTTP_HEAD_RE = /^https?:\/\//i;                              // SEC2: 住所の頭は http(s) だけ（javascript:・file:・data: を通さない。頭を見るのはここ1か所）
 function httpUrlOk(s) {
   if (s.length > MAX.url || /\s/.test(s) || UNSAFE_RE.test(s) || !HTTP_HEAD_RE.test(s)) return false;
-  try { new URL(s); return true; } catch (_) { return false; }        // 「https://」だけ・壊れた住所を断る
+  let u;
+  try { u = new URL(s); } catch (_) { return false; }                 // 「https://」だけ・壊れた住所を断る
+  return u.username === '' && u.password === '';                       // 利用者の欄（https://見せたい名前@本当の住所）で見た目を偽らせない（DS-1 直し F13）
 }
 const emailOk = (s) => s.length <= MAX.email && EMAIL_RE.test(s) && !UNSAFE_RE.test(s);
 const phoneOk = (s) => s.length <= MAX.phone && PHONE_RE.test(s) && /\d/.test(s);
@@ -265,7 +271,7 @@ function newCol(type, name, cols) {
 // ================================================================ 種類の読み替え（決めたこと 13・52・R2・R7）
 const TRUE_WORDS = Object.freeze(['はい', 'true', 'yes', 'y', '1', '✓', 'on']);   // テキスト → チェックで真にする語（R7。大文字小文字を寄せる）
 const THOUSANDS_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
-const DECIMAL_RE = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
+const DECIMAL_RE = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i;   // 指数の形（1e+21・1e-7: 数を文字にした形）も読む（DS-1 直し F9）
 const DATE_TEXT_RE = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?$/;
 
 // 文字 → 数（全角を寄せ、3桁区切りのカンマを外した数だけ。読めなければ null）
@@ -320,8 +326,11 @@ function convertCell(fromCol, toCol, v) {
   const fd = defOf(fromCol); const td = defOf(toCol);
   if (!fd || !td) throw fail('col-type');
   if (!fd.writable || !td.writable) throw fail('col-read-only');
+  if (fromCol.type === 'rel' && toCol.type === 'rel') return { value: tryCell(toCol, v), col: toCol };   // リレーションどうしは値のまま（DS-1 直し F11）
   if (fromCol.type === 'rel' || toCol.type === 'rel') throw fail('col-rel');
-  const src = tryCell(fromCol, v);
+  // 消えた選択肢の ID は外して、分かる名前だけを読み替える（DS-1 直し F8）
+  const known = fromCol.type === 'multi' && Array.isArray(v) ? v.filter((id) => optOf(fromCol, id) !== undefined) : v;
+  const src = tryCell(fromCol, known);
   if (src === null) return { value: null, col: toCol };
   const from = fromCol.type;
   switch (toCol.type) {
@@ -454,9 +463,9 @@ function cellValue(row, col) {
   switch (col.type) {
     case 'title': return typeof row.title === 'string' && row.title !== '' ? row.title : null;
     case 'ctime': return typeof row.createdAt === 'string' ? row.createdAt : null;
-    case 'mtime': return typeof row.updatedAt === 'string' ? row.updatedAt : null;
+    case 'mtime': return typeof row.updatedAt === 'string' ? row.updatedAt : (typeof row.createdAt === 'string' ? row.createdAt : null);   // 書き換えていなければ作成日時（DS-1 直し F11）
     case 'cby': return isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null;
-    case 'mby': return isObj(row.by) && WHO.includes(row.by.u) ? row.by.u : null;
+    case 'mby': return isObj(row.by) && WHO.includes(row.by.u) ? row.by.u : (isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null);   // 書き換えていなければ作成者
     case 'no': return Number.isFinite(row.no) ? row.no : null;
     default: return has(row.cells, col.id) && !missing(row.cells[col.id]) ? row.cells[col.id] : null;
   }
