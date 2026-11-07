@@ -111,7 +111,8 @@ test('main.js: clipboard の readText／writeText を直に呼ばず、mainlib �
   assert.ok(!/clipboard\.(readText|writeText)\(/.test(m), 'main.js が clipboard を直に読み書きしている（44 では Promise）');
   assert.match(m, /clip: clipboard,/);
   assert.match(m, /const copyPrivate = \(text\) => lib\.copyPrivate\(text, clipDeps\(\)\);/);
-  assert.match(m, /const deliverText = \(text\) => lib\.deliverText\(text, clipDeps\(\)\);/);
+  // 0.15.1 ND-2（D114）で意図して変えた: 音声入力の貼り付け（deliverText）は音声入力と一緒に消した
+  assert.ok(!/deliverText/.test(m), '音声入力の貼り付けが main に残っている');
 });
 
 // ---------------------------------------------------------------- 0.14.0 EK-4 直し（計画 docs/plans/2026-10-26-140.md の R153）: 要約の欄の選んだ行・区切り線の行への貼り付けで読むクリップボード

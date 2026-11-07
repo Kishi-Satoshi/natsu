@@ -151,9 +151,13 @@ test('preload の invoke に対応する ipcMain.handle が main.js にある', 
     'preload が invoke するのに main.js に handle が無いチャンネル');
 });
 
+// 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md の決めたこと 12・WQ1）で意図して変えた: 凍結の録音バー（overlay.html）が呼ぶ koeOverlay の音声入力の形の口
+// （sendAudio → audio:done・requestCancel → overlay:cancel-request）は preload に残し、main は受けない（録音バーを音声入力の形で起こさない）
+const OVERLAY_ONLY_SENDS = ['audio:done', 'overlay:cancel-request'];
 test('preload の send に対応する ipcMain.on が main.js にある', () => {
   const on = new Set(all(/ipcMain\.on\('([^']+)'/g, main));
-  const missing = all(/ipcRenderer\.send\('([^']+)'/g, preload).filter((c) => !on.has(c));
+  const missing = all(/ipcRenderer\.send\('([^']+)'/g, preload).filter((c) => !on.has(c) && !OVERLAY_ONLY_SENDS.includes(c));
+  for (const c of OVERLAY_ONLY_SENDS) assert.ok(!on.has(c), `${c} を main.js が受けている（0.15.1 ND-2）`);
   assert.deepStrictEqual([...new Set(missing)], [],
     'preload が send するのに main.js に受け口が無いチャンネル');
 });
@@ -290,7 +294,7 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.15.0 PL-3 で画面がアイコンと見た目の口（pageSetIcon・pageSetLook）を呼び始めたので外した
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の R7）で意図して変えた: 画面は音声入力の知らせを受けなくなったが、main が送るのをやめる ND-2 まで
   // 受け口（onDictationWhere・onDictationText・onDictationEnd・onHistoryUpdated）を preload に残す（上の「main.js から送るイベントを preload が購読できる」）。ND-2 で消して空に戻す
-  const PENDING_APP = new Set(['onDictationWhere', 'onDictationText', 'onDictationEnd', 'onHistoryUpdated']);
+  const PENDING_APP = new Set([]);   // 0.15.1 ND-2 で空に戻した（ND-3 で入れた音声入力の4つの受け口は消した: 計画の R7）
   // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
   // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
   const KEPT_APP = new Set(['pageSetMemo']);
@@ -316,7 +320,7 @@ test('preload に公開したまま main.js 側が無い API がない', () => {
     ...all(/ipcRenderer\.invoke\('([^']+)'/g, preload),
     ...all(/ipcRenderer\.send\('([^']+)'/g, preload),
   ])].filter((c) => !handled.has(c));
-  assert.deepStrictEqual(unreachable, []);
+  assert.deepStrictEqual(unreachable, OVERLAY_ONLY_SENDS, '0.15.1 ND-2: 受け口が無いのは凍結の録音バーの音声入力の形の2つだけ');
 });
 
 // ---------------------------------------------------------------- その他
@@ -356,9 +360,11 @@ test('トレイのアイコンは src 配下にある（アプリ内更新で一
 
 // 意図: 設定と履歴は一時ファイル経由で書く（直接書くと、書き込み中に落ちたときに壊れた JSON が残り、次回起動で
 // 既定値に戻って設定が消える）。一時ファイル・fsync・名前の変更は jsonfile.test.js が実行して固定する（第1a回 Task 2-2）
-test('設定と履歴の保存が一時ファイル経由で行われる（JS3 の部品を通す）', () => {
+// 0.15.1 ND-2（D114・決めたこと 3）で意図して変えた: 前の音声入力の履歴（history.json）は書かないので、書き手（writeHistoryFile）は無い
+test('設定の保存が一時ファイル経由で行われる（JS3 の部品を通す）。履歴は書かない', () => {
   assert.ok(!main.includes('function saveJson') && !main.includes('function loadJson'), '古い読み書きが残っている');
-  for (const f of ['function writeSettingsFile', 'function writeHistoryFile']) {
+  assert.ok(!main.includes('function writeHistoryFile') && !main.includes("'history.json'"), '履歴の書き手が残っている');
+  for (const f of ['function writeSettingsFile']) {
     const i = main.indexOf(f);
     assert.ok(i >= 0, f);
     assert.ok(main.slice(i, main.indexOf('\n}', i)).includes('J.writeJsonFile('), `${f} が部品を通していない`);
@@ -498,7 +504,8 @@ test('文字起こしが切れる問題への3段の対策が入っている', (
   // 第1c回 Task A-4（意図して変えた）: 区間と音声入力は transcribeAuto を通り、手元の道で transcribeLocal に尻尾と長さをそのまま渡す
   // 0.9.1 Q-2（意図して変えた）: 音声入力は { dictation: true } を渡す。経路を決めて送る所は transcribeRouted（transcribeAuto は無音と作り話を見てから呼ぶ）
   assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
-  assert.match(main, /transcribeAuto\(buffer, '', durationMs, \{ dictation: true \}\)/);
+  // 0.15.1 ND-2（D114）で意図して変えた: 音声入力の transcribeAuto(buffer, '', durationMs, { dictation: true }) は音声入力と一緒に消した
+  assert.ok(!/\{ dictation: true \}/.test(code(main)), '音声入力の文字起こしが残っている');
   assert.match(fnBody(code(main), 'async function transcribeAuto(', '\n}'), /transcribeRouted\(wav, tail, durationMs, opts, scope, what\)/, '経路を決めて送る所に尻尾と長さをそのまま渡していない');
   assert.match(fnBody(code(main), 'async function transcribeRouted(', '\n}'), /transcribeLocal\(wav, tail, durationMs, opts\)/, '手元の道に尻尾と長さをそのまま渡していない');
   // (3) 区切りの保険（音声パイプライン由来のイベントで見張る）
@@ -916,10 +923,11 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
   const save = fnBody(code(main), "ipcMain.handle('settings:save'", '\n  });');
   assert.ok(!save.includes("return { ok: false, error: `${r.which}"), '全体を失敗として返している');
   assert.ok(save.includes('saveHotkeys(settings, activeHotkeys, merged, applyHotkeys)'), 'mainlib.saveHotkeys を通していない');
-  assert.ok(save.includes('merged.hotkey = hk.applied.hotkey') && save.includes('merged.meetingHotkey = hk.applied.meetingHotkey'), '戻した値を設定に反映していない');
+  // 0.15.1 ND-2（D114）で意図して変えた: 音声入力のキーは登録しないので、議事録のキーだけを戻して画面へ返す（前の hotkey はファイルの値のまま）
+  assert.ok(!save.includes('merged.hotkey =') && save.includes('merged.meetingHotkey = hk.applied.meetingHotkey'), '戻した値を設定に反映していない');
   assert.ok(save.includes('activeHotkeys = hk.active') && save.includes('hotkeyState = hk.state') && save.includes('hotkeyNote = hk.note'),
     '実際に登録したキー・状態・トレイの注記を残していない');
-  assert.match(save, /const applied = \{ hotkey: settings\.hotkey, meetingHotkey: settings\.meetingHotkey \}/, '設定として残ったキーを applied に組んでいない');
+  assert.match(save, /const applied = \{ meetingHotkey: settings\.meetingHotkey \}/, '設定として残ったキーを applied に組んでいない');
   assert.match(save, /return warning \? \{ ok: true, applied, warning \} : \{ ok: true, applied \}/, '画面が欄に戻す applied を返していない');
   // 起動時: 失敗した側だけ既定に落とす。settings（メモリもディスクも）には書かず、有効なキーは
   // activeHotkeys に持つ。settings に書くと settings:get が既定を返し、次の保存でディスクに漏れる
@@ -938,7 +946,8 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
   // トレイは実際に登録しているキーを出し、「（…: 既定の … を使用中）」「（… は登録できず）」を添える
   const tray = fnBody(code(main), 'function updateTray()', '\nfunction createTray');
   assert.ok(tray.includes('hotkeyNote'), 'トレイに登録できなかったキーの注記が無い');
-  assert.ok(tray.includes('activeHotkeys.hotkey') && tray.includes('activeHotkeys.meetingHotkey'), 'トレイが実際に登録しているキーを出していない');
+  // 0.15.1 ND-2（D114・決めたこと 8）で意図して変えた: トレイは議事録のキーだけを出す
+  assert.ok(!tray.includes('activeHotkeys.hotkey') && tray.includes('activeHotkeys.meetingHotkey'), 'トレイが実際に登録しているキーを出していない');
   assert.ok(!/settings\.(hotkey|meetingHotkey)/.test(tray), 'トレイが設定のキーを出している（退避中は効かないキーが表示される）');
 });
 

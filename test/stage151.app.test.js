@@ -38,19 +38,19 @@ const shownRows = (l) => $(l, 'tabSettings').querySelectorAll('[data-row]').filt
 const search = async (l, q) => { const b = $(l, 'setSearch'); b.value = q; b.dispatchEvent({ type: 'input', target: b }); await l.drain(); };
 
 // 0.15.1 で消した preload の口（決めたこと 12）と、変えない録音バーの口（WQ1。da37aaa の src/preload.js の koeOverlay の名前の並び）。
-// main から来る知らせの4つの受け口（LISTEN_APIS）は、main が送るのをやめる ND-2 で消す（計画の R7）。画面はもう受けない（下の場面で見る）
+// main から来る知らせの4つの受け口（LISTEN_APIS）は、main が送るのをやめた ND-2 で消した（計画の R7。ND-2 で5つから9つに）
 const GONE_APIS = ['getHistory', 'deleteHistory', 'clearHistory', 'toggleRecording', 'dictationCancel'];
 const LISTEN_APIS = ['onDictationWhere', 'onDictationText', 'onDictationEnd', 'onHistoryUpdated'];
 const OVERLAY_APIS = ['onStart', 'onStop', 'onCancel', 'onPhase', 'onTick', 'onSegmentMs', 'sendAudio', 'sendSegment', 'sendError', 'reportSource', 'reportPause', 'reportMic',
   'confirmStop', 'requestCancel', 'requestHide', 'reportSize', 'onForm', 'hidePanel', 'onHover', 'onLevelAsk', 'reportLevel', 'onCut'];
 const GONE_ROWS = ['音声入力ホットキー', '文字起こし後、カーソル位置へ自動貼り付け', '口述の文を AI で整える'];
 
-test('ND-3・決めたこと 12: preload の koeApp に音声入力の5つの口（履歴・録音の切り替え・取り消し）が無く、録音バーの koeOverlay の口は前と同じ', () => {
+test('ND-3・ND-2・決めたこと 12: preload の koeApp に音声入力の9つの口（履歴・録音の切り替え・取り消しと、main から来る4つの知らせの受け口）が無く、録音バーの koeOverlay の口は前と同じ', () => {
   const a = preloadApis();
-  assert.deepStrictEqual(GONE_APIS.filter((n) => a.koeApp.includes(n)), [], '消した口が koeApp に残っている');
+  assert.deepStrictEqual([...GONE_APIS, ...LISTEN_APIS].filter((n) => a.koeApp.includes(n)), [], '消した口が koeApp に残っている');
   assert.deepStrictEqual(a.koeOverlay, OVERLAY_APIS, '録音バーの口が変わった（overlay.html は凍結: WQ1）');
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
-  for (const ch of ['history:get', 'history:delete', 'history:clear', 'app:toggle-recording', 'dictation:cancel']) {
+  for (const ch of ['history:get', 'history:delete', 'history:clear', 'app:toggle-recording', 'dictation:cancel', 'history:updated', 'dictation:where', 'dictation:where-answer', 'dictation:text', 'dictation:end']) {
     assert.ok(!src.includes(`'${ch}'`), `preload が ${ch} を使っている`);
   }
 });

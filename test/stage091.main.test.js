@@ -88,14 +88,7 @@ test('Q-2: 無音の復旧の区間は送らずに消し、ページの経路の
   assert.ok(o.engineLog.includes('音の無い区間: 復旧 s1 を送らずに除きました（無音・起動から 1 回目）'), o.engineLog.join('\n'));
 });
 
-test('Q-2・Q1・決めたこと 3: 小さな音の音声入力の作り話は貼らず履歴に入れない。大きな声の音声入力の「お疲れさまです。…」は口述として貼る', S, async () => {
-  const q = await run(['text', '--dictate', '--blip', '--relay-seq=p']);
-  assert.deepStrictEqual(q.history, [], JSON.stringify(q.history));
-  assert.ok(q.overlayPhases.some((p) => p.phase === 'error' && p.message === '音声を認識できませんでした'), JSON.stringify(q.overlayPhases));
-  assert.ok(q.engineLog.includes('認識ヒントの繰り返し: 音声入力 の答えを除きました（起動から 1 回目）'), q.engineLog.join('\n'));
-  const l = await run(['text', '--dictate', '--relay-seq=p']);
-  assert.deepStrictEqual(l.history.map((h) => h.text), [SAMPLE], JSON.stringify(l.history));
-});
+// 0.15.1 ND-2（D114・計画の決めたこと 15）: 音声入力の作り話の判定（小さな音だけ・大きな声の口述は貼る）のテストは、hintEcho の音声入力の枝と一緒に消した（会議と復旧の形は上と下の Q-2）
 
 // ---------------------------------------------------------------- Q-4（決めたこと 7〜11・14）: 話し声が無いときに聞いて止める
 // --quiet-seq の区間は 1 つ 60 秒（会議の時計）。t は音のある区間（中継が文字を返す）、s は無音の区間（送らない）

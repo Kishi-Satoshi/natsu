@@ -250,31 +250,8 @@ test('#54 常駐 PowerShell の標準出力を行ごとに読み、命令ごと�
   assert.ok(ens.includes('parsePasterLine(line)'), '行の読み方を mainlib.parsePasterLine で行っていない');
   assert.ok(ens.includes('pasterWaiters.shift()'), '応答を待っている順（FIFO）に渡していない');
   assert.ok(ens.includes('w.resolve(null)'), 'PowerShell が居なくなったとき待っている人を解放していない');
-  const ask = fnBody(m, 'function askPaster(cmd, timeoutMs)', '\n}');
-  assert.ok(ask.includes('pasterWaiters.push(w)') && ask.includes('setTimeout(() => w.resolve(null), timeoutMs)'), '時間切れで null にしていない');
-  assert.ok(ask.includes('p.stdin.write(`${cmd}\\n`)'), '命令を 1 行で送っていない');
-  assert.match(m, /const FG_REPLY_MS = 300;/);
-  assert.match(m, /const PASTE_REPLY_MS = 1500;/);
+  // 0.15.1 ND-2（D114）で意図して変えた: 音声入力の前面の窓の問い合わせ（fg）と貼り付け（paste）を送る askPaster は、音声入力と一緒に消した
+  // （常駐の口と台本 pasterScript は［コピー］の copy の命令のために残す: 計画の決めたこと 9）
 });
 
-test('#54 録音開始で前面ウィンドウを控え、貼り付けは控えた HWND 付きで送る。違えば貼らずに知らせる', () => {
-  const m = code(main);
-  const start = fnBody(m, 'function startRecording()', '\n}');
-  assert.ok(start.includes("dictationFg = askPaster('fg', FG_REPLY_MS).then((r) => (r && r.kind === 'hwnd' ? r.value : ''))"), '録音開始で fg を送って控えていない');
-  const paste = fnBody(m, 'function simulatePaste(hwnd)', '\n}');
-  assert.ok(paste.includes("askPaster(hwnd ? `paste ${hwnd}` : 'paste', PASTE_REPLY_MS)"), '控えた HWND があるとき paste <hwnd> で送っていない');
-  assert.ok(paste.includes("resolve(r && r.kind !== 'hwnd' ? r.kind : 'unknown')"), "応答を 'ok'|'mismatch'|'fail'|'unknown' に直していない");
-  assert.ok(paste.includes("resolve(err ? 'fail' : 'ok')"), '常駐が居ないときの一回きりの貼り付けが結果を返していない');
-  assert.strictEqual((paste.match(/resolve\('unknown'\)/g) || []).length, 2, 'Windows 以外は unknown（従来どおり貼れたものとして扱う）');
-  // deliverText の本体は mainlib へ移した（第0c回 EL1）。同じ文と順を mainlib で見る。main.js は薄い包み
-  const lib = code(read('src/mainlib.js'));
-  const deliver = fnBody(lib, 'async function deliverText(', '\n}');
-  assert.ok(deliver.includes('const hwnd = await d.fg;'), '控えた HWND を使っていない');
-  assert.ok(deliver.includes('const result = await d.simulatePaste(hwnd);'));
-  assert.ok(deliver.includes("if (result === 'mismatch') { d.notice('貼り付け先が変わったため、クリップボードに残しました（Ctrl+V で貼り付けられます）'); return result; }"), 'mismatch の知らせ方が違う');
-  assert.ok(deliver.includes("if (result === 'fail') { d.notice('自動貼り付けに失敗しました。クリップボードに残しています'); return result; }"), 'fail の知らせ方が違う');
-  assert.ok(deliver.indexOf("result === 'fail'") < deliver.indexOf('restoreAfterPaste(prev, text)'), '貼れなかったのに元のクリップボードを戻している');
-  assert.ok(deliver.indexOf('await copyPrivate(text, d)') < deliver.indexOf('d.simulatePaste(hwnd)'));
-  assert.match(m, /fg: dictationFg,/, 'main が控えた HWND（dictationFg）を渡していない');
-  assert.match(m, /notice: \(m\) => sendToMainWin\('app:notice', m\)/, 'main が知らせを画面へ送っていない');
-});
+// 0.15.1 ND-2（D114）: #54 の録音開始の前面の窓と貼り付け（startRecording・simulatePaste・deliverText）のテストは、音声入力と一緒に消した

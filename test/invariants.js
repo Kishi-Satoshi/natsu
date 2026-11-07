@@ -506,7 +506,12 @@ const INVARIANTS = [
       if (!ch.length) return ['preload.js からチャンネル名が取れない（検査が空振りしている）'];
       const main = w.mainSrc;
       const v = [];
+      // 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md の決めたこと 12・WQ1）: 凍結の録音バー（overlay.html）の音声入力の形の口（koeOverlay の sendAudio・requestCancel）は
+      // preload に残し、main は受けない（録音バーを音声入力の形で起こさない）。この2つだけは受け口が無いことを見る
+      const OVERLAY_ONLY = ['audio:done', 'overlay:cancel-request'];
+      for (const name of OVERLAY_ONLY) if (main.includes(`ipcMain.on('${name}'`)) v.push(`main.js: 0.15.1 で受けなくした '${name}' を受けている`);
       for (const [kind, name] of ch) {
+        if (kind === 'send' && OVERLAY_ONLY.includes(name)) continue;
         const need = kind === 'invoke' ? `ipcMain.handle('${name}'` : kind === 'send' ? `ipcMain.on('${name}'` : null;
         if (kind === 'on') { if (!main.includes(`'${name}'`)) v.push(`main.js: preload が受ける '${name}' を誰も送っていない`); continue; }
         if (!main.includes(need)) v.push(`main.js: preload が呼ぶ '${name}' の ${kind === 'invoke' ? 'handle' : 'on'} が無い`);

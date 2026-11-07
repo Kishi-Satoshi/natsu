@@ -1439,10 +1439,10 @@ test('DQ-1・F105: dropFillers は今の removeFillersRule と同じ（つなぎ
     }
   }
   assert.ok(!/removeFillersRule/.test(MAIN), 'main.js に古い removeFillersRule が残っている');
-  // 0.14.0 DQ-3 で意図して変えた（R197）: 音声入力と残した音声の2か所は決まりの整え tidyRules（tidyRulesOnly。つなぎ言葉は同じ dropFillers）を通すので、
-  // dropFillers を直に呼ぶのは会議の文・会議の区間・復旧の4か所、tidyRules は tidyRulesOnly の1か所
+  // 0.14.0 DQ-3 で意図して変えた（R197）: dropFillers を直に呼ぶのは会議の文・会議の区間・復旧の4か所。
+  // 0.15.1 ND-2（D114）で意図して変えた: 口述の整え（tidyRulesOnly の tidyRules）は音声入力と一緒に消した（main は tidyRules を呼ばない）
   assert.strictEqual((MAIN.match(/dictTidy\.dropFillers\(/g) || []).length, 4, 'main.js の4か所（会議の文・会議の区間・復旧）が dropFillers を呼ばない');
-  assert.strictEqual((MAIN.match(/dictTidy\.tidyRules\(/g) || []).length, 1, 'main.js の口述（音声入力・残した音声）が tidyRules を通らない');
+  assert.strictEqual((MAIN.match(/dictTidy\.tidyRules\(/g) || []).length, 0, 'main.js が口述の整え（tidyRules）を呼んでいる');
 });
 
 test('DQ-1・R45: tidyRules の表（「ですです」「あの、あの、」→1つ・区切りの無い「確認確認」は変えない・長い語の頭の同じ字は変えない・数の並びは変えない・fillers が偽ならつなぎ言葉は残し、繰り返しはいつも1つに）', () => {

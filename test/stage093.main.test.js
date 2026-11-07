@@ -40,15 +40,14 @@ test('M-2: 起動の時に設定がオンなら見張りを1つ起こす（power
 
 // 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md の決めたこと L16）で意図して変えた: 設定「会議を出たら自動で止める」がオンなら議事録の録音中も見張るので、
 // 0.9.3 の意味のまま（設定がオフなら議事録の録音中は止める）を --leave=off で見る。オンのときの形は stage121.main の LV-2
-test('M-2: 録音を始めると見張りを止め、idle に戻ると起こす（議事録・音声入力）', S, async () => {
-  const o = await run([['snap', 'boot'], ['start'], ['snap', 'meeting'], ['stop'], ['snap', 'idle'], ['dictate'], ['snap', 'dictate'], ['dictate-cancel'], ['snap', 'after']], '--leave=off');
+// 0.15.1 ND-2（D114）で意図して変えた: 音声入力の録音中の分を外した（議事録の分は同じ）
+test('M-2: 録音を始めると見張りを止め、idle に戻ると起こす（議事録）', S, async () => {
+  const o = await run([['snap', 'boot'], ['start'], ['snap', 'meeting'], ['stop'], ['snap', 'idle']], '--leave=off');
   assert.deepStrictEqual([o.snaps.boot.spawns, o.snaps.boot.kills], [1, 0]);
   assert.strictEqual(o.snaps.meeting.active, true);
   assert.deepStrictEqual([o.snaps.meeting.spawns, o.snaps.meeting.kills], [1, 1], '議事録の録音中も見張りが動いている');
   assert.deepStrictEqual([o.snaps.idle.spawns, o.snaps.idle.kills], [2, 1], 'idle に戻っても見張りを起こさない');
-  assert.deepStrictEqual([o.snaps.dictate.spawns, o.snaps.dictate.kills], [2, 2], '音声入力の録音中も見張りが動いている');
-  assert.deepStrictEqual([o.snaps.after.spawns, o.snaps.after.kills], [3, 2]);
-  assert.strictEqual(o.engineLog.filter((l) => l === '会議の検出: 見張りを止めた').length, 2);
+  assert.strictEqual(o.engineLog.filter((l) => l === '会議の検出: 見張りを止めた').length, 1);
 });
 
 test('M-2: 設定を切ると止め、入れると起こす', S, async () => {
@@ -152,10 +151,7 @@ test('D50: nudge:start は pcOnly のほかの引数（種類など）を読ま�
   const none = await run([['ipc', 'nudge:start', { pcOnly: false }]]);
   assert.deepStrictEqual(none.ipc[0][1], { ok: false });
   assert.strictEqual(none.active, false);
-  const busy = await run([...Z2, ['dictate'], ['ipc', 'nudge:start', { pcOnly: false }]]);
-  assert.deepStrictEqual(busy.ipc.find(([ch]) => ch === 'nudge:start')[1], { ok: false });
-  assert.strictEqual(busy.active, false);
-  assert.deepStrictEqual(busy.notices, [], '音声入力の間に押した nudge:start が知らせを出した');
+  // 0.15.1 ND-2（D114）: 音声入力の録音中に押した nudge:start の分は、音声入力と一緒に消した
 });
 
 test('M7: nudge:mute は引数を読まず、出している id だけを meetingDetectMute に足し、settings:patched を送る（引数に別の id を渡しても保存されない）。出していなければ何もしない', S, async () => {

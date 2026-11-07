@@ -102,12 +102,7 @@ test('待ち時間は localTimeoutMs（覚えの rtf 1.7・120 秒の区間で 4
   assert.ok(other.engineLog.includes('手元の文字起こしの時間切れ: s1（音声 120 秒・待ち 300 秒）。エンジンを起こし直します'), other.engineLog.join('\n'));
 });
 
-test('音声入力の時間切れは文字起こし待ちの履歴に残す', T, async () => {
-  const o = await run(['hang', '--dictate']);
-  assert.strictEqual(o.history.length, 1, JSON.stringify(o.history));
-  assert.match(o.history[0].wait || '', /^\d+-[A-Za-z0-9]+\.wav$/, JSON.stringify(o.history));
-  assert.ok(o.engineLog.includes('手元の文字起こしの時間切れ: 音声入力（音声 3 秒・待ち 240 秒）。エンジンを起こし直します'), o.engineLog.join('\n'));
-});
+// 0.15.1 ND-2（D114）: 音声入力の時間切れ（文字起こし待ちの履歴に残す）のテストは、音声入力と一緒に消した
 
 // ---------------------------------------------------------------- S-3（決めたこと 2〜6）: 音声を失わない
 // --recover-again=<n> は会議の後の文字起こしを設定の保存（settings:save）で n 回引き直し、そのたびの議事録・待ち行列・WAV・要求の数を out.again に写す
@@ -260,11 +255,7 @@ test('S4: 覚え（local-pace.json）にモデルの名前と大きさで書き�
   assert.strictEqual(infer(old), 2);
 });
 
-test('音声入力は遅い PC でも PC で文字起こしする', T, async () => {
-  const o = await run(['text', '--dictate', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 3, slow: true, at: 'now-1', from: 'live' })}`]);
-  assert.strictEqual(o.history.length, 1, JSON.stringify(o.history));
-  assert.ok(!o.history[0].wait && /本日の議題/.test(o.history[0].text), JSON.stringify(o.history));
-});
+// 0.15.1 ND-2（D114）: 音声入力は遅い PC でも PC で文字起こしするテストは、音声入力と一緒に消した
 
 // ---------------------------------------------------------------- S-5（決めたこと 29〜32）: クラウドの区切りを伸ばさない・中継の失敗が続いたら間を空ける
 const liveMs = (o) => o.overlaySent.filter((x) => typeof x === 'number');

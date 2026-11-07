@@ -182,18 +182,9 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.14.0 EK-4 直し（R153）: 要約の欄の選んだ行・区切り線の行への貼り付け（Ctrl+V・Ctrl+Shift+V・Shift+Insert）で読むクリップボード → { text, html } か { tooBig: true }
   clipReadRows: () => ipcRenderer.invoke('clipboard:read-rows'),
 
-  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の決めたこと 12・D114）: 音声入力の口（履歴・録音の切り替え・NaTsu の中の音声入力の取り消し）を消した。
-  // main から来る音声入力の4つの知らせの受け口（onDictationWhere・onDictationText・onDictationEnd・onHistoryUpdated）は、main が送るのをやめる ND-2 で消す
-  // （画面はもう受けない。test/repo.test.js の「main.js から送るイベントを preload が購読できる」: 計画の R7）。
-  // 録音バーの口（koeOverlay の sendAudio・requestCancel）は凍結の overlay.html が呼ぶので変えない（WQ1）
-  onDictationWhere: (cb) => ipcRenderer.on('dictation:where', (_e, p) => {
-    if (!p || !Number.isInteger(p.seq)) return;
-    let ok = false;
-    try { const r = cb(p.seq); ok = Boolean(r && r.ok === true); } catch (_) { ok = false; }
-    ipcRenderer.send('dictation:where-answer', { seq: p.seq, ok });
-  }),
-  onDictationText: (cb) => ipcRenderer.on('dictation:text', (_e, p) => { if (p && typeof p.text === 'string') cb(p.text, Array.isArray(p.lines) ? p.lines : null, Number.isInteger(p.seq) ? p.seq : 0); }),
-  onDictationEnd: (cb) => ipcRenderer.on('dictation:end', (_e, p) => { if (p && Number.isInteger(p.seq)) cb(p.seq); }),
+  // 0.15.1 ND-3・ND-2（計画 docs/plans/2026-11-04-151.md の決めたこと 12・D114）: 音声入力の口（履歴・録音の切り替え・NaTsu の中の音声入力の取り消し）と、
+  // main から来た音声入力の4つの知らせの受け口（dictation:where・dictation:text・dictation:end・history:updated）を消した。
+  // 録音バーの口（koeOverlay の sendAudio・requestCancel）は凍結の overlay.html が呼ぶので変えない（WQ1。main は受けない）
 
   // ページ（議事録）。14 の名前は DB の口へ（第2a1回 ST5。名前・引数・返す形は今の IPC と同じ）。要約と会議の型は今どおり main
   pagesSearch: (q) => dbCall('pages.list', { q: q || '' }),
@@ -323,7 +314,6 @@ contextBridge.exposeInMainWorld('koeApp', {
   uiSave: (patch) => ipcRenderer.invoke('ui:set', patch),
 
   // イベント
-  onHistoryUpdated: (cb) => ipcRenderer.on('history:updated', (_e, h) => cb(h)),   // 0.15.1 ND-3: 画面はもう受けない（ND-2 で main と一緒に消す: R7）
   onNotice: (cb) => ipcRenderer.on('app:notice', (_e, m) => cb(m)),
   onMeetingUpdate: (cb) => ipcRenderer.on('meeting:update', (_e, s) => cb(s)),
   // 0.9.0 O-2・O-4 の点検の直し: main が画面の外で変えた設定（録音バーのドラッグで吸い付いた置き場所 pillSlot）を欄へ戻す

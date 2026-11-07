@@ -35,9 +35,11 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   assert.ok(app.includes('<div class="wordmark">NaTsu</div>'));
   assert.ok(overlay.includes('<title>NaTsu Overlay</title>'));
   assert.ok(main.includes("    title: 'NaTsu',"));
-  for (const s of ["'NaTsu — 議事録を記録中'", "'NaTsu — 録音中'", "'NaTsu — 処理中'", '`NaTsu — ${activeHotkeys.hotkey}: 音声入力']) {
+  // 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md・D114・決めたこと 8）で意図して変えた: 音声入力の録音中の「NaTsu — 録音中」と待機の音声入力のキーを外した
+  for (const s of ["'NaTsu — 議事録を記録中'", "'NaTsu — 処理中'", '`NaTsu — ${activeHotkeys.meetingHotkey || \'未設定\'}: 議事録']) {
     assert.ok(main.includes(s), s);
   }
+  for (const s of ["'NaTsu — 録音中'", '${activeHotkeys.hotkey}: 音声入力']) assert.ok(!main.includes(s), s);
   // 第1d回 G-4 で意図して変えた: オンラインの文字起こしは会社の中継を通した OpenAI（PC は OpenAI へ直に送らない）
   // 0.10.0 LS-5（D59）で意図して変えた: 要約は Claude Code だけ（llama を外した）
   // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 説明の頭から「音声入力・」を外した（括弧の中は今のまま。アプリの中の更新では届かない: 決めたこと 19）

@@ -126,9 +126,9 @@ test('ST1: 議事録のホットキーと下書きのやり直しは、失敗を
 
 // ---------------------------------------------------------------- M-2b（ST2 の配線・ST7・ST12・F12）: main を DB のプロセスにつなぐ
 test('ST12・RF10: DB が開けなくても（--db-down）設定・画面の覚え書き・履歴は読み書きでき、知らせ D1 が1回、録音は下書きに残る', { timeout: sceneTimeout(20000) }, () => {
-  const out = runScene('db-down');   // json-scenes: 設定を保存・ui:set・音声入力1回・会議を始めて区間1つで止める
+  const out = runScene('db-down');   // json-scenes: 設定を保存・ui:set・会議を始めて区間1つで止める（0.15.1 ND-2 で音声入力の1回を外した）
   assert.strictEqual(out.notices.filter((n) => n.startsWith('議事録の保存の仕組みを使えません。')).length, 1);
-  assert.ok(out.settingsSaved && out.winStateText && out.history.length === 1);
+  assert.ok(out.settingsSaved && out.winStateText);
   assert.ok(out.files.some((f) => /^data\/draft(-\d+)?\.json$/.test(f)), '締めに失敗したのに下書きを消した');
   assert.ok(out.engineLog.some((l) => /^DB: 諦めた/.test(l) || /^DB: SQLite .*trigram NG/.test(l)));
   assert.ok(out.engineLog.some((l) => /^DB: 起動（番号 \d+）$/.test(l)), '実機の 4 で照らす番号の行が無い');

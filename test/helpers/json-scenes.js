@@ -124,7 +124,7 @@ const PILL_SETTINGS = {
 module.exports = {
   TYPICAL, HISTORY, UI, OLD_DRAFT, WS, OLD_KEY_TEXT, PILL_SETTINGS,
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
-    act: async (c) => { c.out.got = await c.handlers['settings:get'](); c.out.history = await c.handlers['history:get'](); } },
+    act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },
   utf16: { files: { 'settings.json': Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify({ theme: 'dark', micId: 'マイク' }), 'utf16le')]) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
@@ -133,18 +133,14 @@ module.exports = {
   falselike: { files: { 'settings.json': pretty({ ...TYPICAL, autoPaste: 'false' }) } },
   'broken-json': { files: { 'settings.json': '{"theme":"da' }, act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   ansi: { files: { 'settings.json': Buffer.concat([Buffer.from('{"micId":"'), CP932_NIHONGO, Buffer.from('"}')]) } },
-  'history-broken': { files: { 'settings.json': pretty(TYPICAL), 'history.json': '[{"id":"h1","text":"途中' },
-    act: async (c) => { c.out.history = await c.handlers['history:get'](); } },
+  // 0.15.1 ND-2（D114）で意図して変えた: main は history.json を読まない（壊れていても退けない）。場面はファイルを置いて起動するだけ
+  'history-broken': { files: { 'settings.json': pretty(TYPICAL), 'history.json': '[{"id":"h1","text":"途中' } },
   partial: { files: { 'settings.json': ({ base }) => JSON.stringify({ ...base, autoLaunch: false }) } },
   allowlist: { files: { 'settings.json': pretty({ ...TYPICAL, futureKey: { a: 1 } }) },
     act: async (c) => { c.out.saved = await c.handlers['settings:save']({}, { ...UI({ theme: 'light' }), evil: 'x', dataDir: 'C:\\old', constructor: 'y' }); } },
   // 計画の外で足した場面（履歴の形の確かめを押さえるテストが無かったため）: JSON としては読めるが配列でない history.json
-  'history-shape': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty({ id: 'h1', text: '配列でない' }) },
-    act: async (c) => { c.out.history = await c.handlers['history:get'](); } },
-  // 計画の外で足した場面（N10 を押さえるテストが無かったため）: history.json の名前の変更がずっと失敗する
-  'history-save-fail': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
-    faults: [{ op: 'rename', match: /history\.json$/, code: 'EBUSY', times: Infinity }],
-    act: async (c) => { c.out.cleared = await c.handlers['history:clear'](); c.out.history = await c.handlers['history:get'](); } },
+  'history-shape': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty({ id: 'h1', text: '配列でない' }) } },
+  // 0.15.1 ND-2: history-save-fail（履歴の全消しを保存できない）は履歴の全消しと一緒に消した
   // 第1a回 Task 2-3: 書けないとき・読めないとき
   'save-fail': { files: { 'settings.json': pretty(TYPICAL) },
     faults: [{ op: 'rename', match: /settings\.json$/, code: 'EBUSY', times: 7 }],   // 1 回の保存の試し（1 + RENAME_WAITS の 6）を全部失敗させる
@@ -191,41 +187,18 @@ module.exports = {
       c.out.retriesBefore = (c.timers.retrySettingsRead || []).length;
       c.timers.retrySettingsRead[0]();
       c.out.retriesDuring = c.timers.retrySettingsRead.length;
+      // 0.15.1 ND-2（R21）: 音声入力の場面（unreadable-dictation）が見ていた「待っている読み直しの時計はいつも1つ」を、会議の最中にもう1回読み直して見る
+      const pending = () => (c.timers.retrySettingsRead || []).length - (c.clearedTimers.retrySettingsRead || 0);
+      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
+      c.out.retriesDuring2 = c.timers.retrySettingsRead.length;
+      c.out.pendingDuring = pending();
       c.out.themeDuring = (await c.handlers['settings:get']()).theme;
       c.out.discard = await c.handlers['meeting:discard']();
       c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
       c.out.themeAfter = (await c.handlers['settings:get']()).theme;
-    } },
-  // 同じ読み直しを、音声入力（ホットキー）の最中に呼ぶ。#57 の守りの state === 'recording' の側。
-  // 待っている読み直しの時計はいつも1つだけ（後へ回すたびに前のを止める）
-  'unreadable-dictation': { files: { 'settings.json': ({ base }) => pretty({ ...TYPICAL, ...base }) },
-    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
-    act: async (c) => {
-      const onDisk = JSON.parse(c.read('settings.json').toString('utf8'));
-      const pending = () => (c.timers.retrySettingsRead || []).length - (c.clearedTimers.retrySettingsRead || 0);
-      c.out.saveWhileUnreadable = await c.handlers['settings:save']({}, UI({ theme: 'light', localServerExe: onDisk.localServerExe, localModelPath: onDisk.localModelPath }));
-      c.out.hotkeyRegistered = typeof c.shortcuts[TYPICAL.hotkey] === 'function';
-      c.shortcuts[TYPICAL.hotkey]();   // 音声入力を始める
-      c.out.retriesBefore = (c.timers.retrySettingsRead || []).length;
-      c.timers.retrySettingsRead[0]();
-      c.out.retriesDuring = c.timers.retrySettingsRead.length;
-      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
-      c.out.retriesDuring2 = c.timers.retrySettingsRead.length;
-      c.out.themeDuring = (await c.handlers['settings:get']()).theme;
-      c.out.pendingDuring = pending();
-      c.listeners['overlay:cancel-request']({ sender: c.wins[0] && c.wins[0].webContents });   // 音声入力を取り消す（idle に戻る。0.14.0 EK-6 直し2: 録音バーの窓から）
-      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
-      c.out.themeAfter = (await c.handlers['settings:get']()).theme;
       c.out.pendingAfter = pending();
     } },
-  'history-unreadable': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
-    faults: [{ op: 'read', match: /history\.json$/, code: 'EBUSY', times: 7 }],
-    act: async (c) => {
-      c.out.cleared = await c.handlers['history:clear']();
-      c.out.textWhileUnreadable = c.read('history.json').toString('utf8');
-      c.timers.retryHistoryRead[0]();
-      c.out.after = await c.handlers['history:get']();
-    } },
+  // 0.15.1 ND-2: unreadable-dictation（音声入力の最中の設定の読み直し）・history-unreadable（読めない履歴）は音声入力と一緒に消した
   // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
   // 0.9.0 O-1 で意図して変えた: 録音バーを動かすと、窓の中心に一番近い置き場所の名前を pillSlot にまとめ書きする（pillCustom は置いたまま
   // 変わらない）。動かす先は左上（top-left）と右上（top-right）を交互にして、合図の前と後で名前が変わるようにした。move の後の moved は
@@ -433,19 +406,14 @@ module.exports = {
       }));
     } },
   // 第2a1回 M-2b（ST12・RF10）: 議事録の DB を使えない（--db-down: SQLite に trigram が無く、自分の確かめが通らない）。
-  // 設定・画面の覚え書き・音声入力の履歴は今までどおり読み書きでき、会議は下書きに残り、知らせ D1 が1回出る
+  // 設定・画面の覚え書きは今までどおり読み書きでき、会議は下書きに残り、知らせ D1 が1回出る（0.15.1 ND-2 で音声入力の1回を外した）
   'db-down': { engine: true, dbDown: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
     act: async (c) => {
       const saved = await c.handlers['settings:save']({}, { theme: 'light' });
       const onDisk = JSON.parse(c.read('settings.json').toString('utf8'));
       c.out.settingsSaved = Boolean(saved) && saved.ok !== false && onDisk.theme === 'light';
       c.out.uiSet = await c.handlers['ui:set']({}, { sidebar: { width: 300, collapsed: false } });
-      const hk = (await c.handlers['settings:get']()).hotkey;
-      c.shortcuts[hk]();   // 音声入力を1回
-      c.listeners['audio:done']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000 });
-      await c.waitFor(() => (c.handlers['history:get']() || []).length > 0, 10000);
-      c.out.history = c.handlers['history:get']();
-      // 音声入力の後片付け（貼り付け）が済んで待機に戻るまでは「処理中です」で断られる。戻ったら会議を始める
+      // 待機になるまでは断られることがある。始まるまで試す
       for (let i = 0; i < 200; i++) {
         c.out.start = await c.handlers['meeting:toggle']();
         if (c.out.start && c.out.start.ok) break;

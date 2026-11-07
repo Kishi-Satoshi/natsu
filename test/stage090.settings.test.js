@@ -2,7 +2,7 @@
  * stage090.settings.test.js — 0.9.0（第1d2回）の設定のポップアップ（D24・案C。SP1〜SP7・F13・F15）を、最小 DOM（helpers/simrun.js）の上で
  * app.html の <script> を本当に走らせて確かめる。main の答えは偽物（preload.js の名前から作る）。
  * U-1（SP1〜SP3）: ポップアップで開く・開く道の全部・閉じ方と Esc・inert と Tab・左の列のキー・覚えたタブの settings を落とす・
- * 音声入力の録音中に本体の窓が前にあれば Esc を全体のホットキーにしない（場面 esc-focus。helpers/mainrun.js）。
+ * 会議の録音中も Esc を全体のホットキーにしない（場面 esc-focus。helpers/mainrun.js。0.15.1 ND-2 で音声入力の録音中の付け外しを無くした）。
  */
 'use strict';
 const { titleAt } = require('./helpers/titles');
@@ -364,7 +364,8 @@ test('SP3: 覚えたタブ { open: [page:pa1, settings], active: settings } で�
   assert.deepStrictEqual([...l.errors, ...only.errors].map(fmt), []);
 });
 
-// 場面 esc-focus（helpers/mainrun.js の --dictate --focus-main-during-dictation）。音声入力の録音中に本体の窓へ focus、続けて blur を送る
+// 場面 esc-focus（helpers/mainrun.js の --mic-feed）。0.15.1 ND-2（D114・F149）で意図して変えた: 音声入力の録音中だけ付けていた Escape の全体のホットキーは無くなり、
+// 会議の録音中に本体の窓へ focus・blur を送っても、どの時も Escape を全体のホットキーにしない
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const runMain = (args) => new Promise((resolve, reject) => {
   execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 20000 },
@@ -374,12 +375,12 @@ const runMain = (args) => new Promise((resolve, reject) => {
     });
 });
 
-test('SP2・RF9（場面 esc-focus）: 音声入力の録音中に本体の窓へフォーカスが来ると Escape の全体のホットキーを外し、離れると付け直す。録音の終わりには付いていない', { timeout: sceneTimeout(20000) }, async () => {
-  const o = await runMain(['text', '--dictate', '--focus-main-during-dictation']);
-  // 録音の始め（窓は前にない）で付ける → focus で外す → blur で付け直す → 音声が届いて外す
-  assert.deepStrictEqual(o.escape, ['register', 'unregister', 'register', 'unregister'], JSON.stringify(o.escape));
-  assert.deepStrictEqual(o.escapeAt, { start: true, focus: false, blur: true, end: false });
-  assert.strictEqual(o.history.length, 1, '音声入力が最後まで通らない');
+test('SP2・RF9（場面 esc-focus）・0.15.1 ND-2: 会議の録音中に本体の窓へフォーカスが来ても離れても、Escape を全体のホットキーにしない（録音の始めにも終わりにも付いていない）', { timeout: sceneTimeout(20000) }, async () => {
+  const steps = [['sleep', 200], ['start'], ['snap', 'start'], ['focus-main'], ['snap', 'focus'], ['blur-main'], ['snap', 'blur'], ['stop'], ['snap', 'end']];
+  const o = await runMain(['text', `--mic-feed=${JSON.stringify(steps)}`, '--main-unfocused']);
+  assert.deepStrictEqual(o.escapeLog, [], JSON.stringify(o.escapeLog));
+  assert.deepStrictEqual(['start', 'focus', 'blur', 'end'].map((k) => o.snaps[k].escape), [false, false, false, false]);
+  assert.strictEqual(o.pageFinal.length, 1, '会議が最後まで通らない');
 });
 
 // ---------------------------------------------------------------- U-2（SP4・SP5・F13）

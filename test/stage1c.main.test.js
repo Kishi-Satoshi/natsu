@@ -188,12 +188,7 @@ test('F10: ログインしていない最初の日は手元で取れ、ログイ
   assert.strictEqual(count(o, L2), 1);
 });
 
-test('D1: 音声入力もオンラインならクラウドで文字起こしし、履歴に入る', { timeout: sceneTimeout(20000) }, async () => {
-  const o = await run(['text', '--relay=text', '--dictate']);
-  assert.strictEqual(sttPosts(o).length, 1);
-  assert.strictEqual(o.history[0].text.startsWith('本日の議題は進捗の確認です'), true);
-  assert.strictEqual(whisperSpawned(o), false);
-});
+// 0.15.1 ND-2（D114）: 音声入力のクラウドの文字起こしのテストは、音声入力と一緒に消した（会議の区間の同じ道は上の D1・OL2）
 
 test('OL2: 復旧の文字起こしもクラウドで処理でき、そのときは手元のエンジンを起こさない', { timeout: sceneTimeout(20000) }, async () => {
   const o = await run(['text', '--relay=text', '--recover']);
