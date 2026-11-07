@@ -777,12 +777,12 @@ test('0.14.0: CHANGELOG の 0.14.0 の節（計画の下書きから移した）
 });
 
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「CHANGELOG の 0.15.0 の節（下書き）」。Task G の後半: R79）: 版を 0.15.0 に上げる commit で、下書きを持ち主が読む言葉に直し、
-// 日付つきの見出し（## natsu-v0.15.0 （2026-11-06））で CHANGELOG.md の頭（0.14.0 の節の上）へ移した。ページの中のページ・白紙のページ・本文の子ページの行（BQ3・BQ10〜BQ13）・
+// 日付つきの見出し（## natsu-v0.15.0 （2026-11-07））で CHANGELOG.md の頭（0.14.0 の節の上）へ移した。ページの中のページ・白紙のページ・本文の子ページの行（BQ3・BQ10〜BQ13）・
 // サイドバーの木・パンくず・Ctrl+Shift+N（BQ7）・ゴミ箱（BQ6）・ページのアイコン（BQ9）と見た目・白紙のページを Claude から読む（BQ8）を書く。計画には「移した」の1行だけを残す
 test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）は日付つきの見出しで CHANGELOG の頭（0.14.0 の節の上）にあり、ページの階層・本文の子ページの行・木・パンくず・Ctrl+Shift+N・ゴミ箱・アイコンと見た目・Claude を書き、引いた［…］はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
-  assert.ok(lines.includes('## natsu-v0.15.0 （2026-11-06）'), 'CHANGELOG.md に「## natsu-v0.15.0 （2026-11-06）」の見出しが無い');
+  assert.ok(lines.includes('## natsu-v0.15.0 （2026-11-07）'), 'CHANGELOG.md に「## natsu-v0.15.0 （2026-11-07）」の見出しが無い');
   assert.ok(cl.indexOf('## natsu-v0.15.0') < cl.indexOf('## natsu-v0.14.0'), '0.15.0 の節が 0.14.0 の節の上に無い');
   assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.15.0'), '0.15.0 の節が CHANGELOG の頭に無い');
   const sec = secOf(cl, '## natsu-v0.15.0');
