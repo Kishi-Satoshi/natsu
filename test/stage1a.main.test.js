@@ -63,20 +63,23 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     const saved = JSON.parse(r.settingsText);
     // 0.9.0 O-1 で意図して変えた: 壊れた録音バーの値は pillSlot で見る（pillPos は知らないキーになり、0.9.0 は直さない）。壊れた pillSlot は
     // 既定に戻した後、正しい pillSlot が無いので起動の前の位置の直しが前の版の pillCustom（40, 60）から一番近い top-left にする
-    assert.deepStrictEqual([saved.maxHistory, saved.pillSlot, saved.theme, saved.futureKey], [500, 'top-left', 'dark', { a: 1 }]);
+    // 0.15.1 ND-1（決めたこと 4）で意図して変えた: maxHistory は表から外した知らないキー（壊れた -1 も直さず値のまま書き戻す）。直す項目は segmentSec で見る
+    assert.deepStrictEqual([saved.maxHistory, saved.segmentSec, saved.pillSlot, saved.theme, saved.futureKey], [-1, 20, 'top-left', 'dark', { a: 1 }]);
     const n = ours(r.notices);
     assert.strictEqual(n.length, 1);
-    assert.ok(n[0].includes(label('maxHistory')) && n[0].includes(label('pillSlot')) && n[0].includes(copies[0]), n[0]);
-    assert.ok(r.engineLog.some((l) => /設定: 一部を既定に戻しました（pillSlot: type、maxHistory: range）/.test(l)), r.engineLog.join('\n'));
+    assert.ok(n[0].includes(label('segmentSec')) && n[0].includes(label('pillSlot')) && n[0].includes(copies[0]), n[0]);
+    assert.ok(!n[0].includes('音声入力の履歴の件数'), n[0]);
+    assert.ok(r.engineLog.some((l) => /設定: 一部を既定に戻しました（pillSlot: type、segmentSec: range）/.test(l)), r.engineLog.join('\n'));
     assert.ok(!r.engineLog.some((l) => /"pillSlot"\s*:\s*5|pillSlot: 5/.test(l)), '値を記録に書いた');
   });
 
   test('JS6・N8: オンとオフの欄の "false" の文字は、今までどおりオンのまま、知らせて真偽値で書き戻す', SCENE, async () => {
     const r = await run('falselike');
-    assert.strictEqual(JSON.parse(r.settingsText).autoPaste, true);
+    // 0.15.1 ND-1（決めたこと 4）で意図して変えた: autoPaste は表から外したので、"false" の文字は soundFeedback で見る
+    assert.strictEqual(JSON.parse(r.settingsText).soundFeedback, true);
     const n = ours(r.notices);
     assert.strictEqual(n.length, 1);
-    assert.ok(n[0].includes(label('autoPaste')) && n[0].includes('"false"'), n[0]);
+    assert.ok(n[0].includes(label('soundFeedback')) && n[0].includes('"false"'), n[0]);
   });
 
   test('JS2・P16: 壊れた settings.json は名前を変えて退け、既定で起動し、退けた名前を知らせる', SCENE, async () => {

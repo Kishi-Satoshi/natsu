@@ -932,7 +932,8 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
   // 起動時: 失敗した側だけ既定に落とす。settings（メモリもディスクも）には書かず、有効なキーは
   // activeHotkeys に持つ。settings に書くと settings:get が既定を返し、次の保存でディスクに漏れる
   assert.match(main, /let hotkeyState = \{ ok: true, failed: \[\], fallback: \{\}, message: '' \}/);
-  assert.match(main, /let activeHotkeys = \{ hotkey: /, '実際に登録しているキーを持つ変数が無い');
+  // 0.15.1 ND-1（D114・決めたこと 7）で意図して変えた: 登録するのは議事録のキーだけ（{ meetingHotkey }）
+  assert.match(main, /let activeHotkeys = \{ meetingHotkey: /, '実際に登録しているキーを持つ変数が無い');
   const boot = fnBody(code(main), 'resolveStartupHotkeys(', '\n    if (engineValid(whisperEng))');
   assert.ok(!boot.includes('persistSettings'), '起動時のホットキーの失敗で設定をディスクに書いている');
   assert.ok(!/settings\.(hotkey|meetingHotkey)\s*=/.test(boot), '起動時の退避を settings に書いている（settings:get が既定を返し、次の保存でディスクに漏れる）');
@@ -1001,11 +1002,8 @@ test('#27 クリップボードへ書くのは copyPrivate だけ（履歴・ク
   assert.ok(fn.includes('await d.clip.writeText('), 'PowerShell が置けなかったとき Electron で書いていない（何も残らない）');
   assert.ok(fn.indexOf('copyCommand(') < fn.indexOf('d.clip.writeText('), 'Electron の書き込みが PowerShell の置き直しより先にある（最初の書き込みが履歴に採られる）');
   assert.ok(fn.includes("if (clipEquals(await readClip(d.clip), t)) return 'private';"), '置けたことを（待って）読み返して確かめていない');
-  const deliver = fnBody(lib, 'async function deliverText(', '\n}');
-  assert.ok(deliver.includes('await copyPrivate(text, d)'), '自動貼り付けが置き終わるのを待たずに貼っている');
-  assert.ok(deliver.includes('await readClip(d.clip)'), '貼り付け後に戻す元の中身を（待って）読んでいない');
-  assert.ok(deliver.includes('restoreAfterPaste(prev, text)'), '戻すかの判断を restoreAfterPaste で行っていない');
-  assert.match(lib, /const RESTORE_DELAY_MS = 2000;/, '戻すまでの間が 2 秒でない（読み取りの遅いアプリで古い方が貼られる）');
+  // 0.15.1 ND-1（D114）で意図して変えた: 音声入力の自動貼り付け（deliverText）と貼り付けの後の戻し（restoreAfterPaste・RESTORE_DELAY_MS）は音声入力と一緒に消した
+  assert.ok(!/function deliverText\(|restoreAfterPaste|RESTORE_DELAY_MS/.test(lib), '音声入力の貼り付けの部品が mainlib に残っている');
   assert.match(m, /ipcMain\.handle\('clipboard:copy', async \(_e, t\) => \{ await copyPrivate\(/, '画面のコピーが copyPrivate を（待って）通っていない');
   assert.ok(fnBody(m, 'function ensurePaster()', '\n}').includes('pasterScript()'), '常駐 PowerShell のスクリプトを mainlib から取っていない');
 });

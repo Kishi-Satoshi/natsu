@@ -2083,7 +2083,7 @@ test('PH-5 直し 2・R56 M-6・0.15.1 ND-3（R9）: 議事録の子ページの
   l.key({ key: 'w', code: 'KeyW', ctrlKey: true }); await l.drain();
   assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]'), null, '前提: 選んでいるタブが無い');
   l.fire('onPagesUpdated'); await l.drain();
-  assert.strictEqual($(l, 'pKids').hidden, true, 'ほかのタブで一覧を読み直すと、子ページの一覧が出る');
+  assert.strictEqual($(l, 'pKids').hidden, true, '選んでいるタブが無いときに一覧を読み直すと、子ページの一覧が出てしまった（出さないはず）');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

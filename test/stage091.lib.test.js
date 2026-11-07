@@ -110,11 +110,12 @@ test('QE2: 尻尾は 4 字以上の片だけ材料にする（尻尾にある「
   assert.strictEqual(L.hintEcho('お疲れさまです。', { sample: '', terms: [], tail: '' }), false);
 });
 
-test('QE3: 音声入力（dictation）は録った音の一番大きい窓が -40 dBFS より小さいときだけ真（大きな声の「お疲れさまです。」は口述として残す）。会議は音の大きさによらず真', T, () => {
-  assert.strictEqual(echo('お疲れさまです。', { dictation: true, loudDbfs: -20 }), false);
-  assert.strictEqual(echo('お疲れさまです。', { dictation: true, loudDbfs: -50 }), true);
-  assert.strictEqual(echo('お疲れさまです。', { dictation: true, loudDbfs: null }), false);
-  assert.strictEqual(echo('お疲れさまです。', { dictation: false, loudDbfs: -20 }), true);
+// 0.15.1 ND-1（計画 docs/plans/2026-11-04-151.md の決めたこと 15・「意図して変えるテスト」・D114）で意図して変えた: 音声入力（dictation）の枝（録った音の
+// 大きさで口述を残す）は音声入力と一緒に消した。会議と復旧は前から音の大きさによらず真（その答えは変えない）
+test('QE3: 会議は音の大きさによらず真（0.15.1 で音声入力の枝を消したので、前の dictation の印を渡しても同じ答え）', T, () => {
+  assert.strictEqual(echo('お疲れさまです。', { loudDbfs: -20 }), true);
+  assert.strictEqual(echo('お疲れさまです。', { dictation: true, loudDbfs: -20 }), true);
+  assert.strictEqual(echo('お疲れさまです。'), true);
   assert.strictEqual(echo('不具合', { loudDbfs: -10 }), true);
 });
 

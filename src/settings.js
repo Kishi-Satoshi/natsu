@@ -11,8 +11,7 @@
  * - 読み方: 無いキーは黙って既定で埋める。壊れた項目だけを直す。知らないキーは消さずに残す
  *   （古い版に戻したときに新しい版の設定が消えない）。dataDir は今どおり捨てる（REMOVED_KEYS）。
  * - 数の欄の直し方は今の normalizeSettings をそのまま芯に使う（'8080' は 8080、範囲の外は端）。
- * - maxHistory の壊れた値（負・小数・文字）は端に寄せず既定の 500 に戻す。-1 を 0 に寄せると、
- *   次の口述で履歴を 0 件に切り詰めて全部消してしまうため（F8）。0 は手で書いた人の値として残す。
+ * - （0.15.1 ND-1 まで: maxHistory の壊れた値は端に寄せず既定の 500 に戻していた（F8）。0.15.1 で maxHistory を表から外した: 下の段落）
  * - オンとオフの欄は今のコードの判定のまま真偽値に直す。useBuiltinTerms だけは
  *   「false でなければオン」（main.js の buildKey の settings.useBuiltinTerms !== false、
  *   mainlib.js の buildPromptParts の useBuiltinTerms !== false）、ほかは「値があればオン」。
@@ -39,7 +38,13 @@
  * useBuiltinTerms と同じく「false でなければオン」）と、知らせるまでの分 autoStopMin（AUTO_STOP_CHOICES のどれか。既定 10。新しい kind pick）を足した（33 のキー）。
  *
  * 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 56・BQ18 (a)・BQ24 (a)）で、口述の文を AI で整えるかの aiTidy（既定オン。「false でなければオン」）を
- * 足した（34 のキー）。settings.json に aiTidy が無く、removeFillers が false（フィラー除去を自分で切った人）なら、aiTidy も切った形で読む。
+ * 足した（34 のキー）。settings.json に aiTidy が無く、removeFillers が false（フィラー除去を自分で切った人）なら、aiTidy も切った形で読んでいた。
+ *
+ * 0.15.1 ND-1（設計書 D114・JS6。計画 docs/plans/2026-11-04-151.md の決めたこと 4）で、音声入力をなくしたので、音声入力のキー hotkey・
+ * 自動貼り付け autoPaste・口述の整え aiTidy・履歴の件数 maxHistory を表と既定から外した（30 のキー）。0.7.0 U-1・0.10.0 LS-3 のキーと同じく
+ * 「知らないキー」として読まず・直さず・消さない（repaired にも falseLike にも入れない）。画面からは保存させない（pickSavable が捨てる）が、
+ * ファイルにあった値は保存のたびに書き戻す（0.15.0 に戻すと前の音声入力のキーと設定が戻る）。REMOVED_KEYS には入れない（入れると消える）。
+ * 履歴の件数の直し方（history の kind）と、aiTidy を removeFillers から読む枝も消した。
  */
 'use strict';
 
@@ -104,15 +109,11 @@ function defaultSettings(cpuCount) {
     useVad: true,
     suppressNst: true,
     language: 'ja',
-    hotkey: 'Control+Shift+Space',
     meetingHotkey: 'Alt+M',
     micId: '',
     // 録音バーの置き場所（0.9.0 O-1。前の pillPos・pillCustom は既定に無い）
     pillSlot: 'bottom-center',
-    autoPaste: true,
     removeFillers: true,
-    // 0.14.0 DQ-3（決めたこと 56・BQ18 (a)）: 口述の文を AI で整える（音声を中継で文字起こししたときだけ。既定オン。フィラー除去を切った人は readSettings が切った形で読む: BQ24 (a)）
-    aiTidy: true,
     soundFeedback: true,
     autoLaunch: false,
     // 外観（画面の配色。0.7.0 U-2 で設定のいちばん上の「外観」へ）。system は Windows の設定に追従する
@@ -126,7 +127,6 @@ function defaultSettings(cpuCount) {
     // 議事録のときだけ、パソコンから出ている音（Web会議の相手の声）も録る。
     // 既定は false。同席者の声を残すかどうかは、その場で人が決めること。
     useSystemAudio: false,
-    maxHistory: 500,
     segmentSec: 75,
     // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
     engineIdleMin: 10,
@@ -149,10 +149,9 @@ function defaultSettings(cpuCount) {
   };
 }
 
-// 31 のキーの決まり（0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足した）。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
+// 30 のキーの決まり（0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足した。0.15.1 ND-1 で音声入力の4つを外した）。label は設定の画面の言葉（知らせに出す名前。キーの名前は画面に出さない）。
 // kind ごとの直し方は下の FIX。ここに無いキーは既定にも保存の許可の一覧にも入れない（テストが一致を見る）
 //   int:      normalizeSettings が整数に直して範囲に収める（範囲は normalizeSettings の中だけに書く）
-//   history:  0〜10000 の整数。10000 を越えたら 10000、それ以外の壊れた値は既定（0 に寄せない。F8）
 //   string:   文字列。違えば ''
 //   language: auto か英小文字 2〜3 字。違えば 'ja'
 //   hotkey:   空でない文字列（本当の確かめは今どおり登録で）。違えば既定
@@ -166,6 +165,8 @@ function defaultSettings(cpuCount) {
 //   pick:     values のどれかの数（数の文字も数として受け、直した印 type）。違えば既定（範囲の端に寄せない: 選ぶ欄に無い値を作らない）
 // 0.10.0 LS-3（D59・決めたこと 109）: 要約のローカル AI のキー（sumServerExe・sumModelPath・sumPort・sumThreads・sumCtx）を表と既定から外した。
 // 保存に残っていれば、知らないキーとして値のまま読み書きで残す（JS6。前の版に戻したときに困らない）
+// 0.15.1 ND-1（D114・決めたこと 4）: 音声入力のキー（hotkey）・自動貼り付け（autoPaste）・口述の整え（aiTidy）・履歴の件数（maxHistory）を表と既定から外した。
+// 同じく知らないキーとして値のまま残す（0.15.0 に戻すと音声入力の設定が戻る）
 const SETTING_RULES = {
   localServerExe: { label: 'whisper-server.exe のパス', kind: 'string' },
   localModelPath: { label: '文字起こしのモデルファイルのパス', kind: 'string' },
@@ -175,11 +176,9 @@ const SETTING_RULES = {
   useVad: { label: 'VAD（無音スキップ）を使う', kind: 'bool' },
   suppressNst: { label: '非発話トークンを抑制する', kind: 'bool' },
   language: { label: '認識言語', kind: 'language' },
-  hotkey: { label: '音声入力ホットキー', kind: 'hotkey' },
   meetingHotkey: { label: '議事録ホットキー', kind: 'hotkey' },
   micId: { label: '使用するマイク', kind: 'string' },
   pillSlot: { label: '録音バーの置き場所', kind: 'enum', values: PILL_SLOTS },
-  autoPaste: { label: '文字起こし後、カーソル位置へ自動貼り付け', kind: 'bool' },
   removeFillers: { label: 'フィラー除去', kind: 'bool' },
   soundFeedback: { label: '効果音', kind: 'bool' },
   autoLaunch: { label: 'Windowsサインイン時に自動起動', kind: 'bool' },
@@ -188,7 +187,6 @@ const SETTING_RULES = {
   dictionary: { label: 'ユーザー辞書', kind: 'words' },
   useBuiltinTerms: { label: '業務でよく使う言葉のヒントも渡す', kind: 'bool', notFalse: true },
   useSystemAudio: { label: '議事録で相手の声も録る', kind: 'bool' },
-  maxHistory: { label: '音声入力の履歴の件数', kind: 'history', max: 10000 },
   segmentSec: { label: '議事録の文字起こし間隔（秒）', kind: 'int' },
   engineIdleMin: { label: '使わないエンジンを止めるまで（分）', kind: 'int' },
   // 第1c回（OL7）
@@ -207,8 +205,6 @@ const SETTING_RULES = {
   retiredSumNotified: { label: '要約用の AI を消した知らせ', kind: 'bool' },
   // 0.11.0 Q-2（QM6・P11）
   qualityScore: { label: '打ち合わせの質の点数', kind: 'enum', values: ['all', 'on', 'off'] },
-  // 0.14.0 DQ-3（決めたこと 56）。表の最後に置く（readSettings が removeFillers を先に読む: BQ24 (a)。前のキーの並びの番号を変えない）
-  aiTidy: { label: '口述の文を AI で整える', kind: 'bool', notFalse: true },
 };
 const SETTING_KEYS = Object.keys(SETTING_RULES);
 // 会議の検出の一覧の id（src/mainlib.js の MEET_APPS と同じ並び。settings.js は mainlib を読まないので写しを持つ: test/stage093.lib が照らす）
@@ -231,13 +227,6 @@ const FIX = {
   int(v, { norm }) {
     if (String(v) === String(norm)) return { value: norm, why: null };
     return { value: norm, why: Number.isFinite(toNumber(v)) ? 'range' : 'type' };
-  },
-  history(v, { def, rule }) {
-    const n = toNumber(v);
-    if (!Number.isFinite(n) || !Number.isInteger(n)) return { value: def, why: 'type' };
-    if (n > rule.max) return { value: rule.max, why: 'range' };
-    if (n < 0) return { value: def, why: 'range' };   // 0 に寄せない（F8）
-    return { value: n, why: null };
   },
   string(v) {
     return typeof v === 'string' ? { value: v, why: null } : { value: '', why: 'type' };
@@ -300,8 +289,6 @@ function readSettings(raw, defaults) {
     if (!Object.hasOwn(raw, key) || raw[key] === undefined) {
       // 無いキーは黙って既定（int・words は normalizeSettings が既定から整えた値）
       settings[key] = (rule.kind === 'int' || rule.kind === 'words') ? norm[key] : cloneDefault(d[key]);
-      // 0.14.0 DQ-3（BQ24 (a)）: aiTidy がまだ無く、フィラー除去を自分で切った人は、AI の整えも切った形で読む（removeFillers は表で aiTidy より前。aiTidy は表の最後）
-      if (key === 'aiTidy' && settings.removeFillers === false) settings[key] = false;
       continue;
     }
     const v = raw[key];

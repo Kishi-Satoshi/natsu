@@ -132,8 +132,8 @@ const IDS_1A = [
   'js-bom', 'js-utf16', 'js-fatal', 'js-busy-ebusy', 'js-read-waits', 'js-shape', 'js-maxbytes', 'js-quarantine-unreadable',
   'js-fsync', 'js-wx', 'js-rename-retry', 'js-tmp-cleanup', 'js-readonly', 'js-same-text',
   'js-prune-ms', 'js-prune-keep', 'js-copy-dedupe', 'js-clean-wav', 'js-timer-throw', 'js-unref', 'js-flush-retry', 'js-discard',
-  'st-port-low', 'st-maxhistory-default', 'st-unknown-keep', 'st-builtin-notfalse', 'st-false-like', 'st-allowlist',
-  'mn-writeback', 'mn-startup-notice', 'mn-history-paste', 'mn-save-warning', 'mn-unreadable-nowrite', 'mn-reread-get', 'mn-reload-one-timer',
+  'st-port-low', 'st-unknown-keep', 'st-builtin-notfalse', 'st-false-like', 'st-allowlist',
+  'mn-writeback', 'mn-startup-notice', 'mn-save-warning', 'mn-unreadable-nowrite', 'mn-reread-get', 'mn-reload-one-timer',
   'mn-flush-session-end', 'mn-flush-suspend', 'mn-flush-hide', 'mn-exit-flush', 'mn-temps', 'mn-draft-keep', 'mn-draft-name', 'mn-recovery-quarantine',
   'mn-recovery-retry', 'mn-recovery-rewrite', 'mn-log-reason',   // mn-transcript-notice は第2a1回 M-2b で外した（起動で元の JSON を退けないので、退けた文字起こしの知らせ N17 が無い）
   'sr-index-nofsync', 'sr-page-report', 'sr-transcript-report', 'sr-index-keep', 'up-pkg-no-quarantine', 'ei-unreadable-nowrite',
@@ -659,7 +659,7 @@ test('G-1 決めたこと 117: mutate.js は --part と --only を一緒に受�
 
 // 0.9.0 の各レーンの点検で足した変異（計画の表の行の場面・lib の分け・点検する人が殺せなかった行に場面を足して殺したもの）
 const IDS_090_REVIEW = [
-  'op-start-refuse-scene', 'op-recover-kept-lib', 'op-kept-login-scene', 'op-kept-notify-scene', 'op-p1', 'op-dict-refuse-lib',
+  'op-start-refuse-scene', 'op-recover-kept-lib', 'op-kept-login-scene', 'op-kept-notify-scene', 'op-p1',
   'rv-consent-unreadable', 'rv-kept-banner-clear', 'rv-localonly-exec-guard',
   'op-watch-cloudonly-item', 'op-watch-cloudonly-throw', 'op-finalize-s3',
   'op-ui-startup-await', 'op-ui-chosen-missing', 'sp-showlive-close', 'sp-liveshown-modal', 'op-ui-search-hidden',
@@ -686,7 +686,7 @@ test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異�
 // 0.9.1（計画 docs/plans/2026-10-21-091.md の「変異確認」の表。Task Q-6 で全部を入れた）
 const IDS_091 = [
   'q-loud-window', 'q-loud-hop', 'q-loud-unreadable', 'q-silent-level', 'q-gate-off', 'q-echo-off', 'q-echo-terms', 'q-echo-sample', 'q-echo-join',
-  'q-echo-tail', 'q-echo-tail-min', 'q-echo-dict-level', 'q-repeat-two', 'q-repeat-quiet', 'q-echo-stall', 'q-quiet-ask',
+  'q-echo-tail', 'q-echo-tail-min', 'q-repeat-two', 'q-repeat-quiet', 'q-echo-stall', 'q-quiet-ask',
   'q-quiet-grace', 'q-quiet-speech', 'q-quiet-keep', 'q-quiet-off', 'q-quiet-wall', 'q-quiet-paused', 'q-quiet-resume', 'q-quiet-failed',
   'q-quiet-empty-loud', 'q-quiet-stopping', 'q-quiet-stop-close', 'q-quiet-note-close', 'q-recover-silent-route', 'q-trim', 'q-trim-end',
   'q-done-notice', 'q-setting-pick', 'q-ui-keep',
@@ -1270,18 +1270,14 @@ const IDS_140 = [
   'mo-ready-busy', 'mo-grip-tab', 'mo-open-save',
   'mo-setdoc-lock',
   'mo-copy-plain',
-  // 0.14.0 DQ-1（表の行の順に）
-  'dq-filler-same', 'dq-repeat', 'dq-repeat-word', 'dq-guard',
-  'dq-guard-short',   // 0.14.0 DQ-1 直し（R195）
-  'dq-guard-half', 'dq-guard-cp',   // 0.14.0 DQ-1 直し2（R198）
-  'dq-guard-ws', 'dq-guard-mark', 'dq-guard-lines-len',   // 0.14.0 DQ-4 直し（R205）
-  'dq-lines-text',
+  // 0.14.0 DQ-1（表の行の順に。口述の整えの dq-repeat ほか・DQ-1 直しと直し2・DQ-4 直しの dq-guard- は 0.15.1 ND-1 で GONE_151 へ外した）
+  'dq-filler-same',
   // 0.14.0 DQ-2（表の行の順に。dq-relay-store は 2026-11-02 の P10 で足した: R192）
   'dq-relay-auth', 'dq-relay-prompt', 'dq-relay-store', 'dq-relay-size', 'dq-relay-cap', 'dq-relay-log',
   'dq-relay-blank',   // 0.14.0 DQ-3 直し2（R202。DQ-2 直しの R199 の変異）
   'dq-relay-mark',   // 0.14.0 DQ-4 直し（R205）
-  // 0.14.0 DQ-3（表の行の順に。dq-long-send は DQ-1 直しで作った: R195）
-  'dq-long-send', 'dq-meeting', 
+  // 0.14.0 DQ-3（表の行の順に。DQ-1 直しで作った dq-long-send は 0.15.1 ND-1 で GONE_151 へ外した）
+  'dq-meeting', 
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の「変異確認」の表の行とちょうど同じ（行の順）。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1377,9 +1373,15 @@ test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の�
 // 0.15.1（計画 docs/plans/2026-11-04-151.md の「変異の表」の nd-・ps-・lb- の表）: 音声入力をなくした守り（nd-）・プライベートのセクションと行の「···」の守り（ps-）・
 // ライブラリの守り（lb-）。タスクを作るたびに表の行の順で足す（R1。載せる順は計画と違い ND-4・ND-3・ND-2・ND-1 の順: 計画の R1）。頭は前の版の照らしにも 0.16.0 の頭（tb・vw）にも当たらない
 const IDS_151 = [
+  // 0.15.1 ND-1（表の行の順に）
+  'nd-set-keep', 'nd-set-save', 'nd-ws-tab', 'nd-hk-side', 'nd-hk-fallback', 'nd-hk-save',
   // 0.15.1 ND-2（表の行の順に）
   'nd-hk-dict', 'nd-esc-global', 'nd-history-read', 'nd-history-write', 'nd-dictwait-keep', 'nd-ipc-history', 'nd-audio-done', 'nd-overlay-mode',
-  'nd-tray-items', 'nd-tray-tip', 'nd-restart-meeting', 'nd-engine-lock',
+  'nd-tidy-send',   // ND-1
+  'nd-tray-items', 'nd-tray-tip',
+  'nd-tray-icon',   // ND-1（点検の軽い指摘 M4: R29）
+  'nd-restart-meeting', 'nd-engine-lock',
+  'nd-login-moments',   // ND-1
   // 0.15.1 ND-3（表の行の順に）
   'nd-preload-api', 'nd-side-row', 'nd-ui-tabs', 'nd-set-rows', 'nd-ui-word',
   // 0.15.1 ND-4（表の行の順に）
@@ -1392,6 +1394,7 @@ const BUILT_151 = [
   ['nd-help-word', 'nd-help-cite'],   // ND-4
   ['nd-preload-api', 'nd-ui-word'], ['nd-winh-note', 'nd-winh-note'],   // ND-3
   ['nd-hk-dict', 'nd-overlay-mode'], ['nd-tray-items', 'nd-engine-lock'],   // ND-2
+  ['nd-set-keep', 'nd-hk-save'], ['nd-tidy-send', 'nd-tidy-send'], ['nd-login-moments', 'nd-login-moments'],   // ND-1
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
@@ -1410,6 +1413,11 @@ const GONE_151 = [
   'dq-tidy-login', 'dq-tidy-hold', 'dq-tidy-reject',
   // ND-2: 変異を殺していたテスト（D21 の音声入力の始め方・BQ24 (a) の整え）を音声入力と一緒に消したので、計画の表より先に外した（部品は ND-1 で消す: R14）
   'op-dict-refuse', 'dq-filler-off',
+  // ND-1: 設定・lib・整えの音声入力の部品（計画の「前の版の変異の片付け」の GONE_151 の表。maxHistory の直し・履歴・音声入力の始めを断る文・
+  // hintEcho の音声入力の枝・口述の整えの tidyRules・tidyGuard・linesToText・tidyBody が無い）
+  'st-maxhistory-default', 'mn-history-paste', 'op-dict-refuse-lib', 'q-echo-dict-level',
+  'dq-repeat', 'dq-repeat-word', 'dq-guard', 'dq-guard-short', 'dq-guard-half', 'dq-guard-cp', 'dq-guard-ws', 'dq-guard-mark', 'dq-guard-lines-len',
+  'dq-lines-text', 'dq-long-send',
 ];
 function planRows151() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-151.md'), 'utf8');
@@ -1424,7 +1432,7 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');
   const rows = planRows151();
-  assert.strictEqual(rows.length, 73, '計画の 0.15.1 の表（nd- 29・ps- 33・lb- 11）が読めない');
+  assert.strictEqual(rows.length, 74, '計画の 0.15.1 の表（nd- 30・ps- 33・lb- 11）が読めない');   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');

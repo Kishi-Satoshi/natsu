@@ -130,7 +130,6 @@ const APP_TITLE = 'NaTsu';
 
 const CPU_OLD_DEFAULT_THREADS = Math.max(4, Math.floor(os.cpus().length / 2));
 const CPU_DEFAULT_THREADS = Math.max(4, os.cpus().length - 2);
-const MIN_RECORD_MS = 400;
 // メモはプロンプトにそのまま前置きされるので、文脈を食い潰さない範囲に収める
 const MEMO_MAX = 1500;
 const ENGINE_READY_TIMEOUT_MS = 90000;
@@ -227,8 +226,8 @@ const segLane = new WeakMap();
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
 // ---------------------------------------------------------------- 永続化
-// 設定と履歴は src/jsonfile.js の部品で読み書きする（第1a回 JS1〜JS3・JS5・JS6・P16）。
-// - 読む: BOM 付き・UTF-16 も読む。壊れていたら消さずに .broken-<時刻> へ退けて既定（設定）か空（履歴）で始める。
+// 設定は src/jsonfile.js の部品で読み書きする（第1a回 JS1〜JS3・JS5・JS6・P16。0.15.1 ND-2 から音声入力の履歴 history.json は読み書きしない: D114）。
+// - 読む: BOM 付き・UTF-16 も読む。壊れていたら消さずに .broken-<時刻> へ退けて既定で始める。
 //   設定は項目ごとに読み（settings.js の readSettings）、壊れた項目だけ直したら、元を写しで残して直した設定を
 //   すぐ1回書き戻す（次の起動ではもう知らせない）。知らないキーは残す。
 // - 書く: 一時ファイルに全部書いて fsync してから名前を変える（writeJsonFile）。書き手は1つのファイルに1つ。
@@ -516,7 +515,8 @@ function loadWinState() {
   let displays = [];
   try { displays = screen.getAllDisplays(); } catch (_) { displays = []; }
   winState = W.normalize(raw, displays).state;
-  const rawOpen = raw && raw.tabs && Array.isArray(raw.tabs.open) ? raw.tabs.open.length : 0;
+  // 0.15.1 ND-1（D114・決めたこと 5・F152）: 前の版のタブ（0.9.0 の設定・0.15.0 までの音声入力）は黙って落とし、外した数に数えない（無いページではない）
+  const rawOpen = raw && raw.tabs && Array.isArray(raw.tabs.open) ? raw.tabs.open.filter((k) => !W.TAB_RETIRED.includes(k)).length : 0;
   winTabsDropped = Math.max(0, rawOpen - winState.tabs.open.length);
   if (r.state === 'ok') winStateLastSet = JSON.stringify(winState);
 }
@@ -2897,7 +2897,7 @@ let detectBusy = null;     // 会議の検出に最後に知らせた忙しさ�
 const micWatchSupported = () => process.platform === 'win32' || process.env.NATSU_TEST_MIC_WATCH === '1';
 const micWatchWanted = () => detectReady && micWatchSupported() && !quitting && settings.meetingDetect !== false && state === 'idle' && !micGaveUp;
 // 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md の決めたこと L16）: 設定「会議を出たら自動で止める」がオンなら、議事録の録音中（作成中も。録音の終わりで
-// 起こし直さない）も読む。音声入力（recording・processing）の間は今どおり止める。上の micWatchWanted の行は変えない（0.9.3 の変異の from）
+// 起こし直さない）も読む。上の micWatchWanted の行は変えない（0.9.3 の変異の from。0.15.1 から音声入力の recording・processing の状態は来ない: D114）
 const micLeaveWanted = () => detectReady && micWatchSupported() && !quitting && settings.autoStopLeave !== false && (state === 'meeting' || state === 'meeting-finalizing') && !micGaveUp;
 function syncMicWatch() {
   if (micWatchWanted() || micLeaveWanted()) startMicWatch();
@@ -4408,8 +4408,8 @@ const recoveryHoldNoted = new Map();
 // 第1d2回 M-3: 見回りとログインの直後は、クラウドで送れる待ち行列だけを回す（手元のエンジンを起こさない: RF49）。transcribeRecovered は
 // 始めに（await の前に）この頼みを読んで下ろす（引数の無い形は repo・stage2a1 のテストが字面で固定している）
 let recoveryCloudOnlyAsk = false;
-// 0.13.2 LN-2（LR11。持ち主の試作の「状態が変わった引き金を残す」）: 待ち行列を回し始めた引き金の符号（boot・login・button・patrol・meeting-end・dictation-end・
-// settings・engine・draft）。呼ぶ側がこの頼みを置いてから transcribeRecovered を呼び、transcribeRecovered が始めに読んで下ろす（引数の無い形は上と同じ理由で残す）。
+// 0.13.2 LN-2（LR11。持ち主の試作の「状態が変わった引き金を残す」）: 待ち行列を回し始めた引き金の符号（boot・login・button・patrol・meeting-end・
+// settings・engine・draft。音声入力の後の dictation-end は 0.15.1 ND-2 で消した: D114）。呼ぶ側がこの頼みを置いてから transcribeRecovered を呼び、transcribeRecovered が始めに読んで下ろす（引数の無い形は上と同じ理由で残す）。
 // 回し始めたら engine.log に1行（見回りが続けて回すときは書き直さない: 毎分書かない）
 let recoveryTriggerAsk = '';
 let recoveryTriggerNoted = '';
@@ -5498,7 +5498,7 @@ const isSummarizing = () => runSummary.running().length > 0;
 // isSummarizing で数える。エンジンの切り替えの決まり「isBusy の中身は変えない」を守る）。閉じる確かめ・省電力・毎日の控えは
 // finalizingPageIds を別に見る（第2a1回 M-4 の残りを 0.7.0 の前に直した）
 const isBusy = () => state !== 'idle' || isSummarizing() || recoveryRunning || pendingSegs > 0;
-// 更新の再起動を断る理由（第1d回 A-9。RL16・RF41）: 録音中（会議・音声入力）は 'recording'、議事録の保存の間は 'finalizing'、
+// 更新の再起動を断る理由（第1d回 A-9。RL16・RF41）: 会議の録音中は 'recording'（0.15.1 で音声入力は無くなった: D114）、議事録の保存の間は 'finalizing'、
 // 要約中は 'summary'（文は今のまま、口ごとに出す）。設定の［更新して再起動］（app:restart・update:apply）とトレイの［更新を確認］が見る。
 // 断っても何も止めない（エンジン・DB・貼り付け）。待って自動で再起動はしない（利用者が見ていない時に急に閉じない: K12）
 const RESTART_BLOCK_TEXT = {
@@ -5767,11 +5767,11 @@ let hotkeyNote = '';   // トレイに添える「（議事録: 既定の … �
 // 退避してもここにだけ入れる。settings に書くと settings:get が既定を返して設定画面に
 // 既定が出、次の無関係な保存（自動起動の切り替えなど）でディスクにも漏れて、
 // 利用者のキーが黙って消える。トレイと保存時の登録し直しはこちらを使う。
-let activeHotkeys = { hotkey: '', meetingHotkey: '' };
+let activeHotkeys = { meetingHotkey: '' };
 
 // 0.15.1 ND-2（D114・WQ5）: 登録する全体のキーは議事録のキーだけ（音声入力のキーは登録しない。Ctrl+Shift+Space は Windows とほかのアプリへ返る）。
-// 戻り値 { ok, failed: ['議事録'] }（mainlib.registerHotkeys）。1つ目の引数（前の音声入力のキー）は読まない（ND-1 で部品を1つの側にする）
-function applyHotkeys(_hk, mhk) {
+// 戻り値 { ok, failed: ['議事録'] }（mainlib.registerHotkeys）。0.15.1 ND-1 で部品を1つの側にしたので、引数は議事録のキーの1つ
+function applyHotkeys(mhk) {
   globalShortcut.unregisterAll();
   return registerHotkeys([
     { label: '議事録', accel: mhk, handler: () => toggleMeetingByHotkey().catch((e) => engineLog(`議事録のホットキーを処理できません: ${errCode(e)}`)) },
@@ -6711,7 +6711,7 @@ function applyReloadedSettings(prev, next) {
   if (prev.meetingDetect !== next.meetingDetect || JSON.stringify(prev.meetingDetectMute) !== JSON.stringify(next.meetingDetectMute)) applyDetectSettings(prev);   // 0.9.3 M-2
   if ((prev.autoStopLeave !== false) !== (next.autoStopLeave !== false)) applyLeaveSetting();   // 0.12.1 LV-2
   // ホットキーは起動のときと同じ決め方（登録できなければ既定に退避し、settings には書かない）
-  if (prev.hotkey !== next.hotkey || prev.meetingHotkey !== next.meetingHotkey) {
+  if (prev.meetingHotkey !== next.meetingHotkey) {   // 0.15.1 ND-1: 前の音声入力のキー（hotkey）は読まない
     const r = resolveStartupHotkeys(next, DEFAULT_SETTINGS, applyHotkeys);
     activeHotkeys = r.active;
     hotkeyState = r.state;

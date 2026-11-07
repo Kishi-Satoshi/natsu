@@ -42,7 +42,8 @@ describe('第1b回 画面の覚え書き（main）', { concurrency: Number(proce
     assert.strictEqual(r.maximizeCalls, 1);
     assert.deepStrictEqual(r.zooms, [1.5], '読み込みの後に覚えた倍率を当てていない');
     assert.deepStrictEqual(r.ui.sidebar, { width: 300, collapsed: true });
-    assert.deepStrictEqual(r.ui.tabs, { open: ['page:pkeep1', 'dictation'], active: 'dictation' });
+    // 0.15.1 ND-1（決めたこと 5・F152）で意図して変えた: 覚えた音声入力のタブ（dictation）は数えずに黙って落とす（無いページのタブの数は 2 のまま）
+    assert.deepStrictEqual(r.ui.tabs, { open: ['page:pkeep1'], active: 'page:pkeep1' });
     assert.ok(r.engineLog.some((l) => /画面の覚え書き: 無いページのタブを 2 個外した/.test(l)), r.engineLog.join('\n'));
     assert.ok(!r.engineLog.some((l) => l.includes('pgone')), 'engine.log にページの id を書いた');
   });

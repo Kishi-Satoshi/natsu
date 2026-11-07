@@ -129,8 +129,10 @@ module.exports = {
   utf16: { files: { 'settings.json': Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify({ theme: 'dark', micId: 'マイク' }), 'utf16le')]) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   // 0.9.0 O-1 で意図して変えた: 壊れた録音バーの値は pillSlot（pillPos は知らないキーになったので直さない）
-  repair: { files: { 'settings.json': pretty({ ...TYPICAL, maxHistory: -1, pillSlot: 5, futureKey: { a: 1 } }) } },
-  falselike: { files: { 'settings.json': pretty({ ...TYPICAL, autoPaste: 'false' }) } },
+  // 0.15.1 ND-1（計画 docs/plans/2026-11-04-151.md の決めたこと 4・D114）で意図して変えた: maxHistory と autoPaste は表から外した知らないキー（直さず値のまま残す）。
+  // 直す項目は segmentSec（範囲の外）で見て、壊れた maxHistory は値のまま残ることを見る。"false" の文字は soundFeedback で見る
+  repair: { files: { 'settings.json': pretty({ ...TYPICAL, maxHistory: -1, segmentSec: 5, pillSlot: 5, futureKey: { a: 1 } }) } },
+  falselike: { files: { 'settings.json': pretty({ ...TYPICAL, soundFeedback: 'false' }) } },
   'broken-json': { files: { 'settings.json': '{"theme":"da' }, act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   ansi: { files: { 'settings.json': Buffer.concat([Buffer.from('{"micId":"'), CP932_NIHONGO, Buffer.from('"}')]) } },
   // 0.15.1 ND-2（D114）で意図して変えた: main は history.json を読まない（壊れていても退けない）。場面はファイルを置いて起動するだけ

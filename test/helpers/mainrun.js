@@ -1399,6 +1399,7 @@ process.on('exit', () => {
   const hoverSent = [];
   let trayItems = [];
   let trayTip = '';   // 0.15.1 ND-2
+  let trayIcon = '';   // 0.15.1 ND-1（点検の軽い指摘 M4）: 今のトレイのアイコンのファイルの名前（偽の nativeImage が覚えた名前）
   let cursorAt = { x: 0, y: 0 };
   const order = [];
   // 第1d回 A-6: meeting:update の stt の、前と違ったものだけの並びと、帯の符号ごとの初めのときの区間（WAV が残っているか）
@@ -1760,9 +1761,13 @@ process.on('exit', () => {
   const powerMonitor = withFallback(makeEmitter());
   // トレイ（第1c回 A-4: displayBalloon の文を残す。ほかの呼び出しは今までどおり受け流す）
   const balloons = [];
+  // 0.15.1 ND-1（点検の軽い指摘 M4）: 偽の nativeImage。読んだファイルの名前を持つ像を返し、トレイの setImage でその名前を覚える
+  const fakeImage = (file) => { const img = { trayFile: path.basename(String(file)), isEmpty: () => false, resize: () => img }; return img; };
   class FakeTray {
-    constructor() {
+    constructor(img) {
+      trayIcon = img && img.trayFile ? img.trayFile : '';
       return withFallback(makeEmitter({
+        setImage: (i) => { trayIcon = i && i.trayFile ? i.trayFile : ''; },
         displayBalloon: (o) => { balloons.push(String((o && o.content) || '')); },
         // 0.9.0 O-4: 今のトレイの項目（Menu.buildFromTemplate の偽物が項目をそのまま持つ）
         setContextMenu: (menu) => { trayItems = menu && Array.isArray(menu.items) ? menu.items : []; },
@@ -1901,6 +1906,7 @@ process.on('exit', () => {
     // 取り込みの通信は Electron の net.request（第0b回 RF2）。テストでは同じ振る舞いの偽物（127.0.0.1 の偽のサーバーへ）
     net: { request: require('./fake-net').makeFakeRequest({ before, rewrite }), isOnline: () => netUp },
     Tray: FakeTray,
+    nativeImage: withFallback({ createFromPath: fakeImage }),
     // 0.9.0 O-4: トレイの項目を読めるように。0.14.0 EB-3: アプリのメニューを替えた呼び出しを、その時の窓の数と一緒に覚える（場面の appMenu）
     Menu: { buildFromTemplate: (items) => ({ items }), setApplicationMenu: (m) => { appMenuCalls.push({ menu: m === null ? null : 'menu', wins: wins.length }); } },
     safeStorage,
@@ -3227,7 +3233,7 @@ process.on('exit', () => {
         // 0.15.1 ND-2: 登録しているキー・トレイの項目（名前と押せるか）とツールチップ・眠らせない印が付いているか・出た確かめの数
         const powerOn = new Set();
         for (const ev of power) { if (ev[0] === 'start') powerOn.add(ev[2]); else powerOn.delete(ev[1]); }
-        Object.assign(out.snaps[a[0]], { keys: [...registered].sort(), tray: trayItems.filter((i) => i && i.label).map((i) => [i.label, i.enabled !== false]), tip: trayTip,
+        Object.assign(out.snaps[a[0]], { keys: [...registered].sort(), tray: trayItems.filter((i) => i && i.label).map((i) => [i.label, i.enabled !== false]), tip: trayTip, icon: trayIcon,
           panelHidden: Boolean(handlers['meeting:status']().panelHidden), powerOn: powerOn.size > 0, dialogsN: dialogs.length + syncDialogs.length, relayN: relayPaths.length });
       }
       // 0.13.0 ED-5（RF9）: 本体の窓へ focus・窓から blur（偽の窓の isFocused を合わせてから事象を出す。--main-unfocused と組む）

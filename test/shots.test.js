@@ -1158,7 +1158,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // サイドバーの出る app の画面の全部（105 枚）。値を今の app.html に合わせた（前の値は b222a928…）
   // 0.15.1 ND-3 直し（計画の R22 の D）: 使う所の無くなった <script> の中の fold と注釈を消した（要素・文・CSS は変えていないので見た目は変わらない）。
   // 値を今の app.html に合わせた（前の値は 2b0b1698…）
-  assert.strictEqual(sha, 'cef10a7ab7fa86b6ea3d9be9e3284b1ff9592e743b9ec17ec775b4c0cc7daa4e',
+  // 0.15.1 ND-1（点検の軽い指摘。計画の R29）: 検索の窓の Esc の <script> の中の注釈から、無くなった音声入力の受け口の文を外した（見た目は変わらない）。
+  // 値を今の app.html に合わせた（前の値は cef10a7a…）
+  assert.strictEqual(sha, '69721bc8d22c178f390c4248f7bf74cd553abc021d32f61c210482d162ea97e0',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

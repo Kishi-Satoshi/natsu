@@ -6,7 +6,8 @@ const assert = require('node:assert');
 const L = require('../src/mainlib');
 const T = { timeout: 5000 };
 
-// 音声入力を始めない文（計画「画面と知らせの文」の D1〜D3）
+// 音声入力を始めない文（計画「画面と知らせの文」の D1〜D3）。0.15.1 ND-1（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で
+// 音声入力の始め方（dictationPlan）と一緒に消した（src に無いことを下の F4 で見る）
 const D1 = 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。つながっていなくても使うには、設定の「ローカル AI」で準備します。';
 const D2 = 'ログインしていないため、音声入力を始めませんでした。設定の「アカウント」でログインしてください。';
 const D3 = '文字起こしの中継が今は使えないため、音声入力を始めませんでした。少し待ってから、もう一度お試しください。';
@@ -53,19 +54,7 @@ test('OF1: startPlan — 手元が使える・クラウドが使えそう → �
   for (const why of ['offline', 'relay-down', 'daily-cap', 'quota', 'upstream-auth']) assert.deepStrictEqual(P({ why }), { ok: true, keep: 'wait' }, why);
 });
 
-test('OF1: dictationPlan — 選んでいない人で両方だめなら D1・D2（signin）・D3 で始めない。選んだ人は今の文。手元が使えるかクラウドが使えそうなら始める', T, () => {
-  const problem = '文字起こしエンジンが未設定です。設定タブでパスを指定してください。';
-  const P = (o) => L.dictationPlan({ localUsable: false, chosen: false, cloud: false, problem, why: 'offline', ...o });
-  for (const chosen of [true, false]) {
-    assert.deepStrictEqual(P({ chosen, localUsable: true }), { ok: true });
-    assert.deepStrictEqual(P({ chosen, cloud: true, why: '' }), { ok: true });
-  }
-  for (const why of ['offline', 'signed-out', 'relay-down']) assert.deepStrictEqual(P({ chosen: true, why }), { ok: false, error: problem }, why);
-  assert.deepStrictEqual(P({ why: 'offline' }), { ok: false, error: D1 });
-  assert.deepStrictEqual(P({ why: 'signed-out' }), { ok: false, error: D2, action: 'signin' });
-  assert.deepStrictEqual(P({ why: 'login' }), { ok: false, error: D2, action: 'signin' });
-  for (const why of ['relay-down', 'daily-cap', 'quota', 'upstream-auth']) assert.deepStrictEqual(P({ why }), { ok: false, error: D3 }, why);
-});
+// 0.15.1 ND-1（D114）で意図して消した: OF1 の音声入力の始め方（dictationPlan）のテスト。会議の始め方（startPlan）は上のテストのまま
 
 // ---------------------------------------------------------------- M-2（OF2・F1・F4・F6）
 // 帯（計画「画面と知らせの文」の B11〜B14）と、会議の中の左下の知らせ（K1〜K4）
@@ -90,7 +79,8 @@ const S3L = 'この会議はオフラインモードです。文字起こし待�
 const P1 = 'この会議をオフラインモードにしました。PC の中で文字起こしするには、設定の「ローカル AI」の準備（文字起こしのエンジンの取り込み）が要ります。今は音声だけをこの PC に残します。準備が済むと文字起こしします。';
 // 新しい文（「未設定」の語を見ると、画面が設定のタブへ連れて行く: 調べた結果の 7）
 // 0.15.1 ND-2（D114）で意図して変えた: 音声入力の音声を残す文（D4・D5・D6）は音声入力と一緒に main から消した
-const NEW_TEXTS = { B11, B12, B13, B14, K1, K2, K3, K4, KEPT_SEG_TEXT, D1, D2, D3, S1, S2, S3, S3L, P1 };
+// 0.15.1 ND-1 で意図して変えた: D1〜D3（音声入力を始めない文）を外した（下の F4 で src に無いことを見る）
+const NEW_TEXTS = { B11, B12, B13, B14, K1, K2, K3, K4, KEPT_SEG_TEXT, S1, S2, S3, S3L, P1 };
 
 test('OF2: keptCodeFor の表（受け渡す名前と形に書いた理由の全部と知らない符号 × localOnly）', T, () => {
   const table = {
@@ -146,6 +136,7 @@ test('F4: B11〜B14・K1〜K4・P1・区間の文・D1〜D6・S1〜S3\'・R1 に
   // R1（数を入れる文）
   assert.ok(src.includes('`残しておいた音声を文字起こししました（${done}/${q.items.length} 区間）。続けて要約を作ります。`'), 'R1 の文が main に無い');
   assert.ok(!/残しておいた音声入力を|音声を残しました。つながると文字起こしして、履歴に入れます/.test(src), '0.15.1 ND-2: 音声入力の音声を残す文（D4・D6）が残っている');
+  for (const [k, t] of Object.entries({ D1, D2, D3 })) assert.ok(!src.includes(t), `0.15.1 ND-1: 音声入力を始めない文（${k}）が残っている`);
 });
 
 test('S1・S2: 準備を選んでいない PC で手元の LLM が無いときの要約の欄の文は、PC の中だけなら S1、そうでなければ S2。文字起こし待ちのある会議は S3・S3\'', T, () => {

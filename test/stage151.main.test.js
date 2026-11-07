@@ -134,6 +134,9 @@ test('ND-2・F150・決めたこと 8: トレイの項目とツールチップ�
   assert.strictEqual(o.snaps.fin.tip, 'NaTsu — 処理中');
   assert.deepStrictEqual(names('after'), names('idle'));
   assert.strictEqual(o.snaps.after.tip, 'NaTsu — Alt+M: 議事録');
+  // 0.15.1 ND-1（点検の軽い指摘 M4・計画の R29）: トレイのアイコンは会議の録音中だけ録音の印（作成中と待機は待機のアイコン）
+  // （Windows は .ico、ほかは .png を読む）
+  assert.deepStrictEqual(['idle', 'rec', 'fin', 'after'].map((k) => o.snaps[k].icon.replace(/\.(png|ico)$/, '')), ['tray', 'tray-rec', 'tray', 'tray']);
   for (const k of ['idle', 'rec', 'fin', 'after']) {
     assert.ok(!names(k).some((l) => /音声入力/.test(l) || /^文字起こし/.test(l)), JSON.stringify(o.snaps[k].tray));
     assert.ok(!/音声入力/.test(o.snaps[k].tip), o.snaps[k].tip);

@@ -20,6 +20,8 @@
  *     重なり無しで新しい順に 24 まで
  *   - 0.9.0 U-1（SP3・D24）: 設定はタブでなくポップアップで開くので、前の版が覚えた settings は黙って落とす
  *     （無いページとして数えない。数えると main が「無いページのタブを N 個外した」と事実と違う記録を書く）
+ *   - 0.15.1 ND-1（D114・決めたこと 5・F152）: 音声入力を無くしたので、前の版が覚えた dictation のタブも同じく黙って落とす
+ *     （開いていたタブが音声入力だけなら、起動はタブ無し。知らせは出さない）
  *
  * 壊れた項目だけを既定に戻し、ほかの項目は残す。v が 1 でなくても読めるものは読む
  * （後の版の覚え書きを古い版で開いても落ちない）。
@@ -39,8 +41,10 @@ const SIDEBAR = { min: 200, max: 480, width: 260 };
 const MAX_TABS = 20;
 
 const TAB_PAGE_RE = /^page:p[a-z0-9]{1,40}$/;
-const TAB_FIXED = ['dictation'];
-const TAB_RETIRED = 'settings';   // 0.8.0 までの設定のタブ（読むときに黙って落とす）
+// 0.15.1 ND-1（D114・計画 docs/plans/2026-11-04-151.md の決めたこと 5）: 音声入力のタブを無くしたので、ページでない決まったタブは無い
+const TAB_FIXED = [];
+// 読むときに黙って落とす前の版のタブ（数えない）: 0.8.0 までの設定のタブ（0.9.0 U-1）と、0.15.0 までの音声入力のタブ（0.15.1 ND-1）
+const TAB_RETIRED = Object.freeze(['settings', 'dictation']);
 // 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行の ID（ページの ID の形。タブの鍵の page: の後ろと同じ形）と、覚える数の上限
 const TREE_ID_RE = /^p[a-z0-9]{1,40}$/;
 const TREE_MAX = 500;
@@ -131,7 +135,7 @@ function filterTabs(tabs, exists) {
   const open = [];
   let dropped = 0;
   for (const k of tabs.open) {
-    if (k === TAB_RETIRED) continue;
+    if (TAB_RETIRED.includes(k)) continue;
     let keep = tabKeyOk(k) && !open.includes(k) && open.length < MAX_TABS;
     if (keep && exists && k.startsWith('page:')) {
       try { keep = Boolean(exists(k.slice('page:'.length))); } catch (_) { keep = false; }
@@ -277,7 +281,7 @@ function applyUi(state, patch) {
 }
 
 module.exports = {
-  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS, TREE_MAX, EMOJI_RECENT_MAX,
+  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS, TREE_MAX, EMOJI_RECENT_MAX, TAB_RETIRED,
   statePath, defaults, shapeOk, normalize, onScreen, boundsOf,
   zoomDir, stepZoom, tabKeyOk, keepTabs, applyUi,
 };

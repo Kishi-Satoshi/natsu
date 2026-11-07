@@ -4496,7 +4496,7 @@
   });
   document.addEventListener('keydown', (ev) => {
     if (!palOpen) return;
-    // 0.14.0 EK-6 直し（R194）: 窓を閉じた Esc は preventDefault する（NaTsu の中の音声入力の Esc の受け口が、同じ Esc で取り消さない: R64）
+    // 0.14.0 EK-6 直し（R194）: 窓を閉じた Esc は preventDefault する（同じ Esc でほかの受け口が二重に閉じない: R64。0.15.1 で NaTsu の中の音声入力の受け口は無くなった: D114）
     if (ev.key === 'Escape') { if (typeof ev.preventDefault === 'function') ev.preventDefault(); closePalette(); return; }
     if (ev.key !== 'Tab' || ev.ctrlKey || ev.altKey || ev.metaKey) return;
     const items = palTabbables();
