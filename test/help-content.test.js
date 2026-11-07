@@ -903,7 +903,12 @@ test('0.15.0 Task G: README の「画面の使い方」にページの階層・�
   assert.ok(readme.includes('**白紙のページと中のページ（0.15.0 から）:**'), 'README の MCP の節に白紙のページが無い');
   const d = read('docs/plans/natsu-design.md');
   for (let n = 115; n <= 123; n++) assert.ok(new RegExp(`^\\| D${n} \\| \\*\\*`, 'm').test(d), `設計書に D${n} の行が無い`);
-  assert.ok(!/^\| D11[34] \|/m.test(d), '設計書に D113・D114 の行がある（ほかの道で使う番号）');
+  // 0.16.0（計画 docs/plans/2026-11-04-160.md の「取り込みで確かめ直したこと（2026-11-07）」）で意図して直した: 前は設計書のどこにも D113・D114 の行が
+  // 無いことを見ていた。0.15.0 を出した main を lane/160 に取り込むと、D113（0.16.0 の版の並び）の行がその道の節から入るので、0.15.0 の節
+  // （D115〜D123）の中に D113・D114 が無いことを見る（意図「0.15.0 はほかの道の番号を使わない」は残す）
+  const at150 = d.indexOf('## 利用者が決めたこと（ページの階層・白紙のページ');
+  const s150 = d.slice(at150, d.indexOf('\n## ', at150 + 5));
+  assert.ok(at150 > 0 && s150.includes('| D115 |') && !/^\| D11[34] \|/m.test(s150), '設計書の 0.15.0 の節に D113・D114 の行がある（ほかの道で使う番号）');
   for (const [h, w] of [['H1', 'D117'], ['H5', 'D120'], ['U3', 'D121']]) {
     const row = d.split('\n').find((l) => l.startsWith(`| ${h} |`));
     assert.ok(row && row.includes(`0.15.0 で改めた: ${w}`), `設計書の ${h} に ${w} の書き添えが無い`);
