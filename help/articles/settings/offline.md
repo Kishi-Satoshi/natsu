@@ -1,7 +1,7 @@
 ---
 title: ローカル AI
 description: ［設定］の「ローカル AI」で、PC の中の文字起こしのエンジンを取り込む（任意）。取り込まないときの動きと、使えるかの確かめ方。要約は Claude Code だけ
-updated: 2026-10-27
+updated: 2026-11-07
 sources: src/renderer/app.html, src/main.js, src/mainlib.js, INSTALL.md, README.md
 related: start/getting-started, record/pc-only, record/status-line
 ---
@@ -11,7 +11,7 @@ related: start/getting-started, record/pc-only, record/status-line
 オフラインモードの会議は、ローカル AI の準備をした PC では PC の中で文字起こしをし、準備をしていない PC では音声だけを残します（[ネットワークが不安定なときの会議](record/pc-only.md)）。
 0.9.2 までは、この項目を「オフライン」、オフラインモードを「この会議は PC の中だけ」と呼んでいました。
 
-ローカル AI の準備は任意です。ログインしてインターネットにつながっていれば、準備をしなくても会議と音声入力が使えます。
+ローカル AI の準備は任意です。ログインしてインターネットにつながっていれば、準備をしなくても会議が使えます。
 準備をすると、インターネットにつながっていないときと ［オフラインモード］ の会議でも、この PC の中で文字起こしができます。
 そのためのエンジンとモデル（合わせて約 0.6GB）を、［設定］→［ローカル AI］で取り込みます。
 
@@ -27,7 +27,6 @@ related: start/getting-started, record/pc-only, record/status-line
 | --- | --- | --- |
 | かかるもの | ディスクの空き 約 1GB と取り込みの時間（50Mbps の回線で約 2 分、10Mbps で約 8 分） | なし |
 | つながっていない会議 | PC の中で文字起こしをします（クラウドより精度が落ちます）。要約は要約待ち | 音声を残し、つながると自動で文字起こしします（要約も自動） |
-| つながっていない音声入力 | PC の中で文字にします | 始めません |
 | ［オフラインモード］ | PC の中で文字起こしをします。要約は Claude Code | 音声だけを PC に残します |
 
 準備をしていない間は、カードの上に「PC の中の文字起こし：準備していません（任意）」と出ます。

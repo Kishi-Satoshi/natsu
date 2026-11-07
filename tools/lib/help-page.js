@@ -76,7 +76,7 @@ function pageHome(site, ctx) {
   const featured = site.featured.map((r) => ctx.articles.get(r));
   const main = `<main id="hc-main" class="home">
 <h1>${esc(site.title)}</h1>
-<p class="lede">NaTsu（会議の録音・文字起こし・要約と、音声入力のアプリ）の使い方を、分類ごとにまとめています。</p>
+<p class="lede">NaTsu（会議の録音・文字起こし・要約のアプリ）の使い方を、分類ごとにまとめています。</p>
 ${searchBox('hc-q-home', true)}
 <h2 class="vh" id="hc-cats">分類</h2>
 <ul class="cats">

@@ -1,7 +1,7 @@
 ---
 title: インストールと更新
 description: インストーラーで入れる・ローカル AI を使うときの取り込み（任意）・アプリの中で更新する・入れ直しが要る版のとき
-updated: 2026-10-27
+updated: 2026-11-07
 sources: INSTALL.md, README.md, src/updater.js, src/main.js, src/renderer/app.html
 related: start/getting-started, start/login, start/claude-code
 ---
@@ -17,7 +17,7 @@ NaTsu は Windows 10 / 11（64bit）で動きます。管理者の権限は要�
    - ダウンロードが途中で止まるときは、同じページの `get-installer.ps1` を落として実行します。切れても続きから取り直し、最後に壊れていないかを確かめます。
 3. インストール先は `%LOCALAPPDATA%\Programs\NaTsu\` です。デスクトップとスタートメニューにショートカットができます。
 
-入れたら、［設定］の「アカウント」でログインします（[ログインする](start/login.md)）。ログインしてインターネットにつながっていれば、会議と音声入力が使えます。
+入れたら、［設定］の「アカウント」でログインします（[ログインする](start/login.md)）。ログインしてインターネットにつながっていれば、会議が使えます。
 
 ## ローカル AI を使うとき（任意） {#engine}
 

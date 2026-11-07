@@ -76,7 +76,8 @@ test('RF28: record/pc-only の記事に「1on1」「面談」「OpenAI」「［�
   }
   assert.ok(refs.includes('record/pc-only'), 'record/pc-only の記事が無い（1on1・面談の注意）');
   const pc = read(fileOf('record/pc-only'));
-  for (const w of ['1on1', '面談', 'OpenAI', '［オフラインモード］', '音声入力']) assert.ok(pc.includes(w), `record/pc-only に「${w}」が無い`);
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: NaTsu の音声入力がなくなったので、「効かないもの」の音声入力の行を消した（「音声入力」の字は見ない）
+  for (const w of ['1on1', '面談', 'OpenAI', '［オフラインモード］']) assert.ok(pc.includes(w), `record/pc-only に「${w}」が無い`);
   assert.ok(refs.includes('start/what-natsu-does'), 'start/what-natsu-does の記事が無い');
   assert.ok(read(fileOf('start/what-natsu-does')).includes('](record/pc-only.md'), 'start/what-natsu-does から record/pc-only へのリンクが無い');
   assert.ok(site.featured.includes('record/pc-only'), 'featured に record/pc-only が無い');
@@ -306,7 +307,8 @@ test('0.12.1 LV-5: record/meeting-detect に「会議を出たとき」（6 秒�
   }
   // 記事の頭の「2〜4 秒で画面の右上に」（パネルの話）は前からある字なので、前の版の案の字は「会議を出たとき」の節（小見出しを含む）だけで見る（R7）
   for (const w of ['会議を出ましたか？', '60 秒', '相手の声が 30 秒', '4 秒']) assert.ok(!leave.includes(w), `前の版の案の「${w}」が残っている`);
-  assert.ok(/updated: 2026-10-2[5-9]/.test(t), 'updated を直していない');
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「録音しているとき（議事録・音声入力）」の音声入力を外したので updated は後の日（2026-10-25 から）
+  assert.ok((t.match(/^updated: (\S+)$/m) || [])[1] >= '2026-10-25', 'updated を直していない');
   for (const s of ['src/meetleave.js', 'docs/plans/2026-10-24-121.md']) assert.ok(t.includes(s), `sources に ${s} が無い`);
 });
 test('0.12.1 LV-5: record/start-stop の自動で止める節から record/meeting-detect.md#leave への道、README に「会議を出たとき（0.12.1 から）」', { timeout: 5000 }, () => {
@@ -593,7 +595,8 @@ test('HO-7: start/getting-started に、用意するもの → 手順1〜4（イ
   }
   for (const w of ['［設定］', '［アカウント］', '［ログイン］', '［要約］', '［Claude Code を入れる］', '［Claude Code にログイン］', '［Claude Code を確かめる］', '［録音］', '「議事録で相手の声も録る」',
     '［＋ 新しい議事録］', '録音の前のページ', 'まだ録音しません', '［文字起こしを始める］', '参加者に録音と文字起こしの了承を取ってください', '[[Alt+M]]', '［⏸ 一時停止］', '［■ 終了して作成］',
-    '［AI 要約］', '［メモ］', '［文字起こし］', '[[Ctrl+Shift+Space]]', '音声も文字も保存しません', 'この PC の中にだけ保存', '［ローカル AI］', '［更新して再起動］', '守秘のためのボタンではありません', '［ヘルプ］',
+    // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 節 #dictation は Windows の音声入力の一言（[[Win+H]]）
+    '［AI 要約］', '［メモ］', '［文字起こし］', '[[Win+H]]', '音声も文字も保存しません', 'この PC の中にだけ保存', '［ローカル AI］', '［更新して再起動］', '守秘のためのボタンではありません', '［ヘルプ］',
     'Teams の NaTsu のチャンネル', 'だいたいの時刻']) assert.ok(t.includes(w), `「${w}」が無い`);
   assert.ok(!/［(?:＋ )?新しい議事録］ ?(?:を押す|で)[^。]*(?:録音|記録)が始ま/.test(t), '［新しい議事録］で録音が始まると読める（0.12.1 までの動き）');
   assert.ok(!/NaTsu-\d+\.\d+\.\d+-setup\.exe/.test(t), 'インストーラーの名前に版の数がある（古くなる）');
@@ -674,10 +677,10 @@ test('EK-7: 直した記事（要約を書き直す・会議の種類とメモ�
   // 新しく書いた画面の言葉（アプリの文字にあることは上で見る）
   const es = read(fileOf('summary/edit-summary'));
   for (const w of ['［色 ▸］', '［リンクを付ける］', '［外す］', '［削除］', '［複製］', '［変換 ▸］']) assert.ok(es.includes(w), `summary/edit-summary に ${w} が無い`);
-  assert.ok(read(fileOf('dictation/dictation')).includes('［元の文をコピー］'), 'dictation/dictation に ［元の文をコピー］ が無い');
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: dictation/dictation は Win+H の案内に書き換え、分類「音声入力」の説明は「NaTsu の音声入力は 0.15.1 でなくなりました。…」（WQ4。ND-4 の照らし）
+  assert.ok(!read(fileOf('dictation/dictation')).includes('［元の文をコピー］'), 'dictation/dictation に消えた ［元の文をコピー］ が残っている');
   const cat = (id) => site.categories.find((c) => c.id === id).description;
-  assert.match(cat('dictation'), /NaTsu の中/);
-  assert.match(cat('dictation'), /整え/);
+  assert.match(cat('dictation'), /Windows の音声入力/);
   assert.match(cat('summary'), /メモ/);
 });
 
@@ -688,8 +691,9 @@ test('EK-7・U3（決めたこと 38）: settings/hotkeys の「NaTsu の窓の�
   const want = SHORTCUTS.map((r) => [r.where, keyCell(r.keys), r.what]);
   assert.deepStrictEqual(got, want, '近道の表が SHORTCUTS と違う（src/shortcuts.js の表を写す）');
   assert.ok(/\[\[Ctrl\+Shift\+N\]\]/.test(sec), 'Ctrl+Shift+N の行が無い（0.15.0 PH-5・BQ7 (a)）');
-  assert.ok(sec.includes('NaTsu の文字の欄でも使えます'), '音声入力のキーの一言が無い');
-  assert.ok(sec.includes('](dictation/dictation.md#in-natsu)'), 'NaTsu の中の音声入力の節へのリンクが無い');
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 表の下の一言は Windows の音声入力の案内（記事の節 #in-natsu は無くなった）
+  assert.ok(sec.includes('Windows の音声入力（[[Win+H]]）を使います'), 'Windows の音声入力の一言が無い');
+  assert.ok(sec.includes('](dictation/dictation.md)'), '案内の記事へのリンクが無い');
   for (const w of ['録音中のページは閉じられません（［■ 終了して作成］で止めます）', '窓は閉じません', '空のページ']) assert.ok(sec.includes(w), `Ctrl+W の決まりに「${w}」が無い`);
   // 照らしの形そのものが当たること（空振りしない）: 1行を消すと違う
   assert.notDeepStrictEqual(tableRows(sec.replace(/^\| \[\[Ctrl\+W\]\] \|.*\n/m, '')), want);
@@ -735,23 +739,8 @@ test('EK-7（BQ11・BQ22・BQ23・BQ25・BQ29）: メモの欄も行の欄だと
   assert.ok(!st.includes('選んだ型の見出し（「■ 課題・要望（N）」など）がメモに入ります'), '前の版の「■ の文がメモに入る」が残っている（0.14.0 は見出しの行）');
 });
 
-test('EK-7（U4・BQ9-1・BQ10・BQ21・R27・R64）: dictation/dictation に NaTsu の中の音声入力の節。押した所へ直に入れ、クリップボードを通しません。Ctrl+Z の1回。入れられない所と議事録の録音中の知らせ。ほかのアプリは今どおり', { timeout: 5000 }, () => {
-  const t = read(fileOf('dictation/dictation'));
-  const sec = ek7Sec(t, 'in-natsu');
-  for (const w of ['クリップボードを通しません', '[[Ctrl+Z]] の1回', '要約', 'メモ', '題名', '文字起こしの行', 'ここには音声入力で入れられないので、履歴に残しました', '入れる所が無くなったので、音声入力の履歴に残しました',
-    '議事録の録音中は、音声入力は使えません', '[[Esc]]', '[[Ctrl+Shift+Space]]']) assert.ok(sec.includes(w), `NaTsu の中の音声入力の節に「${w}」が無い`);
-  assert.ok(ek7Sec(t, 'clipboard').includes('ほかのアプリ'), 'クリップボードの節が、ほかのアプリのときの話だと分からない');
-});
-
-test('EK-7（BQ9-2・BQ13〜BQ19・BQ24 (a)・BQ35・RF28）: dictation/dictation に口述の整えの節。音声をクラウドで文字起こししたときだけ・PC の中で文字起こししたときは送りません・辞書の語も渡します・2 秒・300 字・送らないとき・会議の文は整えない・設定の場所と「フィラー除去」を切っていた人・履歴の元の文', { timeout: 5000 }, () => {
-  const t = read(fileOf('dictation/dictation'));
-  const sec = ek7Sec(t, 'tidy');
-  for (const w of ['音声をクラウドで文字起こししたときだけ', 'PC の中で文字起こししたときは送りません', '辞書の語も渡します', '2 秒', '300 字', '整えています…', 'オフライン', 'ログインしていない', '残した音声',
-    '会議の文字起こしは整えません', '訳さず', 'です・ます', '「・ 」', '「1. 」', '［設定］→［録音］', '「文字起こし」', '「口述の文を AI で整える」', '言い直し・繰り返しを除き、箇条を整えます。',
-    '「フィラー除去」を切っていた人は、「口述の文を AI で整える」も切れたまま始まります']) assert.ok(sec.includes(w), `口述の整えの節に「${w}」が無い`);
-  const hist = ek7Sec(t, 'history');
-  assert.ok(hist.includes('［元の文をコピー］') && hist.includes('元の文をコピーしました'), '履歴の節に ［元の文をコピー］ が無い');
-});
+// 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: dictation/dictation の「NaTsu の中で音声入力する」（#in-natsu）と「口述を整える」（#tidy）の節の2つのテスト（0.14.0 EK-7）を消した。
+// U4・D108〜D111 を取りやめ（D114）、記事を Win+H の案内に書き換えたので、節そのものが無い（案内の記事は ND-4 の照らしが見る）
 
 test('EK-7（DQ-2・BQ20 (a)・R50）: admin/relay-limits に整えの1日の回数（1人 2,000 回・全員 50,000 回）と秘密の欄（relay/config.mjs の名前と既定）がある', { timeout: 5000 }, () => {
   const cfg = read('relay/config.mjs');
@@ -930,4 +919,69 @@ test('R80: find/delete-and-backups と find/page-tree に、0.15.0 より前の�
   for (const a of [del, tree]) assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${a.ref}: アプリに無い ［…］`);
   // CHANGELOG の 0.15.0 の節にも、持ち主が承認した文がそのまま
   assert.ok(read('CHANGELOG.md').includes('今までに消した議事録も［ゴミ箱］に並び、戻せます。'), 'CHANGELOG に前の版で消した議事録の文が無い');
+});
+
+// ---------------------------------------------------------------- 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の F155・RF51・WQ4・D114）: 音声入力をなくした後のヘルプと案内
+// 画面とヘルプの文の版の数字（「並べて作る決まり」の 3: 0.16.0 が先に出たら G でここだけを 0.16.1 にする）
+const VER_151 = '0.15.1';
+// 音声入力の語を書いてよい記事: Win+H の案内（dictation/dictation）と、中継の上限の「0.15.0 までのアプリ」の注（口述の整え）
+const DICT_OK = ['dictation/dictation', 'admin/relay-limits'];
+test('ND-4・F155: 音声入力の語は案内の記事だけ。ほかの記事に「口述」「Ctrl+Shift+Space」が無く、「音声入力」は「Windows の音声入力」の字の中にしか無い', { timeout: 5000 }, () => {
+  for (const a of articles) {
+    if (a.ref === 'dictation/dictation') continue;
+    const body = a.text.replace(/Windows の音声入力/g, '');
+    if (a.ref !== 'admin/relay-limits') {
+      assert.ok(!a.text.includes('口述'), `${a.ref} に「口述」`);
+      assert.ok(!a.text.includes('Ctrl+Shift+Space'), `${a.ref} に Ctrl+Shift+Space`);
+    }
+    assert.ok(!body.includes('音声入力'), `${a.ref} に「Windows の音声入力」のほかの「音声入力」: ${(body.match(/.{0,30}音声入力.{0,30}/) || [''])[0]}`);
+    assert.ok(!/dictation\.md#/.test(a.text), `${a.ref} が案内の記事の消えた節を指す`);
+  }
+  assert.deepStrictEqual(DICT_OK.filter((r) => !refs.includes(r)), []);
+});
+test('ND-4・F155・RF51: 記事の ［…］ の言葉は、今の画面に見える字（app.html の注釈と <style> の外・main.js の注釈の外）にちょうどある', { timeout: 10000 }, (t) => {
+  const seen = L.seenLabelText(ROOT);
+  const bad = articles.flatMap((a) => L.missingLabels(a.text, seen).map((m) => `${a.file}:${m.line} ［${m.label}］`));
+  assert.deepStrictEqual(bad, [], '今の画面に見えない ［…］ がある（注釈・凍結の録音バー・ほかのファイルの字だけで通っていた）');
+  // 照らしの元は注釈を数えない（決まった小さな src/ で見る）
+  const dir = tmpDir(t, 'nd4-seen-');
+  {
+    fs.mkdirSync(path.join(dir, 'src', 'renderer'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'renderer', 'app.html'), '<html><!-- ［注釈だけの字A］ --><style>/* 字B */</style><body><button>見える字C</button>\n<script>\n  // ［注釈だけの字D］\n  b.textContent = \'見える字E\';   // 注釈だけの字F\n  /* 注釈だけの字G */\n</script></body></html>\n');
+    fs.writeFileSync(path.join(dir, 'src', 'main.js'), "// 注釈だけの字H\nconst t = '見える字I';   // 注釈だけの字J\nconst u = 'https://example.invalid/x';\n");
+    const seen2 = L.seenLabelText(dir);
+    for (const w of ['見える字C', '見える字E', '見える字I', 'https://example.invalid/x']) assert.ok(seen2.includes(w), `${w} を数えない`);
+    for (const w of ['注釈だけの字A', '字B', '注釈だけの字D', '注釈だけの字F', '注釈だけの字G', '注釈だけの字H', '注釈だけの字J']) assert.ok(!seen2.includes(w), `${w} を数えた`);
+  }
+});
+test('ND-4・F155・WQ4: 案内の記事 dictation/dictation は Win+H の案内（題・[[Win+H]]・出典の住所2つ・Microsoft へ送られる・言い切らない・前の履歴の置き場所）', { timeout: 5000 }, () => {
+  const a = articles.find((x) => x.ref === 'dictation/dictation');
+  const meta = metaOf(a);
+  assert.strictEqual(meta.title, '音声入力（Windows の音声入力を使う）');
+  assert.ok(meta.description.startsWith(`NaTsu の音声入力は ${VER_151} でなくなりました。`), meta.description);
+  assert.ok(a.text.includes('[[Win+H]]'));
+  for (const u of ['https://support.microsoft.com/ja-jp/accessibility/windows/use-voice-typing-to-talk-instead-of-type-on-your-pc',
+    'https://support.microsoft.com/ja-jp/windows/privacy/speech-voice-activation-inking-typing-and-privacy']) assert.ok(a.text.includes(`(${u})`), `出典 ${u} が無い`);
+  assert.ok(a.text.includes('Microsoft へ送られます'));
+  for (const w of ['保存されません', '残りません', '送られません']) assert.ok(!a.text.includes(w), `言い切り「${w}」`);
+  assert.ok(a.text.includes('NaTsu と会社の文字起こしの中継（音声を OpenAI へ取り次ぐ NaTsu のサーバー）は通りません'));
+  for (const w of ['`history.json`', '［データ保存先を開く］', '`dictwait`', 'NaTsu は読まず、消しません']) assert.ok(a.text.includes(w), `「${w}」が無い`);
+  for (const id of ['windows', 'privacy', 'history']) assert.ok(new RegExp(`^## .+ \\{#${id}\\}$`, 'm').test(a.text), `節 #${id} が無い`);
+  // 分類「音声入力」は残し、説明を替える（WQ4）
+  const cat = site.categories.find((c) => c.id === 'dictation');
+  assert.ok(cat && cat.title === '音声入力' && cat.articles.join() === 'dictation');
+  assert.strictEqual(cat.description, `NaTsu の音声入力は ${VER_151} でなくなりました。代わりに Windows の音声入力を使う`);
+});
+test('ND-4: 案内の頭の文（README の1行目・package.json の説明・ヘルプのホームの頭の文）に「音声入力」が無い。INSTALL の近道に Ctrl+Shift+Space が無い', { timeout: 5000 }, () => {
+  const readme = read('README.md').replace(/\r\n?/g, '\n').split('\n');
+  const first = readme.find((l, i) => i > 0 && l.trim() && !l.startsWith('#'));
+  assert.ok(first.startsWith('議事録ツール。'), first);
+  assert.ok(!JSON.parse(read('package.json')).description.includes('音声入力'));
+  assert.ok(JSON.parse(read('package.json')).description.startsWith('NaTsu — 議事録ツール（'));
+  const home = read('tools/lib/help-page.js');
+  assert.ok(home.includes('NaTsu（会議の録音・文字起こし・要約のアプリ）の使い方を、分類ごとにまとめています。'));
+  assert.ok(!/<p class="lede">[^<]*音声入力/.test(home), 'ヘルプのホームの頭の文に音声入力');
+  assert.ok(!read('INSTALL.md').includes('Ctrl+Shift+Space'), 'INSTALL に Ctrl+Shift+Space');
+  // README の「データ保存先」の history.json の行は残し、読み書きしないと書く（NR8）
+  assert.ok(read('README.md').includes('history.json           0.15.0 までの音声入力の履歴（0.15.1 からは読み書きしない。消さずに残す）'));
 });

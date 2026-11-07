@@ -1372,3 +1372,48 @@ test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.15.0 '), `${id}: why`);
   }
 });
+
+// 0.15.1（計画 docs/plans/2026-11-04-151.md の「変異の表」の nd-・ps-・lb- の表）: 音声入力をなくした守り（nd-）・プライベートのセクションと行の「···」の守り（ps-）・
+// ライブラリの守り（lb-）。タスクを作るたびに表の行の順で足す（R1。載せる順は計画と違い ND-4・ND-3・ND-2・ND-1 の順: 計画の R1）。頭は前の版の照らしにも 0.16.0 の頭（tb・vw）にも当たらない
+const IDS_151 = [
+  // 0.15.1 ND-4（表の行の順に）
+  'nd-help-word', 'nd-help-src', 'nd-help-cite',
+];
+// 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足し、Task G の前に表の全部とちょうど同じかを見る形に替える（0.15.0 の R1 と同じ）
+const BUILT_151 = [
+  ['nd-help-word', 'nd-help-cite'],   // ND-4
+];
+function planRows151() {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-151.md'), 'utf8');
+  const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異の表」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  return [...table.matchAll(/^\| ((?:nd|ps|lb)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+}
+test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の「変異の表」の行の順で、作ったタスクの行とちょうど同じ。nd-・ps-・lb- の変異は IDS_151 にある。どれも決まったテストのファイルを持ち、why が 0.15.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_151.filter((id) => !byId.has(id)), [], 'IDS_151 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');
+  const rows = planRows151();
+  assert.strictEqual(rows.length, 73, '計画の 0.15.1 の表（nd- 29・ps- 33・lb- 11）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
+  assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');
+  const built = BUILT_151.flatMap(([from, to]) => {
+    const i = rows.indexOf(from); const j = rows.indexOf(to);
+    assert.ok(i >= 0 && j >= i, `作ったタスクの範囲 ${from}〜${to} が表に無い`);
+    return rows.slice(i, j + 1);
+  });
+  assert.deepStrictEqual(IDS_151, rows.filter((id) => built.includes(id)), 'IDS_151 が作ったタスクの表の行とちょうど同じでない');
+  // 前の版の頭の照らしと、並べて作る 0.16.0 の頭（tb・vw: 計画の「並べて作る決まり」の 4）に当たらない
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/]) {
+    assert.deepStrictEqual(IDS_151.filter((id) => re.test(id)), [], `${re} に当たる 0.15.1 の id`);
+  }
+  for (const ids of [IDS_140, IDS_150]) assert.deepStrictEqual(ids.filter((id) => /^(nd|ps|lb)-/.test(id)), [], '前の版の IDS に 0.15.1 の頭');
+  for (const id of IDS_151) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.15.1 '), `${id}: why`);
+  }
+});

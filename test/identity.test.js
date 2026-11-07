@@ -40,7 +40,8 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   }
   // 第1d回 G-4 で意図して変えた: オンラインの文字起こしは会社の中継を通した OpenAI（PC は OpenAI へ直に送らない）
   // 0.10.0 LS-5（D59）で意図して変えた: 要約は Claude Code だけ（llama を外した）
-  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインの文字起こしは手元の whisper。出典リンク付き）');
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 説明の頭から「音声入力・」を外した（括弧の中は今のまま。アプリの中の更新では届かない: 決めたこと 19）
+  assert.strictEqual(pkg.description, 'NaTsu — 議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインの文字起こしは手元の whisper。出典リンク付き）');
 });
 
 // 第1b回 Task C-3 で意図して変えた: 版を 0.6.0 に（第1b回と第1b2回の画面・窓の覚え書き・一時停止。Electron は 44.9.0 のままなので［更新して再起動］で当たる）
@@ -355,10 +356,13 @@ test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先�
   const login = install.indexOf('\n## ログインする');
   assert.ok(login > 0 && login < install.indexOf(`\n${step3}`), 'INSTALL のログインの手順が手順3 の前に無い');
   assert.ok(!install.includes('この時点で起動はしますが、文字起こしと要約はまだ動きません。'), 'INSTALL に「まだ動きません」が残っている');
-  assert.ok(install.includes('設定の「アカウント」でログインすると、インターネットにつながっているときは会議と音声入力が使えます。'));
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議と音声入力が使えます」は「会議が使えます」
+  assert.ok(install.includes('設定の「アカウント」でログインすると、インターネットにつながっているときは会議が使えます。'));
   const s3 = secOf(install, step3);
   assert.ok(s3.includes(`［${FETCH_BTN}］`), 'INSTALL の手順3 に初めのボタンの名前が無い');
-  for (const w of ['オフラインの会議', '音声を残し', '音声入力はオフラインでは始めません', 'オフラインモード']) assert.ok(s3.includes(w), `INSTALL の手順3 に「${w}」が無い`);
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「音声入力はオフラインでは始めません」の文を消した
+  for (const w of ['オフラインの会議', '音声を残し', 'オフラインモード']) assert.ok(s3.includes(w), `INSTALL の手順3 に「${w}」が無い`);
+  assert.ok(!s3.includes('音声入力'), 'INSTALL の手順3 に音声入力');
   assert.ok(!/約\s*7\s*GB 必要です/.test(install.split('\n').slice(0, 20).join('\n')) || /ローカル AI を使うときだけ/.test(install.split('\n').slice(0, 20).join('\n')),
     'INSTALL の前提の空きが「ローカル AI を使うときだけ」の書き方でない');
   assert.ok(!install.includes('ふつうは手順3（［PC の中の文字起こしを取り込む］）で足ります。'), 'INSTALL の困ったときに手順3 が要る書き方が残っている');
@@ -770,8 +774,9 @@ test('0.14.0: CHANGELOG の 0.14.0 の節（計画の下書きから移した）
   for (const n of names) assert.ok(src.includes(n), `0.14.0 の節の［${n}］が src/ に無い`);
   for (const w of ['口述の文を AI で整える', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去']) assert.ok(src.includes(w), `設定の名前「${w}」が src/ に無い`);
   const help = ['help/articles/summary/edit-summary.md', 'help/articles/dictation/dictation.md', 'help/articles/settings/hotkeys.md'].map(read).join('\n');
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: dictation/dictation を Win+H の案内に書き換えたので、「NaTsu の中で音声入力する」と「口述を整える」の節は無い（0.14.0 の節の文は書き換えない: RN3）
   for (const h of ['## 文字の飾り・リンク・色 {#marks}', '## 元に戻す・やり直す {#undo}', '## 貼り付け {#paste}', '## 行を選ぶ {#select}', '## メモも行で書く {#memo}',
-    '## NaTsu の中で音声入力する {#in-natsu}', '## 口述を整える {#tidy}', '## NaTsu の窓の中だけで効くキー {#in-app}']) {
+    '## NaTsu の窓の中だけで効くキー {#in-app}']) {
     assert.ok(help.includes(h), `ヘルプの記事に「${h}」の節が無い（CHANGELOG が引く節）`);
   }
 });
