@@ -767,3 +767,167 @@ test('EK-7: 記事に Aqua Voice・Typeless の名前が無く、直した記事
   for (const a of articles) assert.ok(!/aqua\s*voice|typeless/i.test(a.text), `${a.ref}: ほかの製品の名前がある`);
   for (const ref of EK7_REFS) assert.ok(!/notion/i.test(read(fileOf(ref))), `${ref}: Notion の名前がある`);
 });
+
+// ---------------------------------------------------------------- 0.15.0 PH-8（計画 docs/plans/2026-11-03-150.md の Task PH-8・決めたこと 1〜38・BQ4・BQ6・BQ8 (a)・RF60）
+// ページの中のページ・白紙のページ・サイドバーの木・引っ張る・［移動先…］・パンくず・Ctrl+Shift+N・子ごとのゴミ箱と［ゴミ箱］から戻す・検索と Claude の場所の行
+const PH8_REFS = ['find/page-tree', 'find/delete-and-backups', 'find/search', 'start/overview', 'settings/hotkeys', 'start/claude-mcp'];
+test('PH-8: 直した記事の ［…］ はアプリにある文字だけで、updated は 2026-11-04 から。pre は使わない。site.json の find に page-tree があり、説明に新しい働きがある', { timeout: 5000 }, () => {
+  const app = L.appLabelText(ROOT);
+  for (const ref of PH8_REFS) {
+    const a = articles.find((x) => x.ref === ref);
+    assert.ok(a, `${ref} の記事が無い`);
+    assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${ref}: アプリに無い ［…］`);
+    assert.ok(metaOf(a).updated >= '2026-11-04', `${ref}: updated を直した日にしていない`);
+    assert.ok(!/<pre|```/.test(a.text), `${ref}: pre の要素を使った`);
+  }
+  const find = site.categories.find((c) => c.id === 'find');
+  assert.ok(find.articles.includes('page-tree'), 'site.json の find に page-tree が無い');
+  for (const w of ['ページの中のページ', 'ゴミ箱']) assert.ok(find.description.includes(w), `find の説明に「${w}」が無い`);
+  // 新しく書いた画面の言葉（アプリの文字にあることは上で見る）
+  const pt = read(fileOf('find/page-tree'));
+  for (const w of ['［📄 白紙のページ］', '［🎙️ 議事録（録音の前のページ）］', '［移動先…］', '［いちばん上へ］', '［中にページを作る］', '［新しいタブで開く］', '［＋］', '/ページ', '[[Ctrl+Shift+N]]', '[[Ctrl+Shift+U]]', '[[Shift+F10]]', 'このページの中のページ', '無題のページ']) {
+    assert.ok(pt.includes(w), `find/page-tree に ${w} が無い`);
+  }
+  for (const w of ['［ゴミ箱］', '［戻す］']) assert.ok(read(fileOf('find/delete-and-backups')).includes(w), `find/delete-and-backups に ${w} が無い`);
+});
+
+test('PH-8: 近道の表は SHORTCUTS と同じで、Ctrl+Shift+N・Ctrl+Shift+U の行がある（表そのものは EK-7・U3 のテストが一字ずつ照らす）', { timeout: 5000 }, () => {
+  const sec = ek7Sec(read(fileOf('settings/hotkeys')), 'in-app');
+  for (const k of ['Ctrl+Shift+N', 'Ctrl+Shift+U']) {
+    const row = SHORTCUTS.find((r) => r.keys === k);
+    assert.ok(row, `SHORTCUTS に ${k} が無い（このテストの前提が崩れた）`);
+    assert.ok(tableRows(sec).some((r) => r[1] === `[[${k}]]` && r[2] === row.what), `${k} の行が SHORTCUTS と違う`);
+  }
+});
+
+test('PH-8・BQ4・BQ6・RF60: 「録音中のページは動かせません」「新しい議事録はいちばん上にできます」「一緒に消した中のページも戻ります」「ゴミ箱のページは Claude に出ません」の字がある。「戻す画面はありません」は無い', { timeout: 5000 }, () => {
+  const pt = read(fileOf('find/page-tree'));
+  const del = read(fileOf('find/delete-and-backups'));
+  for (const w of ['録音中のページは動かせません', '新しい議事録はいちばん上にできます']) assert.ok(pt.includes(w), `find/page-tree に「${w}」が無い`);
+  for (const w of ['一緒に消した中のページも戻ります', 'ゴミ箱のページは Claude に出ません']) assert.ok(del.includes(w), `find/delete-and-backups に「${w}」が無い`);
+  assert.ok(read(fileOf('start/claude-mcp')).includes('ゴミ箱のページは Claude に出ません'), 'start/claude-mcp に「ゴミ箱のページは Claude に出ません」が無い');
+  assert.ok(!del.includes('戻す画面はありません'), '前の版の「戻す画面はありません」が残っている');
+  // 検索の場所の行と、白紙のページも Claude から読めること（BQ8 (a)）
+  assert.ok(read(fileOf('find/search')).includes('場所: '), 'find/search に場所の行が無い');
+  assert.ok(read(fileOf('find/search')).includes('（白紙のページ）'), 'find/search に白紙のページの ToDo の印が無い');
+  assert.ok(read(fileOf('start/claude-mcp')).includes('白紙のページ'), 'start/claude-mcp に白紙のページが無い');
+  assert.ok(read(fileOf('start/overview')).includes('［ゴミ箱］'), 'start/overview に［ゴミ箱］が無い');
+});
+
+test('PH-8: 直した記事に Notion の名前が無い（ほかのアプリの名前と説明の文を写さない）', { timeout: 5000 }, () => {
+  for (const ref of PH8_REFS) assert.ok(!/notion/i.test(read(fileOf(ref))), `${ref}: Notion の名前がある`);
+});
+
+// ---------------------------------------------------------------- 0.15.0 PH-8 直し（2026-11-04 の e235d8b..831ce7c の点検 rv31。計画の R69）
+// PH-8 の記事が「…」で写した画面の文（確かめの文・知らせ・手引き・見出し）は、記事にその形であり、アプリのその文を作るコードの字（文字列の書き方のまま）にもある。
+// PL-1・PH-8 直し 2（rv32。計画の R72）で意図して直した: 前は src/ の全部の文字（注を含む）に切れ端があるかを見ていたので、短い文（「戻しました」「## 本文」）は
+// 注やほかの文に残った古い字で通ってしまった。今は文ごとに、作る所のファイルと、そこの文字列を決めて照らす。
+// PL-2 直し（rv33 M3・計画の R75）で意図して直した: R72 は文字列の前後のコード（定数の名前・三項・呼ぶ所）まで照らしていたので、名前を替える・引用符を
+// 替えるだけで赤になった。今は文字列そのものだけを照らす: q は引用符（' " ` のどれでも）で閉じた文字列（前後の字がちょうど引用符）・t は ` で閉じた
+// 文字列の中身（${…} を含むそのまま）・h は id の要素の中の字
+const PH8_QUOTES = [
+  ['find/page-tree', 'ここに書く（/ で行の型を選べます）', [['src/renderer/app.html', 'q', 'ここに書く（/ で行の型を選べます）']]],
+  ['find/page-tree', '無題のページ', [['src/renderer/app.html', 'q', '無題のページ']]],
+  ['find/page-tree', '新しいページ', [['src/renderer/app.html', 'h', 'newPopHead', '新しいページ']]],
+  ['find/page-tree', '録音中です', [['src/renderer/app.html', 'q', '録音中です']]],
+  ['find/page-tree', 'ページ … 件をゴミ箱に入れました（Ctrl+Z で戻せます）', [['src/renderer/app.html', 't', 'ページ ${n} 件をゴミ箱に入れました（Ctrl+Z で戻せます）']]],
+  ['find/page-tree', 'ページの行は複製できません', [['src/renderer/app.html', 'q', 'ページの行は複製できません']]],
+  ['find/page-tree', 'このページの中のページ', [['src/renderer/app.html', 'q', 'このページの中のページ']]],
+  ['find/delete-and-backups', 'この議事録を削除します。よろしいですか？', [['src/renderer/app.html', 'q', 'この議事録を削除します。よろしいですか？']]],
+  ['find/delete-and-backups', 'このページをゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）', [['src/renderer/app.html', 'q', 'このページをゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）']]],
+  ['find/delete-and-backups', 'このページと中のページ … 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）', [['src/renderer/app.html', 't', 'このページと中のページ ${n} 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）']]],
+  ['find/delete-and-backups', '戻しました', [['src/renderer/app.html', 'q', '戻しました']]],
+  ['find/delete-and-backups', 'このページの中のページ', [['src/renderer/app.html', 'q', 'このページの中のページ']]],
+  ['find/search', '場所: 親 / 子 ・ ', [['src/renderer/app.html', 't', '場所: ${place} ・ ${s1.textContent}']]],
+  ['find/search', '（白紙のページ）題名', [['src/renderer/app.html', 't', '（白紙のページ）${oneLine(x.pageTitle) || blankUntitled()}']]],
+  ['start/claude-mcp', '（白紙のページ）題名', [['src/mcp/tools.js', 't', '（${F.BLANK_LABEL}）${F.titleLine({ title: a.pageTitle, kind: a.kind })}'], ['src/mcp/format.js', 'q', '白紙のページ']]],
+  ['start/claude-mcp', '場所: 親 / 子', [['src/mcp/format.js', 't', '- 場所: ${place}']]],
+  ['start/claude-mcp', '## 本文', [['src/mcp/format.js', 'q', '## 本文']]],
+];
+const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// 文字列そのものがコードにあるか（q: 引用符で閉じた文字列・t: ` の文字列・h: id の要素の字）
+function hasLiteral(code, kind, a, b) {
+  if (kind === 'q') return new RegExp(`(['"\`])${reEsc(a)}\\1`).test(code);
+  if (kind === 't') return code.includes(`\`${a}\``);
+  if (kind === 'h') return new RegExp(`\\bid="${reEsc(a)}"[^>]*>${reEsc(b)}<`).test(code);
+  throw new Error(`知らない形 ${kind}`);
+}
+test('PH-8 直し（rv31）・PL-1・PH-8 直し 2（rv32）・PL-2 直し（rv33）: PH-8 の記事が「…」で写した画面の文は、記事にその形であり、その文を作るコードの文字列にもある（確かめの文・知らせを直すと記事も直す。名前や引用符を替えても赤にしない）', { timeout: 5000 }, () => {
+  const src = new Map();
+  const code = (f) => { if (!src.has(f)) src.set(f, read(f)); return src.get(f); };
+  for (const [ref, quote, lits] of PH8_QUOTES) {
+    assert.ok(read(fileOf(ref)).includes(`「${quote}」`), `${ref} に「${quote}」が無い`);
+    for (const [f, kind, a, b] of lits) assert.ok(hasLiteral(code(f), kind, a, b), `${ref} の「${quote}」を作る文字列が ${f} に無い（画面の文を変えたら記事も直す）: ${a}`);
+  }
+  // 照らし方そのもの: 文字列の中の切れ端・注の字・閉じていない字では通らず、引用符の違いと前後の名前では落ちない
+  assert.deepStrictEqual(['const A = "戻しました";', "x = '戻しました' + y", 'toast(`戻しました`)'].map((c) => hasLiteral(c, 'q', '戻しました')), [true, true, true]);
+  assert.deepStrictEqual(["'既定に戻しました'", '// 戻しました', "'戻しました。'", "'戻しました\""].map((c) => hasLiteral(c, 'q', '戻しました')), [false, false, false, false]);
+  assert.strictEqual(hasLiteral('toast(`ページ ${n} 件`)', 't', 'ページ ${n} 件'), true);
+  assert.strictEqual(hasLiteral("'ページ ${n} 件'", 't', 'ページ ${n} 件'), false);
+  // 白紙のページの2行目は日付だけ（R66）
+  assert.ok(read(fileOf('find/search')).includes('白紙のページでは日付だけです'), 'find/search に白紙のページの2行目が日付だけなことが無い');
+});
+
+// ---------------------------------------------------------------- 0.15.0 PL-3（計画の Task PL-3・決めたこと 35〜42）: ページのアイコンと見た目の記事
+test('PL-3: 記事 find/page-look の ［…］ はアプリにある文字だけで、updated は 2026-11-04 から。pre は使わない。site.json の find にあり、アイコンの選び・見た目の3つ・効く所・録音中の節がある', { timeout: 5000 }, () => {
+  const app = L.appLabelText(ROOT);
+  const a = articles.find((x) => x.ref === 'find/page-look');
+  assert.ok(a, 'find/page-look の記事が無い');
+  assert.deepStrictEqual(L.missingLabels(a.text, app), [], 'アプリに無い ［…］');
+  assert.ok(metaOf(a).updated >= '2026-11-04');
+  assert.ok(!/<pre|```/.test(a.text), 'pre の要素を使った');
+  assert.ok(site.categories.find((c) => c.id === 'find').articles.includes('page-look'));
+  for (const w of ['［全幅］', '［小さい文字］', '［書体 ▸］', '［外す］', '［最近使ったもの］', '標準・明朝・等幅', '{#icon}', '{#look}', '{#live}', '[[Esc]]', '約 500', '旗', 'Claude から読む答えには出ません', 'ほかのページには効きません', '録音中の会議のページでは、アイコンと見た目は変えられません']) {
+    assert.ok(a.text.includes(w), `find/page-look に「${w}」が無い`);
+  }
+  assert.ok(!/notion/i.test(a.text), 'Notion の名前がある');
+  // 記事の絵文字の一覧の分類は辞書の分類と同じ並び
+  assert.ok(a.text.includes(`（${require('../src/emojiDict').CATS.map((c) => c.label).join('・')}）`), '分類の並びが辞書と違う');
+});
+
+// ---------------------------------------------------------------- 0.15.0 Task G（計画の Task G・R78）: README の「画面の使い方」・設計書の D の行と H1・H5・U3・notion-behavior の答え
+test('0.15.0 Task G: README の「画面の使い方」にページの階層・新しいページ・ゴミ箱・アイコンと見た目の項目、近道に Ctrl+Shift+N・U。設計書に D115〜D123 と H1・H5・U3 の書き添え、notion-behavior の X-02・Q-16・Q-21 に答え', { timeout: 5000 }, () => {
+  const readme = read('README.md');
+  const use = readme.slice(readme.indexOf('### 画面の使い方'), readme.indexOf('\n### 音声入力'));
+  for (const w of ['**ページの中のページ・白紙のページ（0.15.0 から）:**', '**新しいページ（0.15.0 から）:**', '**ゴミ箱（0.15.0 から）:**', '**ページのアイコンと見た目（0.15.0 から）:**',
+    '［中にページを作る］', '［移動先…］', '`/ページ`', '「このページの中のページ」', '［📄 白紙のページ］', '［🎙️ 議事録（録音の前のページ）］', '［🗑️ ゴミ箱］', '［戻す］', '［最近使ったもの］', '［外す］', '［全幅］', '［小さい文字］', '［書体 ▸］']) {
+    assert.ok(use.includes(w), `README の「画面の使い方」に「${w}」が無い`);
+  }
+  const app = read('src/renderer/app.html');
+  for (const m of use.slice(use.indexOf('**ページの中のページ')).matchAll(/［([^］]+)］/g)) {
+    const n = m[1].replace(/^[^\p{L}\p{N}]+\s*/u, '');
+    assert.ok(app.includes(n), `README の［${m[1]}］がアプリに無い`);
+  }
+  const keys = readme.slice(readme.indexOf('### ホットキー'), readme.indexOf('\n## ', readme.indexOf('### ホットキー')));
+  for (const k of ['`Ctrl+Shift+N`', '`Ctrl+Shift+U`']) assert.ok(keys.includes(k), `README のホットキーに ${k} が無い`);
+  assert.ok(readme.includes('**白紙のページと中のページ（0.15.0 から）:**'), 'README の MCP の節に白紙のページが無い');
+  const d = read('docs/plans/natsu-design.md');
+  for (let n = 115; n <= 123; n++) assert.ok(new RegExp(`^\\| D${n} \\| \\*\\*`, 'm').test(d), `設計書に D${n} の行が無い`);
+  assert.ok(!/^\| D11[34] \|/m.test(d), '設計書に D113・D114 の行がある（ほかの道で使う番号）');
+  for (const [h, w] of [['H1', 'D117'], ['H5', 'D120'], ['U3', 'D121']]) {
+    const row = d.split('\n').find((l) => l.startsWith(`| ${h} |`));
+    assert.ok(row && row.includes(`0.15.0 で改めた: ${w}`), `設計書の ${h} に ${w} の書き添えが無い`);
+  }
+  assert.ok(d.includes('| 0.15.0（ページの階層とページのアイコン・見た目: `docs/plans/2026-11-03-150.md`'), '設計書の版の表の 0.15.0 の欄が前のまま');
+  const nb = read('docs/plans/notion-behavior.md');
+  for (const id of ['X-02', 'Q-16', 'Q-21']) {
+    const row = nb.split('\n').find((l) => l.startsWith(`| ${id} |`));
+    assert.ok(row && row.includes('（2026-11-03 の 0.15.0 の'), `notion-behavior の ${id} に答えが無い`);
+  }
+});
+
+// ---------------------------------------------------------------- 0.15.0 最後の点検の直し（R80・2026-11-06 の a3f0925..707ad1e の点検）: 前の版で消した議事録もゴミ箱に並ぶ
+test('R80: find/delete-and-backups と find/page-tree に、0.15.0 より前の版で消した議事録も［ゴミ箱］に並び戻せること、ゴミ箱を空にできないことがある', { timeout: 5000 }, () => {
+  const del = articles.find((x) => x.ref === 'find/delete-and-backups');
+  const restore = del.text.slice(del.text.indexOf('## ゴミ箱から戻す {#restore}'), del.text.indexOf('\n## ', del.text.indexOf('## ゴミ箱から戻す {#restore}') + 3));
+  for (const w of ['0.15.0 より前の版で消した議事録も、［ゴミ箱］ に並びます', '200 まで', '［戻す］ で戻せます', 'ゴミ箱を空にすることはできません']) {
+    assert.ok(restore.includes(w), `find/delete-and-backups の「ゴミ箱から戻す」に「${w}」が無い`);
+  }
+  assert.ok(metaOf(del).updated >= '2026-11-06');
+  const tree = articles.find((x) => x.ref === 'find/page-tree');
+  assert.ok(tree.text.includes('0.15.0 より前の版で消した議事録も ［ゴミ箱］ に並び、戻せます（[ゴミ箱から戻す](find/delete-and-backups.md#restore)）'), 'find/page-tree に前の版で消した議事録のことが無い');
+  const app = L.appLabelText(ROOT);
+  for (const a of [del, tree]) assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${a.ref}: アプリに無い ［…］`);
+  // CHANGELOG の 0.15.0 の節にも、持ち主が承認した文がそのまま
+  assert.ok(read('CHANGELOG.md').includes('今までに消した議事録も［ゴミ箱］に並び、戻せます。'), 'CHANGELOG に前の版で消した議事録の文が無い');
+});

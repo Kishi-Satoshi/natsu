@@ -86,12 +86,24 @@ function summaryOf(entry, route) {
   return by === 'claude-code' ? 'あり（Claude Code）' : by === 'local' ? 'あり（PC）' : 'あり';
 }
 
-// 一覧の1行（決まった欄だけ）
-function meetingLine(entry, attrs = {}) {
+// 0.15.0 PH-7（計画 docs/plans/2026-11-03-150.md の決めたこと 34・F116・HR19）: 白紙のページの印（会議の種類と長さの代わり）と無題の名前
+const BLANK_LABEL = '白紙のページ';
+const BLANK_UNTITLED = '無題のページ';
+const isBlank = (x) => Boolean(x) && x.kind === 'blank';
+// 題名の1行（無題は白紙のページなら「無題のページ」・議事録は「(無題の議事録)」）
+const titleLine = (x) => safeLine((x && x.title) || '') || (isBlank(x) ? BLANK_UNTITLED : '(無題の議事録)');
+
+// 一覧の1行（決まった欄だけ）。0.15.0 PH-7（決めたこと 34）: place は子ページの場所の文（呼び手が題名を1行にして組んだもの。最上位は ''）。
+// 白紙のページは日付・題名・「白紙のページ」・場所・開いた ToDo・ID だけ（会議の種類・長さ・要約・質・文字起こしの欄は無い）
+function meetingLine(entry, attrs = {}, { place = '' } = {}) {
+  const at = place ? [`場所: ${place}`] : [];
+  const blank = isBlank(entry);
+  if (blank) return `- ${[dateWithDay(entry.date) || safeLine(String(entry.date || '')), titleLine(entry), BLANK_LABEL, ...at, `開いた ToDo ${Number(entry.openActionCount) || 0}`, `ID ${entry.id}`].join('｜')}`;
   const route = attrs && attrs.route;
   const parts = [
     dateWithDay(entry.date) || safeLine(String(entry.date || '')),
     safeLine(entry.title || '(無題の議事録)'),
+    ...at,
     `長さ ${clock((entry.durationSec || 0) * 1000)}`,
     typeLabel(entry.meetingType),
     `要約: ${summaryOf(entry, route)}`,
@@ -203,7 +215,7 @@ function placeText(p) {
     const t = Number.isFinite(p.atMs) && Number.isFinite(p.endMs) ? ` [${clock(p.atMs)}〜${clock(p.endMs)}]` : '';
     return `文字起こし ${p.from}〜${p.to}${t}`;
   }
-  if (p.kind === 'b') return `要約「${p.heading}」`;
+  if (p.kind === 'b') return `${p.blank ? '本文' : '要約'}「${p.heading}」`;   // 0.15.0 PH-7: 白紙のページは本文の節
   // 0.11.0 T-6（決めたこと 41）: 型の見出しの下の段落は見出しの名前（chunkMemo が型の表の名前だけを入れる）
   return p.heading ? `メモ「${p.heading}」（段落 ${p.n}）` : `メモ（段落 ${p.n}）`;
 }
@@ -211,6 +223,7 @@ function placeText(p) {
 // anchor は箇所の印の # の後ろ（t:s12-s18・b:<ブロック>・m:<段落>）。住所を作れなければリンクにしない
 function placeLink(p, pageId, anchor) {
   const url = natsulink.openUrl(pageId, anchor);
+  if (p.kind === 'b' && p.blank) return url ? `[本文の節](${url})「${p.heading}」` : placeText(p);   // 0.15.0 PH-7: 白紙のページは本文の節
   if (p.kind === 'b') return url ? `[要約の節](${url})「${p.heading}」` : placeText(p);
   return url ? `[${placeText(p)}](${url})` : placeText(p);
 }
@@ -250,11 +263,13 @@ function sortSegs(segments) {
 //   → { text, next }（next は続きの発言の ID か null）。12,000 文字で切るときも、出し終えていない見出しは切った後に出す
 const CUT_NOTE = '（長いので、ここで切りました）';
 const SECTION_RESERVE = 160;   // 後ろの見出しと最初の1行の分
-function propLines(page) {
+function propLines(page, place = '') {
   const lines = [];
   const time = timeOf(page.createdAt);
   const d = dateWithDay(page.date) || safeLine(String(page.date || ''));
   if (d) lines.push(`- 日付: ${d}${time}`);
+  const at = place ? [`- 場所: ${place}`] : [];   // 0.15.0 PH-7（決めたこと 34）: 子ページの場所
+  if (isBlank(page)) return [...lines, `- ${BLANK_LABEL}`, ...at, `- ID: ${page.id}`, ...linkLine(page.id)];   // 白紙のページは会議の欄を出さない（F116）
   lines.push(`- 長さ: ${clock((Number(page.durationSec) || 0) * 1000)}`);
   lines.push(`- 会議の種類: ${typeLabel(page.meetingType)}`);
   // 0.11.0 T-6（決めたこと 40）: メモの型（種類から決まる。決まらなかった会議は会議の要点）と打ち合わせの質
@@ -269,12 +284,15 @@ function propLines(page) {
   if (cs.total > 0) lines.push(`- 出典: ${cs.linked}/${cs.total}`);
   const st = stateLine(page.stateLog);
   if (st) lines.push(st);
-  lines.push(`- ID: ${page.id}`, ...linkLine(page.id));
+  lines.push(...at, `- ID: ${page.id}`, ...linkLine(page.id));
   return lines;
 }
 // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も）。番号は親ごと。トグルは「- 」、トグル見出しは見出しの決まり
-function summaryLines(page) {
-  const out = ['## 要約'];
+// 0.15.0 PH-7（決めたこと 34）: 白紙のページは「## 本文」。本文の子ページの行は「- 📄 題名（中のページ）」（subTitle(id) は呼び手が DB から読んで1行にした題名。
+// 一覧に出ないページ（ゴミ箱・無い）は null で、行を出さない。行の ID は出さない）
+function summaryLines(page, subTitle = () => null) {
+  const blank = isBlank(page);
+  const out = [blank ? '## 本文' : '## 要約'];
   // 2026-10-28 の点検 4（NR40）: 見出しは下げない（4つ以上の空白の行はコードの塊になる）。見出しの後の行は見出しの段から数え直す（blockEdit.blocksMarkdown と同じ）
   let base = 0;
   const walk = (blocks, depth) => {
@@ -285,6 +303,7 @@ function summaryLines(page) {
       const pad = '  '.repeat(depth - base);
       // 0.13.0 ED-3: 段 1・2 は ###、段 3 は ####（段の無い前の版の見出しは段 2）
       if (b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`${blockEdit.headingLevel(b) === 3 ? '####' : '###'} ${t}`); }
+      else if (b.type === 'subpage') { const t = subTitle(b.page); if (t) out.push(`${pad}- 📄 ${t}（中のページ）`); }
       else {
         const l = blockLine(b, page.id, nums.get(b.id));
         if (l) out.push(`${pad}${l}`);
@@ -293,7 +312,8 @@ function summaryLines(page) {
     }
   };
   walk(Array.isArray(page.blocks) ? page.blocks : [], 0);
-  if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);
+  if (out.length === 1 && blank) out.push('本文はまだありません。');
+  else if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);
   return out;
 }
 // 0.11.0 T-6（決めたこと 40）: 要約の後の点の節（軸の名前・点・理由・出典の印）。点が無い・壊れていれば []
@@ -312,11 +332,13 @@ function fitLines(lines, budget) {
   if (text.length <= budget) return text;
   return `${cut(text, Math.max(0, budget - CUT_NOTE.length - 1)).text}\n${CUT_NOTE}`;
 }
-function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true } = {}) {
+// 0.15.0 PH-7（決めたこと 34）: place は子ページの場所の文・subTitle は本文の子ページの行の題名（どちらも呼び手が1行にしたもの）。
+// 白紙のページは頭・「## 本文」だけ（メモと文字起こしは無い: BQ2）
+function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true, place = '', subTitle } = {}) {
   const segs = sortSegs(Array.isArray(segments) ? segments : []);
   // 0.12.0 SP-4（決めたこと 138）: 文字起こしの行はタイムラインの行（parts のある区間は文ごとの行）。「全 N 発言」と transcript_from は発言のまま
   const rows = timelineItems(segments);
-  const head = [...(header ? [NOTICE] : []), `# ${safeLine(page.title || '') || '(無題の議事録)'}`];
+  const head = [...(header ? [NOTICE] : []), `# ${titleLine(page)}`];
   const wantTr = includeTranscript || Boolean(from);
   let start = 0;
   if (from) start = segs.findIndex((s) => s.id === from);
@@ -326,8 +348,9 @@ function meetingMarkdown(page, segments, { includeTranscript = false, from = nul
   if (from) {
     take([...head, `- ID: ${page.id}`, ...linkLine(page.id)].join('\n'));
   } else {
-    take([...head, ...propLines(page)].join('\n'));
-    take(fitLines([...summaryLines(page), ...qualityLinesOf(page)], left - SECTION_RESERVE * 2));
+    take([...head, ...propLines(page, place)].join('\n'));
+    if (isBlank(page)) { take(fitLines(summaryLines(page, subTitle), left)); return { text: parts.join('\n'), next: null }; }
+    take(fitLines([...summaryLines(page, subTitle), ...qualityLinesOf(page)], left - SECTION_RESERVE * 2));
     take(fitLines(memoLines(page), left - SECTION_RESERVE));
   }
   let next = null;
@@ -378,4 +401,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { BLANK_LABEL, BLANK_UNTITLED, isBlank, titleLine, UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

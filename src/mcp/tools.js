@@ -13,6 +13,7 @@ const commands = require('../db/commands');
 const meetingType = require('../meetingType');
 const { ID_RE } = require('../db/validate');
 const natsulink = require('../natsulink');
+const PT = require('../pageTree');
 
 const MAX_RESULT_CHARS = 12000;
 // 箇所の検索の候補（決めたこと 71）: 語ごとに引く行の上限と、読んで箇所に切る会議の数。テストだけ callTool の第3引数で小さくできる（環境変数ではない: 決めたこと 33）
@@ -54,7 +55,7 @@ const TOOLS = Object.freeze([
   {
     name: 'list_meetings',
     title: '議事録の一覧',
-    description: 'NaTsu に保存された議事録（会議の記録）の一覧を、新しい順に返します。日付で絞るときは from・to に YYYY-MM-DD を入れるか、dates に日付の並びを入れます（例: 10/20 の会議は from と to の両方に 2026-10-20）。会議の種類は meeting_types で絞れます。今日の日付は答えの頭にあります。中身を読むときは get_meeting（1つ）か get_meetings（いくつか）に ID を渡します。各行の「質 N/25」は打ち合わせの質の点（会議の進め方の目安）で、「最近の自分の会議の打ち合わせの質の推移」のような頼みにも使えます。',
+    description: 'NaTsu に保存された議事録（会議の記録）の一覧を、新しい順に返します。白紙のページ（会議でないページ）も含みます。日付で絞るときは from・to に YYYY-MM-DD を入れるか、dates に日付の並びを入れます（例: 10/20 の会議は from と to の両方に 2026-10-20）。会議の種類は meeting_types で絞れます。今日の日付は答えの頭にあります。中身を読むときは get_meeting（1つ）か get_meetings（いくつか）に ID を渡します。各行の「質 N/25」は打ち合わせの質の点（会議の進め方の目安）で、「最近の自分の会議の打ち合わせの質の推移」のような頼みにも使えます。',
     inputSchema: schema({ from: DATE_PROP('この日から'), to: DATE_PROP('この日まで'), dates: DATES_PROP, meeting_types: TYPES_PROP, limit: INT(1, 100, 20, '件数'), offset: INT(0, OFFSET_MAX, 0, '飛ばす件数') }),
     annotations: ANNOTATIONS,
   },
@@ -254,9 +255,24 @@ function scopeText({ from, to, dates, meeting_types: types } = {}) {
 const scopeLead = (args) => { const s = scopeText(args); return s === 'すべて' ? 'すべての' : `${s} の`; };
 const H4 = '1on1・採用面接・事前面談の議事録は探していません（探すときは meeting_types か meeting_ids で指してください）。';
 
+// 0.15.0 PH-7（計画 docs/plans/2026-11-03-150.md の決めたこと 34・F122・RF77）: 子ページの場所と本文の子ページの行の題名。rows は listedRows の全部
+// （絞る前。親が絞りの外でも名前を出す）。木は一覧に出る行だけで組むので、ゴミ箱と録音中の写しの題名は出ない（RF60）。どの題名も F.safeLine で1行に
+function placesOf(rows) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const nameOf = (r) => F.safeLine(r.title || '') || (r.attrs && r.attrs.kind === 'blank' ? F.BLANK_UNTITLED : '(無題の議事録)');
+  const tree = PT.pageTree(rows);
+  return {
+    place: (id) => (byId.has(id) ? PT.placeText(tree, (x) => nameOf(byId.get(x)), id) : ''),
+    // PH-6・PH-7 直し（rv30 M-a）: 本文の子ページの行の題名は、そのページが今も host の子のときだけ（画面が灰色にする行は出さない: 決めたこと 55）
+    kidTitle: (host) => (id) => (byId.has(id) && byId.get(id).parentId === host ? nameOf(byId.get(id)) : null),
+  };
+}
+
 // ---------------------------------------------------------------- 道具の本体（db は読み取りだけの接続）
 function listMeetings(db, args, { now }) {
-  const rows = filterRows(commands.listedRows(db), { from: args.from, to: args.to, dates: args.dates, types: args.meeting_types });
+  const listed = commands.listedRows(db);
+  const places = placesOf(listed);
+  const rows = filterRows(listed, { from: args.from, to: args.to, dates: args.dates, types: args.meeting_types });
   const limit = args.limit || LIMITS.list[0];
   const offset = args.offset || 0;
   const head = [F.header(now), `${scopeLead(args)}議事録 ${rows.length} 件（新しい順）`];
@@ -267,7 +283,7 @@ function listMeetings(db, args, { now }) {
   for (; i < rows.length && lines.length < limit; i++) {
     const e = commands.entryOf(db, rows[i]);
     if (!e) continue;
-    const line = F.meetingLine(e, rows[i].attrs);
+    const line = F.meetingLine(e, rows[i].attrs, { place: places.place(rows[i].id) });
     if (size + 1 + line.length + reserve > MAX_RESULT_CHARS) break;
     size += 1 + line.length;
     lines.push(line);
@@ -317,7 +333,7 @@ function searchPassages(db, args, { now, ctx }) {
   for (const pid of cand) {
     const page = commands.readPage(db, pid);
     if (!page) continue;
-    const base = { pageId: pid, date: page.date, createdAt: page.createdAt, title: page.title, meetingType: meetingType.normalizeType(page.meetingType) };
+    const base = { pageId: pid, date: page.date, createdAt: page.createdAt, title: page.title, meetingType: meetingType.normalizeType(page.meetingType), ...(F.isBlank(page) ? { blank: true } : {}) };
     const list = [...P.chunkSummary(page.blocks), ...P.chunkMemo(page.memo), ...(withTr ? P.chunkSegments(commands.readSegments(db, pid)) : [])];
     list.forEach((p, i) => passages.push({ ...p, ...base, pos: i }));
     const ft = searchFold(page.title);
@@ -348,17 +364,19 @@ function searchPassages(db, args, { now, ctx }) {
 function getMeeting(db, args) {
   const row = commands.listedRows(db).find((r) => r.id === args.id);
   if (!row) return { error: 'not-found' };
+  const places = placesOf(commands.listedRows(db));   // 0.15.0 PH-7: 場所と子ページの行の題名（一覧に出る行だけ）
   const page = commands.readPage(db, args.id);
   if (!page) return { error: 'not-found' };
   const segments = commands.readSegments(db, args.id);
   if (args.transcript_from && !segments.some((s) => s.id === args.transcript_from)) return { error: 'no-seg' };
-  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS });
+  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS, place: places.place(args.id), subTitle: places.kidTitle(args.id) });
   return { text: md.text, count: 1 };
 }
 
 // get_meetings（決めたこと 76）。ids は渡された順、日付で指したときは日付の古い順・createdAt の古い順。cursor は {ID} か {ID}:s58
 function getMeetings(db, args, { now }) {
   const rows = commands.listedRows(db);
+  const places = placesOf(rows);
   let order;
   let missing = [];
   if (args.ids) {
@@ -399,7 +417,7 @@ function getMeetings(db, args, { now }) {
     if (!page) continue;
     const segments = commands.readSegments(db, id);
     const from = k === startIdx && startSeg && segments.some((s) => s.id === startSeg) ? startSeg : null;
-    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false };
+    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false, place: places.place(id), subTitle: places.kidTitle(id) };
     const full = F.meetingMarkdown(page, segments, { ...opts, budget: 1e9 });
     if (full.text.length <= left) {
       parts.push(full.text);
@@ -426,7 +444,8 @@ function expandPassage(db, args, { now }) {
   if (!commands.listedRows(db).some((r) => r.id === a.pageId)) return { error: 'not-found' };
   const page = commands.readPage(db, a.pageId);
   if (!page) return { error: 'not-found' };
-  const title = F.safeLine(page.title || '') || '(無題の議事録)';
+  const title = F.titleLine(page);
+  const blank = F.isBlank(page);
   const day = F.dateWithDay(page.date) || F.safeLine(String(page.date || ''));
   const head = F.header(now);
   if (a.kind === 't') {
@@ -471,7 +490,7 @@ function expandPassage(db, args, { now }) {
     if (!hit) return { error: 'no-anchor' };
     const sec = chunks.filter((c) => c.sec === hit.sec);
     const lines = [...(hit.heading === '（見出しなし）' ? [] : [`### ${hit.heading}`]), ...sec.flatMap((c) => c.lines)];
-    const body = [head, `## ${day}｜${title}｜${F.placeText(hit)}`, ...lines].join('\n');
+    const body = [head, `## ${day}｜${title}｜${F.placeText(blank ? { ...hit, blank } : hit)}`, ...lines].join('\n');
     const fit = F.cut(body, MAX_RESULT_CHARS - F.CUT_NOTE.length - 1);
     return { text: fit.cut ? `${fit.text}\n${F.CUT_NOTE}` : fit.text, count: 1 };
   }
@@ -506,7 +525,9 @@ function listActionItems(db, args, { now }) {
     parts.push(`担当: ${a.assignee ? F.safeLine(a.assignee) : '要確認'}`);
     const due = a.due || a.dueRaw;
     parts.push(due ? `期限: ${F.safeLine(due)}${a.due && a.dueApprox ? '（目安）' : ''}` : '期限: 要確認');
-    parts.push(`会議: ${F.dateWithDay(a.date) || F.safeLine(String(a.date || ''))} ${F.safeLine(a.pageTitle || '') || '(無題の議事録)'}（ID ${a.pageId}）`);
+    // 0.15.0 PH-7（HR19）: 白紙のページの ToDo は「（白紙のページ）題名」の印（日付は出さない）。議事録の行は今と同じ
+    const where = F.isBlank(a) ? `（${F.BLANK_LABEL}）${F.titleLine({ title: a.pageTitle, kind: a.kind })}` : `${F.dateWithDay(a.date) || F.safeLine(String(a.date || ''))} ${F.safeLine(a.pageTitle || '') || '(無題の議事録)'}`;
+    parts.push(`会議: ${where}（ID ${a.pageId}）`);
     const line = `- [ ] ${parts.join('｜')}`;
     if (size + 1 + line.length + 40 > MAX_RESULT_CHARS) break;
     size += 1 + line.length;

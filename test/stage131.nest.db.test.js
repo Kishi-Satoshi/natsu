@@ -472,10 +472,11 @@ function loadPreload() {
 // 0.14.0 EK-2 で意図して直した: block.paste・blocks.remove・blocks.move・blocks.duplicate・blocks.turnInto を足して 28（同じ表の行）
 // 0.14.0 MB-2 で意図して直した: page.setMemoDoc を足して 29（同じ表の行）
 // 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」・R7）で意図して直した: ページの木の4つを足して 33（照らしは同じ）
-test('NE-2: preload の APP_COMMANDS（33）は役 app の命令と同じ集まり。koeApp.blockIndent などは dbCall の1回で tx が付く。足した引数が無ければ今の形を送る。json-backend に block.indent は unknown-cmd', T, async () => {
+// 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の Task PL-2）で意図して直した: page.setIcon・page.setLook を足して 35（照らしは同じ）
+test('NE-2: preload の APP_COMMANDS（35）は役 app の命令と同じ集まり。koeApp.blockIndent などは dbCall の1回で tx が付く。足した引数が無ければ今の形を送る。json-backend に block.indent は unknown-cmd', T, async () => {
   const { exposed, p, SRC } = loadPreload();
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 33);
+  assert.strictEqual(names.length, 35);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const k = exposed.koeApp;
   k.blockIndent('pa1', 'b2', 'in'); k.blockSetOpen('pa1', 't', false); k.blockSetOpenAll('pa1', true);

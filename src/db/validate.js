@@ -11,6 +11,8 @@
 const mtype = require('../meetingType');
 const blockEdit = require('../blockEdit');
 const RT = require('../richText');   // 0.14.0 EB-1: リンクの頭の表（R73）
+const emojiDict = require('../emojiDict');   // 0.15.0 PL-2: ページのアイコンは辞書の絵文字だけ（決めたこと 35）
+const pageLookLib = require('../pageLook');   // 0.15.0 PL-2: ページの見た目は決まった形だけ（決めたこと 39）
 
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;      // 今の ID（p…・b…・s<n>・テストの p1）を全部通し、区切り・点・空白は通さない
 const TX_RE = /^[A-Za-z0-9:_.-]{8,120}$/;
@@ -235,6 +237,9 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   // 0.14.0 MB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 59・R69・R151）: メモの行の並び（page.setMemoDoc）。照らしは src/memoDoc.js の validateMemoDoc
   // （2,000 行・1MB・memoPlain の 10 万字・型と飾りの照らし・出典と印の欄は断る）で、整えた写しを保存する。memoDoc.js がこの部品を読むので、ここでは呼ぶときに読む
   memoDoc: (v) => require('../memoDoc').validateMemoDoc(v),
+  // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の決めたこと 35・39・F119）: ページのアイコン（辞書の絵文字1つか、外す ''）と見た目（決まった形に整えた写し。外れれば投げる）
+  pageIcon: (v) => { if (v !== '' && !emojiDict.isPageIcon(v)) throw bad('icon'); return v; },
+  pageLook: (v) => pageLookLib.normalizeLook(v),
 }));
 
 function checkArgs(spec, args) {

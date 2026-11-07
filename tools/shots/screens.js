@@ -103,6 +103,28 @@ const OPEN_NEW = `(async () => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true, bubbles: true }));
   return 1;
 })()`;
+// 0.15.0 PH-6: 1行目のページを開いて、サイドバーの［🗑️ ゴミ箱］を押す
+const OPEN_TRASH = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('tabBtnTrash').click();
+  return 1;
+})()`;
+// 0.15.0 PL-3: 1行目のページを開いて（非同期なので少し待つ）、ページの頭のアイコンを押してアイコンの選びを開く
+const OPEN_ICON = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('pIcon').click();
+  return 1;
+})()`;
+// 0.15.0 PL-3: 1行目のページを開いて「···」のメニューを開き、［書体 ▸］を押して 標準・明朝・等幅 を出す
+const OPEN_LOOK_MENU = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('pMore').click();
+  [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '書体 ▸').click();
+  return 1;
+})()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -437,6 +459,19 @@ const SCREENS = [
   { name: 'page-kids-light', page: 'app', theme: 'light', get answers() { return kidsAnswers(); }, act: OPEN_KIDS },
   { name: 'move-pop-light', page: 'app', theme: 'light', get answers() { return moveAnswers(); }, act: OPEN_MOVE },
   { name: 'new-pop-light', page: 'app', theme: 'light', act: OPEN_NEW },
+  // 0.15.0 PH-6（計画の「取り直す画面」）: ゴミ箱の窓（一緒に消したまとまりの頭の行・消した日時・中のページ n・［戻す］）。種にゴミ箱のページを持つのはこの画面だけ（ほかの画面は空）
+  { name: 'trash-pop-light', page: 'app', theme: 'light', get answers() { return trashAnswers(); }, act: OPEN_TRASH },
+  // 0.15.0 PL-3（計画の「取り直す画面」）: アイコンの選び（最近使ったもの・分類の見出しと並び）の明暗・全幅（拡大 200% で横の捲り棒が出ない）・
+  // 小さい文字と明朝・等幅・「···」の見た目の項目（全幅に印・［書体 ▸］を開いて明朝に印）。足した画面（まだ基準が無い）
+  { name: 'icon-pop-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON },
+  { name: 'icon-pop-dark', page: 'app', theme: 'dark', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON },
+  { name: 'look-wide-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true }); }, act: OPEN_PAGE },
+  { name: 'look-wide-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ wide: true }); }, act: OPEN_PAGE },
+  { name: 'look-small-serif-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ small: true, font: 'serif' }); }, act: OPEN_PAGE },
+  { name: 'look-mono-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ font: 'mono' }); }, act: OPEN_PAGE },
+  { name: 'page-menu-look-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true, font: 'serif' }); }, act: OPEN_LOOK_MENU },
+  // PL-3 直し（R77）: 小さい文字の拡大 200%（狭い窓の題名は標準の狭い窓より小さい）
+  { name: 'look-small-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ small: true }); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -550,10 +585,11 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚（まだ基準が無い）と、近道の表に行が増える settings-shortcuts-light・
 // 「···」に［移動先…］が増える page-menu-link の2枚・計画の表のとおり / メニューの edit-slash-light・edit-slash-dark（今の基準がある）。
 // PH-5 直し（R55。CI run 41758331037 の画像）: 近道の表が伸びて「ホットキー」のカードの下が下がり、捲り棒のつまみも変わる設定の［一般］の3枚（今の基準がある）
-const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
-  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light',
-  'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
-  'settings-light', 'settings-dark', 'settings-zoom200-dark']);
+// 0.15.0（版を 0.15.0 に上げる commit。Task G の後半: R79）: 持ち主が取り直しの見比べ（足した 20 枚: サイドバーの木・白紙のページ・本文の子ページの行・パンくず・
+// 議事録の子ページの一覧・［移動先…］・新しいページ・ゴミ箱の窓・アイコンの選び・全幅・小さい文字と書体・「···」の見た目の項目、取り直した 7 枚: 設定の［一般］の3枚と近道の表・
+// / メニュー・「···」の2枚）に「0.15.0の画面はこの見た目でよいです」（2026-11-06）と答えたので、CI run 41936731119（622444a）の artifact 13374567273 の .after.png（27 枚。
+// edit-slash-light・edit-slash-dark は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 195 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -773,6 +809,20 @@ function moveAnswers() {
   const page = fixtures()['koeApp.pageGet'].page;
   const p2 = LIST[1];
   return { ...a, 'koeApp.pageGet': { page: { ...page, id: p2.id, title: p2.title, date: p2.date, createdAt: p2.createdAt, durationSec: p2.durationSec }, segments: SEGMENTS } };
+}
+
+/** 0.15.0 PL-3: 見本のページ（一覧の1行目の page:get）に見た目 look を付けた答え */
+function lookAnswers(look) {
+  const a = fixtures()['koeApp.pageGet'];
+  return { 'koeApp.pageGet': { ...a, page: { ...a.page, look } } };
+}
+
+/** 0.15.0 PH-6: ゴミ箱の頭の行（DB の pages.trash の形。消した新しい順。白紙のページは中のページ 3 つと一緒に・議事録は1つで） */
+function trashAnswers() {
+  return { 'koeApp.pagesTrash': [
+    { id: 'pt1', title: '去年の計画', kind: 'blank', trashedAt: '2026-10-17T05:10:00.000Z', count: 3 },
+    { id: 'pt2', title: lib.meetingTitleAt('2026-10-02T01:00:00.000Z', JST_MIN), trashedAt: '2026-10-16T08:30:00.000Z', count: 0 },
+  ] };
 }
 
 /** 0.13.0 RDY-3: 録音の前のページ（main の meetingStatus() の形。録音していない・prep は空のメモと「自動」・クラウドで文字起こしする PC） */

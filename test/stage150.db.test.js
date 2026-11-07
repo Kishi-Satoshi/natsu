@@ -250,6 +250,21 @@ test('PH-2・H5・F113: page.delete と page.restore（親を消すと子孫の�
   assert.strictEqual(call(db, 'page.restore', { id: 'pnone' }).code, 'bad-args');
 }));
 
+// 0.15.0 最後の点検の直し（R80・2026-11-06 の a3f0925..707ad1e の点検 rv35 の Important）: 0.7.0〜0.14.0 の page.delete はページの行の trashed_at を書くだけ
+// （ops の trash の1つ）だった。その形で消した議事録も、0.15.0 の［ゴミ箱］に並び、戻せる（持ち主の答え「そのまま並べ、変更の記録とヘルプにはっきり書く（おすすめ）」。
+// 偶然でなく決めた動き）
+test('R80: 0.14.0 までの形で消した議事録（ページの行の trashed_at だけ）も pages.trash に頭として並び（中のページ 0）、page.restore で一覧に戻る', T, () => withDb((db) => {
+  const at = '2026-10-30T01:00:00.000Z';
+  db.prepare('update blocks set trashed_at = ? where id = ?').run(at, 'pa2');   // 0.14.0 の page.delete と同じ: ページの行だけ
+  assert.ok(!listOf(db).some((p) => p.id === 'pa2'), '前提: 前の版で消した議事録は一覧に出ない');
+  const r = call(db, 'pages.trash', {});
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(r.result.map((x) => [x.id, x.title, x.trashedAt, x.count]), [['pa2', '会議2', at, 0]], '前の版で消した議事録がゴミ箱に並ばない');
+  ok(call(db, 'page.restore', { id: 'pa2' }), 'page.restore');
+  assert.ok(listOf(db).some((p) => p.id === 'pa2'), '戻しても一覧に出ない');
+  assert.deepStrictEqual(call(db, 'pages.trash', {}).result, []);
+}));
+
 test('PH-2・F121: pages.trash（一緒に消したまとまりの頭だけ・count・消した新しい順・200 まで）', T, () => withDb((db) => {
   const c1 = create(db, 'pa1'); create(db, c1); create(db, 'pa1');
   const lone = create(db, 'pa2');
@@ -362,16 +377,17 @@ function loadPreload() {
   return { k: exposed.koeApp, givePort };
 }
 
-test('PH-2: preload の 33 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
+// 0.15.0 PL-2 で意図して直した: page.setIcon・page.setLook を足して 35（ページの命令は UNDO_CMDS に無い: 決めたこと 15）
+test('PH-2: preload の 35 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 33);
+  assert.strictEqual(names.length, 35);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   for (const cmd of ['page.create', 'page.move', 'page.restore', 'pages.trash']) assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd);
   assert.strictEqual(core.COMMANDS['pages.trash'].write, false);
   const reads = [.../const DB_READS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
   assert.ok(reads.includes('pages.trash'), 'pages.trash が読む命令でない');
   const undo = [.../const UNDO_CMDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  for (const cmd of ['page.create', 'page.move', 'page.restore', 'page.delete', 'pages.trash']) {
+  for (const cmd of ['page.create', 'page.move', 'page.restore', 'page.delete', 'pages.trash', 'page.setIcon', 'page.setLook']) {
     assert.ok(!UNDO_CMDS.has(cmd), `UNDO_CMDS に ${cmd}`);
     assert.ok(!undo.includes(cmd), `preload の UNDO_CMDS に ${cmd}`);
   }
@@ -398,7 +414,7 @@ test('PH-2 直し・R12: 木を歩くページの行は attrs の全部を読ま
   assert.match(sql, /json_extract\(attrs, '\$\.meeting\.phase'\)/);
 });
 
-test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子孫）で pages.trash（頭 300）・page.move・子孫 1,000 の page.delete・page.restore が目安以内（3 回の中央値。pages.trash は一覧の目安。書く命令は答えの一覧を作る分（同じ時に計った pages.list）を除いて、1 ページは一覧の目安・子孫 1,000 は一覧の目安の 2 倍: R22）', { timeout: 120000 }, (tc) => {
+test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子孫）で pages.trash（頭 300）・page.move・子孫 1,000 の page.delete・page.restore が目安以内（3 回の中央値。pages.trash は一覧の目安。書く命令は答えの一覧を作る分（同じ時に計った pages.list）を除いて、1 ページは一覧の目安・子孫 1,000 は一覧の目安の 2 倍: R22）', { timeout: 120000 }, async (tc) => {
   const t = tmpDb();
   try {
     const { db } = t.open();
@@ -414,47 +430,77 @@ test('PH-2 直し・R11・R12: 5,000 ページ（1KB のメモ・1,000 段の子
     call(db, 'pages.list', {});   // 一覧の1行を覚える（画面が開いた後の形）
     const budget = PF.budgetsFor(process.platform);
     const timed = (f) => { const t0 = process.hrtime.bigint(); const r = f(); return [Number(process.hrtime.bigint() - t0) / 1e6, r]; };
-    const median = (xs) => [...xs].sort((a, b) => a - b)[1];
-    // 書く命令の答えは一覧（今の page.delete と同じ）。一覧を作る分は今の一覧の速さ（PERF の list）なので、すぐ前に計った pages.list を引いて木の分を見る
+    // PH-8 直し（rv31。R70）で意図して変えた: 前は命令ごとに「命令の時間 − すぐ前の pages.list の時間」を3回取って中央値にしていた（差を取るたびに
+    // 一覧の揺れが2倍になり、負の値も出た）。今は命令の時間と、命令の前と後に計った pages.list の時間を別の並びに持ち、中央値どうしの差で決める
     const listMs = () => timed(() => call(db, 'pages.list', {}))[0];
-    const moves = []; const dels = []; const rests = []; const one = []; const oneDel = [];
-    for (let k = 0; k < 3; k++) {
-      let l = listMs();
-      const [m, mr] = timed(() => move(db, 'pp04000', k % 2 ? 'pp00600' : 'pp00500'));
-      assert.strictEqual(mr.ok, true, mr.code); moves.push(m - l);
-      tick(); l = listMs();
-      const [d, dr] = timed(() => call(db, 'page.delete', { id: 'pp00000' }));
-      assert.strictEqual(dr.ok, true, dr.code); dels.push(d - l);
-      tick(); l = listMs();
-      const [r, rr] = timed(() => call(db, 'page.restore', { id: 'pp00000' }));
-      assert.strictEqual(rr.ok, true, rr.code); rests.push(r - l);
-      tick(); l = listMs();
-      const [od, odr] = timed(() => call(db, 'page.delete', { id: 'pp03000' }));
-      assert.strictEqual(odr.ok, true, odr.code); oneDel.push(od - l);
-      tick(); l = listMs();
-      const [o, or] = timed(() => call(db, 'page.restore', { id: 'pp03000' }));
-      assert.strictEqual(or.ok, true, or.code); one.push(o - l);
-    }
+    // PL-2 直し（R75・rv33 M1）: 名前ごとに、計る命令を作る関数（計る前に呼ぶ）。動かす先は今の親でない方（pp00500 と pp00600）を表から決める
+    const WRITES = [
+      ['page.move', () => { const to = rowOf(db, 'pp04000').parent_id === 'pp00500' ? 'pp00600' : 'pp00500'; return () => move(db, 'pp04000', to); }],
+      ['page.delete（子孫 1,000）', () => () => call(db, 'page.delete', { id: 'pp00000' })],
+      ['page.restore（1,000 ページ）', () => () => call(db, 'page.restore', { id: 'pp00000' })],
+      ['page.delete（1 ページ）', () => () => call(db, 'page.delete', { id: 'pp03000' })],
+      ['page.restore（1 ページ）', () => () => call(db, 'page.restore', { id: 'pp03000' })],
+    ];
+    // 3回の組（命令は今と同じ並び: 動かす → 子孫ごと消す → 戻す → 1ページ消す → 戻す）→ { 名前: 中央値(命令) − 中央値(前後の一覧) }
+    // PL-1・PH-8 直し 2（rv32。R73）: 前は動かす先を組ごとに k で決めていたので、計り直しの組の最初の move がもういる所への同じ所（何も書かない）になり、
+    // 中央値を下へずらしていた。PL-2 直し（R75・rv33 M1）で意図して変えた: R73 の組をまたいだ交互（動かした数）は、はじめの組だけでは崩しても
+    // 赤にならなかった（計り直しの組でだけ同じ所になる）ので、動かす先を今の親から決め、動かすたびに親が替わったのを照らす（どの組でも同じに効く）
+    const writeRound = () => {
+      const cmd = new Map(WRITES.map(([n]) => [n, []]));
+      const lists = new Map(WRITES.map(([n]) => [n, []]));
+      for (let k = 0; k < 3; k++) {
+        for (const [n, make] of WRITES) {
+          tick();
+          lists.get(n).push(listMs());
+          const parent0 = rowOf(db, 'pp04000').parent_id;
+          const [ms, r] = timed(make());
+          assert.strictEqual(r.ok, true, `${n}: ${r.code}`);
+          assert.ok(opsOf(db, r.tx).length > 0, `${n}: 計った命令が何も書かなかった（同じ所への動かしは速さを測れない）`);
+          if (n === 'page.move') assert.notStrictEqual(rowOf(db, 'pp04000').parent_id, parent0, '動かしで親が替わらなかった');
+          cmd.get(n).push(ms);
+          lists.get(n).push(listMs());
+        }
+      }
+      return Object.fromEntries(WRITES.map(([n]) => [n, PF.median(cmd.get(n)) - PF.median(lists.get(n))]));
+    };
+    const first = writeRound();
     assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'page' and trashed_at is null").get().c, 5000);
     // 頭 300 のゴミ箱（消した時刻を1つずつ違える）は SQL で作る（命令で消すと、答えの一覧を 300 回作る）
     const trashAt = db.prepare('update blocks set trashed_at = ? where id = ?');
     db.exec('BEGIN');
     for (let i = 2000; i < 2300; i++) trashAt.run(new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString(), pid(i));
     db.exec('COMMIT');
-    const trash = [];
-    for (let k = 0; k < 3; k++) { const [x, xr] = timed(() => call(db, 'pages.trash', {})); assert.strictEqual(xr.result.length, 200); trash.push(x); }
+    const trashRound = () => {
+      const xs = [];
+      for (let k = 0; k < 3; k++) { const [x, xr] = timed(() => call(db, 'pages.trash', {})); assert.strictEqual(xr.result.length, 200); xs.push(x); }
+      return PF.median(xs);
+    };
     // R22: 一覧を引いた値は一覧の速さの揺れ（CI の台で ±50 ミリ秒ほど）を含むので、1 ページの命令は一覧の目安、子孫 1,000 の書き込み（台の書き込みの
     // 速さで決まる）は一覧の目安の 2 倍（Windows は CI で計った中央値の 2 倍の 800: R21。tools/perf.js の BUDGETS_WIN と同じ考え）。
     // メモを読まないこと（R12）は上の SQL の試験が、木を1回だけ作ること（R11）は pages.trash の目安が見る（直す前は 927 ミリ秒）
     const write = budget.list;
     const big = process.platform === 'win32' ? 800 : budget.list * 2;
-    tc.diagnostic(`pages.trash ${median(trash).toFixed(1)}・page.move ${median(moves).toFixed(1)}・page.delete ${median(dels).toFixed(1)}・page.restore（1,000）${median(rests).toFixed(1)}・page.delete（1）${median(oneDel).toFixed(1)}・page.restore（1）${median(one).toFixed(1)} ミリ秒（書く命令は一覧の分を引いた値）`);
-    assert.ok(median(trash) < budget.list, `pages.trash ${median(trash).toFixed(1)} ミリ秒`);
-    assert.ok(median(moves) < write, `page.move ${median(moves).toFixed(1)} ミリ秒`);
-    assert.ok(median(oneDel) < write, `page.delete（1 ページ）${median(oneDel).toFixed(1)} ミリ秒`);
-    assert.ok(median(dels) < big, `page.delete（子孫 1,000）${median(dels).toFixed(1)} ミリ秒`);
-    assert.ok(median(one) < write, `page.restore（1 ページ）${median(one).toFixed(1)} ミリ秒`);
-    assert.ok(median(rests) < big, `page.restore（1,000 ページ）${median(rests).toFixed(1)} ミリ秒`);
+    const BUDGET = { 'pages.trash': budget.list, 'page.move': write, 'page.delete（1 ページ）': write, 'page.delete（子孫 1,000）': big, 'page.restore（1 ページ）': write, 'page.restore（1,000 ページ）': big };
+    const firstAll = { 'pages.trash': trashRound(), ...first };
+    // 目安を越えた名前だけ、3回の組をもう2回まるごと計り直し、はじめと合わせた3回の中央値で決める（RF59・PG1 の PF.recheck と同じ決まり。目安の値は変えない）
+    const judged = Object.entries(BUDGET).map(([name, b]) => ({ name, ms: Number(firstAll[name].toFixed(2)), budget: b, ok: firstAll[name] < b }));
+    // PL-1・PH-8 直し 2（rv32。R73）: 計り直しの2回の組は、越えた名前のどれもが同じ組を読む（越えた名前ごとに組をまるごと計り直すと、6つとも越えたときに
+    // 2 × 6 回の組で 100 秒を越え、テストの時間切れで赤になって計り直しの値も残らなかった）。はじめの値は計り直しの前に出す
+    tc.diagnostic(`はじめ: ${judged.map((x) => `${x.name} ${x.ms.toFixed(1)}${x.ok ? '' : '（越えた）'}`).join('・')} ミリ秒`);
+    const extra = [];
+    const seen = new Map();
+    const againRound = (i) => {
+      if (!extra[i]) extra[i] = { 'pages.trash': trashRound(), ...writeRound() };
+      return extra[i];
+    };
+    const logs = [];
+    const out = await PF.recheck(judged, async (name) => {
+      const i = seen.get(name) || 0;
+      seen.set(name, i + 1);
+      return Number(againRound(i)[name].toFixed(2));
+    }, { rounds: 2, log: (l) => logs.push(l) });
+    tc.diagnostic(`${out.map((x) => `${x.name} ${x.ms.toFixed(1)}${x.tries ? `（${x.tries.join('・')}）` : ''}`).join('・')} ミリ秒（書く命令は中央値(命令) − 中央値(前後の一覧)）${logs.length ? `。${logs.join('。')}` : ''}`);
+    for (const x of out) assert.ok(x.ok, `${x.name} ${x.ms.toFixed(1)} ミリ秒（目安 ${x.budget}${x.tries ? `・計り直し ${x.tries.join('・')}` : ''}）`);
   } finally { t.done(); }
 });
 
@@ -953,6 +999,104 @@ test('PR-1 直し・R33（決めたこと 58）: 本文が 2,000 行の白紙の
   assert.deepStrictEqual([count(), subsRaw(db, 'pfull')], [N, [K4]]);
 }));
 
+// 0.15.0 PH-5 直し 2（R56。2026-11-04 の持ち主の答え「0.15.0 の中で直す」・44f4272..148ed34 の点検）: 満杯の本文の白紙のページの行の無い子の並び
+test('PH-5 直し 2・R56（R53 を直す）: 本文が 2,000 行の白紙のページの中で、行の無い子どうしの並べ替え・頭へ・外から動かし入れる（afterId なし）が一覧の並びに効く（行のある子の後ろの、行の無い子の中の所）。どれも oplog は1行で、後ろへ当てると表の ord に戻る', T, () => withDb((db, t) => {
+  const N = 2000;
+  const blocks = Array.from({ length: N - 2 }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: `行${i}` }));
+  t.seed({ id: 'pfull', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  const R1 = create(db, 'pfull'); const R2 = create(db, 'pfull');   // 行のある子（本文は 2,000 行になる）
+  const K = Array.from({ length: 6 }, () => create(db, 'pfull'));   // 行の無い子（R33）
+  assert.deepStrictEqual(subsRaw(db, 'pfull'), [R1, R2], '前提: 行のある子は2つ');
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, R2, ...K], '前提: 行のある子・行の無い子の順');
+  const step = (id, parentId, afterId, want, what) => {
+    const before = new Map(db.prepare("select id, ord, parent_id from blocks where type = 'page'").all().map((r) => [r.id, [r.ord, r.parent_id]]));
+    const n0 = oplogN(db);
+    const r = ok(move(db, id, parentId, afterId), `page.move ${what}`);
+    assert.strictEqual(oplogN(db), n0 + 1, `${what}: oplog が1行でない`);
+    assert.deepStrictEqual(kidsInList(db, 'pfull'), want, what);
+    assert.deepStrictEqual(subsRaw(db, 'pfull'), [R1, R2], `${what}: 満杯の本文に行を足した`);
+    applyOps(db, opsOf(db, r.tx), 'backward');
+    const back = new Map(db.prepare("select id, ord, parent_id from blocks where type = 'page'").all().map((x) => [x.id, [x.ord, x.parent_id]]));
+    assert.deepStrictEqual([...back], [...before], `${what}: 後ろへ当てても表の ord・親に戻らない`);
+    applyOps(db, opsOf(db, r.tx), 'forward');
+    assert.deepStrictEqual(kidsInList(db, 'pfull'), want, `${what}: 前へ当て直すと並びが違う`);
+  };
+  // (a) 行の無い子どうしの並べ替え（K0 を K1 の後ろへ）
+  step(K[0], 'pfull', K[1], [R1, R2, K[1], K[0], K[2], K[3], K[4], K[5]], '行の無い子の並べ替え');
+  // (b) 頭へ（''）・行のある兄弟の後ろへ → 行の無い子の頭（行の無い子は行のある子の前へは出られない）
+  step(K[5], 'pfull', '', [R1, R2, K[5], K[1], K[0], K[2], K[3], K[4]], '頭へ');
+  step(K[4], 'pfull', R1, [R1, R2, K[4], K[5], K[1], K[0], K[2], K[3]], '行のある兄弟の後ろへ');
+  // (c) 外のページを afterId なしで動かし入れる（［移動先…］の形）→ 最後
+  const Q = create(db);
+  step(Q, 'pfull', undefined, [R1, R2, K[4], K[5], K[1], K[0], K[2], K[3], Q], '外から動かし入れる');
+  // 最後の子をもう一度最後へは同じ所（書かない）
+  const n0 = oplogN(db);
+  const same = ok(move(db, Q, 'pfull'), 'page.move 同じ所');
+  assert.deepStrictEqual([opsOf(db, same.tx), oplogN(db) - n0], [[], 1], '同じ所に書いた');
+}));
+
+test('PH-5 直し 2・R56（M-5・R54）: 本文に行のある子を同じ白紙の親へ afterId なしで動かす（［移動先…］で親だけを選ぶ）と、もう最後の兄弟でも、行は本文の最後へ。行がもう本文の最後なら同じ所（書かない）', T, () => withDb((db) => {
+  const P = create(db);
+  const K1 = create(db, P); const K2 = create(db, P);
+  insert(db, P, subRow(db, P, K2).id);   // K2 の行の後ろにテキストの行
+  const tail = () => { const b = bodyOf(db, P); const x = b[b.length - 1]; return x.type === 'subpage' ? `page:${x.page}` : x.type; };
+  assert.strictEqual(tail(), 'paragraph', '前提: 本文の最後はテキストの行');
+  assert.deepStrictEqual(kidsInList(db, P), [K1, K2], '前提: K2 は最後の兄弟');
+  ok(move(db, K2, P), 'page.move');
+  assert.strictEqual(tail(), `page:${K2}`, '最後の兄弟の行が本文の最後へ動かない');
+  assert.deepStrictEqual(kidsInList(db, P), [K1, K2]);
+  const n0 = oplogN(db);
+  const r = ok(move(db, K2, P), 'page.move');
+  assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], '行がもう本文の最後なのに書いた');
+}));
+
+// 0.15.0 PH-5 直し 4（2026-11-04 の 148ed34..03abad4 の点検）: 満杯の本文の行の無い子の同じ所・ゴミ箱の兄弟の後ろ・行のある子の表の鍵
+test('PH-5 直し 4・R61: 満杯の本文の白紙のページで、行の無い子の今と同じ所への page.move（頭の子を頭へ・前の兄弟の後ろへ・ゴミ箱や録音中の兄弟の後ろで最後の子）は書かない。ゴミ箱・知らない兄弟の後ろは満杯でもそうでなくても末尾', T, () => withDb((db, t) => {
+  const N = 2000;
+  const blocks = Array.from({ length: N - 1 }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: `行${i}` }));
+  t.seed({ id: 'pfull', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  const R1 = create(db, 'pfull');   // 行のある子（本文は 2,000 行になる）
+  const K = Array.from({ length: 4 }, () => create(db, 'pfull'));   // 行の無い子
+  const T1 = create(db, 'pfull');
+  tick(); ok(call(db, 'page.delete', { id: T1 }), 'page.delete');   // ゴミ箱の兄弟
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, ...K], '前提');
+  const same = (id, afterId, what) => {
+    const n0 = oplogN(db);
+    const r = ok(move(db, id, 'pfull', afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 同じ所なのに書いた`);
+    assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, ...K]);
+  };
+  same(K[0], '', '行の無い子の頭を頭へ');
+  same(K[0], R1, '行の無い子の頭を行のある兄弟の後ろへ');
+  same(K[2], K[1], '前の兄弟の後ろへ');
+  same(K[3], T1, '最後の子をゴミ箱の兄弟の後ろへ（末尾）');
+  same(K[3], 'pzzunknown', '最後の子を知らない兄弟の後ろへ（末尾）');
+  // ゴミ箱の兄弟の後ろは末尾（満杯）
+  ok(move(db, K[0], 'pfull', T1), 'page.move');
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, K[1], K[2], K[3], K[0]], '満杯の本文でゴミ箱の兄弟の後ろが末尾でない');
+  // 満杯でない白紙のページでも同じ（末尾）
+  const P = create(db); const A = create(db, P); const B = create(db, P); const C = create(db, P); const TT = create(db, P);
+  tick(); ok(call(db, 'page.delete', { id: TT }), 'page.delete');
+  ok(move(db, A, P, TT), 'page.move');
+  assert.deepStrictEqual(kidsInList(db, P), [B, C, A], '満杯でない本文でゴミ箱の兄弟の後ろが末尾でない');
+}));
+
+test('PH-5 直し 4・R61: 行のある子の並びの鍵は本文の順から作った鍵の間（行の無い子の鍵の作り方を使わない）。行のある子の今と同じ所への afterId つきの page.move・自分の後ろは、行が本文の最後でなくても書かない', T, () => withDb((db) => {
+  const P = create(db);
+  const K1 = create(db, P); const K2 = create(db, P); const K3 = create(db, P);
+  const shown = new Map(call(db, 'pages.list', {}).result.filter((p) => p.parentId === P).map((p) => [p.id, p.ord]));
+  ok(move(db, K3, P, K1), 'page.move');
+  const o = rowOf(db, K3).ord;
+  assert.ok(o > shown.get(K1) && o < shown.get(K2), `行のある子の表の鍵が本文の順の鍵の間でない（${shown.get(K1)} < ${o} < ${shown.get(K2)}）`);
+  assert.deepStrictEqual(kidsInList(db, P), [K1, K3, K2]);
+  insert(db, P, subRow(db, P, K2).id);   // K2（最後の兄弟）の行の後ろにテキストの行
+  for (const [afterId, what] of [[K3, '前の兄弟の後ろ'], [K2, '自分の後ろ']]) {
+    const n0 = oplogN(db);
+    const r = ok(move(db, K2, P, afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 同じ所なのに書いた`);
+  }
+}));
+
 test('PR-1 直し・R34: 親がゴミ箱の白紙のページの子を戻すと、最上位へ出し、同じ命令でゴミ箱の親の本文から行を消す（後で親を戻しても灰色の行が残らない）', T, () => withDb((db) => {
   const P = create(db);
   const K = create(db, P);
@@ -1114,4 +1258,220 @@ test('PR-2 直し 3・R46: page.move の rowAfter が動かすページ自身の
   const y = ok(call(db, 'page.move', { id: K2, parentId: P, rowAfter: r2, rowParent: tg }), '同じ親の rowParent');
   assert.deepStrictEqual(opsOf(db, y.tx), []);
   assert.deepStrictEqual(dump(db), was2, '同じ所なのに何か書いた');
+}));
+
+// ---------------------------------------------------------------- 0.15.0 PH-6・PH-7 直し（2026-11-04 の 03abad4..e235d8b の点検。rv29 F1）
+test('PH-6・PH-7 直し（rv29 F1・決めたこと 16）: 満杯でない白紙のページで、本文の行がもう最後の子をゴミ箱・知らない兄弟の後ろ（末尾）へ動かすのは同じ所（書かない・版も上げない）。行が最後でなければ末尾へ動かす', T, () => withDb((db) => {
+  const P = create(db);
+  const A = create(db, P); const C = create(db, P); const TT = create(db, P);
+  tick(); ok(call(db, 'page.delete', { id: TT }), 'page.delete');
+  assert.deepStrictEqual(subsRaw(db, P), [A, C], '前提: 行のある子は A・C（C の行が本文の最後）');
+  for (const [afterId, what] of [[TT, 'ゴミ箱の兄弟の後ろ'], ['pzzunknown', '知らない兄弟の後ろ']]) {
+    const was = dump(db);
+    const n0 = oplogN(db);
+    const r = ok(move(db, C, P, afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 同じ所なのに書いた`);
+    assert.deepStrictEqual(dump(db), was, `${what}: 表が変わった（ord・rev・updatedAt）`);
+    assert.deepStrictEqual(kidsInList(db, P), [A, C]);
+  }
+  // 議事録の中（本文の行が無い）でも、最後の子をゴミ箱・知らない兄弟の後ろ（末尾）へは同じ所
+  const MA = create(db, 'pa1'); const MC = create(db, 'pa1'); const MT = create(db, 'pa1');
+  tick(); ok(call(db, 'page.delete', { id: MT }), 'page.delete');
+  for (const [afterId, what] of [[MT, '議事録の中のゴミ箱の兄弟の後ろ'], ['pzzunknown', '議事録の中の知らない兄弟の後ろ']]) {
+    const was = dump(db);
+    const r = ok(move(db, MC, 'pa1', afterId), `page.move ${what}`);
+    assert.deepStrictEqual(opsOf(db, r.tx), [], `${what}: 同じ所なのに書いた`);
+    assert.deepStrictEqual(dump(db), was, `${what}: 表が変わった`);
+    assert.deepStrictEqual(kidsInList(db, 'pa1'), [MA, MC]);
+  }
+  // 行が本文の最後でなければ、ゴミ箱の兄弟の後ろ（末尾）は行を本文の最後へ動かす（書く）
+  insert(db, P, subRow(db, P, C).id);
+  ok(move(db, C, P, TT), 'page.move');
+  const b = bodyOf(db, P);
+  assert.deepStrictEqual([b[b.length - 1].type, b[b.length - 1].page], ['subpage', C], '行が本文の最後へ動かない');
+}));
+
+test('PH-6・PH-7 直し（rv29 F1・決めたこと 16）: 満杯の本文の白紙のページで、行のある子を行の無い兄弟の後ろへ動かしても見える並びが変わらない（行がもう本文の最後）なら書かない。変わるなら書く', T, () => withDb((db, t) => {
+  const N = 2000;
+  const blocks = Array.from({ length: N - 2 }, (_, i) => ({ id: `fy${i}`, type: 'paragraph', text: `行${i}` }));
+  t.seed({ id: 'pfull', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks, createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  const R1 = create(db, 'pfull'); const R2 = create(db, 'pfull');   // 行のある子（本文は 2,000 行になる。R2 の行が最後）
+  const K = [create(db, 'pfull'), create(db, 'pfull')];   // 行の無い子
+  const T1 = create(db, 'pfull');
+  tick(); ok(call(db, 'page.delete', { id: T1 }), 'page.delete');
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R1, R2, ...K], '前提');
+  for (const [afterId, what] of [[K[0], '行の無い兄弟の後ろ'], [K[1], '最後の行の無い兄弟の後ろ'], [T1, 'ゴミ箱の兄弟の後ろ']]) {
+    const was = dump(db);
+    const n0 = oplogN(db);
+    const r = ok(move(db, R2, 'pfull', afterId), `page.move ${what}`);
+    assert.deepStrictEqual([opsOf(db, r.tx), oplogN(db) - n0], [[], 1], `${what}: 見える並びが変わらないのに書いた`);
+    assert.deepStrictEqual(dump(db), was, `${what}: 表が変わった`);
+  }
+  // R1 を行の無い兄弟の後ろへ → R1 の行が本文の最後へ（見える並びが変わる: 書く）
+  ok(move(db, R1, 'pfull', K[0]), 'page.move');
+  assert.deepStrictEqual(kidsInList(db, 'pfull'), [R2, R1, ...K]);
+}));
+
+// ---------------------------------------------------------------- 0.15.0 PH-8 直し（2026-11-04 の e235d8b..831ce7c の点検 rv31。計画の R69）
+test('PH-8 直し（rv31・R54・R67）: 本文 [K1 の行, トグル[K2 の行]] で K2 を同じ親へ afterId なしで動かす（［移動先…］）と、行はトグルの中から本文の最上位の最後へ動き、書く（行の並びの形は親も見る）', T, () => withDb((db) => {
+  const P = create(db);
+  const K1 = create(db, P); const K2 = create(db, P);
+  const tg = insert(db, P, subRow(db, P, K1).id, 'toggle');
+  ok(call(db, 'block.update', { pageId: P, blockId: tg, patch: { text: 'まとめ' } }), 'block.update');
+  ok(call(db, 'block.move', { pageId: P, blockId: subRow(db, P, K2).id, afterId: '', parentId: tg }), 'block.move');
+  const shape = () => bodyOf(db, P).map((b) => (b.type === 'subpage' ? `page:${b.page}` : `${b.type}[${(b.children || []).map((c) => (c.type === 'subpage' ? `page:${c.page}` : c.type)).join(',')}]`));
+  assert.deepStrictEqual(shape(), [`page:${K1}`, `toggle[page:${K2}]`], '前提: K2 の行はトグルの中（行の順は K1・K2 のまま）');
+  const n0 = oplogN(db);
+  const r = ok(move(db, K2, P), 'page.move');
+  assert.strictEqual(oplogN(db), n0 + 1);
+  assert.ok(opsOf(db, r.tx).length > 0, '行の並びの順が同じでも親が替わるのに書かなかった');
+  assert.deepStrictEqual(shape(), [`page:${K1}`, 'toggle[]', `page:${K2}`], '行がトグルの中から本文の最上位の最後へ動かない');
+}));
+
+// ---------------------------------------------------------------- 0.15.0 PL-2（計画の決めたこと 13・15・16・35・36・39・F119）: ページのアイコンと見た目を保存する命令
+const attrsOf = (db, id) => JSON.parse(rowOf(db, id).attrs);
+const listOf = (db) => call(db, 'pages.list', {}).result;
+test('PL-2・F119: page.setIcon は辞書の絵文字だけ（ほかは bad-args）・\'\' で欄が消える・同じ値は書かない・pages.list の行に icon。議事録にも白紙のページにも付く。役は app だけ・録音中の写しとゴミ箱のページは書かない', T, () => withDb((db) => {
+  // PL-2 直し（R75・rv33 I1）: 手を付けていないページ（種のまま）に、無いアイコンを外しても何も書かない（時刻を進めても: 本当の時計は毎回進む）
+  {
+    tick();
+    const was0 = dump(db); const n = oplogN(db);
+    const r0 = ok(call(db, 'page.setIcon', { id: 'pa3', icon: '' }), '手を付けていないページで外す');
+    assert.deepStrictEqual([opsOf(db, r0.tx), oplogN(db) - n], [[], 1], '手を付けていないページに無いアイコンを外して書いた');
+    assert.deepStrictEqual(dump(db), was0);
+    assert.strictEqual(r0.result.id, 'pa3', '同じ値の答えが今のページでない');
+  }
+  const P = create(db);
+  const r = ok(call(db, 'page.setIcon', { id: P, icon: '🚀' }), 'page.setIcon');
+  assert.strictEqual(r.result.icon, '🚀', '答えのページに icon が無い');
+  assert.strictEqual(attrsOf(db, P).icon, '🚀');
+  assert.strictEqual(listOf(db).find((p) => p.id === P).icon, '🚀', 'pages.list の行に icon が無い');
+  // 同じ値は書かない（操作の空の行だけ・rev も更新の時刻も変えない。時刻を進めてから: R75）
+  const was = dump(db);
+  const n0 = oplogN(db);
+  tick();
+  const same = ok(call(db, 'page.setIcon', { id: P, icon: '🚀' }), '同じ値');
+  assert.deepStrictEqual([opsOf(db, same.tx), oplogN(db) - n0], [[], 1], '同じアイコンなのに書いた');
+  assert.deepStrictEqual(dump(db), was);
+  // 辞書に無い値は断る（何も書かない）。PL-2 直し（R75・rv33 M4）: 文字でない値（undefined・欄が無い）も外さずに断る（preload は '' に替えない）
+  for (const icon of ['🦕', 'a', '📄📄', '‮', '🎙', '👍🏻', 'x'.repeat(600), 5, null, undefined, false, ['🚀']]) {
+    const b = call(db, 'page.setIcon', { id: P, icon });
+    assert.strictEqual(b.code, 'bad-args', String(JSON.stringify(icon)));
+  }
+  assert.strictEqual(call(db, 'page.setIcon', { id: P }).code, 'bad-args', 'アイコンの欄の無い頼みを断らない');
+  assert.strictEqual(attrsOf(db, P).icon, '🚀', '文字でない値でアイコンが外れた');
+  assert.deepStrictEqual(dump(db), was, '断ったのに書いた');
+  // '' で欄が消える（既定に戻る）
+  ok(call(db, 'page.setIcon', { id: P, icon: '' }), '外す');
+  assert.ok(!Object.hasOwn(attrsOf(db, P), 'icon'), '外しても欄が残る');
+  assert.ok(!Object.hasOwn(listOf(db).find((p) => p.id === P), 'icon'));
+  const n1 = oplogN(db);
+  tick();
+  const none = ok(call(db, 'page.setIcon', { id: P, icon: '' }), 'もう無いのを外す');
+  assert.deepStrictEqual([opsOf(db, none.tx), oplogN(db) - n1], [[], 1], '無いアイコンを外して書いた');
+  // 議事録にも付く
+  ok(call(db, 'page.setIcon', { id: 'pa1', icon: '📊' }), '議事録');
+  assert.strictEqual(listOf(db).find((p) => p.id === 'pa1').icon, '📊');
+  // 役は app だけ
+  assert.deepStrictEqual(core.COMMANDS['page.setIcon'].roles, ['app']);
+  assert.strictEqual(call(db, 'page.setIcon', { id: P, icon: '🚀' }, 'main').code, 'forbidden');
+  // 録音中の写しは書かない（bad-args）・ゴミ箱と無いページは書かない
+  call(db, 'meeting.begin', { pageId: 'plive9', startedAt: Date.parse('2026-11-03T00:00:00.000Z'), localOnly: false }, 'main');
+  const live = dump(db);
+  tick();
+  assert.strictEqual(call(db, 'page.setIcon', { id: 'plive9', icon: '🚀' }).code, 'bad-args', '録音中の写しにアイコンを書いた');
+  assert.strictEqual(call(db, 'page.setIcon', { id: 'plive9', icon: '' }).code, 'bad-args', '録音中の写しで同じ値（無いアイコン）を断らない');
+  assert.deepStrictEqual(dump(db), live, '録音中の写しで断ったのに書いた');
+  tick(); ok(call(db, 'page.delete', { id: 'pa2' }), 'page.delete');
+  const trashed = dump(db);
+  for (const id of ['pa2', 'pnone']) {
+    for (const icon of ['🚀', '']) {
+      const x = call(db, 'page.setIcon', { id, icon });
+      assert.ok(x.ok && x.result === null, `${id}・${JSON.stringify(icon)}: 答えが null でない（${x.code}）`);
+      assert.deepStrictEqual(dump(db), trashed, `${id}: 何か書いた`);
+    }
+  }
+}));
+
+test('PL-2・F119: page.setLook は照らした形だけ保存（並びも決まった形）・全部既定で欄が消える・同じ見た目は書かない・知らない欄・決まった書体のほか・真でない値は bad-args', T, () => withDb((db) => {
+  const P = create(db);
+  const r = ok(call(db, 'page.setLook', { id: P, look: { font: 'serif', wide: true } }), 'page.setLook');
+  assert.deepStrictEqual(r.result.look, { wide: true, font: 'serif' });
+  assert.deepStrictEqual(attrsOf(db, P).look, { wide: true, font: 'serif' });
+  const was = dump(db);
+  const n0 = oplogN(db);
+  tick();
+  const same = ok(call(db, 'page.setLook', { id: P, look: { font: 'serif', wide: true } }), '同じ見た目（欄の並びは違う）');
+  assert.deepStrictEqual([opsOf(db, same.tx), oplogN(db) - n0], [[], 1], '同じ見た目なのに書いた');
+  assert.deepStrictEqual(dump(db), was);
+  for (const look of [{ font: 'gothic' }, { wide: 1 }, { wide: false }, { color: 'red' }, { wide: true, extra: 1 }, 'wide', null, ['wide']]) {
+    assert.strictEqual(call(db, 'page.setLook', { id: P, look }).code, 'bad-args', JSON.stringify(look));
+  }
+  assert.deepStrictEqual(dump(db), was, '断ったのに書いた');
+  ok(call(db, 'page.setLook', { id: P, look: { small: true } }), '替える');
+  assert.deepStrictEqual(attrsOf(db, P).look, { small: true });
+  ok(call(db, 'page.setLook', { id: P, look: {} }), '全部既定');
+  assert.ok(!Object.hasOwn(attrsOf(db, P), 'look'), '全部既定でも欄が残る');
+  const n1 = oplogN(db);
+  tick();
+  const none = ok(call(db, 'page.setLook', { id: P, look: {} }), 'もう既定');
+  assert.deepStrictEqual([opsOf(db, none.tx), oplogN(db) - n1], [[], 1], '既定の見た目をもう一度既定にして書いた');
+  ok(call(db, 'page.setLook', { id: 'pa1', look: { font: 'mono' } }), '議事録');
+  assert.deepStrictEqual(attrsOf(db, 'pa1').look, { font: 'mono' });
+  assert.deepStrictEqual(core.COMMANDS['page.setLook'].roles, ['app']);
+  // PL-2 直し（R75）: 手を付けていないページ（種のまま）を全部既定にしても何も書かない
+  {
+    tick();
+    const was0 = dump(db); const n = oplogN(db);
+    const r0 = ok(call(db, 'page.setLook', { id: 'pa3', look: {} }), '手を付けていないページで全部既定');
+    assert.deepStrictEqual([opsOf(db, r0.tx), oplogN(db) - n], [[], 1], '手を付けていないページを全部既定にして書いた');
+    assert.deepStrictEqual(dump(db), was0);
+    assert.strictEqual(r0.result.id, 'pa3');
+  }
+  call(db, 'meeting.begin', { pageId: 'plive9', startedAt: Date.parse('2026-11-03T00:00:00.000Z'), localOnly: false }, 'main');
+  const live = dump(db);
+  tick();
+  assert.strictEqual(call(db, 'page.setLook', { id: 'plive9', look: { wide: true } }).code, 'bad-args', '録音中の写しに見た目を書いた');
+  assert.strictEqual(call(db, 'page.setLook', { id: 'plive9', look: {} }).code, 'bad-args', '録音中の写しで同じ値（全部既定）を断らない');
+  assert.deepStrictEqual(dump(db), live, '録音中の写しで断ったのに書いた');
+  // PL-2 直し（R75・rv33 M2）: ゴミ箱と無いページは書かず、答えが null
+  tick(); ok(call(db, 'page.delete', { id: 'pa2' }), 'page.delete');
+  const trashed = dump(db);
+  for (const id of ['pa2', 'pnone']) {
+    for (const look of [{ wide: true }, {}]) {
+      const x = call(db, 'page.setLook', { id, look });
+      assert.ok(x.ok && x.result === null, `${id}・${JSON.stringify(look)}: 答えが null でない（${x.code}）`);
+      assert.deepStrictEqual(dump(db), trashed, `${id}: 何か書いた`);
+    }
+  }
+}));
+
+test('PL-2: page.put（要約の書き戻し）は icon・look を消さない（送ったページに無くても、DB の今の値のまま）・送ったページの icon・look で書き換えない。どちらの命令も UNDO_CMDS に無い', T, () => withDb((db) => {
+  ok(call(db, 'page.setIcon', { id: 'pa1', icon: '📊' }), 'page.setIcon');
+  ok(call(db, 'page.setLook', { id: 'pa1', look: { wide: true } }), 'page.setLook');
+  const p = call(db, 'page.get', { id: 'pa1' }).result.page;
+  assert.strictEqual(p.icon, '📊', '前提: page.get に icon');
+  // 読んだページのまま書き戻す
+  const { rev, ...rest } = p;
+  ok(call(db, 'page.put', { page: { ...rest, title: '要約の題' }, baseRev: rev }, 'main'), 'page.put');   // 利用者が付け直した題名（D77）
+  assert.deepStrictEqual([attrsOf(db, 'pa1').icon, attrsOf(db, 'pa1').look], ['📊', { wide: true }]);
+  // icon・look の無い（か違う）ページを送っても、DB の今の値のまま
+  const p2 = call(db, 'page.get', { id: 'pa1' }).result.page;
+  const { rev: rev2, icon: _i, look: _l, ...bare } = p2;
+  void _i; void _l;
+  ok(call(db, 'page.put', { page: { ...bare, icon: '🦕', look: { font: 'gothic' } }, baseRev: rev2 }, 'main'), 'page.put');
+  assert.deepStrictEqual([attrsOf(db, 'pa1').icon, attrsOf(db, 'pa1').look], ['📊', { wide: true }], '書き戻しでアイコンか見た目が変わった');
+  const p3 = call(db, 'page.get', { id: 'pa1' }).result.page;
+  const { rev: rev3, icon: _i3, look: _l3, ...bare3 } = p3;
+  void _i3; void _l3;
+  ok(call(db, 'page.put', { page: bare3, baseRev: rev3 }, 'main'), 'page.put');
+  assert.deepStrictEqual([attrsOf(db, 'pa1').icon, attrsOf(db, 'pa1').look], ['📊', { wide: true }], '書き戻しでアイコンか見た目が消えた');
+  // 保存してあるアイコン・見た目が無いページに、送ったページの icon・look で付けない
+  const q = call(db, 'page.get', { id: 'pa2' }).result.page;
+  const { rev: rev4, ...q4 } = q;
+  ok(call(db, 'page.put', { page: { ...q4, icon: '📊', look: { wide: true } }, baseRev: rev4 }, 'main'), 'page.put');
+  assert.ok(!Object.hasOwn(attrsOf(db, 'pa2'), 'icon') && !Object.hasOwn(attrsOf(db, 'pa2'), 'look'), '書き戻しでアイコンか見た目が付いた');
+  // 同じ値の命令の答えも今のページ（null でない）
+  assert.strictEqual(ok(call(db, 'page.setIcon', { id: 'pa1', icon: '📊' }), '同じ値').result.icon, '📊');
+  for (const cmd of ['page.setIcon', 'page.setLook']) assert.ok(!UNDO_CMDS.has(cmd), `UNDO_CMDS に ${cmd}`);
 }));

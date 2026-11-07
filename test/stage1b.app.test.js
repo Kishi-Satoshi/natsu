@@ -222,8 +222,9 @@ test('N4: 要約・文字起こし・メモは細いタブ（role=tab・aria-sel
   assert.ok(acts.closest('.pagebar'), '操作が上の帯（.pagebar）の中に無い（第1b2回 P-1）');
   const visible = acts.querySelectorAll('button').filter((b) => !b.closest('#pMenu'));
   assert.deepStrictEqual(visible.map((b) => b.id || b.textContent), ['要約を生成', 'pMore']);
-  // 0.10.0 L-1（D58）で意図して変えた: コピーと削除の間に［リンクを写す］。0.15.0 PH-5（決めたこと 22）で意図して変えた: ［削除］の前に［移動先…］
-  assert.deepStrictEqual(l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent), ['コピー', 'リンクを写す', '移動先…', '削除']);
+  // 0.10.0 L-1（D58）で意図して変えた: コピーと削除の間に［リンクを写す］。0.15.0 PH-5（決めたこと 22）で意図して変えた: ［削除］の前に［移動先…］。
+  // 0.15.0 PL-3（決めたこと 40）で意図して変えた: ［移動先…］の後に［書体 ▸］（［全幅］［小さい文字］は role="menuitemcheckbox" なのでこの一覧に入らない）
+  assert.deepStrictEqual(l.byId.get('pMenu').querySelectorAll('[role="menuitem"]').map((b) => b.textContent), ['コピー', 'リンクを写す', '移動先…', '書体 ▸', '削除']);
   assert.strictEqual(l.byId.get('pMenu').hidden, true);
 });
 

@@ -214,13 +214,19 @@ const ADDED_140 = [...NEW_140, ...RETAKEN_140];
 // PH-3 でサイドバーの木の明暗と拡大 200% の3枚を足した（NEW_150。足した画面で、まだ基準が無い）。PH-4 で白紙のページの明暗の2枚を足した
 // PR-2 で白紙のページの本文の子ページの行の明暗の2枚を足した
 const NEW_150 = ['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
-  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light'];   // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚
+  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light',   // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚
+  'trash-pop-light',   // PH-6 で足したゴミ箱の窓
+  // PL-3 で足したアイコンの選びの明暗・全幅（拡大 200% も）・小さい文字と明朝・等幅・「···」の見た目の項目の7枚
+  'icon-pop-light', 'icon-pop-dark', 'look-wide-light', 'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light', 'look-small-zoom200-light'];   // PL-3 直し（R77）で小さい文字の拡大 200% を足した
 // PH-4 で / メニューに［ページ］が増えるので、語の無い / メニューを開く edit-slash-recent-light（今の基準がある）を取り直す（RETAKEN_150。R25）
 // PH-5 で近道の表に行が増える settings-shortcuts-light・「···」に［移動先…］が増える page-menu-link の2枚と、計画の表のとおり edit-slash-light・edit-slash-dark を取り直す
 // PH-5 直し（R55）: 近道の表が伸びる設定の［一般］の3枚も（0.14.0 EK-5 と同じ）
 const RETAKEN_150 = ['edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
   'settings-light', 'settings-dark', 'settings-zoom200-dark'];
-const RETAKE_150 = [...NEW_150, ...RETAKEN_150];
+// 0.15.0 で意図して変えた（版を 0.15.0 に上げる commit。Task G の後半: R79）: 0.15.0 で足した画面と取り直した画面（ADDED_150。前の RETAKE_150）。持ち主が見比べ（新しい 20 枚・
+// 取り直した 7 枚。edit-slash-light・edit-slash-dark は基準と同じ）に「0.15.0の画面はこの見た目でよいです」（2026-11-06）と言ったので、CI run 41936731119（622444a）・
+// artifact 13374567273 の .after.png（27 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
+const ADDED_150 = [...NEW_150, ...RETAKEN_150];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -269,7 +275,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_132,
     // 0.14.0 EB-4 で意図して変えた: 行の文の飾りと色の明暗の2枚を足した。EB-5 で道具の帯・リンクの欄・色のメニューの3枚を足した。EK-4・EK-5・MB-4・DQ-3 で足した画面も（版を 0.14.0 に上げる commit で基準にした）
     ...NEW_140,
-    // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を、PR-2 で子ページの行の明暗の2枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を、PR-2 で子ページの行の明暗の2枚を足した。PH-5・PH-6・PL-3 で足した画面も（版を 0.15.0 に上げる commit で基準にした）
     ...NEW_150]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -280,7 +286,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   for (const s of SH.SCREENS) assert.ok(['app', 'overlay', 'nudge'].includes(s.page) && ['light', 'dark'].includes(s.theme), s.name);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
     ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2],
-    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2], ['sidebar-tree-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直しで意図して足した
+    ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2], ['sidebar-tree-zoom200-light', 2], ['look-wide-zoom200-light', 2], ['look-small-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直し・0.15.0 PL-3（全幅の拡大 200%）で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -502,8 +508,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 0.13.1 で意図して変えた: 持ち主が取り直しの見比べ（9 枚）を「OK（版を 0.13.1 に上げてよい）」と言ったので取り直し待ちを空にし、版を 0.13.1 にした。次の版も、取り直し待ちが残る間は 0.13.1 のまま
 // 0.13.2 で意図して変えた: 持ち主が取り直しの見比べ（8 枚）を「この見た目でよい（おすすめ）」と言ったので取り直し待ちを空にし、版を 0.13.2 にした。次の版も、取り直し待ちが残る間は 0.13.2 のまま
 // 0.14.0 で意図して変えた: 持ち主が取り直しの見比べ（32 枚）を「この見た目でよい（おすすめ）」と言ったので取り直し待ちを空にし、版を 0.14.0 にした。次の版も、取り直し待ちが残る間は 0.14.0 のまま
+// 0.15.0 で意図して変えた: 持ち主が取り直しの見比べ（27 枚）を「0.15.0の画面はこの見た目でよいです」と言ったので取り直し待ちを空にし、版を 0.15.0 にした。次の版も、取り直し待ちが残る間は 0.15.0 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.14.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.15.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -744,7 +751,7 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
 // 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.1 の表の画面（ADDED_101）はどれも計画の表にあり、基準がある
 // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.0 の表の画面（ADDED_110）はどれも計画の表にあり、基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0: 取り直し待ちは無い（0.11.1 のロゴの差し替えの 139 枚と 0.12.0 の 14 枚と 0.12.1 の 10 枚と 0.13.0 の 21 枚と 0.13.1 の 9 枚と 0.13.2 の 8 枚と 0.14.0 の 32 枚は基準にした）。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.12.0・0.13.0・0.13.1・0.13.2・0.14.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0: 取り直し待ちは無い（0.11.1 のロゴの差し替えの 139 枚と 0.12.0 の 14 枚と 0.12.1 の 10 枚と 0.13.0 の 21 枚と 0.13.1 の 9 枚と 0.13.2 の 8 枚と 0.14.0 の 32 枚と 0.15.0 の 27 枚は基準にした）。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.12.0・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
   // 0.11.1 LG-2 で意図して変えた: 取り直し待ちは 0.11.1 の表の画面（ファイルの頭の ADDED_LOGO）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.11.1 で意図して変えた（版を 0.11.1 に上げる commit。LG-8）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.1 の表の画面（ADDED_LOGO）はどれも計画の表にあり、基準がある
   // 0.12.0 SP-4 で意図して変えた: 取り直し待ちは 0.12.0 の表の画面（ファイルの頭の RETAKE_120）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
@@ -764,10 +771,11 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.14.0 で意図して変えた（版を 0.14.0 に上げる commit。Task G）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.14.0 の表の画面（ADDED_140）はどれも計画の表にあり、基準がある
   // 0.15.0 PH-3 で意図して変えた: 取り直し待ちは 0.15.0 の表の画面（ファイルの頭の RETAKE_150）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
   // 足した画面（NEW_150）はまだ基準が無い
-  assert.deepStrictEqual([...SH.RETAKE], RETAKE_150);
+  // 0.15.0 で意図して変えた（版を 0.15.0 に上げる commit。Task G の後半）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.15.0 の表の画面（ADDED_150）はどれも計画の表にあり、基準がある
+  assert.deepStrictEqual([...SH.RETAKE], []);
   const plan150 = read('docs/plans/2026-11-03-150.md');
   const table150 = plan150.slice(plan150.indexOf('## 取り直す画面（RETAKE）'), plan150.indexOf('\n## ', plan150.indexOf('## 取り直す画面（RETAKE）') + 5));
-  for (const n of RETAKE_150) assert.ok(table150.includes(`\`${n}\``), `0.15.0 の計画の「取り直す画面」の表に ${n} が無い`);
+  for (const n of ADDED_150) assert.ok(table150.includes(`\`${n}\``), `0.15.0 の計画の「取り直す画面」の表に ${n} が無い`);
   const plan140 = read('docs/plans/2026-10-26-140.md');
   const table140 = plan140.slice(plan140.indexOf('## 取り直す画面（RETAKE）'), plan140.indexOf('\n## ', plan140.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of ADDED_140) assert.ok(table140.includes(`\`${n}\``), `0.14.0 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -805,12 +813,11 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   const table093 = plan093.slice(plan093.indexOf('## 取り直す画面（RETAKE）'), plan093.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
-  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100), ...ADDED_101, ...ADDED_110, ...ADDED_LOGO, ...ADDED_120, ...ADDED_121, ...ADDED_130, ...ADDED_131, ...ADDED_132, ...ADDED_140]) {
+  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100), ...ADDED_101, ...ADDED_110, ...ADDED_LOGO, ...ADDED_120, ...ADDED_121, ...ADDED_130, ...ADDED_131, ...ADDED_132, ...ADDED_140, ...ADDED_150]) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
-    if (NEW_150.includes(s.name)) continue;   // 0.15.0 で足した画面（取り直し待ち・まだ基準が無い。版を上げる commit で基準にする）
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
@@ -1121,7 +1128,23 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.0 PH-5（計画の決めたこと 22・26〜28・R54）: パンくずの祖先の段と「…」・議事録の子ページの一覧（#pKids）・［移動先…］の窓（#movePop）・「新しいページ」（#newPop）・
   // 「···」と行のメニューの［移動先…］・Ctrl+Shift+N・Ctrl+Shift+U・SHORTCUTS の写しの行。変わる画面は足した NEW_150 の4枚と RETAKEN_150 の settings-shortcuts-light・
   // page-menu-link の2枚（edit-slash-light・dark は計画の表のとおり取り直し待ちに入れた）。値を今の app.html に合わせた（前の値は 1c6fedc2…）
-  assert.strictEqual(sha, '5f265eec1c5af7eb8f2698be848805b904c36287744bdb9755e258a0baac055f',
+  // 0.15.0 PH-5 直し 2（計画の R56〜R58）: 窓の間の近道の照らし・パンくずの描き直しの省き・窓の mousedown・選んだ後のフォーカス・録音の状態の描き直し
+  // （<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は 5f265eec…）
+  // 0.15.0 PH-5 直し 3（計画の R59）: 「新しいページ」は窓を見せてから項目にフォーカスする（<script> の中だけ）。値を今の app.html に合わせた（前の値は 0d9ce3c2…）
+  // 0.15.0 PH-6（計画の決めたこと 30〜32・R60）: 削除の確かめの文・子孫のタブを閉じる・［🗑️ ゴミ箱］（ゴミ箱に何かあるときだけ。.side-row[hidden] の CSS）とゴミ箱の窓（#trashPop）。
+  // ゴミ箱が空の今の撮る画面は変わらない見込みで、変わる画面は足した NEW_150 の trash-pop-light。値を今の app.html に合わせた（前の値は 2845f0bd…）
+  // 0.15.0 PH-5 直し 4（計画の R61・R62）: 木の行の［移動先…］の後のフォーカス・窓の mousedown の照らし・見えているフォーカスの先・「新しいページ」の描き直しの照らし・パンくずのフォーカスの戻し先
+  // （<script> の中だけ。撮る画面に写らない）。値を今の app.html に合わせた（前の値は f73b9737…）
+  // 0.15.0 PH-7（計画の決めたこと 33・HR19・R63）: 検索の結果の子ページの2行目の「場所: 親 / 子 ・ 」と、［アクション］の白紙のページの ToDo の「（白紙のページ）題名」
+  // （<script> の中だけ。撮る画面の種は最上位の議事録だけなので写らない見込み）。値を今の app.html に合わせた（前の値は f5eab969…）
+  // 0.15.0 PH-6・PH-7 直し（計画の R66・R67）: 白紙のページの rowTitle は日付だけ（撮る画面の種に白紙のページの検索の結果は無く、行の title は写らない）・
+  // ［戻す］の aria-label・ゴミ箱の窓の読み直しのフォーカス（<script> の中だけ）。値を今の app.html に合わせた（前の値は 8b6e11c0…）
+  // 0.15.0 PL-3（計画の決めたこと 35〜42・U2・U5・U6）: ページの頭のアイコンを押せるボタンに（#pIcon）・アイコンの選び（#iconPop）・
+  // 「···」の［全幅］［小さい文字］［書体 ▸］と #pageWrap の look-* の CSS・タブのアイコンを CSS の attr(data-icon) で描く（議事録は今までどおり 🎙️）。
+  // 変わる画面は足した NEW_150 の icon-pop-*・look-*・page-menu-look-light の見込み。値を今の app.html に合わせた（前の値は f4444d21…）
+  // 0.15.0 PL-3 直し（R77）: 狭い窓の全幅の余白と小さい文字の題名（撮る画面は NEW_150 の look-wide-zoom200-light と足した look-small-zoom200-light）・
+  // 並びの ↑↓ と uiState の注（<script> の中だけ）。値を今の app.html に合わせた（前の値は 54fa8c37…）
+  assert.strictEqual(sha, 'b222a9287149b578033292743d921dd18316043ca4582d40f9e56e85416fb611',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

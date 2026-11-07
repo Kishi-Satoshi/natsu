@@ -59,6 +59,7 @@ const PT = require('../pageTree');
 const { evenKeys } = require('./keys');
 // 0.14.0 EB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 1〜6・14〜16・R60・R72）: 戻せる命令の表（画面の元に戻すの列と同じ）と飾りの整え
 const { UNDO_CMDS } = require('../undoBook');
+const pageLookLib = require('../pageLook');   // 0.15.0 PL-2: 全部既定の見た目は欄を消す（isPlainLook）
 const RT = require('../richText');
 const S = require('./search');
 const { LIMITS } = require('./validate');
@@ -195,6 +196,25 @@ function summaryLockedPage(db, page) {
 }
 
 // 0.13.1 NR14: view が真の命令（トグルの開け閉め。見た目だけの欄 open）は鍵を見るが、手直しの印（summaryEdited）を付けない
+// 0.15.0 PL-2: ページの欄 key を value にする（undefined は欄を消す）。録音中の写しは断る。今と同じ値なら saveOps が何も書かない（決めたこと 16。答えは今のページ）
+function setPageAttr(p, key, value) {
+  if (isLive(p)) throw refuse('bad-args');
+  if (value === undefined) delete p[key]; else p[key] = structuredClone(value);
+}
+// 0.15.0 PL-2 直し（R75）: 今と同じアイコン・見た目（無い欄と '' や全部既定の見た目は同じ）は何も書かない（答えは今のページ）。
+// editPage の saveOps は updatedAt を今にし、markShortBlocks は手を付けていないページの印も書くので、forWrite の前に照らす（setMemoDoc と同じ形）。
+// 録音中の写しは同じ値でも setPageAttr が断る
+function pageAttrCmd(db, id, ctx, key, value) {
+  const l = loadPage(db, id);
+  if (l && !isLive(l.page) && isDeepStrictEqual(l.page[key], value)) return { ops: [], pageIds: [], result: readPage(db, id) };
+  return editPage(db, id, ctx, (p) => setPageAttr(p, key, value));
+}
+// 0.15.0 PL-2（決めたこと 35・39）: 要約の書き戻し（page.put）はアイコンと見た目を書き換えない（送ったページに無くても、違っても、DB の今の値のまま）
+function keepStoredLook(was, page) {
+  for (const k of ['icon', 'look']) {
+    if (Object.hasOwn(was, k)) page[k] = structuredClone(was[k]); else delete page[k];
+  }
+}
 function editPage(db, id, ctx, fn, { summary = false, view = false } = {}) {
   const w = forWrite(db, id);
   if (!w) return { ops: [], pageIds: [], result: null };
@@ -246,7 +266,7 @@ function listedRows(db) {
     if (r.trashed_at !== null && r.trashed_at !== undefined) continue;
     const attrs = JSON.parse(r.attrs || '{}');
     if (isLive(attrs)) continue;
-    out.push({ id: r.id, key: keyOfRow(r), attrs, createdAt: r.created_at, parentId: r.parent_id ?? null, ord: r.ord });
+    out.push({ id: r.id, key: keyOfRow(r), attrs, createdAt: r.created_at, parentId: r.parent_id ?? null, ord: r.ord, title: r.text });   // 0.15.0 PH-7: 題名は MCP の場所の文（決めたこと 34）
   }
   return out;
 }
@@ -908,27 +928,72 @@ function pageMove(db, a, ctx) {
   if (to !== null && rawChainHas(tree.byId, to, a.id)) throw refuse('bad-args');   // PH-2 直し（R13）: 壊れた輪の上の親をたどって自分に戻る所へも動かさない
   // 0.15.0 PR-2 直し（R44・決めたこと 55）: rowAfter（と rowParent）は、同じ白紙のページの子の行を本文のその所へ置く（行の無い子を「このページの中のページ」から引っ張って置く）
   if (a.rowAfter !== undefined || a.rowParent !== undefined) return placeInBody(db, a, ctx, me, to, tree);
+  const blank = (id) => id !== null && tree.byId.has(id) && isBlankPage(tree.byId.get(id).attrs);   // 本文を読むのは白紙のページだけ
+  // PH-5 直し 2（R56・M-5）: 本文に行のある子を同じ白紙の親へ afterId なしで動かす（［移動先…］で親だけを選ぶ）と、最後の兄弟でも行を本文の最後へ（R54）。
+  // 行がもう本文の最後なら同じ所
+  // PH-6・PH-7 直し（rv29 F1・決めたこと 16）: ゴミ箱・録音中の写し・知らない・兄弟でない afterId は末尾（placeKeys と placeSubRow と同じ）なので、
+  // 末尾として「同じ所」を見る（sameSpot も同じ決まり）
+  const endAfter = a.afterId === undefined || (a.afterId !== '' && a.afterId !== a.id && !(tree.parent.get(a.afterId) === to && isListedRow(tree.byId.get(a.afterId))));
+  const toEnd = endAfter && me.parentId === to && blank(to) && subRowNotLast(db, to, a.id);
   // 同じ所は書かない（操作の空の行だけ: 決めたこと 16）。PH-2 直し（R12）: 答えの一覧は同じ所のときだけ作る（前は毎回作って、動かすと一覧を2回作った）
-  if (sameSpot(rows, me, to, a.afterId)) return { ops: [], pageIds: [], result: listPages(db) };
+  if (!toEnd && sameSpot(rows, me, to, a.afterId)) return { ops: [], pageIds: [], result: listPages(db) };
   // PH-2 直し（R16）: 兄弟は一覧に出るページだけ（ゴミ箱・録音中の写しの兄弟は並びに数えない）。同じ鍵の後ろの兄弟は付け直す（R15）
   const others = rows.filter((r) => r.id !== a.id && isListedRow(r));
-  const place = to === null ? { ord: PT.TOP_ORD, rekey: [] } : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
-  const ops = [{ op: 'move', id: a.id, ord: place.ord, old: stored.get(a.id), ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
-    ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: stored.get(id) }))];
   // 0.15.0 PR-1（決めたこと 45・46・48・HR12）: 同じ命令で、前の親（白紙のページ）の本文の行を外し、新しい親（白紙のページ）の本文に置く
   // （兄弟の後ろなら兄弟の行のすぐ後ろ・頭なら兄弟の最初の行の前・ほかは本文の最後）。同じ白紙のページの中の並べ替えは行を動かす
+  // PH-5 直し 2（R56）: 本文の操作を先に作り、ページの行の move はその後で頭に積む（行を置けたかで並びの鍵の作り方が替わる）
+  const ops = [];
   const sibs = new Set(to === null ? [] : PT.pageTree(others).kids.get(to) || []);
   const hosts = [];
   const put = (p) => placeSubRow(p, newSubRow(db, ctx, a.id), { afterPage: a.afterId, sibs });
   const add = (id, list) => { if (list) { ops.push(...list); hosts.push(id); } };
-  const blank = (id) => id !== null && tree.byId.has(id) && isBlankPage(tree.byId.get(id).attrs);   // 本文を読むのは白紙のページだけ
-  if (me.parentId === to) { if (blank(to)) add(to, bodyOps(db, to, ctx, put)); }
+  // PH-6・PH-7 直し（rv29 F1）: 同じ白紙の親の中で、本文の行の並びが変わらない（行がもう置く所にある）なら、見える並び（本文の行の順: HR14）も
+  // 変わらないので書かない（行の無い兄弟の後ろ・満杯の本文でも）
+  let still = false;
+  const putSame = (p, was) => { const sig = rowSig(p.blocks); put(p, was); if (subSpot(p.blocks, a.id) && rowSig(p.blocks) === sig) { still = true; return false; } return undefined; };
+  if (me.parentId === to) { if (blank(to)) add(to, bodyOps(db, to, ctx, putSame)); }
   else {
     if (blank(me.parentId)) add(me.parentId, bodyOps(db, me.parentId, ctx, (p, was) => (takeSubRow(p, was, a.id) ? undefined : false)));
     if (blank(to)) add(to, bodyOps(db, to, ctx, put));
   }
+  // PH-5 直し 2（R56。R53 を直す）: 白紙の親の本文に行を置けなかった（満杯の本文: R33）子は、行の無い子の中で表の ord で並ぶ（withBodyOrds）ので、
+  // 鍵は本文の順から作った鍵でなく、行の無い兄弟の表の ord の間で作る（afterId が行の無い兄弟ならその後ろ・'' か行のある兄弟なら行の無い子の頭・無ければ末尾）
+  if (still) return { ops: [], pageIds: [], result: listPages(db) };
+  const rowless = blank(to) && !hosts.includes(to) ? rowlessSpot(db, raw, others, to, me, a.afterId === a.id ? undefined : a.afterId) : null;
+  // PH-5 直し 4（R61）: 行の無い子の中で今と同じ所（頭を頭へ・前の兄弟の後ろへ・最後をゴミ箱の兄弟の後ろへ）なら書かない（決めたこと 16）
+  if (rowless && rowless.same) return { ops: [], pageIds: [], result: listPages(db) };
+  const place = to === null ? { ord: PT.TOP_ORD, rekey: [] }
+    : rowless ? PT.placeKeys(PT.pageTree([raw.find((r) => r.id === to), ...rowless.rows]), stored, to, rowless.at)
+      : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
+  ops.unshift({ op: 'move', id: a.id, ord: place.ord, old: stored.get(a.id), ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
+    ...place.rekey.map(([id, ord]) => ({ op: 'move', id, ord, old: stored.get(id) })));
   applyOps(db, ops);
   return { ops, pageIds: [a.id, ...hosts], result: listPages(db) };
+}
+// PH-5 直し 2（R56）: 白紙のページの本文で、そのページの行が本文の最後（最上位の並びの末尾）に無いか（行が無ければ偽）
+function subRowNotLast(db, hostId, pageId) {
+  const rows = db.prepare(HOT_QUERIES.bodyRows).all(hostId, hostId);
+  if (!rows.some((r) => r.type === 'subpage' && r.sub === pageId)) return false;
+  const top = rows.filter((r) => (r.parent_id ?? hostId) === hostId);
+  const last = top[top.length - 1];
+  return !(last && last.type === 'subpage' && last.sub === pageId);
+}
+// PH-5 直し 2（R56）: 行の無い兄弟（白紙の親 to の一覧に出る子で、本文に行の無いもの。表の行で）と、その中の置き場 at（placeKeys の afterId）。
+// afterId が行の無い兄弟ならその後ろ・'' か行のある兄弟なら行の無い子の頭・ほか（ゴミ箱・録音中の写し・知らない ID。PH-5 直し 4（R61）: 満杯でない本文と同じく）は末尾。
+// same は me が今もその所にいるか（me が to の子のとき。並びは一覧と同じ表の ord と作った順: withBodyOrds）
+function rowlessSpot(db, raw, others, to, me, afterId) {
+  const rowed = new Set(bodySubOrder(db.prepare(HOT_QUERIES.bodyRows).all(to, to), to));
+  const byId = new Map(raw.map((r) => [r.id, r]));
+  const rows = others.filter((r) => r.parentId === to && !rowed.has(r.id)).map((r) => byId.get(r.id));
+  const rowedKid = (id) => others.some((r) => r.id === id && r.parentId === to && rowed.has(r.id));
+  const at = afterId === undefined ? undefined : rows.some((r) => r.id === afterId) ? afterId : afterId === '' || rowedKid(afterId) ? '' : undefined;
+  let same = false;
+  if (me.parentId === to) {
+    const order = [...rows, byId.get(me.id)].sort((x, y) => cmpStr(x.ord, y.ord) || cmpStr(x.createdAt, y.createdAt)).map((r) => r.id);
+    const i = order.indexOf(me.id);
+    same = at === undefined ? i === order.length - 1 : at === '' ? i === 0 : i > 0 && order[i - 1] === at;
+  }
+  return { rows, at, same };
 }
 // 0.15.0 PR-2 直し（R44・決めたこと 55）: 白紙のページの子（me）の行を、同じ本文の rowAfter の行のすぐ後ろ（'' は頭・rowParent があればその子の頭。
 // block.move の afterId・parentId と同じ置き場: BT.spotOf）へ。行が無ければ作り（上限を越えるなら too-big。本文もページも変えない）、あれば動かす（同じページを
@@ -972,6 +1037,7 @@ function sameSpot(rows, me, to, afterId) {
   if (afterId === me.id) return true;
   const sibs = PT.pageTree(rows.filter((r) => r.id === me.id || isListedRow(r))).kids.get(to) || [];
   const i = sibs.indexOf(me.id);
+  if (afterId !== undefined && afterId !== '' && !sibs.includes(afterId)) afterId = undefined;   // PH-6・PH-7 直し（rv29 F1）: 兄弟でない ID は末尾（placeKeys と同じ）
   if (afterId === undefined) return i === sibs.length - 1;
   if (afterId === '') return i === 0;
   return i > 0 && sibs[i - 1] === afterId;
@@ -1071,6 +1137,8 @@ function placeSubRow(p, row, { placeAt, afterPage, sibs } = {}) {
   }
   p.blocks.push(me);
 }
+// 本文の行の並びの形（行の ID と本文の中の親の並び。文や飾りは見ない）。PH-6・PH-7 直し（rv29 F1）: 行を置いても並びが変わらないかを見る
+const rowSig = (blocks) => BT.walk(blocks).map((w) => `${w.b.id}<${w.parentId}`).join('\n');
 // 本文からそのページの行を外す → 外した行の置き場 { parent（本文の中の親の行の ID か、最上位ならページの ID）, ord }（子の attrs.rowAt の形）か null
 function takeSubRow(p, was, pageId) {
   const l = subSpot(p.blocks, pageId);
@@ -1255,6 +1323,12 @@ const DEFS = {
     } },
 
   // ---- 画面の書き込み（app と main。答えは今の main の IPC と同じ）
+  // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の決めたこと 13・15・16・35・36・39・F119）: ページのアイコンと見た目（役 app だけ・元に戻すの歩みにしない）。
+  // アイコンは辞書の絵文字だけ（'' は欄を消して既定に戻す）・見た目は決まった形だけ（全部既定なら欄を消す）。同じ値は書かない。録音中の写しは断る（締めがページを書き直すため）
+  'page.setIcon': { roles: ['app'], write: true, args: { id: 'id', icon: 'pageIcon' },
+    run: (db, a, ctx) => pageAttrCmd(db, a.id, ctx, 'icon', a.icon === '' ? undefined : a.icon), dupResult: reread },
+  'page.setLook': { roles: ['app'], write: true, args: { id: 'id', look: 'pageLook' },
+    run: (db, a, ctx) => pageAttrCmd(db, a.id, ctx, 'look', pageLookLib.isPlainLook(a.look) ? undefined : a.look), dupResult: reread },
   'page.setTitle': { roles: ['app', 'main'], write: true, args: { id: 'id', title: 'title' },
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => { p.title = a.title; }), dupResult: reread },
   'page.setMemo': { roles: ['app', 'main'], write: true, args: { id: 'id', memo: 'text?' },
@@ -1704,6 +1778,7 @@ const DEFS = {
       if (was.page.rev !== a.baseRev) throw refuse('conflict');
       const page = clone(a.page);
       keepStoredMemo(was.page, page);   // 0.14.0 MB-3（R165）: メモを送らない書き戻しは保存してあるメモのまま
+      keepStoredLook(was.page, page);   // 0.15.0 PL-2: アイコンと見た目も保存してあるまま
       if (!Array.isArray(page.blocks)) page.blocks = [];
       const ops = saveOps(was, page, ctx.now);
       applyOps(db, ops);
