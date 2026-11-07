@@ -116,17 +116,19 @@ test('DS-2・F136: 型 row の行は page.get で読め（セル・番号・作�
 test('DS-2・F135・RF17: 行が1万あっても、pages.list・listedRows・木の行・pages.trash・pages.typeSlots・pages.summaryWaits・pages.actionView・MCP の list_meetings は行が無いときと同じ（行はサイドバーの木にも出ない）', T, () => withDb((db, t) => {
   put(db, [dbPage('pdb', 'タスク')]);
   ok(call(db, 'page.delete', { id: 'pa2' }), 'page.delete');
-  const snap = () => ({
-    list: ok(call(db, 'pages.list', {}), 'pages.list'),
-    listed: C.listedRows(db),
-    tree: db.prepare(C.HOT_QUERIES.pageRows).all().map((r) => ({ ...r })),
-    trash: ok(call(db, 'pages.trash', {}), 'pages.trash'),
-    slots: ok(call(db, 'pages.typeSlots', { since: '2000-01-01' }, 'main'), 'pages.typeSlots'),
-    waits: ok(call(db, 'pages.summaryWaits', {}, 'main'), 'pages.summaryWaits'),
-    actions: ok(call(db, 'pages.actionView', {}), 'pages.actionView'),
-    mcp: tools.callTool('list_meetings', {}, { sqlite, dataDir: path.dirname(t.file), now: () => new Date('2026-11-07T00:00:00.000Z') }).text,
-  });
-  const before = snap();
+  // 読み手を軽い順に並べ、1つずつ比べる（行が一覧に漏れる壊れ方では、重い読み手に1万の行を渡す前に赤で止まる。
+  // 漏れた1万の行を MCP や木の読み手に全部渡すと、変異確認の CI で数 GB を使い切るため: DS-2 直し）
+  const READERS = [
+    ['listed', () => C.listedRows(db)],
+    ['list', () => ok(call(db, 'pages.list', {}), 'pages.list')],
+    ['tree', () => db.prepare(C.HOT_QUERIES.pageRows).all().map((r) => ({ ...r }))],
+    ['slots', () => ok(call(db, 'pages.typeSlots', { since: '2000-01-01' }, 'main'), 'pages.typeSlots')],
+    ['waits', () => ok(call(db, 'pages.summaryWaits', {}, 'main'), 'pages.summaryWaits')],
+    ['actions', () => ok(call(db, 'pages.actionView', {}), 'pages.actionView')],
+    ['trash', () => ok(call(db, 'pages.trash', {}), 'pages.trash')],
+    ['mcp', () => tools.callTool('list_meetings', {}, { sqlite, dataDir: path.dirname(t.file), now: () => new Date('2026-11-07T00:00:00.000Z') }).text],
+  ];
+  const before = Object.fromEntries(READERS.map(([k, read]) => [k, read()]));
   assert.ok(before.list.some((p) => p.id === 'pdb'), 'データベースのページは一覧に出る');
   const rows = [];
   for (let i = 0; i < 10000; i += 1) rows.push(rowAdd(`r${i}`, 'pdb', `k${String(i).padStart(5, '0')}`, `行 ${i}`, { c1: `メモ ${i}`, c2: i % 2 ? 'o1' : 'o2' }, i + 1));
@@ -135,8 +137,13 @@ test('DS-2・F135・RF17: 行が1万あっても、pages.list・listedRows・木
   put(db, [{ op: 'trash', id: 'r5', at: at(), old: null }]);
   ok(call(db, 'block.insert', { pageId: 'r7', afterBlockId: '', type: 'todo' }), 'block.insert');
   assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'row'").get().c, 10000);
-  const after = snap();
-  for (const k of Object.keys(before)) assert.deepStrictEqual(after[k], before[k], `${k} が行で変わった`);
+  const after = {};
+  for (const [k, read] of READERS) {
+    after[k] = read();
+    // 先に数（長さ）を比べる（大きな並びの違いを assert が全部書き出さない）
+    if (Array.isArray(before[k]) || typeof before[k] === 'string') assert.strictEqual(after[k].length, before[k].length, `${k} の数が行で変わった`);
+    assert.deepStrictEqual(after[k], before[k], `${k} が行で変わった`);
+  }
   // サイドバーの木（一覧の行から作る）に行は出ない（前の版の描き方も同じ一覧を読む: RF17）
   const tree = PT.pageTree(after.list);
   assert.ok(!tree.byId.has('r0') && !(tree.kids.get('pdb') || []).length, '木に行が出た');
