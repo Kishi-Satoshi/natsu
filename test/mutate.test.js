@@ -218,8 +218,7 @@ const IDS_1B = [
   'mp-mark', 'mp-mark-draft', 'mp-mark-page', 'mp-mark-shape', 'mp-suspend', 'mp-suspend-idle', 'mp-resume-hint', 'mp-resume-retry',
   'mp-no-autoresume', 'look-muted', 'look-accent-text', 'look-font', 'look-glass', 'look-radius', 'look-focus-ring', 'look-page-width',
   'ui-side-outside', 'ui-side-clamp', 'ui-side-key', 'ui-side-save', 'ui-tab-ctrl', 'ui-tab-middle', 'ui-tab-dedupe', 'ui-tab-close-next',
-  'ui-tab-live-nosave',   // ui-tab-flush は 0.15.1 ND-3 で GONE_151 へ（同じ答えの変異: R12）
-  'ui-tab-restore', 'ui-tab-arrows', 'ui-more-esc', 'ui-more-ime', 'ui-side-ime', 'ui-live-open',
+  'ui-tab-flush', 'ui-tab-live-nosave', 'ui-tab-restore', 'ui-tab-arrows', 'ui-more-esc', 'ui-more-ime', 'ui-side-ime', 'ui-live-open',
   'ui-live-convert', 'ui-pause-ask', 'ui-pause-key', 'ui-pause-final', 'ui-pausemark', 'ui-resume-note', 'ui-route-split', 'ui-cite-mark',
   'gate-move-ledger', 'shots-retake-overlay', 'shots-overflow', 'shots-zoom', 'mp-suspend-ensure', 'mp-suspend-late', 'look-text-token',
   'look-shadow-blue', 'ui-row-middle', 'gate-ledger-extra',
@@ -1399,8 +1398,6 @@ const BUILT_151 = [
 const GONE_151 = [
   // ND-3: 画面の NaTsu の中の音声入力（0.14.0 EK-6。U4 を取りやめた: D114）
   'ek-dict-ime', 'ek-dict-target', 'ek-dict-esc', 'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-esc-order', 'ek-ime-blur', 'ek-dict-hidden',
-  // ND-3: 同じ答えになった変異（ページでないタブの音声入力が無くなり、activateTab の書き出しは openPage・showLive の書き出しと同じ: 計画の R12）
-  'ui-tab-flush',
   // ND-2: main の音声入力（計画の「前の版の変異の片付け」の GONE_151 の表。直しそのものが無くなった・音声入力の録音中が来ないので同じ答えになった）
   'mn-reload-dictation', 'ra-dictate-quitting',
   'op-dict-keep', 'op-dict-nopaste', 'op-dict-readd', 'op-dict-dup', 'op-dict-broken', 'op-dict-delete', 'rv-dict-user-deleted', 'rv-dict-save-before-unlink',

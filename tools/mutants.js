@@ -364,6 +364,8 @@ module.exports = [
     tests: ['test/stage1b.app.test.js'], why: 'B-3: 同じページのタブを2つ作らない' },
   { id: 'ui-tab-close-next', file: 'src/renderer/app.html', from: 'const next = openTabs[i] || openTabs[i - 1];', to: 'const next = null;',
     tests: ['test/stage1b.app.test.js'], why: 'B-3: 選んでいたタブを閉じたら隣へ移る' },
+  { id: 'ui-tab-flush', file: 'src/renderer/app.html', from: '    if (!hasTab(key)) return false;\n    flushEdits();', to: '    if (!hasTab(key)) return false;',
+    tests: ['test/stage1b.app.test.js'], why: 'B-3 F8: タブを替える前に編集を書き出す（0.15.1 ND-3 直し: 同じページのタブを選び直すときは、ここだけが書き出す）' },
   { id: 'ui-tab-restore', file: 'src/renderer/app.html', from: 'if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);', to: 'void tb;',
     tests: ['test/stage1b.app.test.js'], why: 'B-3: 起動のときに覚えたタブを開く' },
   { id: 'ui-tab-arrows', file: 'src/renderer/app.html', from: 'if (ev.key === \'ArrowRight\') j = i < 0 ? 0 : (i + 1) % n;', to: 'if (false) j = 0;',

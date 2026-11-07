@@ -431,7 +431,7 @@ data/                  議事録の保存先
   dictwait/            0.15.0 までの音声入力で、文字にする前に残した音声（0.15.1 からは読み書きしない。消さずに残す）
 ```
 設定画面の「データ保存先を開く」で開くのは `data\` のフォルダです（`settings.json`・`history.json`・`update.log` はその1つ上の `%APPDATA%\natsu\` にあります）。
-バックアップはこのフォルダをコピーするだけです（NaTsu を終了してから写してください。動いている間は `natsu.db` と `natsu.db-wal` が組で変わります）。
+バックアップは `%APPDATA%\natsu\` のフォルダ（`data\` と、その1つ上の `settings.json`・`history.json`）をコピーするだけです（NaTsu を終了してから写してください。動いている間は `natsu.db` と `natsu.db-wal` が組で変わります）。
 
 ### 議事録の保存の形（0.7.0 から）
 

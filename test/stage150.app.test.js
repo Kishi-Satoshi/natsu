@@ -2035,7 +2035,45 @@ test('PH-5 直し 2・R56 I-1（F117・0.14.0 R155 と同じ考え）: ［移動
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('PH-5 直し 2・R56 M-6: 議事録の子ページの一覧は、そのページのタブを選んでいるときだけ（ほかのタブで一覧を読み直しても出さない）', T, async () => {
+test('PH-5 直し 2・R56 M-6: Ctrl+Shift+U は検索の窓・［移動先…］・「新しいページ」・［要約を再生成］の確かめの間は何もしない', T, async () => {
+  const l = await boot();
+  l.fire('onPageOpen', 'g1'); await l.drain();
+  const still = async (what) => {
+    const n0 = l.called('pageGet').length;
+    l.key(CU2); await l.drain();
+    assert.strictEqual(l.called('pageGet').length, n0, `${what}の間に親へ移った`);
+  };
+  $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+  await still('検索の窓');
+  l.key({ key: 'Escape' }, $(l, 'searchBox')); await l.drain();
+  await openMoveFromTree(l, 'pa1');
+  await still('［移動先…］');
+  l.key({ key: 'Escape' }, $(l, 'moveSearch')); await l.drain();
+  l.key(CN2); await l.drain();
+  await still('「新しいページ」');
+  l.key({ key: 'Escape' }, $(l, 'newList')); await l.drain();
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+  // ［要約を再生成］の確かめ（人が直した行のある議事録 pa1 を白紙のページ pb1 の中へ）
+  const r = await openDb({ blanks: [BLANK('pb1', '計画', BODY())], before: (call) => {
+    call('page.move', { id: 'pa1', parentId: 'pb1' });
+    const b = call('page.get', { id: 'pa1' }).page.blocks.find((x) => x.type === 'bullet');
+    call('block.update', { pageId: 'pa1', blockId: b.id, patch: { text: '人が直した行' } });
+    return {};
+  }, open: 'pa1', returns: { pageSummarize: () => ({ ok: true, stat: { linked: 1, total: 1 } }) } });
+  try {
+    $(r, 'pMenu').querySelectorAll('button').find((b) => b.textContent === '要約を再生成').onclick();
+    await r.drain();
+    const dlg = r.document.querySelector('.askbox');
+    assert.ok(dlg, '前提: 確かめが出た');
+    const n0 = r.called('pageGet').length;
+    r.key(CU2); await r.drain();
+    assert.strictEqual(r.called('pageGet').length, n0, '確かめの間に親へ移った');
+    dlg.querySelectorAll('button')[1].dispatchEvent({ type: 'click' }); await r.drain();
+    assert.deepStrictEqual(r.errors.map(fmt), []);
+  } finally { r.done(); }
+});
+
+test('PH-5 直し 2・R56 M-6・0.15.1 ND-3（R9）: 議事録の子ページの一覧は、ページのタブを Ctrl+W で閉じて選んでいるタブが無いときに読み直しても出さない', T, async () => {
   const l = await boot();
   l.fire('onPageOpen', 'pa2'); await l.drain();
   $(l, 'paneBtnNote').dispatchEvent({ type: 'click' });

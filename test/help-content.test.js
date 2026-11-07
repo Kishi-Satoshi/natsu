@@ -1012,6 +1012,9 @@ test('ND-4 直し: README の「データ保存先」は、［データ保存先
   assert.ok(/^  dictwait\/ +0\.15\.0 までの音声入力で、文字にする前に残した音声（0\.15\.1 からは読み書きしない。消さずに残す）$/m.test(sec), 'data の dictwait の行が無い');
   assert.ok(sec.includes('「データ保存先を開く」で開くのは `data\\` のフォルダです'), '［データ保存先を開く］で開くフォルダが data だと書いていない');
   assert.ok(!sec.includes('設定画面の「データ保存先を開く」からエクスプローラーで開けます。'), '前の「このフォルダを開ける」と読める文が残っている');
+  // 0.15.1 ND-3 直し（2026-11-07 の f48abca..fe77164 の点検）: バックアップの文は data のフォルダの文の後に来るので、「このフォルダ」でなく写す物を名指す
+  assert.ok(!sec.includes('バックアップはこのフォルダをコピーするだけです'), 'バックアップの文が「このフォルダ」のまま（data のフォルダだけと読める）');
+  assert.ok(sec.includes('バックアップは `%APPDATA%\\natsu\\` のフォルダ（`data\\` と、その1つ上の `settings.json`・`history.json`）をコピーするだけです'), 'バックアップで写す物を名指していない');
 });
 test('ND-4 直し: 案内の記事 dictation/dictation の Win+H の手順は Windows 11 の画面で書いたと断る', { timeout: 5000 }, () => {
   const a = articles.find((x) => x.ref === 'dictation/dictation');

@@ -128,6 +128,16 @@ test('ND-3・F149: 何も開いていない所の Esc は何もしない（main 
   assert.strictEqual($(l, 'palette').hidden, true, '検索の窓の Esc で閉じない');
   assert.strictEqual(pe.defaultPrevented, true);
   assert.strictEqual($(l, 'settingsModal').hidden, true);
+  // 0.15.1 ND-3 直し（B。消した 0.14.0 の EK-6・R64 直し（R194）のうち、音声入力でない分を引き継ぐ）: 入力の欄でない所（絞り込みの［アクション］）にフォーカスが
+  // あっても、検索の窓の Esc は窓だけを閉じ、既定を止める（document の受け口）
+  $(l, 'sideSearch').click(); await l.drain();
+  assert.strictEqual($(l, 'palette').hidden, false, '前提: 検索の窓がもう一度開いた');
+  const chip = $(l, 'fltActions');
+  chip.focus();
+  assert.ok(l.document.activeElement === chip, '前提: 絞り込みにフォーカスがある');
+  const ce = l.key({ key: 'Escape', code: 'Escape' }, chip); await l.drain();
+  assert.strictEqual($(l, 'palette').hidden, true, '絞り込みにフォーカスがあるときの Esc で検索の窓が閉じない');
+  assert.strictEqual(ce.defaultPrevented, true, '絞り込みにフォーカスがあるときの Esc の既定を止めていない');
   assert.deepStrictEqual(l.errors.map(String), []);
 });
 

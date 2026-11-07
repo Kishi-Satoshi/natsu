@@ -22,7 +22,7 @@ const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, 
 const open = (o = {}) => load(APP, { preloadSrc: P1B, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } }), ...o } });
 const saves = (l) => l.called('uiSave').map((c) => c.args[0]);
 
-test('N2: サイドバーは議事録のタブの外にいて、上から NaTsu・検索・記録開始・議事録の一覧、下に音声入力と設定', async () => {
+test('N2: サイドバーは議事録のタブの外にいて、上から NaTsu・検索・記録開始・議事録の一覧、下にゴミ箱と設定', async () => {
   const l = await open();
   await l.drain();
   const side = l.byId.get('side');
@@ -108,7 +108,7 @@ test('N3: 一覧を押すと今のページのタブで開き、Ctrl+クリッ�
 
 // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブでなく、今のページの上に開くポップアップ（上の帯に足さない・今のタブを替えない）。
 // 1つずつ開くことと閉じ方は、音声入力とページのタブで見る
-test('N3・0.9.0 U-1: 音声入力はタブで開き（1つずつ）、設定はタブにしない。× と中クリックで閉じる。選んでいたタブを閉じたら隣へ移り、全部閉じたら空のページ', async () => {
+test('N3・0.9.0 U-1: ページはタブで開き（同じページは1つずつ）、設定はタブにしない。× と中クリックで閉じる。選んでいたタブを閉じたら隣へ移り、全部閉じたら空のページ', async () => {
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、2つ目のタブはページの Ctrl+クリックの新しいタブ（同じページは1つ）
   const l = await open();
   await l.drain();
@@ -160,6 +160,20 @@ test('N3・F8: タブを替える前に書きかけの題名を元のページ�
   // 0.9.0 U-1 で意図して変えた: 設定はタブを替えない（ポップアップ）ので、音声入力のタブへ替える
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、先に開いておいたほかのページのタブを帯で押して替える（タブを選ぶ activateTab の書き出しを見る）
   tabs(l)[0].dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa1', '直した題名']]);
+});
+
+// 0.15.1 ND-3 直し（C。計画 docs/plans/2026-11-04-151.md の R12 を直した）: 同じページのタブを選び直すと（タブが1つの Ctrl+Tab・自分のタブを押す）、
+// openPage を通らないので、activateTab の頭の書き出し（flushEdits）だけが書きかけの題名を保存する（前の版の変異 ui-tab-flush）
+test('N3・F8・0.15.1 ND-3 直し: タブが1つのときの Ctrl+Tab（同じページのタブを選び直す）でも、書きかけの題名を保存する', async () => {
+  const l = await open();
+  await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1'], '前提: タブが1つ');
+  l.byId.get('pTitle').textContent = '直した題名';
+  l.key({ key: 'Tab', code: 'Tab', ctrlKey: true });
   await l.drain();
   assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa1', '直した題名']]);
 });

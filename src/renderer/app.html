@@ -2736,11 +2736,6 @@
     const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
     return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}` : `${m}:${String(x).padStart(2,'0')}`;
   }
-  // 検索の正規化。全角／半角・大文字小文字・句読点や空白の違いで取りこぼさないよう、
-  // 両辺を同じ形に畳んでから含有を見る。main 側（cite.js の searchFold）と同じ規則。
-  // 規則を変えるときは両方を直す（一覧の検索と画面内の絞り込みで当たり方が食い違う）。
-  const fold = (s) => String(s || '').normalize('NFKC')
-    .replace(/[、。「」『』（）()［］\[\]【】・,.!?！？"'`~\-—…:：;；*_\/\s]/g, '').toLowerCase();
   function dueInfo(due, approx) {
     if (!due) return null;
     const today = new Date(); today.setHours(0,0,0,0);
