@@ -884,3 +884,50 @@ test('PL-3: 記事 find/page-look の ［…］ はアプリにある文字だ�
   // 記事の絵文字の一覧の分類は辞書の分類と同じ並び
   assert.ok(a.text.includes(`（${require('../src/emojiDict').CATS.map((c) => c.label).join('・')}）`), '分類の並びが辞書と違う');
 });
+
+// ---------------------------------------------------------------- 0.15.0 Task G（計画の Task G・R78）: README の「画面の使い方」・設計書の D の行と H1・H5・U3・notion-behavior の答え
+test('0.15.0 Task G: README の「画面の使い方」にページの階層・新しいページ・ゴミ箱・アイコンと見た目の項目、近道に Ctrl+Shift+N・U。設計書に D115〜D123 と H1・H5・U3 の書き添え、notion-behavior の X-02・Q-16・Q-21 に答え', { timeout: 5000 }, () => {
+  const readme = read('README.md');
+  const use = readme.slice(readme.indexOf('### 画面の使い方'), readme.indexOf('\n### 音声入力'));
+  for (const w of ['**ページの中のページ・白紙のページ（0.15.0 から）:**', '**新しいページ（0.15.0 から）:**', '**ゴミ箱（0.15.0 から）:**', '**ページのアイコンと見た目（0.15.0 から）:**',
+    '［中にページを作る］', '［移動先…］', '`/ページ`', '「このページの中のページ」', '［📄 白紙のページ］', '［🎙️ 議事録（録音の前のページ）］', '［🗑️ ゴミ箱］', '［戻す］', '［最近使ったもの］', '［外す］', '［全幅］', '［小さい文字］', '［書体 ▸］']) {
+    assert.ok(use.includes(w), `README の「画面の使い方」に「${w}」が無い`);
+  }
+  const app = read('src/renderer/app.html');
+  for (const m of use.slice(use.indexOf('**ページの中のページ')).matchAll(/［([^］]+)］/g)) {
+    const n = m[1].replace(/^[^\p{L}\p{N}]+\s*/u, '');
+    assert.ok(app.includes(n), `README の［${m[1]}］がアプリに無い`);
+  }
+  const keys = readme.slice(readme.indexOf('### ホットキー'), readme.indexOf('\n## ', readme.indexOf('### ホットキー')));
+  for (const k of ['`Ctrl+Shift+N`', '`Ctrl+Shift+U`']) assert.ok(keys.includes(k), `README のホットキーに ${k} が無い`);
+  assert.ok(readme.includes('**白紙のページと中のページ（0.15.0 から）:**'), 'README の MCP の節に白紙のページが無い');
+  const d = read('docs/plans/natsu-design.md');
+  for (let n = 115; n <= 123; n++) assert.ok(new RegExp(`^\\| D${n} \\| \\*\\*`, 'm').test(d), `設計書に D${n} の行が無い`);
+  assert.ok(!/^\| D11[34] \|/m.test(d), '設計書に D113・D114 の行がある（ほかの道で使う番号）');
+  for (const [h, w] of [['H1', 'D117'], ['H5', 'D120'], ['U3', 'D121']]) {
+    const row = d.split('\n').find((l) => l.startsWith(`| ${h} |`));
+    assert.ok(row && row.includes(`0.15.0 で改めた: ${w}`), `設計書の ${h} に ${w} の書き添えが無い`);
+  }
+  assert.ok(d.includes('| 0.15.0（ページの階層とページのアイコン・見た目: `docs/plans/2026-11-03-150.md`'), '設計書の版の表の 0.15.0 の欄が前のまま');
+  const nb = read('docs/plans/notion-behavior.md');
+  for (const id of ['X-02', 'Q-16', 'Q-21']) {
+    const row = nb.split('\n').find((l) => l.startsWith(`| ${id} |`));
+    assert.ok(row && row.includes('（2026-11-03 の 0.15.0 の'), `notion-behavior の ${id} に答えが無い`);
+  }
+});
+
+// ---------------------------------------------------------------- 0.15.0 最後の点検の直し（R80・2026-11-06 の a3f0925..707ad1e の点検）: 前の版で消した議事録もゴミ箱に並ぶ
+test('R80: find/delete-and-backups と find/page-tree に、0.15.0 より前の版で消した議事録も［ゴミ箱］に並び戻せること、ゴミ箱を空にできないことがある', { timeout: 5000 }, () => {
+  const del = articles.find((x) => x.ref === 'find/delete-and-backups');
+  const restore = del.text.slice(del.text.indexOf('## ゴミ箱から戻す {#restore}'), del.text.indexOf('\n## ', del.text.indexOf('## ゴミ箱から戻す {#restore}') + 3));
+  for (const w of ['0.15.0 より前の版で消した議事録も、［ゴミ箱］ に並びます', '200 まで', '［戻す］ で戻せます', 'ゴミ箱を空にすることはできません']) {
+    assert.ok(restore.includes(w), `find/delete-and-backups の「ゴミ箱から戻す」に「${w}」が無い`);
+  }
+  assert.ok(metaOf(del).updated >= '2026-11-06');
+  const tree = articles.find((x) => x.ref === 'find/page-tree');
+  assert.ok(tree.text.includes('0.15.0 より前の版で消した議事録も ［ゴミ箱］ に並び、戻せます（[ゴミ箱から戻す](find/delete-and-backups.md#restore)）'), 'find/page-tree に前の版で消した議事録のことが無い');
+  const app = L.appLabelText(ROOT);
+  for (const a of [del, tree]) assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${a.ref}: アプリに無い ［…］`);
+  // CHANGELOG の 0.15.0 の節にも、持ち主が承認した文がそのまま
+  assert.ok(read('CHANGELOG.md').includes('今までに消した議事録も［ゴミ箱］に並び、戻せます。'), 'CHANGELOG に前の版で消した議事録の文が無い');
+});

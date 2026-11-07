@@ -250,6 +250,21 @@ test('PH-2・H5・F113: page.delete と page.restore（親を消すと子孫の�
   assert.strictEqual(call(db, 'page.restore', { id: 'pnone' }).code, 'bad-args');
 }));
 
+// 0.15.0 最後の点検の直し（R80・2026-11-06 の a3f0925..707ad1e の点検 rv35 の Important）: 0.7.0〜0.14.0 の page.delete はページの行の trashed_at を書くだけ
+// （ops の trash の1つ）だった。その形で消した議事録も、0.15.0 の［ゴミ箱］に並び、戻せる（持ち主の答え「そのまま並べ、変更の記録とヘルプにはっきり書く（おすすめ）」。
+// 偶然でなく決めた動き）
+test('R80: 0.14.0 までの形で消した議事録（ページの行の trashed_at だけ）も pages.trash に頭として並び（中のページ 0）、page.restore で一覧に戻る', T, () => withDb((db) => {
+  const at = '2026-10-30T01:00:00.000Z';
+  db.prepare('update blocks set trashed_at = ? where id = ?').run(at, 'pa2');   // 0.14.0 の page.delete と同じ: ページの行だけ
+  assert.ok(!listOf(db).some((p) => p.id === 'pa2'), '前提: 前の版で消した議事録は一覧に出ない');
+  const r = call(db, 'pages.trash', {});
+  assert.strictEqual(r.ok, true, r.code);
+  assert.deepStrictEqual(r.result.map((x) => [x.id, x.title, x.trashedAt, x.count]), [['pa2', '会議2', at, 0]], '前の版で消した議事録がゴミ箱に並ばない');
+  ok(call(db, 'page.restore', { id: 'pa2' }), 'page.restore');
+  assert.ok(listOf(db).some((p) => p.id === 'pa2'), '戻しても一覧に出ない');
+  assert.deepStrictEqual(call(db, 'pages.trash', {}).result, []);
+}));
+
 test('PH-2・F121: pages.trash（一緒に消したまとまりの頭だけ・count・消した新しい順・200 まで）', T, () => withDb((db) => {
   const c1 = create(db, 'pa1'); create(db, c1); create(db, 'pa1');
   const lone = create(db, 'pa2');

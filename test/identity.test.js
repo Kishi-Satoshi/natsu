@@ -60,9 +60,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.13.1 で意図して変えた: 版を 0.13.1 に（要約の入れ子とトグル。Electron は 44.9.0 のまま）
 // 0.13.2 で意図して変えた: 版を 0.13.2 に（ログインしていないことに気づける・残った区間が止まらない・パネルを下の中央に。Electron は 44.9.0 のまま）
 // 0.14.0 で意図して変えた: 版を 0.14.0 に（文字の飾り・元に戻す・貼り付けの変換・行の選び・近道・NaTsu の中の音声入力・口述の整え・メモの行。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.14.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.15.0 で意図して変えた: 版を 0.15.0 に（ページの階層・白紙のページの本文の子ページの行・子ごとのゴミ箱と戻す・新しいページの近道・ページのアイコンと絵文字・全幅・文字の大きさと書体。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.15.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.14.0');
+  assert.strictEqual(pkg.version, '0.15.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -289,8 +290,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.13.1 で意図して変えた: 版は 0.13.1（README の保存の説明は 0.7.0 のまま）
 // 0.13.2 で意図して変えた: 版は 0.13.2（README の保存の説明は 0.7.0 のまま）
 // 0.14.0 で意図して変えた: 版は 0.14.0（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.14.0');
+// 0.15.0 で意図して変えた: 版は 0.15.0（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.15.0');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -741,7 +743,7 @@ test('0.14.0: CHANGELOG の 0.14.0 の節（計画の下書きから移した）
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.14.0 （2026-11-03）'), 'CHANGELOG.md に「## natsu-v0.14.0 （2026-11-03）」の見出しが無い');
   assert.ok(cl.indexOf('## natsu-v0.14.0') < cl.indexOf('## natsu-v0.13.2'), '0.14.0 の節が 0.13.2 の節の上に無い');
-  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.14.0'), '0.14.0 の節が CHANGELOG の頭に無い');
+  // 0.15.0 で意図して変えた: CHANGELOG の頭は 0.15.0 の節になった（0.14.0 の節はそのすぐ下: 下の 0.15.0 のテスト）
   const sec = secOf(cl, '## natsu-v0.14.0');
   const plan = read('docs/plans/2026-10-26-140.md');
   const d = plan.indexOf('\n## CHANGELOG の 0.14.0 の節（下書き。BQ13〜BQ30 の答えを入れた）\n');
@@ -772,6 +774,41 @@ test('0.14.0: CHANGELOG の 0.14.0 の節（計画の下書きから移した）
     '## NaTsu の中で音声入力する {#in-natsu}', '## 口述を整える {#tidy}', '## NaTsu の窓の中だけで効くキー {#in-app}']) {
     assert.ok(help.includes(h), `ヘルプの記事に「${h}」の節が無い（CHANGELOG が引く節）`);
   }
+});
+
+// 0.15.0（計画 docs/plans/2026-11-03-150.md の「CHANGELOG の 0.15.0 の節（下書き）」。Task G の後半: R79）: 版を 0.15.0 に上げる commit で、下書きを持ち主が読む言葉に直し、
+// 日付つきの見出し（## natsu-v0.15.0 （2026-11-07））で CHANGELOG.md の頭（0.14.0 の節の上）へ移した。ページの中のページ・白紙のページ・本文の子ページの行（BQ3・BQ10〜BQ13）・
+// サイドバーの木・パンくず・Ctrl+Shift+N（BQ7）・ゴミ箱（BQ6）・ページのアイコン（BQ9）と見た目・白紙のページを Claude から読む（BQ8）を書く。計画には「移した」の1行だけを残す
+test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）は日付つきの見出しで CHANGELOG の頭（0.14.0 の節の上）にあり、ページの階層・本文の子ページの行・木・パンくず・Ctrl+Shift+N・ゴミ箱・アイコンと見た目・Claude を書き、引いた［…］はどれも src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.15.0 （2026-11-07）'), 'CHANGELOG.md に「## natsu-v0.15.0 （2026-11-07）」の見出しが無い');
+  assert.ok(cl.indexOf('## natsu-v0.15.0') < cl.indexOf('## natsu-v0.14.0'), '0.15.0 の節が 0.14.0 の節の上に無い');
+  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.15.0'), '0.15.0 の節が CHANGELOG の頭に無い');
+  const sec = secOf(cl, '## natsu-v0.15.0');
+  const plan = read('docs/plans/2026-11-03-150.md');
+  const d = plan.indexOf('\n## CHANGELOG の 0.15.0 の節（下書き。BQ1〜BQ13 の答えを入れた。G で持ち主が読む言葉に直して移す）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の 0.15.0 の節（下書き）」の見出しが無い');
+  assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('ページの中にページを作れるようになりました'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  for (const w of ['［更新して再起動］', 'ページの中にページを作れるようになりました', '白紙のページ', '題名と本文だけ', '深さに決まりはありません', '「/ページ」', '「📄 題名」の1行',
+    'Ctrl+Z の1回で行もページも戻ります', '題名とリンクだけ', '複製しません', '「このページの中のページ」', 'サイドバーが木になりました', '▸', '［移動先…］',
+    '新しい議事録はいつもいちばん上', '録音中のページは動かせません', 'パンくず', 'Ctrl+Shift+U', 'Ctrl+Shift+N', '［📄 白紙のページ］', '［🎙️ 議事録（録音の前のページ）］',
+    '一緒に元の場所へ戻ります', 'ゴミ箱に何かあるときだけ', '今までに消した議事録も［ゴミ箱］に並び、戻せます。', 'ページのアイコンを選べるようになりました', '約 500', '日本語の名前とよみ', '［最近使ったもの］', '［外す］',
+    'サイドバー・タブ・パンくず・検索の窓', '［全幅］', '［小さい文字］', '［書体 ▸］', '標準・明朝・等幅', 'サイドバーや設定には効きません', 'Claude（MCP）から読めます',
+    'どこにあるかが添えられます', 'Claude に渡しません', 'ヘルプセンター']) {
+    assert.ok(sec.includes(w), `0.15.0 の節に「${w}」が無い`);
+  }
+  assert.ok(!/notion/i.test(sec), '0.15.0 の節に参考にしたアプリの名前がある');
+  assert.ok(!/音声入力/.test(sec), '0.15.0 の節に音声入力の文がある（0.15.0 では音声入力を変えない）');
+  assert.ok(!/<[a-z]/i.test(sec), '0.15.0 の節に生の HTML がある');
+  assert.ok(!/`/.test(sec), '0.15.0 の節に Markdown のコードの印がある（持ち主が読む言葉で書く）');
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(names.length >= 8, '引いた［…］が少ない');
+  for (const n of names) assert.ok(src.includes(n), `0.15.0 の節の［${n}］が src/ に無い`);
+  const titles = ['find/page-tree', 'find/page-look', 'find/delete-and-backups', 'find/search', 'settings/hotkeys', 'start/claude-mcp']
+    .map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
+  for (const t of titles) assert.ok(t && sec.includes(`「${t}」`), `0.15.0 の節にヘルプの記事「${t}」が無い`);
 });
 
 // ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）

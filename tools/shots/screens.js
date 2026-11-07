@@ -585,11 +585,11 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // PH-5 で足したパンくず・議事録の子ページの一覧・［移動先…］・新しいページの4枚（まだ基準が無い）と、近道の表に行が増える settings-shortcuts-light・
 // 「···」に［移動先…］が増える page-menu-link の2枚・計画の表のとおり / メニューの edit-slash-light・edit-slash-dark（今の基準がある）。
 // PH-5 直し（R55。CI run 41758331037 の画像）: 近道の表が伸びて「ホットキー」のカードの下が下がり、捲り棒のつまみも変わる設定の［一般］の3枚（今の基準がある）
-const RETAKE = new Set(['sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light', 'page-rows-dark',
-  'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light', 'trash-pop-light',
-  'icon-pop-light', 'icon-pop-dark', 'look-wide-light', 'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light', 'look-small-zoom200-light',
-  'edit-slash-recent-light', 'settings-shortcuts-light', 'page-menu-link-light', 'page-menu-link-dark', 'edit-slash-light', 'edit-slash-dark',
-  'settings-light', 'settings-dark', 'settings-zoom200-dark']);
+// 0.15.0（版を 0.15.0 に上げる commit。Task G の後半: R79）: 持ち主が取り直しの見比べ（足した 20 枚: サイドバーの木・白紙のページ・本文の子ページの行・パンくず・
+// 議事録の子ページの一覧・［移動先…］・新しいページ・ゴミ箱の窓・アイコンの選び・全幅・小さい文字と書体・「···」の見た目の項目、取り直した 7 枚: 設定の［一般］の3枚と近道の表・
+// / メニュー・「···」の2枚）に「0.15.0の画面はこの見た目でよいです」（2026-11-06）と答えたので、CI run 41936731119（622444a）の artifact 13374567273 の .after.png（27 枚。
+// edit-slash-light・edit-slash-dark は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 195 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
