@@ -14,6 +14,8 @@ NaTsu 0.15.1 で、NaTsu の音声入力（[[Ctrl+Shift+Space]] で話して入�
 2. [[Win+H]]（Windows キー + H）を押します。
 3. 聞き取りの印が出てから話します。止めるには、出てきた小さな窓のマイクのボタンを押します。
 
+（Windows 11 の画面で書いています）
+
 使うには、インターネットにつながっていて、マイクが動くことが要ります。くわしい使い方は、Microsoft の説明（[音声入力を使用して PC で入力する代わりに話す](https://support.microsoft.com/ja-jp/accessibility/windows/use-voice-typing-to-talk-instead-of-type-on-your-pc)）を見てください。
 
 ## 話した声の行き先 {#privacy}

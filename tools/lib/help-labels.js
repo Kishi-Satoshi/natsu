@@ -25,7 +25,8 @@ function appLabelText(root) {
 // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の F155・RF51・R4）: 今の画面に見える字。appLabelText は src/ の全部の字を見るので、消した機能の名前が
 // コメントや凍結の録音バー（overlay.html）に残ると、記事に消えたボタンの名前が残っても通ってしまう。こちらは画面（src/renderer/app.html）の
 // HTML の注釈・<style>・JS の注釈を除いた字（<script> の文字の並びは画面に出す字なので数える）と、src/main.js の注釈を除いた字（トレイの項目・知らせ）だけ
-const dropJsComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\s)\/\/ [^\n]*/g, '$1');
+// ND-4 直し（R13）: 「//」のすぐ後に字が続く注釈（「//（…」）も外す（前は「// 」の空白つきだけ）
+const dropJsComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\s)\/\/[^\n]*/g, '$1');
 function seenLabelText(root) {
   const read = (f) => (fs.existsSync(path.join(root, f)) ? fs.readFileSync(path.join(root, f), 'utf8') : '');
   const app = read(path.join('src', 'renderer', 'app.html')).replace(/<!--[\s\S]*?-->/g, ' ').replace(/<style[\s\S]*?<\/style>/g, ' ');

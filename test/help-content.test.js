@@ -947,11 +947,13 @@ test('ND-4・F155・RF51: 記事の ［…］ の言葉は、今の画面に見�
   const dir = tmpDir(t, 'nd4-seen-');
   {
     fs.mkdirSync(path.join(dir, 'src', 'renderer'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'src', 'renderer', 'app.html'), '<html><!-- ［注釈だけの字A］ --><style>/* 字B */</style><body><button>見える字C</button>\n<script>\n  // ［注釈だけの字D］\n  b.textContent = \'見える字E\';   // 注釈だけの字F\n  /* 注釈だけの字G */\n</script></body></html>\n');
+    fs.writeFileSync(path.join(dir, 'src', 'renderer', 'app.html'), '<html><!-- ［注釈だけの字A］ --><style>/* 字B */</style><body><button>見える字C</button>\n<script>\n  // ［注釈だけの字D］\n  b.textContent = \'見える字E\';   // 注釈だけの字F\n  /* 注釈だけの字G */\n  //（［注釈だけの字K］）\n</script></body></html>\n');
     fs.writeFileSync(path.join(dir, 'src', 'main.js'), "// 注釈だけの字H\nconst t = '見える字I';   // 注釈だけの字J\nconst u = 'https://example.invalid/x';\n");
     const seen2 = L.seenLabelText(dir);
     for (const w of ['見える字C', '見える字E', '見える字I', 'https://example.invalid/x']) assert.ok(seen2.includes(w), `${w} を数えない`);
-    for (const w of ['注釈だけの字A', '字B', '注釈だけの字D', '注釈だけの字F', '注釈だけの字G', '注釈だけの字H', '注釈だけの字J']) assert.ok(!seen2.includes(w), `${w} を数えた`);
+    // ND-4 直し（R13）: 「//」のすぐ後に字が続く注釈（「//（…」）も数えない
+    for (const w of ['注釈だけの字A', '字B', '注釈だけの字D', '注釈だけの字F', '注釈だけの字G', '注釈だけの字H', '注釈だけの字J', '注釈だけの字K']) assert.ok(!seen2.includes(w), `${w} を数えた`);
+    assert.deepStrictEqual(L.missingLabels('［注釈だけの字K］', seen2).map((m) => m.label), ['注釈だけの字K'], '「//（…」の注釈だけにある言葉を見えると数えた');
   }
 });
 test('ND-4・F155・WQ4: 案内の記事 dictation/dictation は Win+H の案内（題・[[Win+H]]・出典の住所2つ・Microsoft へ送られる・言い切らない・前の履歴の置き場所）', { timeout: 5000 }, () => {
@@ -984,4 +986,35 @@ test('ND-4: 案内の頭の文（README の1行目・package.json の説明・�
   assert.ok(!read('INSTALL.md').includes('Ctrl+Shift+Space'), 'INSTALL に Ctrl+Shift+Space');
   // README の「データ保存先」の history.json の行は残し、読み書きしないと書く（NR8）
   assert.ok(read('README.md').includes('history.json           0.15.0 までの音声入力の履歴（0.15.1 からは読み書きしない。消さずに残す）'));
+});
+
+// ---------------------------------------------------------------- 0.15.1 ND-4 直し（2026-11-07 の 0684d09..f48abca の点検・計画の R13）
+test('ND-4 直し: README の「何がどこへ送られるか」の表に、今の動きとしての口述の整えが無い（0.15.0 までのアプリだけと書く）。管理者の手順の整えの欄と /v1/text/tidy の手順にも同じ注', { timeout: 5000 }, () => {
+  const r = read('README.md');
+  const at = r.indexOf('| 送り先 | 送るもの | 費用 | 保存の扱い |');
+  assert.ok(at > 0, '送り先の表が無い');
+  const table = r.slice(at, r.indexOf('\n\n', at));
+  for (const row of table.split('\n').filter((l) => l.includes('口述'))) {
+    for (const m of row.matchAll(/[^|・、（）]*口述[^|・、（）]*/g)) {
+      const around = row.slice(Math.max(0, m.index - 2), m.index + m[0].length + 40);
+      assert.ok(/0\.14\.0 から 0\.15\.0 までのアプリだけ/.test(around), `送り先の表の口述が今の動きに読める: ${m[0]}`);
+    }
+  }
+  const note = '0.15.0 までのアプリだけ';
+  const tidyCfg = r.split('\n').find((l) => l.includes('`TIDY_MODEL` … 整えに使う'));
+  assert.ok(tidyCfg && tidyCfg.includes(note), `管理者の手順の整えの欄に「${note}」が無い`);
+  const deploy = r.split('\n').find((l) => l.includes('/v1/text/tidy'));
+  assert.ok(deploy && deploy.includes(note), `中継を出す手順の /v1/text/tidy に「${note}」が無い`);
+});
+test('ND-4 直し: README の「データ保存先」は、［データ保存先を開く］で開くのが data のフォルダだと書き、0.15.0 までの音声入力の音声（data の dictwait）も挙げる（案内の記事と同じ言い方）', { timeout: 5000 }, () => {
+  const r = read('README.md');
+  const sec = r.slice(r.indexOf('\n## データ保存先'), r.indexOf('\n### 議事録の保存の形'));
+  assert.ok(/^  dictwait\/ +0\.15\.0 までの音声入力で、文字にする前に残した音声（0\.15\.1 からは読み書きしない。消さずに残す）$/m.test(sec), 'data の dictwait の行が無い');
+  assert.ok(sec.includes('「データ保存先を開く」で開くのは `data\\` のフォルダです'), '［データ保存先を開く］で開くフォルダが data だと書いていない');
+  assert.ok(!sec.includes('設定画面の「データ保存先を開く」からエクスプローラーで開けます。'), '前の「このフォルダを開ける」と読める文が残っている');
+});
+test('ND-4 直し: 案内の記事 dictation/dictation の Win+H の手順は Windows 11 の画面で書いたと断る', { timeout: 5000 }, () => {
+  const a = articles.find((x) => x.ref === 'dictation/dictation');
+  const sec = a.text.slice(a.text.indexOf('{#windows}'), a.text.indexOf('\n## ', a.text.indexOf('{#windows}')));
+  assert.ok(sec.includes('（Windows 11 の画面で書いています）'), sec);
 });
