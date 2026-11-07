@@ -771,8 +771,13 @@ test('0.14.0: CHANGELOG の 0.14.0 の節（計画の下書きから移した）
   const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
   const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.ok(names.length >= 5, '引いた［…］が少ない');
-  for (const n of names) assert.ok(src.includes(n), `0.14.0 の節の［${n}］が src/ に無い`);
-  for (const w of ['口述の文を AI で整える', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去']) assert.ok(src.includes(w), `設定の名前「${w}」が src/ に無い`);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 0.14.0 の節の文は書き換えない（RN3）。0.15.1 で消した画面の言葉（履歴の［元の文をコピー］・設定の「口述の文を AI で整える」
+  // 「文字起こし後、カーソル位置へ自動貼り付け」）は、今の画面に無いことを見る
+  const GONE_151 = ['元の文をコピー'];
+  for (const n of names.filter((x) => !GONE_151.includes(x))) assert.ok(src.includes(n), `0.14.0 の節の［${n}］が src/ に無い`);
+  for (const n of GONE_151) assert.ok(names.includes(n) && !src.includes(n), `0.14.0 の節の［${n}］が 0.15.1 で消えていない`);
+  for (const w of ['フィラー除去']) assert.ok(src.includes(w), `設定の名前「${w}」が src/ に無い`);
+  for (const w of ['口述の文を AI で整える', '文字起こし後、カーソル位置へ自動貼り付け']) assert.ok(!read('src/renderer/app.html').includes(w), `消した設定の名前「${w}」が画面に残っている`);
   const help = ['help/articles/summary/edit-summary.md', 'help/articles/dictation/dictation.md', 'help/articles/settings/hotkeys.md'].map(read).join('\n');
   // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: dictation/dictation を Win+H の案内に書き換えたので、「NaTsu の中で音声入力する」と「口述を整える」の節は無い（0.14.0 の節の文は書き換えない: RN3）
   for (const h of ['## 文字の飾り・リンク・色 {#marks}', '## 元に戻す・やり直す {#undo}', '## 貼り付け {#paste}', '## 行を選ぶ {#select}', '## メモも行で書く {#memo}',

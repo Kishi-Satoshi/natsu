@@ -218,7 +218,8 @@ const IDS_1B = [
   'mp-mark', 'mp-mark-draft', 'mp-mark-page', 'mp-mark-shape', 'mp-suspend', 'mp-suspend-idle', 'mp-resume-hint', 'mp-resume-retry',
   'mp-no-autoresume', 'look-muted', 'look-accent-text', 'look-font', 'look-glass', 'look-radius', 'look-focus-ring', 'look-page-width',
   'ui-side-outside', 'ui-side-clamp', 'ui-side-key', 'ui-side-save', 'ui-tab-ctrl', 'ui-tab-middle', 'ui-tab-dedupe', 'ui-tab-close-next',
-  'ui-tab-flush', 'ui-tab-live-nosave', 'ui-tab-restore', 'ui-tab-arrows', 'ui-more-esc', 'ui-more-ime', 'ui-side-ime', 'ui-live-open',
+  'ui-tab-live-nosave',   // ui-tab-flush は 0.15.1 ND-3 で GONE_151 へ（同じ答えの変異: R12）
+  'ui-tab-restore', 'ui-tab-arrows', 'ui-more-esc', 'ui-more-ime', 'ui-side-ime', 'ui-live-open',
   'ui-live-convert', 'ui-pause-ask', 'ui-pause-key', 'ui-pause-final', 'ui-pausemark', 'ui-resume-note', 'ui-route-split', 'ui-cite-mark',
   'gate-move-ledger', 'shots-retake-overlay', 'shots-overflow', 'shots-zoom', 'mp-suspend-ensure', 'mp-suspend-late', 'look-text-token',
   'look-shadow-blue', 'ui-row-middle', 'gate-ledger-extra',
@@ -1242,11 +1243,12 @@ const IDS_140 = [
   // 0.14.0 EK-5（表の行の順に、EK-4 の行の後と EK-2 の行の間に入れた）
   'ek-menu-default', 'ek-ctrl-w-live', 'ek-ctrl-w-last', 'ek-shortcut-table',
   // 0.14.0 EK-6（表の行の順に、EK-5 の行の間に入れた）
-  'ek-dict-ime', 'ek-dict-clip', 'ek-dict-target', 'ek-dict-meeting', 'ek-dict-esc', 'ek-dict-reset', 'ek-dict-other', 'ek-dict-nowhere',
-  'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-dict-seq', 'ek-esc-order', 'ek-dict-end', 'ek-dict-starting', 'ek-dict-login',
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「前の版の変異の片付け」）で、画面の NaTsu の中の音声入力の変異（GONE_151）を外した
+  'ek-dict-clip', 'ek-dict-meeting', 'ek-dict-reset', 'ek-dict-other', 'ek-dict-nowhere',
+  'ek-dict-seq', 'ek-dict-end', 'ek-dict-starting', 'ek-dict-login',
   'ek-ctrl-w-starting', 'ek-shortcut-131',
-  'ek-cancel-sender', 'ek-ime-blur',   // 0.14.0 DQ-3 直し2（R202。EK-6 直し2 の R201 の変異）
-  'ek-dict-hidden', 'ek-dict-cancel-proc',   // 0.14.0 EK-6 直し3（R207）
+  'ek-cancel-sender',   // 0.14.0 DQ-3 直し2（R202。EK-6 直し2 の R201 の変異。ek-ime-blur は 0.15.1 ND-3 で GONE_151 へ）
+  'ek-dict-cancel-proc',   // 0.14.0 EK-6 直し3（R207。ek-dict-hidden は 0.15.1 ND-3 で GONE_151 へ）
   // 0.14.0 EK-2 の続き
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',
@@ -1302,7 +1304,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の�
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   // 0.14.0 EK-7 直し（R208）: IDS_140 は表の行とちょうど同じ（行の順）。前は表の行の一部でも通り、表の ek-help-article が変異に無いのを見落とした
-  assert.deepStrictEqual(IDS_140, rows, 'IDS_140 が表の行とちょうど同じでない（表の行の変異が無い・行の順でない）');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」）で意図して変えた: 表の行から、直しそのものが無くなった GONE_151 を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual(IDS_140, rows.filter((id) => !GONE_151.includes(id)), 'IDS_140 が表の行（GONE_151 を除く）とちょうど同じでない（表の行の変異が無い・行の順でない）');
   // 0.15.0 PH-1（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」）で意図して変えた: 0.15.0 の頭（ph・pl）にも当たらない
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(ph|pl)-/]) {
     assert.deepStrictEqual(IDS_140.filter((id) => re.test(id)), [], `${re} に当たる 0.14.0 の id`);
@@ -1376,12 +1379,25 @@ test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の�
 // 0.15.1（計画 docs/plans/2026-11-04-151.md の「変異の表」の nd-・ps-・lb- の表）: 音声入力をなくした守り（nd-）・プライベートのセクションと行の「···」の守り（ps-）・
 // ライブラリの守り（lb-）。タスクを作るたびに表の行の順で足す（R1。載せる順は計画と違い ND-4・ND-3・ND-2・ND-1 の順: 計画の R1）。頭は前の版の照らしにも 0.16.0 の頭（tb・vw）にも当たらない
 const IDS_151 = [
+  // 0.15.1 ND-3（表の行の順に）
+  'nd-preload-api', 'nd-side-row', 'nd-ui-tabs', 'nd-set-rows', 'nd-ui-word',
   // 0.15.1 ND-4（表の行の順に）
   'nd-help-word', 'nd-help-src', 'nd-help-cite',
+  // 0.15.1 ND-3（表の行の順に）
+  'nd-winh-note',
 ];
 // 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足し、Task G の前に表の全部とちょうど同じかを見る形に替える（0.15.0 の R1 と同じ）
 const BUILT_151 = [
   ['nd-help-word', 'nd-help-cite'],   // ND-4
+  ['nd-preload-api', 'nd-ui-word'], ['nd-winh-note', 'nd-winh-note'],   // ND-3
+];
+// 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
+// タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
+const GONE_151 = [
+  // ND-3: 画面の NaTsu の中の音声入力（0.14.0 EK-6。U4 を取りやめた: D114）
+  'ek-dict-ime', 'ek-dict-target', 'ek-dict-esc', 'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-esc-order', 'ek-ime-blur', 'ek-dict-hidden',
+  // ND-3: 同じ答えになった変異（ページでないタブの音声入力が無くなり、activateTab の書き出しは openPage・showLive の書き出しと同じ: 計画の R12）
+  'ui-tab-flush',
 ];
 function planRows151() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-151.md'), 'utf8');
@@ -1416,4 +1432,17 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.15.1 '), `${id}: why`);
   }
+});
+test('G3・0.15.1: GONE_151 の変異は一覧にも、どの版の IDS にも無く、どれも計画の「前の版の変異の片付け」の GONE_151 の表にある', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(GONE_151.filter((id) => ids.has(id)), [], '外した変異が一覧に残っている');
+  assert.strictEqual(new Set(GONE_151).size, GONE_151.length, 'GONE_151 に重なり');
+  for (const list of [IDS_1A, IDS_1B, IDS_1D, IDS_090, IDS_090_REVIEW, IDS_091, IDS_094, IDS_121, IDS_130, IDS_132, IDS_140, IDS_150, IDS_151]) {
+    assert.deepStrictEqual(list.filter((id) => GONE_151.includes(id)), [], 'GONE_151 の変異が IDS に残っている');
+  }
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-151.md'), 'utf8');
+  const at = plan.indexOf('**`GONE_151`');
+  assert.ok(at > 0, '計画に GONE_151 の表が無い');
+  const table = plan.slice(at, plan.indexOf('（見込みの数', at));
+  for (const id of GONE_151) assert.ok(table.includes(`\`${id}\``), `${id} が計画の GONE_151 の表に無い`);
 });

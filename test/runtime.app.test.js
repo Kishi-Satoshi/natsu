@@ -43,7 +43,8 @@ test('初期化が例外なく完走し、設定の読み込みまで到達す�
   assert.deepStrictEqual(待機.consoleErrors, [], '初期化で console.error');
   // 到達の証拠。例外が無くても、途中で止まっていればここが 0 になる。
   assert.strictEqual(待機.called('getSettings').length, 1, '設定の読み込みまで到達していない');
-  assert.strictEqual(待機.called('getHistory').length, 1, '履歴の読み込みまで到達していない');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力の履歴は読まない（getHistory の口が無い）
+  assert.strictEqual(待機.called('getHistory').length, 0, '音声入力の履歴を読んだ');
   assert.strictEqual(待機.called('meetingStatus').length, 1, '初期化の最後まで到達していない');
 });
 
@@ -62,7 +63,8 @@ test('参照した id は、HTMLにあるか画面が自分で作ったものの
 test('設定を読んで入力欄に反映する（fill が走っている）', () => {
   const s = RETURNS.getSettings();
   const v = (id) => 待機.byId.get(id) && 待機.byId.get(id).value;
-  assert.strictEqual(v('hotkey'), s.hotkey, 'ホットキー欄に設定が入っていない');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力ホットキーの欄は無い。議事録ホットキーの欄で見る
+  assert.strictEqual(v('meetingHotkey'), s.meetingHotkey, 'ホットキー欄に設定が入っていない');
   assert.strictEqual(v('localServerExe'), s.localServerExe, 'エンジンのパス欄に設定が入っていない');
   assert.strictEqual(v('dictionary'), s.dictionary.join('\n'), 'ユーザー辞書欄に設定が入っていない');
   assert.strictEqual(待機.byId.get('useVad').checked, true, 'チェックボックスに設定が入っていない');
@@ -89,7 +91,9 @@ test('自動保存は、設定を読み込んだ後の値で保存する', async
   await l.drain();
   const saved = l.called('saveSettings');
   assert.strictEqual(saved.length, 1, '設定タブの change で自動保存が走らない（結線が死んでいる）');
-  assert.strictEqual(saved[0].args[0].hotkey, 'Control+Shift+Space', '読み込み前の空の値で保存している');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 保存で送るホットキーは議事録の1つ
+  assert.strictEqual(saved[0].args[0].meetingHotkey, 'Alt+M', '読み込み前の空の値で保存している');
+  assert.ok(!Object.hasOwn(saved[0].args[0], 'hotkey'), '音声入力のホットキーを送った');
   assert.ok(saved[0].args[0].localServerExe, '読み込み前の空の値で保存している');
 });
 
@@ -99,7 +103,8 @@ test('要となるボタンに、実際にハンドラが付く', () => {
   // engineFetchBtn は初めての PC でエンジンを取り込む唯一の道（第0b回 Task 15）
   // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの［起動テスト］（testSumBtn）を外した
   for (const id of ['chkUpdBtn', 'applyUpdBtn', 'openDataBtn', 'testBtn', 'engineFetchBtn',
-                    'tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings']) {
+                    // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: サイドバーの［🎤 音声入力］は無い
+                    'tabBtnNotes', 'tabBtnSettings']) {
     assert.ok(w.has(id), `${id} にハンドラが付いていない（ボタンが効かない）`);
   }
   assert.ok(待機.wired().some((x) => x.id === 'tabSettings' && x.listeners.includes('change')),
@@ -543,29 +548,31 @@ test('要約完了の page:updated が、打ち替え中のタイトルと書き
 
 test('設定したホットキーが既定で代替されているときは、「登録できていない」ではなく代替中と出す', async () => {
   const l = await load(APP, { preloadSrc: preloadWithHotkey(), returns: {
-    hotkeyState: () => ({ ok: true, failed: [], fallback: { '音声入力': { wanted: 'Control+Shift+X', using: 'Control+Shift+Space' } }, message: '' }),
+    // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: ホットキーの欄は議事録の1つ（音声入力の側の答えが来ても欄は無い）
+    hotkeyState: () => ({ ok: true, failed: [], fallback: { '議事録': { wanted: 'Control+Alt+X', using: 'Alt+M' }, '音声入力': { wanted: 'Control+Shift+X', using: 'Control+Shift+Space' } }, message: '' }),
   } });
   const warn = (id) => l.document.getElementById(id + 'Warn');
-  assert.ok(warn('hotkey') && !warn('hotkey').hidden, '代替中の注意が出ない');
-  assert.ok(/代わりに既定の Control\+Shift\+Space/.test(warn('hotkey').textContent), `文言が違う: ${warn('hotkey').textContent}`);
-  assert.ok(!/登録できていません/.test(warn('hotkey').textContent), '動いているキーに「登録できていない」と出ている');
-  assert.ok(warn('meetingHotkey').hidden, '関係ない欄に注意が出ている');
+  assert.strictEqual(warn('hotkey'), null, '音声入力の欄の注意の場所が残っている');
+  assert.ok(warn('meetingHotkey') && !warn('meetingHotkey').hidden, '代替中の注意が出ない');
+  assert.ok(/代わりに既定の Alt\+M/.test(warn('meetingHotkey').textContent), `文言が違う: ${warn('meetingHotkey').textContent}`);
+  assert.ok(!/登録できていません/.test(warn('meetingHotkey').textContent), '動いているキーに「登録できていない」と出ている');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
 test('保存で登録できなかったキーは、main が採った値に欄と設定を戻す（失敗したキーを持ち続けない）', async () => {
   const l = await load(APP, { preloadSrc: preloadWithHotkey(), returns: {
-    saveSettings: () => ({ ok: true, warning: '音声入力のホットキー Control+Shift+X は他のアプリが使用中のため登録できませんでした', applied: { hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M' } }),
+    // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 欄は議事録のホットキーの1つ
+    saveSettings: () => ({ ok: true, warning: '議事録のホットキー Control+Alt+X は他のアプリが使用中のため登録できませんでした', applied: { meetingHotkey: 'Alt+M' } }),
   } });
-  l.byId.get('hotkey').value = 'Control+Shift+X';
+  l.byId.get('meetingHotkey').value = 'Control+Alt+X';
   l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
   await l.drain();
-  assert.strictEqual(l.byId.get('hotkey').value, 'Control+Shift+Space', '失敗したキーが欄に残っている');
+  assert.strictEqual(l.byId.get('meetingHotkey').value, 'Alt+M', '失敗したキーが欄に残っている');
   // 次の無関係な保存で、失敗したキーを送り直さない
   l.byId.get('tabSettings').dispatchEvent({ type: 'change' });
   await l.drain();
-  const sent = l.called('saveSettings').map((c) => c.args[0].hotkey);
-  assert.deepStrictEqual(sent, ['Control+Shift+X', 'Control+Shift+Space'], `送ったキー: ${JSON.stringify(sent)}`);
+  const sent = l.called('saveSettings').map((c) => c.args[0].meetingHotkey);
+  assert.deepStrictEqual(sent, ['Control+Alt+X', 'Alt+M'], `送ったキー: ${JSON.stringify(sent)}`);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -661,22 +668,7 @@ test('一覧の行にキーボードのフォーカスが見える（:focus-visi
 // ================= 検索の正規化（#53） =================
 // 全角／半角・大文字小文字・句読点や空白の違いで取りこぼさない。
 // main 側（cite.js の searchFold）と同じ規則で両辺を畳んでから含有を見る。
-test('音声入力の履歴検索は、全角と半角・大文字小文字の違いを越えて当たる', async () => {
-  const l = await load(APP, { returns: { getHistory: () => [
-    { id: 'h1', text: 'ＡＩ戦略の会議', createdAt: new Date().toISOString(), durationSec: 5, chars: 7 },
-    { id: 'h2', text: '昼食の相談', createdAt: new Date().toISOString(), durationSec: 5, chars: 5 },
-  ] } });
-  const hits = () => l.byId.get('histList').querySelectorAll('.entry').length;
-  const search = (q) => { l.byId.get('histSearch').value = q; l.byId.get('histSearch').dispatchEvent({ type: 'input' }); };
-  assert.strictEqual(hits(), 2, '前提: 検索前は全件');
-  search('ai戦略');
-  assert.strictEqual(hits(), 1, '「ＡＩ戦略」が ai戦略 で当たらない');
-  search('A I 戦略');
-  assert.strictEqual(hits(), 1, '空白の違いで当たらない');
-  search('存在しない');
-  assert.strictEqual(hits(), 0, '当たらないものまで出る');
-  assert.deepStrictEqual(l.errors.map(fmt), []);
-});
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力の履歴検索のテストを消した（履歴のページが無い。全角と半角を越えて当てる fold は検索の窓のテストが見る）
 
 test('アクション横断ビューの絞り込みは store に任せる（検索語は畳まずに渡し、返った行を絞り直さない）', async () => {
   // #45 以降、句読点の違いを越えて当てるのは store 側（searchFold）。画面は q をそのまま渡し、
@@ -920,7 +912,8 @@ test('記録中はエンジンの設定欄が触れなくなり理由が出る�
   l.fire('onMeetingUpdate', { active: true, startedAt: Date.now(), segments: [] });
   await l.drain();
   for (const id of ENGINE_FIELDS) assert.strictEqual(l.byId.get(id).disabled, true, `${id} が記録中でも触れる`);
-  for (const id of ['autoPaste', 'hotkey', 'dictionary', 'pillPos']) assert.ok(!l.byId.get(id).disabled, `${id} は記録中でも変えてよい`);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 自動貼り付けと音声入力のホットキーの欄は無い
+  for (const id of ['removeFillers', 'meetingHotkey', 'dictionary', 'pillPos']) assert.ok(!l.byId.get(id).disabled, `${id} は記録中でも変えてよい`);
   assert.ok(notes.every((n) => !n.hidden), '理由の説明が出ない');
   // 第1d回 A-13（D19）で意図して変えた: カード「オフライン」（前の「エンジン」）の中の理由は「PC の中の文字起こし」の言葉。
   // カードの外（動作の「認識言語」）の理由は今のまま（D19 はカードの中の決定: 決めたこと K14）

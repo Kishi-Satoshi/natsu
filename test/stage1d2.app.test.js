@@ -214,7 +214,8 @@ test('OFF1: カードの説明は D21 の文（選んだ人も選んでいない
     // 0.9.2 I-3（計画 docs/plans/2026-10-21-092.md）で意図して変えた: 頭の説明は1行（OFF1_LEAD）。D21 の文の芯は ⓘ の吹き出し（#setPopOffline）にある
     assert.strictEqual(card.children[1].textContent.trim(), OFF1_LEAD, String(chosen));
     const pop = $(l, 'setPopOffline').textContent;
-    for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'オフラインモードの会議でも']) assert.ok(pop.includes(w), w);   // 0.9.3 M-0（D54）で意図して変えた
+    // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議と音声入力は」は「会議は」
+    for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議はそのまま使えます。', 'オフラインモードの会議でも']) assert.ok(pop.includes(w), w);   // 0.9.3 M-0（D54）で意図して変えた
   }
   for (const t of [OFF1_LEAD, OFF1, OFF2, OFF3, OFF4('1GB', '2GB', 3), OFF5, NEEDS, 'ログイン', 'ローカル AI の準備']) assert.ok(!t.includes('未設定'), t);
 });

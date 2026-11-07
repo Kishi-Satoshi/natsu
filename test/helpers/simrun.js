@@ -88,7 +88,6 @@ const RETURNS = {
   vadStatus: () => ({ path: 'C:\\m\\vad.onnx', auto: true }),
   meetingStatus: () => ({ active: false }),
   meetingTypes: () => [],
-  getHistory: () => [],
   pagesSearch: () => [],
   pagesSearchFull: () => [],
   openActions: () => [],

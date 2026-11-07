@@ -171,11 +171,11 @@ test('simdom: [属性="値"] と [属性] のセレクタが当たる（今は�
 });
 
 // 意図: 配線テストと画面テストを壊さないため、今の id は1つも消さない。設計書「id を残す理由」
-const IDS_1A_1C = ['tabBtnNotes', 'tabBtnDictation', 'tabBtnSettings', 'tabNotes', 'mtToggleBtn', 'mtDiscardBtn', 'searchBox', 'fltAll', 'fltActions', 'fltFull', 'plist',
+const IDS_1A_1C = ['tabBtnNotes', 'tabBtnSettings', 'tabNotes', 'mtToggleBtn', 'mtDiscardBtn', 'searchBox', 'fltAll', 'fltActions', 'fltFull', 'plist',
   'pageWrap', 'pTitle', 'pProps', 'pTypeRow', 'pType', 'pTypeHint', 'pActs', 'paneBtnNote', 'paneBtnScript', 'paneBtnMemo', 'pBody', 'pProgress', 'pNote', 'pScript', 'pMemo',
-  'tabDictation', 'stToday', 'stTotal', 'stSaved', 'recBtn', 'histSearch', 'clearBtn', 'histList', 'tabSettings', 'verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg', 'updNotes',
-  'themeSel', 'hotkey', 'hotkeyWarn', 'meetingHotkey', 'meetingHotkeyWarn', 'pillPos', 'micSelect', 'micReloadBtn', 'useSystemAudio', 'spkField', 'spkNow', 'spkReloadBtn',
-  'spkSettingsBtn', 'language', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'dictionary', 'dictWarn', 'useBuiltinTerms',
+  'tabSettings', 'verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg', 'updNotes',
+  'themeSel', 'meetingHotkey', 'meetingHotkeyWarn', 'pillPos', 'micSelect', 'micReloadBtn', 'useSystemAudio', 'spkField', 'spkNow', 'spkReloadBtn',
+  'spkSettingsBtn', 'language', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'dictionary', 'dictWarn', 'useBuiltinTerms',
   'claudeState', 'claudeTest', 'claudeHelp',
   'claudeExe', 'onlineMsg', 'engineState', 'testBtn', 'testMsg', 'engineNote', 'engineFetch', 'engineFetchSummary', 'engineFetchBar', 'engineFetchBtn',
   'engineFetchPause', 'engineFetchSwitch', 'engineDirBtn', 'engineFetchCopy', 'engineFetchMsg', 'engineFetchList', 'engineFetchRows', 'engineAdv', 'localServerExe',
@@ -188,10 +188,12 @@ const IDS_D5_REMOVED = ['onlineAskNote', 'cloudTranscribe', 'sttProvider', 'sttB
 // 一覧から外し、消えたことを見る
 const IDS_1D_REMOVED = ['onlineAdv', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttKeyClear', 'sttKeyState'];
 // 0.10.0 LS-3（D59）で意図して消した10: 詳細設定の要約のエンジンの欄（要約は Claude Code。一覧から外し、消えたことを見る）
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のサイドバーの行・ページ・履歴・設定の欄の 13（一覧から外し、消えたことを見る: D114）
+const IDS_ND3_REMOVED = ['tabBtnDictation', 'tabDictation', 'stToday', 'stTotal', 'stSaved', 'recBtn', 'histSearch', 'clearBtn', 'histList', 'hotkey', 'hotkeyWarn', 'autoPaste', 'aiTidy'];
 const IDS_LS3_REMOVED = ['testSumMsg', 'sumServerExe', 'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'setPopSThreads'];
 test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る。D5 で意図して消した5つと、1d で意図して消した6つと、0.10.0 LS-3 で意図して消した10を除く）', () => {
   for (const id of IDS_1A_1C) assert.ok(html.includes(`id="${id}"`), `id="${id}" が消えた`);
-  for (const id of [...IDS_D5_REMOVED, ...IDS_1D_REMOVED, ...IDS_LS3_REMOVED]) assert.ok(!html.includes(`id="${id}"`) && !html.includes(`$('${id}')`), `id="${id}" が残っている`);
+  for (const id of [...IDS_D5_REMOVED, ...IDS_1D_REMOVED, ...IDS_LS3_REMOVED, ...IDS_ND3_REMOVED]) assert.ok(!html.includes(`id="${id}"`) && !html.includes(`$('${id}')`), `id="${id}" が残っている`);
 });
 
 // 偽 DOM に配置が無いので、宣言で見る。見た目そのものは C-2 の画像。.pcol は本文の列
@@ -216,7 +218,8 @@ test('N5: 設定の区画は平ら（地も影も持たない）。音声入力�
   const card = S.declsFor(rules, '.card', { at: '' });
   assert.ok(!card.background || /var\(--bg\)|transparent/.test(card.background), card.background);
   assert.ok(!card['box-shadow'] || card['box-shadow'] === 'none');
-  assert.match(S.declsFor(rules, '.entry', { at: '' })['border-bottom'] || '', /var\(--line\)/);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力の履歴の一覧（.entry）は無い
+  assert.strictEqual(S.declsFor(rules, '.entry', { at: '' })['border-bottom'], undefined, '音声入力の履歴の規則が残っている');
 });
 
 test('画面の使いやすさ・F11: 狭い画面（200% の 560px）で詰める規則があり、タブの帯は横に捲れる', () => {

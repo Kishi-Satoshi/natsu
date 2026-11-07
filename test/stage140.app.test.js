@@ -1503,60 +1503,8 @@ test('EB-4 直し・M3（R115。EB-5 直しで R117）: 行の文の外に落と
 });
 
 // ---------------------------------------------------------------- EB-6（SEC2・F102・決めたこと 32・R68）: 画面の HTML に入れるのは決まった文字だけ
-// 要素の形（名前と文字の並び）。前の innerHTML の文を偽の DOM で読んだ形と比べて、見た目が同じことを見る
-const shape = (n) => (n.tagName === '#text' ? ['#text', n.textContent] : [n.tagName.toLowerCase(), n.className || '', ...n.childNodes.map(shape)]);
-test('EB-6・SEC2: 音声入力の履歴が空のとき、設定のホットキーの文字は <kbd> の文字として入る（HTML にならない）', T, async () => {
-  const { RETURNS } = require('./helpers/simrun.js');
-  const { parseHTML } = require('./helpers/simdom');
-  const hotkey = '<img src=x onerror="alert(1)">Ctrl+<b>Q</b>';
-  const l = await load(APP, { returns: { getSettings: () => ({ ...RETURNS.getSettings(), hotkey }), getHistory: () => [] } });
-  try {
-    await l.drain();
-    const box = $(l, 'histList');
-    assert.deepStrictEqual(box.querySelectorAll('img').length + box.querySelectorAll('b').length, 0, 'ホットキーの文字が要素になった');
-    const kbd = box.querySelectorAll('kbd');
-    assert.strictEqual(kbd.length, 1);
-    assert.strictEqual(kbd[0].textContent, hotkey, 'ホットキーの文字がそのまま出ない');
-    const d = box.querySelectorAll('.empty')[0];
-    assert.ok(d && d._html === undefined, 'innerHTML で入れた');
-    // 見た目は前と同じ（ふつうのホットキーなら前の文と同じ形）
-    const l2 = await load(APP, { returns: { getHistory: () => [] } });
-    try {
-      await l2.drain();
-      const d2 = $(l2, 'histList').querySelectorAll('.empty')[0];
-      const want = parseHTML('<div class="big">まだ履歴がありません</div>どのアプリでも <kbd>Control+Shift+Space</kbd> を押して話しかけてください。').root;
-      assert.deepStrictEqual(d2.childNodes.map(shape), want.childNodes.map(shape));
-      assert.deepStrictEqual(l2.errors.map(fmt), []);
-    } finally { if (l2.done) l2.done(); }
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { if (l.done) l.done(); }
-});
-
-test('EB-6・R68: 音声入力の数の欄（今日・累計・節約時間）は数と単位の small を要素で組む（innerHTML を使わない・見た目は前と同じ）', T, async () => {
-  const { parseHTML } = require('./helpers/simdom');
-  const now = new Date().toISOString();
-  const old = '2020-01-01T00:00:00.000Z';
-  const cases = [
-    // [履歴, 今日, 累計, 節約]（前の文: `${tc}<small>回</small> ${fmtChars(tch)}<small>字</small>` と `${(saved/60).toFixed(1)}<small>時間</small>`・`${Math.round(saved)}<small>分</small>`）
-    [[{ id: 'h1', text: 'あ', createdAt: now, durationSec: 6, chars: 140 }, { id: 'h2', text: 'い', createdAt: old, durationSec: 0, chars: 70 }],
-      '1<small>回</small> 140<small>字</small>', '2<small>回</small> 210<small>字</small>', '3<small>分</small>'],
-    [[{ id: 'h1', text: 'う', createdAt: now, durationSec: 0, chars: 12345 }, { id: 'h2', text: 'え', createdAt: now, durationSec: 0, chars: 0 }],
-      '2<small>回</small> 1.2万<small>字</small>', '2<small>回</small> 1.2万<small>字</small>', '2.9<small>時間</small>'],
-    [[], '0<small>回</small> 0<small>字</small>', '0<small>回</small> 0<small>字</small>', '0<small>分</small>'],
-  ];
-  for (const [hist, today, total, saved] of cases) {
-    const l = await load(APP, { returns: { getHistory: () => hist } });
-    try {
-      await l.drain();
-      for (const [id, html] of [['stToday', today], ['stTotal', total], ['stSaved', saved]]) {
-        const el = $(l, id);
-        assert.strictEqual(el._html, undefined, `${id} を innerHTML で入れた`);
-        assert.deepStrictEqual(el.childNodes.map(shape), parseHTML(html).root.childNodes.map(shape), `${id} の形が前と違う（${JSON.stringify(hist.map((h) => h.chars))}）`);
-      }
-      assert.deepStrictEqual(l.errors.map(fmt), []);
-    } finally { if (l.done) l.done(); }
-  }
-});
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力の履歴が空のときの文と数の欄（今日・累計・節約時間）のテスト2つを消した（履歴のページが無い）。
+// 設定のホットキーの文字を要素の文字として入れることは、議事録のホットキーの欄のキーの形の箱で見る（test/stage151.app.test.js の EB-6・変異 eb-innerhtml-gate の当て直し: R2）
 
 // ---------------------------------------------------------------- EB-5 直し（2026-10-29 の点検。R117）
 test('EB-5 直し（R117。R115 で止めた落とす動きを戻した）: ほかのアプリ・文字起こしの欄から行の文に落とした文字は、素の文字だけを落とした所へ入れ、1歩で保存する。ファイル・文字の無いもの・行の外は入れない', T, async () => {
@@ -2488,7 +2436,8 @@ test('EK-3 直し（R142）: 貼り付けが断られたら、行の文と押し
 const SC = require('../src/shortcuts.js');
 const CW = { key: 'w', code: 'KeyW', ctrlKey: true };
 const LIVE_NO = '録音中のページは閉じられません（［■ 終了して作成］で止めます）';
-const SC_NOTE = '音声入力のキー（上の［音声入力ホットキー］）は、NaTsu の文字の欄でも使えます';
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 表の下の一言は Windows の音声入力の案内（WQ3）と［ヘルプで詳しく見る ↗］
+const SC_NOTE = 'NaTsu の音声入力は 0.15.1 でなくなりました。Windows の音声入力（Windows キー + H）を使えます。ヘルプで詳しく見る ↗';
 const W_LIST = [{ id: 'pk1', title: T1, date: '10/29', durationSec: 600, hasSummary: true }, { id: 'pk2', title: titleAt('2026-10-28T01:00:00.000Z'), date: '10/28', durationSec: 600, hasSummary: true }];
 // 状態を持つ偽の main（ページ2つ・録音の前のページ・会議）。stage130.ready.app の fakeMain と同じ形
 async function bootW(o = {}) {
@@ -2523,29 +2472,28 @@ const tabKeys = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => t.
 const activeTabKey = (l) => { const t = $(l, 'tabbar').querySelector('.tabitem.active'); return t ? t.dataset.key : ''; };
 
 test('EK-5（決めたこと 36・BQ7 (a)）: Ctrl+W → 選んでいるタブを閉じて隣へ移る・1つだけなら閉じて空のページ（窓は閉じない）。設定の間と変換中は何もしない。Ctrl+Shift+N は会議の口を呼ばずタブも作らない（0.15.0 PH-5 で「新しいページ」の選びを開くだけにした）', T, async () => {
-  const l = await bootW({ tabs: { open: ['page:pk1', 'page:pk2', 'dictation'], active: 'page:pk1' } });
-  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['page:pk1', 'page:pk2', 'dictation'], 'page:pk1'], '前提: 覚えたタブ');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、覚えたタブはページの2つ
+  const l = await bootW({ tabs: { open: ['page:pk1', 'page:pk2'], active: 'page:pk1' } });
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['page:pk1', 'page:pk2'], 'page:pk1'], '前提: 覚えたタブ');
   // 設定のポップアップの間は何もしない（後ろのタブを替えない）
   $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
   let ev = l.key(CW); await l.drain();
-  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2', 'dictation'], '設定の間にタブを閉じた');
+  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2'], '設定の間にタブを閉じた');
   assert.strictEqual(ev.defaultPrevented, false);
   l.key({ key: 'Escape' }); await l.drain();
   assert.strictEqual($(l, 'settingsModal').hidden, true, '前提: 設定を閉じた');
   // 変換中（IME）は何もしない
   l.key({ ...CW, isComposing: true }); l.key({ ...CW, keyCode: 229 }); await l.drain();
-  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2', 'dictation'], '変換中にタブを閉じた');
+  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2'], '変換中にタブを閉じた');
   // ほかの修飾キーつきは Ctrl+W でない
   l.key({ ...CW, shiftKey: true }); l.key({ ...CW, altKey: true }); await l.drain();
-  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2', 'dictation']);
+  assert.deepStrictEqual(tabKeys(l), ['page:pk1', 'page:pk2']);
   // Ctrl+W: 選んでいるタブを閉じ、隣（右）へ移る。既定の動き（窓を閉じる）は止める
   ev = l.key(CW); await l.drain();
   assert.strictEqual(ev.defaultPrevented, true, 'Ctrl+W の既定を止めない');
-  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['page:pk2', 'dictation'], 'page:pk2']);
-  l.key({ key: 'W', code: 'KeyW', ctrlKey: true }); await l.drain();   // Caps Lock の大文字でも同じ
-  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['dictation'], 'dictation']);
-  // 1つだけ: 閉じて「左の一覧から議事録を選んでください」（BQ7 (a)。窓は閉じない）
-  l.key(CW); await l.drain();
+  assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [['page:pk2'], 'page:pk2']);
+  // 1つだけ: 閉じて「左の一覧から議事録を選んでください」（BQ7 (a)。窓は閉じない）。Caps Lock の大文字でも同じ
+  l.key({ key: 'W', code: 'KeyW', ctrlKey: true }); await l.drain();
   assert.deepStrictEqual([tabKeys(l), activeTabKey(l)], [[], '']);
   assert.match($(l, 'pNote').textContent, /左の一覧から議事録を選んでください/);
   ev = l.key(CW); await l.drain();   // タブが無ければ何もしない
@@ -3278,304 +3226,35 @@ test('MB-4（R150）: 画面の写し（app.html の memoDoc）は src/memoDoc.j
 });
 
 // ---------------------------------------------------------------- EK-6（U4・F104・F108。決めたこと 40〜44・BQ21 (a)・R27・R28・R52・R53・R55・R61・R64）: NaTsu の中の音声入力の入れ先
-const DICT_GONE = '入れる所が無くなったので、音声入力の履歴に残しました';
-const whereOf = (l, seq) => { const r = l.answer('onDictationWhere', seq); assert.strictEqual(r.length, 1, '受け口が1つでない'); return r[0]; };
-const dictText = async (l, text, lines = null, seq = 1) => { l.fire('onDictationText', text, lines, seq); await l.drain(); };
-const SEG_PAGE = () => ({ blocks: [...BASE(), { id: 'd1', type: 'divider', text: '' }], memo: MEMO1 });
-const execSpy = (l) => { const calls = []; l.document.execCommand = (...a) => { calls.push(a); return true; }; return calls; };
-
-test('EK-6・BQ21 (a)・R53: dictation:where の答え: 要約の行・メモの行・題名・検索の欄 → { ok: true }。文字起こしの行・区切り線・鍵の間の要約・何も選んでいない・パスワードの欄・ホットキーを受ける欄 → { ok: false }', T, async () => {
-  const l = await openReal({ pa1: SEG_PAGE() });
-  try {
-    let seq = 0;
-    const ask = () => whereOf(l, ++seq);
-    // 要約の行
-    typeIn(l, 'p1', 'あいうえお', 2);
-    assert.deepStrictEqual(ask(), { ok: true }, '要約の行');
-    // 区切り線
-    txtOf(l, 'd1').focus();
-    assert.deepStrictEqual(ask(), { ok: false }, '区切り線');
-    // 題名・検索の欄
-    $(l, 'pTitle').focus();
-    assert.deepStrictEqual(ask(), { ok: true }, '題名');
-    $(l, 'histSearch').focus();
-    assert.deepStrictEqual(ask(), { ok: true }, '履歴の検索の欄');
-    // 文字起こしの行（出典の照らしを崩さない）
-    const seg = $(l, 'pScript').querySelector('.seg .txt');
-    assert.ok(seg, '前提: 文字起こしの行が無い');
-    seg.focus();
-    assert.deepStrictEqual(ask(), { ok: false }, '文字起こしの行に入れようとした（ek-dict-transcript）');
-    // パスワードの欄・ホットキーを受ける欄（R53）
-    const pw = l.document.createElement('input');
-    pw.setAttribute('type', 'password');
-    l.document.body.appendChild(pw);
-    pw.focus();
-    assert.deepStrictEqual(ask(), { ok: false }, 'パスワードの欄');
-    $(l, 'hotkey').focus();
-    assert.deepStrictEqual(ask(), { ok: false }, 'ホットキーを受ける欄');
-    // 何も選んでいない
-    l.document.activeElement.blur();
-    assert.deepStrictEqual(ask(), { ok: false }, '何も選んでいない');
-    // メモの行
-    await memoPane(l);
-    mIn(l, 'm2', '売上の確認', 1);
-    assert.deepStrictEqual(ask(), { ok: true }, 'メモの行');
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-  // 鍵の間の要約
-  const k = await openReal({ pa1: { blocks: BASE(), summaryWait: true, summaryError: '要約待ち（つながったら作ります）' } });
-  try {
-    txtOf(k, 'p1').focus();
-    assert.deepStrictEqual(whereOf(k, 1), { ok: false }, '鍵の間の要約');
-  } finally { k.done(); }
-});
-
-test('EK-6・F104（決めたこと 42）: 覚えた所（行と位置）に入り、1行なら blockUpdate の1回＝1歩・Ctrl+Z の1回で消える。止める前にカーソルを動かしても覚えた所。メモの行は pageSetMemoDoc の1回。ページが替わっていたら入れずに知らせ', T, async () => {
-  const l = await openReal({ pa1: MPAGE(), pb2: BASE('2') });
-  try {
-    const t = typeIn(l, 'p1', 'あいうえお', 2);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    l.caret.set(t, 5);   // 止める前にカーソルを動かす
-    await dictText(l, 'かきく', null, 1);
-    assert.deepStrictEqual(updates(l), [['pa1', 'p1', { text: 'あいかきくうえお' }]], `覚えた所に入らない（ek-dict-target）: ${JSON.stringify(updates(l))}`);
-    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p1').text, 'あいかきくうえお');
-    assert.strictEqual(l.steps.length, 1, '1歩でない');
-    press(l, Z);
-    await l.drain();
-    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p1').text, 'あいうえお', 'Ctrl+Z の1回で消えない');
-    assert.deepStrictEqual(l.called('copy'), [], 'クリップボードを使った');
-    // 口述の「# 見出し」は文字のまま（見出しにならない: pasteConvert を通さない）
-    typeIn(l, 'e1', '', 0);
-    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
-    await dictText(l, '# 見出し', null, 2);
-    const e1 = l.page().blocks.find((b) => b.id === 'e1');
-    assert.deepStrictEqual([e1.type, e1.text], ['paragraph', '# 見出し'], '口述の「# 」が見出しになった');
-    // メモの行（pageSetMemoDoc の1回）
-    await memoPane(l);
-    mIn(l, 'm2', '売上の確認', 2);
-    assert.deepStrictEqual(whereOf(l, 3), { ok: true });
-    await dictText(l, '今月の', null, 3);
-    assert.strictEqual(setDocs(l).length, 1, 'メモの行が1回の pageSetMemoDoc でない');
-    assert.strictEqual(l.page().memo, '■ 目的\n売上今月のの確認\n');
-    // ページが替わっていたら入れずに知らせ
-    $(l, 'paneBtnNote').onclick && $(l, 'paneBtnNote').onclick();
-    typeIn(l, 'p1', 'あいうえお', 0);
-    assert.deepStrictEqual(whereOf(l, 4), { ok: true });
-    const n0 = updates(l).length;
-    l.fire('onPageOpen', 'pb2');
-    await l.drain();
-    await dictText(l, 'さしす', null, 4);
-    assert.strictEqual(updates(l).length, n0, 'ページが替わった後に入れた');
-    assert.strictEqual(toastOf(l), DICT_GONE);
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-test('EK-6・決めたこと 42・DQ-4: lines が3つ → blockPaste の1回（行は箇条書き）・Ctrl+Z の1回で全部消える。口述の「# 見出し」「- a」は文字のまま', T, async () => {
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: NaTsu の中の音声入力（U4。D108）を取りやめたので、入れ先と入れ方のテスト（10）を消した（変異は GONE_151）。
+// 窓の中の Esc の順（R64）は音声入力の取り消しの行を除いて残す（F149）
+test('EK-6・決めたこと 43・R64（0.15.1 ND-3 で意図して変えた）: Esc の順。/ メニューを開いて Esc → メニューだけ閉じる。道具の帯を開いて Esc → 帯だけ閉じる。変換中の Esc → 何もしない。何も開いていない行の Esc → その行を選ぶ（EK-4。main へは何も送らない）', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
-    const before = body(l.page());
-    typeIn(l, 'p1', 'あいうえお', 5);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    await dictText(l, '・ 一つ目\n・ 二つ目\n・ 三つ目', [{ kind: 'bullet', t: '一つ目' }, { kind: 'bullet', t: '二つ目' }, { kind: 'bullet', t: '三つ目' }], 1);
-    assert.strictEqual(l.called('blockPaste').length, 1, `blockPaste の1回でない（ek-dict-one-step）: ${JSON.stringify(writes(l))}`);
-    assert.deepStrictEqual(l.called('blockInsert'), []);
-    assert.deepStrictEqual(pastes(l)[0][4], [{ type: 'bullet', rich: [{ t: '一つ目', m: [] }] }, { type: 'bullet', rich: [{ t: '二つ目', m: [] }] }, { type: 'bullet', rich: [{ t: '三つ目', m: [] }] }]);
-    assert.deepStrictEqual(l.page().blocks.filter((b) => b.type === 'bullet').map((b) => b.text).slice(-3), ['一つ目', '二つ目', '三つ目']);
-    assert.strictEqual(l.steps.length, 1);
-    press(l, Z);
-    await l.drain();
-    assert.deepStrictEqual(body(l.page()), before, 'Ctrl+Z の1回で全部消えない');
-    // 口述の「# 見出し」「- a」は文字のまま（ek-dict-markup）
-    typeIn(l, 'e1', '', 0);
-    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
-    await dictText(l, '# 見出し\n- a', [{ kind: 'p', t: '# 見出し' }, { kind: 'p', t: '- a' }], 2);
-    assert.deepStrictEqual(pastes(l)[1][4], [{ type: 'paragraph', rich: [{ t: '# 見出し', m: [] }] }, { type: 'paragraph', rich: [{ t: '- a', m: [] }] }], '口述の記号を記法として読んだ（ek-dict-markup）');
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-test('EK-6・R52: 題名では insertText（欄の中の戻し）。lines が3つ → 改行の無い text が insertText の1回。題名を覚えた後にページが替われば入れない', T, async () => {
-  const l = await openReal({ pa1: BASE(), pb2: BASE('2') });
-  try {
-    const calls = execSpy(l);
-    const ti = $(l, 'pTitle');
-    ti.focus(); l.caret.set(ti, 0);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    await dictText(l, '・ 一つ目\n・ 二つ目\n・ 三つ目', [{ kind: 'bullet', t: '一つ目' }, { kind: 'bullet', t: '二つ目' }, { kind: 'bullet', t: '三つ目' }], 1);
-    assert.deepStrictEqual(calls, [['insertText', false, '・ 一つ目 ・ 二つ目 ・ 三つ目']]);
-    assert.deepStrictEqual(writes(l), [], '題名に行の命令を送った');
-    ti.focus();
-    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
-    l.fire('onPageOpen', 'pb2');
-    await l.drain();
-    await dictText(l, '題名の続き', null, 2);
-    assert.strictEqual(calls.length, 1, 'ページが替わった後の題名に入れた');
-    assert.strictEqual(toastOf(l), DICT_GONE);
-  } finally { l.done(); }
-});
-
-test('EK-6・R28: 変換中に文が届いたら compositionend の後に入る', T, async () => {
-  const l = await openReal({ pa1: BASE() });
-  try {
-    const t = typeIn(l, 'p1', 'あいうえお', 5);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    t.dispatchEvent({ type: 'compositionstart' });
-    await dictText(l, 'かきく', null, 1);
-    assert.deepStrictEqual(updates(l), [], '変換中に入れた（ek-dict-ime）');
-    assert.strictEqual(t.textContent, 'あいうえお');
-    t.dispatchEvent({ type: 'compositionend' });
-    await l.drain();
-    assert.strictEqual(l.page().blocks.find((b) => b.id === 'p1').text, 'あいうえおかきく');
-  } finally { l.done(); }
-});
-
-test('EK-6・R28 直し（R194）: 題名で変換を始めた後に音声入力のキーを押しても（覚える前からの変換中）、文は compositionend の後に insertText で入る', T, async () => {
-  const l = await openReal({ pa1: BASE() });
-  try {
-    const calls = execSpy(l);
-    const ti = $(l, 'pTitle');
-    ti.focus(); l.caret.set(ti, 0);
-    l.key({ type: 'compositionstart' }, ti);   // 覚える前から変換している
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    await dictText(l, 'かきく', null, 1);
-    assert.deepStrictEqual(calls, [], '覚える前からの変換中に入れた');
-    l.key({ type: 'compositionend' }, ti);
-    await l.drain();
-    assert.deepStrictEqual(calls, [['insertText', false, 'かきく']]);
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-test('EK-6 直し2・M-7（R201）: 欄の変換中の印は、compositionend が来ないまま欄からフォーカスが外れたら外す（次の音声入力が確定を待ち続けない）', T, async () => {
-  const l = await openReal({ pa1: BASE() });
-  try {
-    const calls = execSpy(l);
-    const ti = $(l, 'pTitle');
-    ti.focus(); l.caret.set(ti, 0);
-    l.key({ type: 'compositionstart' }, ti);
-    l.key({ type: 'focusout' }, ti);   // 確定の事象が来ないまま欄を離れた
-    ti.focus(); l.caret.set(ti, 0);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    await dictText(l, 'かきく', null, 1);
-    assert.deepStrictEqual(calls, [['insertText', false, 'かきく']], '変換中の印が残って確定を待ち続けた');
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-test('EK-6・R64 直し（R194）: 音声入力の録音中に検索の窓を開き、入力の欄でない所（絞り込み）で Esc → 窓だけ閉じ、音声入力は取り消さない', T, async () => {
-  const l = await openReal({ pa1: BASE() });
-  try {
-    $(l, 'pTitle').focus();
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    $(l, 'sideSearch').onclick();
-    await l.drain();
-    const chip = $(l, 'fltActions');
-    chip.focus();
-    const ev = l.key({ key: 'Escape' }, chip);
-    await l.drain();
-    assert.strictEqual(ev.defaultPrevented, true, '検索の窓の Esc が preventDefault していない');
-    assert.strictEqual(l.called('dictationCancel').length, 0, '検索の窓を閉じる Esc で音声入力まで取り消した');
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-test('EK-6・R61（第4版）: dictation:end（同じ番号）で覚えた所を捨て、summaryBusy() が偽に戻る（保存の page:open が前に出る）。番号の違う dictation:end は捨てる。覚えている間は前に出さない', T, async () => {
-  const l = await openReal({ pa1: BASE(), pb2: [MANUAL('x1', '別のページの行')] });
-  try {
-    const active = () => { const a = $(l, 'tabbar').querySelector('.tabitem.active'); return a ? a.getAttribute('data-key') : ''; };
-    $(l, 'pTitle').focus();
-    assert.deepStrictEqual(whereOf(l, 7), { ok: true });
-    l.fire('onDictationEnd', 6);   // 番号の違う知らせ
-    l.fire('onPageOpen', 'pb2', { saved: true });
-    await l.drain();
-    assert.strictEqual(active(), 'page:pa1', '入れる所を覚えている間に保存した議事録が前に出た');
-    l.fire('onDictationEnd', 7);
-    l.fire('onPageOpen', 'pb2', { saved: true });
-    await l.drain();
-    assert.strictEqual(active(), 'page:pb2', 'dictation:end の後も前に出ない（覚えた所が残った）');
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-test('EK-6・決めたこと 43・R64（第4版）: Esc の順。/ メニューを開いて Esc → メニューだけ閉じる。道具の帯を開いて Esc → 帯だけ閉じる。変換中の Esc → 何もしない。何も開いていない Esc → dictationCancel の1回（meetingDiscard でない・行は選ばれない）', T, async () => {
-  const l = await openReal({ pa1: BASE() });
-  try {
-    const cancels = () => l.called('dictationCancel').length;
-    let t = typeIn(l, 'p1', 'あいうえお', 5);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
+    const selected = () => rowsOf(l).filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.id);
     // / メニュー
-    t = typeIn(l, 'e1', '/', 1);
+    let t = typeIn(l, 'e1', '/', 1);
     t.dispatchEvent({ type: 'input' });
     assert.ok($(l, 'pNote').querySelector('.slashmenu'), '前提: / メニューが出ない');
     l.key({ key: 'Escape' }, t);
     assert.strictEqual($(l, 'pNote').querySelector('.slashmenu'), null, 'Esc で / メニューが閉じない');
-    assert.strictEqual(cancels(), 0, '/ メニューの Esc で音声入力まで取り消した（ek-dict-esc）');
+    assert.deepStrictEqual(selected(), [], '/ メニューの Esc で行まで選んだ');
     // 道具の帯
     t = selectIn(l, 'p1', 0, 2);
     assert.ok(barOf(l), '前提: 帯が出ない');
     l.key({ key: 'Escape' }, t);
     assert.strictEqual(barOf(l), null);
-    assert.strictEqual(cancels(), 0, '帯の Esc で音声入力まで取り消した');
+    assert.deepStrictEqual(selected(), [], '帯の Esc で行まで選んだ');
     // 変換中
     l.key({ key: 'Escape', isComposing: true }, t);
-    assert.strictEqual(cancels(), 0, '変換中の Esc で取り消した');
-    // 何も開いていない: 行の Esc でも取り消す（行は選ばない: R64 (3) は (5) より先）
+    assert.deepStrictEqual(selected(), [], '変換中の Esc で行を選んだ');
+    // 何も開いていない: 行を選ぶ（main へは何も送らない）
+    const n = l.calls.length;
     l.caret.set(t, 1);
     const ev = l.key({ key: 'Escape' }, t);
-    assert.strictEqual(cancels(), 1, `何も開いていない Esc で取り消さない（ek-esc-order）: ${cancels()}`);
+    assert.deepStrictEqual(selected(), ['p1']);
     assert.strictEqual(ev.defaultPrevented, true);
-    assert.deepStrictEqual(rowsOf(l).filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.id), [], '音声入力の録音中の Esc で行を選んだ');
-    assert.deepStrictEqual(l.called('meetingDiscard'), []);
-    // 覚えていなければ（音声入力でなければ）今どおり行を選ぶ
-    l.fire('onDictationEnd', 1);
-    l.key({ key: 'Escape' }, t);
-    assert.strictEqual(cancels(), 1);
-    assert.deepStrictEqual(rowsOf(l).filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.id), ['p1']);
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-test('EK-6 直し3・I-1（R207）: 要約の行から Ctrl+P で検索の窓を開き、検索の欄で音声入力を始め、Esc で窓を閉じた（フォーカスは行へ戻る）後に文が届いても、行にも隠れた欄にも入れずに知らせ。設定を × で閉じた後も同じ', T, async () => {
-  const l = await openReal({ pa1: BASE() });
-  try {
-    const calls = execSpy(l);
-    const t = typeIn(l, 'p1', 'あいうえお', 2);
-    l.key({ key: 'p', code: 'KeyP', ctrlKey: true }, t);
-    await l.drain();
-    assert.ok(l.document.activeElement === $(l, 'searchBox'), '前提: Ctrl+P で検索の欄にフォーカスが行かない');
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    l.key({ key: 'Escape' }, $(l, 'searchBox'));
-    await l.drain();
-    assert.strictEqual($(l, 'palette').hidden, true, '前提: Esc で検索の窓が閉じない');
-    assert.ok(l.document.activeElement === t, '前提: 窓を閉じてもフォーカスが行へ戻らない');
-    assert.strictEqual(l.called('dictationCancel').length, 0, '前提: 窓を閉じる Esc で音声入力を取り消した');
-    await dictText(l, 'かきく', null, 1);
-    assert.deepStrictEqual(calls, [], '隠れた検索の欄の代わりに、フォーカスの戻った行へ insertText で入れた（ek-dict-hidden）');
-    assert.deepStrictEqual(updates(l), []);
-    assert.strictEqual(t.textContent, 'あいうえお', '行の文が変わった');
-    assert.strictEqual(toastOf(l), DICT_GONE);
-    // 設定の検索の欄で始めて、設定を × で閉じた
-    $(l, 'toast').textContent = '';
-    l.caret.set(t, 2);
-    $(l, 'tabBtnSettings').onclick();
-    await l.drain();
-    assert.strictEqual($(l, 'settingsModal').hidden, false, '前提: 設定が開かない');
-    $(l, 'setSearch').focus();
-    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
-    $(l, 'setClose').click();
-    await l.drain();
-    assert.strictEqual($(l, 'settingsModal').hidden, true, '前提: × で設定が閉じない');
-    await dictText(l, 'さしす', null, 2);
-    assert.deepStrictEqual(calls, [], '閉じた設定の欄の代わりに、フォーカスの戻った所へ insertText で入れた');
-    assert.strictEqual(t.textContent, 'あいうえお');
-    assert.strictEqual(toastOf(l), DICT_GONE);
-    // 見えている欄（題名）には今どおり入る
-    const ti = $(l, 'pTitle');
-    ti.focus(); l.caret.set(ti, 0);
-    assert.deepStrictEqual(whereOf(l, 3), { ok: true });
-    await dictText(l, '題名に', null, 3);
-    assert.deepStrictEqual(calls, [['insertText', false, '題名に']], '見えている題名に入らない');
+    assert.deepStrictEqual(l.calls.slice(n).map((c) => c.method), [], '何も開いていない Esc で main へ送った');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -3705,168 +3384,5 @@ test('MB-4 直し・M3（守り。R190）: 録音の前のページから録音�
   assert.deepStrictEqual(r.errors.map(fmt), []);
 });
 
-// ---------------------------------------------------------------- DQ-3（BQ18 (a)・BQ19 (a)・BQ27 (a)・決めたこと 55・56）: 設定の「口述の文を AI で整える」と履歴の［元の文をコピー］
-test('DQ-3・BQ27 (a): 設定の［録音］の「文字起こし」のカードの「フィラー除去」のすぐ下に「口述の文を AI で整える」（既定オン）・説明の文・切り替えると自動の保存で aiTidy', T, async () => {
-  const { RETURNS } = require('./helpers/simrun.js');
-  const l = await load(APP);
-  try {
-    await l.drain();
-    const lab = $(l, 'removeFillers').closest('label');
-    const kids = lab.parentNode.children;
-    const next = kids[kids.indexOf(lab) + 1];
-    assert.ok(next && next.querySelector('#aiTidy'), '「フィラー除去」のすぐ下に「口述の文を AI で整える」が無い');
-    assert.strictEqual(next.dataset.row, '口述の文を AI で整える');
-    assert.match(next.textContent, /口述の文を AI で整える/);
-    assert.strictEqual($(l, 'aiTidyDesc').textContent, '言い直し・繰り返しを除き、箇条を整えます。');
-    assert.strictEqual($(l, 'aiTidyWarn').textContent, '音声をクラウドで文字起こししたときだけ使います。');
-    assert.ok($(l, 'aiTidyWarn').closest('.checkrow') === next, '注意の1行が切り替えの行の中に無い');
-    assert.strictEqual(lab.closest('.card').dataset.sec, 'record');
-    assert.strictEqual($(l, 'aiTidy').checked, true, 'aiTidy の無い設定で既定のオンでない');
-    $(l, 'aiTidy').checked = false;
-    l.byId.get('tabSettings').dispatchEvent({ type: 'change', target: $(l, 'aiTidy') });
-    await l.drain();
-    const saved = l.called('saveSettings');
-    assert.strictEqual(saved.length, 1);
-    assert.strictEqual(saved[0].args[0].aiTidy, false);
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { if (l.done) l.done(); }
-  const off = await load(APP, { returns: { getSettings: () => ({ ...RETURNS.getSettings(), aiTidy: false }) } });
-  try {
-    await off.drain();
-    assert.strictEqual($(off, 'aiTidy').checked, false, 'aiTidy: false がオフで出ない');
-  } finally { if (off.done) off.done(); }
-});
-
-test('DQ-3 直し2（R202）: 「口述の文を AI で整える」の行は説明と注意のあるトグルの行と同じ形（div.checkrow・.ctext に名前の label for と .d の説明と .d.warn の注意・label.check はトグルだけを包む・ⓘ は無い）', T, async () => {
-  const l = await load(APP);
-  try {
-    await l.drain();
-    const row = $(l, 'aiTidy').closest('[data-row]');
-    assert.ok(row.classList.contains('checkrow') && row.tagName.toLowerCase() === 'div', `行が div.checkrow でない: ${row.tagName}.${row.className}`);
-    const box = $(l, 'aiTidy').parentNode;
-    assert.ok(box.tagName.toLowerCase() === 'label' && box.classList.contains('check') && box.children.length === 1, 'label.check がトグルのほかも包む（説明を押すと切り替わる・名前に説明が入る）');
-    const ct = row.querySelector('.ctext');
-    assert.ok(ct, '.ctext が無い');
-    const name = ct.querySelectorAll('label').find((x) => x.getAttribute('for') === 'aiTidy');
-    assert.ok(name && name.textContent === '口述の文を AI で整える', '名前の label for が無い・説明を含む');
-    for (const id of ['aiTidyDesc', 'aiTidyWarn']) {
-      assert.strictEqual($(l, id).closest('.ctext'), ct, `${id} が .ctext の中に無い（.ctext .d.warn の色が当たらない）`);
-      assert.strictEqual($(l, id).closest('label'), null, `${id} が label の中（押すと切り替わる）`);
-    }
-    assert.ok($(l, 'aiTidyWarn').classList.contains('d') && $(l, 'aiTidyWarn').classList.contains('warn'));
-    assert.strictEqual(row.querySelectorAll('.setinfo').length, 0, 'ⓘ がある');
-    assert.strictEqual($(l, 'aiTidy').getAttribute('aria-describedby'), 'aiTidyDesc aiTidyWarn');
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { if (l.done) l.done(); }
-});
-
-test('DQ-3・BQ19 (a)（決めたこと 55）: 履歴の行で raw と text が違えば［元の文をコピー］→ copy(raw) と「元の文をコピーしました」。同じ・raw の無い行には出ない。［コピー］は今どおり text', T, async () => {
-  const at = new Date().toISOString();
-  const HIST = [
-    { id: 'h1', text: '明日の会議は、資料を見てから決めます。', raw: 'えーと、明日の会議は、あの、資料を見てから決めます。', tidy: 'ai', createdAt: at, durationSec: 4, chars: 19, procMs: 900 },
-    { id: 'h2', text: '会議室の予約をお願いします。', raw: '会議室の予約をお願いします。', tidy: 'rules', createdAt: at, durationSec: 3, chars: 14, procMs: 700 },
-    { id: 'h3', text: '見積もりを送ります。', createdAt: at, durationSec: 2, chars: 10, procMs: 600 },
-  ];
-  const l = await load(APP, { returns: { getHistory: () => HIST } });
-  try {
-    await l.drain();
-    const rows = $(l, 'histList').querySelectorAll('.entry');
-    assert.strictEqual(rows.length, 3);
-    const btns = (r) => r.querySelectorAll('button').map((b) => b.textContent);
-    assert.deepStrictEqual(btns(rows[0]), ['コピー', '元の文をコピー', '削除']);
-    assert.deepStrictEqual(btns(rows[1]), ['コピー', '削除']);
-    assert.deepStrictEqual(btns(rows[2]), ['コピー', '削除']);
-    assert.strictEqual(rows[0].querySelector('.text').textContent, HIST[0].text, '行に出すのは入れた文');
-    const raw = rows[0].querySelectorAll('button').find((b) => b.textContent === '元の文をコピー');
-    raw.dispatchEvent({ type: 'click' });
-    await l.drain();
-    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [HIST[0].raw]);
-    assert.strictEqual(toastOf(l), '元の文をコピーしました');
-    rows[0].querySelectorAll('button')[0].dispatchEvent({ type: 'click' });
-    await l.drain();
-    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [HIST[0].raw, HIST[0].text]);
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { if (l.done) l.done(); }
-});
-
-// ---------------------------------------------------------------- DQ-4（BQ9-2・BQ17・決めたこと 42・50・R182 (4)）: 話した箇条を NaTsu の中で箇条書き・番号の行に
-// main は AI の整えで2つ以上の行のときだけ lines を送る（ほかは null）。画面は block.paste（メモは page.setMemoDoc）の1回で行にする（pasteConvert を通さない）
-test('DQ-4: NaTsu の要約の行 → blockPaste の1回で箇条書きの3行（EK-6 の入れ方）・番号は「1. 」から（段落の後の番号の行）・Ctrl+Z の1回で消える。メモの行 → pageSetMemoDoc の1回で番号の行。lines が無い → 1つの文（blockUpdate の1回）', T, async () => {
-  const l = await openReal({ pa1: MPAGE() });
-  try {
-    const before = body(l.page());
-    typeIn(l, 'p1', 'あいうえお', 5);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    await dictText(l, '明日の会議は\n1. 資料を見てから\n2. 決めます', [{ kind: 'p', t: '明日の会議は' }, { kind: 'number', t: '資料を見てから' }, { kind: 'number', t: '決めます' }], 1);
-    assert.strictEqual(l.called('blockPaste').length, 1, `blockPaste の1回でない: ${JSON.stringify(writes(l))}`);
-    assert.deepStrictEqual(pastes(l)[0][4], [{ type: 'paragraph', rich: [{ t: '明日の会議は', m: [] }] }, { type: 'numbered', rich: [{ t: '資料を見てから', m: [] }] }, { type: 'numbered', rich: [{ t: '決めます', m: [] }] }]);
-    const bl = l.page().blocks;
-    const at = bl.findIndex((b) => b.text === '明日の会議は');
-    assert.deepStrictEqual(bl.slice(at, at + 3).map((b) => [b.type, b.text]), [['paragraph', '明日の会議は'], ['numbered', '資料を見てから'], ['numbered', '決めます']]);
-    // 画面の番号は「1.」から
-    const nums = ['資料を見てから', '決めます'].map((t) => rowOf(l, bl.find((b) => b.text === t).id).textContent);
-    assert.ok(nums[0].includes('1.') && nums[1].includes('2.'), `番号が「1.」から始まらない: ${JSON.stringify(nums)}`);
-    assert.strictEqual(l.steps.length, 1);
-    press(l, Z);
-    await l.drain();
-    assert.deepStrictEqual(body(l.page()), before, 'Ctrl+Z の1回で全部消えない');
-    // lines が無い（main は0〜1行・決まりの整えで null）→ 1つの文
-    typeIn(l, 'e1', '', 0);
-    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
-    const n0 = l.called('blockPaste').length;
-    await dictText(l, '明日の会議は、資料を見てから決めます', null, 2);
-    assert.strictEqual(l.called('blockPaste').length, n0, '1つの文を block.paste にした');
-    assert.deepStrictEqual(updates(l).slice(-1), [['pa1', 'e1', { text: '明日の会議は、資料を見てから決めます' }]]);
-    // メモの行（pageSetMemoDoc の1回）
-    await memoPane(l);
-    mIn(l, 'm2', '売上の確認', 5);
-    assert.deepStrictEqual(whereOf(l, 3), { ok: true });
-    const d0 = setDocs(l).length;
-    await dictText(l, '・ 一つ目\n・ 二つ目\n・ 三つ目', [{ kind: 'bullet', t: '一つ目' }, { kind: 'bullet', t: '二つ目' }, { kind: 'bullet', t: '三つ目' }], 3);
-    assert.strictEqual(setDocs(l).length, d0 + 1, 'メモの行が1回の pageSetMemoDoc でない');
-    assert.deepStrictEqual(l.called('blockPaste').length, n0, 'メモの行に要約の命令を送った');
-    const doc = setDocs(l).slice(-1)[0][1];
-    assert.deepStrictEqual(doc.filter((b) => b.type === 'bullet').map((b) => b.text), ['一つ目', '二つ目', '三つ目'], JSON.stringify(doc));
-    assert.deepStrictEqual(l.called('copy'), [], 'クリップボードを使った');
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-// 0.14.0 DQ-4 直し（R205）: 今の画面の形を留める（直す所ではない）。番号の行のすぐ後の空の行に話した番号の箇条は、画面では続けて数える（2. 3.）。
-// ほかのアプリと履歴（linesToText）は 1. 2. のまま
-test('DQ-4 直し・R205: 番号の行のすぐ後に話した番号の箇条は、画面の番号が前の行から続く（2.・3.）。行は numbered の2つ', T, async () => {
-  const l = await openReal({ pa1: { blocks: [{ id: 'n0', type: 'numbered', text: '前からある行', citeState: 'manual', cites: [] }, { id: 'e9', type: 'paragraph', text: '' }] } });
-  try {
-    typeIn(l, 'e9', '', 0);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    await dictText(l, '1. 見積を直す\n2. 工程表を配る', [{ kind: 'number', t: '見積を直す' }, { kind: 'number', t: '工程表を配る' }], 1);
-    assert.strictEqual(l.called('blockPaste').length, 1);
-    const bl = l.page().blocks;
-    assert.deepStrictEqual(bl.map((b) => [b.type, b.text]), [['numbered', '前からある行'], ['numbered', '見積を直す'], ['numbered', '工程表を配る']]);
-    const shown = bl.map((b) => rowOf(l, b.id).textContent);
-    assert.ok(shown[0].includes('1.') && shown[1].includes('2.') && shown[2].includes('3.'), `画面の番号が続かない: ${JSON.stringify(shown)}`);
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
-
-// 0.14.0 DQ-4 直し（R205）: 設定の辞書（textarea。1行に1語）に話した箇条は、印を付けずに行の文を1行ずつ（「・ 」の付いた語にしない）。箇条でない文は今どおり
-test('DQ-4 直し・R205: 辞書の欄（textarea）に lines が3つ → 印の無い行の文を改行でつないだ文が insertText の1回。lines が無い → 届いた文のまま', T, async () => {
-  const l = await openReal({ pa1: BASE() });
-  try {
-    const calls = execSpy(l);
-    // 0.14.0 EK-6 直し3（R207）で意図して変えた: 辞書の欄は設定を開いて［録音］の項目を選んでから（閉じた設定の隠れた欄には入れない）
-    $(l, 'tabBtnSettings').onclick();
-    await l.drain();
-    $(l, 'setNav').dispatchEvent({ type: 'click', target: $(l, 'setNav').querySelector('.setnav-item[data-sec="record"]') });
-    const d = $(l, 'dictionary');
-    d.focus(); d.value = ''; l.caret.set(d, 0);
-    assert.deepStrictEqual(whereOf(l, 1), { ok: true });
-    await dictText(l, '・ 見積書\n・ 工程表\n1. 発注書', [{ kind: 'bullet', t: '見積書' }, { kind: 'bullet', t: '工程表' }, { kind: 'number', t: '発注書' }], 1);
-    assert.deepStrictEqual(calls, [['insertText', false, '見積書\n工程表\n発注書']], `辞書に印の付いた語を入れた: ${JSON.stringify(calls)}`);
-    d.focus();
-    assert.deepStrictEqual(whereOf(l, 2), { ok: true });
-    await dictText(l, '納品書', null, 2);
-    assert.deepStrictEqual(calls[1], ['insertText', false, '納品書']);
-    assert.deepStrictEqual(l.errors.map(fmt), []);
-  } finally { l.done(); }
-});
+// ---------------------------------------------------------------- DQ-3・DQ-4（BQ9-2・BQ17・BQ18 (a)・BQ19 (a)・BQ27 (a)・決めたこと 42・50・55・56）
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 設定の「口述の文を AI で整える」・履歴の［元の文をコピー］・話した箇条を NaTsu の中で入れるテスト（6）を消した（口述の整えと NaTsu の中の音声入力を取りやめた: D114）

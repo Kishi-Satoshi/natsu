@@ -62,7 +62,8 @@ const RECOVERY_PATHS = [
 //  表4: 起動したとき必ず呼ばれる API（初期化がそこまで到達した証拠）
 // ----------------------------------------------------------------------------
 const BOOT_REACHED = [
-  { screen: 'app', apis: ['getSettings', 'getHistory', 'pagesSearch', 'appVersion'],
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力の履歴（getHistory）は読まない
+  { screen: 'app', apis: ['getSettings', 'pagesSearch', 'appVersion'],
     由来: 'v0.10.2 では例外で初期化が止まり、getSettings に到達しなかった（設定が消えたように見えた）' },
   { screen: 'overlay', apis: ['onStart', 'onStop', 'onCancel', 'onTick', 'onPhase'],
     由来: '要素が1つ欠けるだけで IIFE が丸ごと死に、録音が一度も始まらなくなる' },
@@ -80,7 +81,7 @@ const WIRED = [
   { screen: 'app', id: 'openDataBtn', types: ['click'], 由来: 'v0.10.3 で消えた復旧導線。設定フッタの中にしか無い' },
   { screen: 'app', id: 'tabSettings', types: ['change'], 由来: '設定の自動保存。切れると入力が黙って捨てられる' },
   { screen: 'app', id: 'tabBtnNotes', types: ['click'], 由来: 'タブ切り替え' },
-  { screen: 'app', id: 'tabBtnDictation', types: ['click'], 由来: 'タブ切り替え' },
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: サイドバーの［🎤 音声入力］（tabBtnDictation）は無い
   { screen: 'app', id: 'tabBtnSettings', types: ['click'], 由来: 'タブ切り替え。設定画面へ入る唯一の導線（0.9.0 U-1 からポップアップを開く）' },
   // 0.9.0 U-1（SP1〜SP3・F13）: 設定のポップアップの閉じ方（×・Esc と Tab の閉じ込め・外の地）と左の項目の列（押す・↑↓）。切れると閉じられない・項目を替えられない
   { screen: 'app', id: 'setClose', types: ['click'], 由来: '0.9.0 U-1: 設定のポップアップの ×。切れるとマウスでは閉じられない' },

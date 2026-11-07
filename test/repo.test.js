@@ -288,7 +288,9 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の R7・R23）で意図して変えた: サイドバーの木が pageCreate・pageMove を呼び始めたので外した（残りは PH-6 で外す）
   // 0.15.0 PH-6 で意図して変えた: ゴミ箱の窓が pageRestore・pagesTrash を呼び始めたので外して空に戻した
   // 0.15.0 PL-3 で画面がアイコンと見た目の口（pageSetIcon・pageSetLook）を呼び始めたので外した
-  const PENDING_APP = new Set([]);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の R7）で意図して変えた: 画面は音声入力の知らせを受けなくなったが、main が送るのをやめる ND-2 まで
+  // 受け口（onDictationWhere・onDictationText・onDictationEnd・onHistoryUpdated）を preload に残す（上の「main.js から送るイベントを preload が購読できる」）。ND-2 で消して空に戻す
+  const PENDING_APP = new Set(['onDictationWhere', 'onDictationText', 'onDictationEnd', 'onHistoryUpdated']);
   // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
   // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
   const KEPT_APP = new Set(['pageSetMemo']);

@@ -4,7 +4,7 @@
  * 撮るのは tools/shots/main.js（Electron の main）。ここには、撮る画面の並び・偽の橋の名前と見本の答え・
  * 同じ画面を2回撮ったときの揺れの判定・基準との比べ・CSP の違反の行の見分け・開く速さの判定・終了コードを置く。
  *
- * 画面は今日の日付で文字を変える（relTime の「N時間前」・dueInfo の「N日超過」・音声入力の「今日の入力」）。
+ * 画面は今日の日付で文字を変える（relTime の「N時間前」・dueInfo の「N日超過」。0.15.1 で音声入力の「今日の入力」は無くなった）。
  * 撮るときは時計を FIXED_NOW に止め、時間帯を TIME_ZONE にし、アニメーションを FREEZE_CSS で止める。
  * 見本の日付は、どれも止めた時計より前の決まった日にする（基準を取った次の日に CI が赤にならない）。
  *
@@ -53,12 +53,14 @@ const COLLAPSE_SIDE = "(document.getElementById('sideCollapse') || { click() {} 
 const OPEN_PALETTE = "(document.getElementById('sideSearch') || { click() {} }).click()";
 // タブ3つ（ページ・音声入力・ページ）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）。
 // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブで開かない（ポップアップ）ので、3つ目は2行目のページを新しいタブ（Ctrl+クリック）で開く
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面」・D114）で意図して変えた: 音声入力のタブが無くなったので、ページの3つ（1行目・2行目と
+// 3行目を新しいタブ（Ctrl+クリック））を開いて、最後に1行目のページを選ぶ
 const OPEN_THREE_TABS = `(async () => {
   const w = () => new Promise((r) => setTimeout(r, 150));
   const item = (i) => document.querySelectorAll('#plist .pitem')[i || 0];
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
-  document.getElementById('tabBtnDictation').click(); await w();
   item(1).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
+  item(2).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
   document.getElementById('tabBtnNotes').click(); item().click(); await w();
   return 1;
 })()`;
@@ -289,7 +291,6 @@ const SCREENS = [
   { name: 'notes-empty-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click()" },
   { name: 'notes-page-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()" },
   { name: 'notes-page-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()" },
-  { name: 'dictation-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnDictation').click()" },
   { name: 'settings-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click()" },
   { name: 'settings-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnSettings').click()" },
   // 第1b回で足した画面（C-2 で基準を取るまでは取り直し待ち）
@@ -437,10 +438,6 @@ const SCREENS = [
   { name: 'memo-blocks-light', page: 'app', theme: 'light', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
   { name: 'memo-blocks-dark', page: 'app', theme: 'dark', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
   { name: 'live-memo-blocks-light', page: 'app', theme: 'light', get answers() { return liveMemoAnswers(); }, act: OPEN_MEMO(false) },
-  // 0.14.0 DQ-3（計画の「取り直す画面（RETAKE）」・BQ27 (a)）: 設定の［録音］の「文字起こし」のカードまで捲った形（「フィラー除去」の下の「口述の文を AI で整える」）と、
-  // 音声入力の履歴の［元の文をコピー］のある行。足した画面（まだ基準が無い）。カードに1行増える settings-record-light・settings-record-dark・settings-record-zoom200-light は取り直す
-  { name: 'settings-dictation-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}; document.getElementById('aiTidy').closest('.card').scrollIntoView({ block: 'start' })` },
-  { name: 'history-tidy-light', page: 'app', theme: 'light', get answers() { return { 'koeApp.getHistory': HISTORY_TIDY }; }, act: "document.getElementById('tabBtnDictation').click()" },
   // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）: サイドバーの木（3 段より深い開いた行・閉じた行・フォーカスした ▸・深い段の字下げ）。
   // 足した画面（まだ基準が無い）。拡大 200% でも題名が切れずに並ぶ
   { name: 'sidebar-tree-light', page: 'app', theme: 'light', get answers() { return treeAnswers(); }, act: FOCUS_TREE },
@@ -589,7 +586,25 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 議事録の子ページの一覧・［移動先…］・新しいページ・ゴミ箱の窓・アイコンの選び・全幅・小さい文字と書体・「···」の見た目の項目、取り直した 7 枚: 設定の［一般］の3枚と近道の表・
 // / メニュー・「···」の2枚）に「0.15.0の画面はこの見た目でよいです」（2026-11-06）と答えたので、CI run 41936731119（622444a）の artifact 13374567273 の .after.png（27 枚。
 // edit-slash-light・edit-slash-dark は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 195 枚）
-const RETAKE = new Set([]);
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・D114）: サイドバーの下の［🎤 音声入力］の行が無くなり、［🗑️ ゴミ箱］［⚙️ 設定］が上へ上がるので、
+// サイドバーの出ている app の画面の全部（サイドバーを畳んだ notes-collapsed-light のほか。105 枚）を取り直し待ちにした。録音バーと会議の知らせのパネルは変わらない（WQ1）
+const RETAKE = new Set([
+  'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'settings-light', 'settings-dark', 'notes-tabs-light', 'live-light', 'live-dark', 'notes-page-zoom200-light',
+  'settings-zoom200-dark', 'search-palette-light', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light',
+  'settings-offline-light', 'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light',
+  'settings-summary-light', 'settings-account-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light',
+  'settings-info-search-light', 'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark',
+  'live-offline-light', 'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light', 'settings-mcp-light', 'settings-info-mcp-light',
+  'page-menu-link-light', 'page-menu-link-dark', 'list-select-light', 'list-select-dark', 'page-summary-lock-light', 'settings-mcp-running-light', 'page-type-light',
+  'page-type-dark', 'page-type-undecided-light', 'live-type-light', 'page-quality-light', 'page-quality-dark', 'settings-quality-light', 'notes-script-spk-light',
+  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light',
+  'edit-types-light', 'edit-types-dark', 'edit-types-zoom150-light', 'edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light', 'edit-toggle-light',
+  'live-banner-signin-light', 'page-pending-light', 'page-pending-running-light', 'edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light',
+  'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light', 'memo-blocks-light', 'memo-blocks-dark',
+  'live-memo-blocks-light', 'sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light',
+  'page-rows-dark', 'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light', 'trash-pop-light', 'icon-pop-light', 'icon-pop-dark', 'look-wide-light',
+  'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light', 'look-small-zoom200-light',
+]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -664,18 +679,6 @@ const LIST = [
   { id: 'p1', title: PAGE.title, date: '2026-10-16', durationSec: 1820, createdAt: PAGE.createdAt, updatedAt: PAGE.updatedAt, meetingType: 'standup', hasSummary: true },
   { id: 'p2', title: lib.meetingTitleAt('2026-10-09T05:00:00.000Z', JST_MIN), date: '2026-10-09', durationSec: 2710, createdAt: '2026-10-09T05:00:00.000Z', updatedAt: '2026-10-09T05:50:00.000Z', meetingType: 'general', hasSummary: true },
   { id: 'p3', title: lib.meetingTitleAt('2026-10-01T08:00:00.000Z', JST_MIN), date: '2026-10-01', durationSec: 905, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:20:00.000Z', meetingType: 'general', hasSummary: false },
-];
-const HISTORY = [
-  // 止めた時計（10/18 09:00 日本時間）の 30 分前。「今日の入力」と「30分前」が出る
-  { id: 'h1', text: '明日の打ち合わせは10時からに変更になりました。資料は前日までに共有します。', createdAt: '2026-10-17T23:30:00.000Z', durationSec: 9, chars: 38, procMs: 1400 },
-  { id: 'h2', text: '見積もりの件、承知しました。来週の水曜までにお送りします。', createdAt: '2026-10-16T06:12:00.000Z', durationSec: 7, chars: 29, procMs: 1100 },
-  { id: 'h3', text: '会議室の予約をお願いします。', createdAt: '2026-10-01T02:05:00.000Z', durationSec: 3, chars: 13, procMs: 800 },
-];
-// 0.14.0 DQ-3（決めたこと 55）: いちばん上の行は AI で整えた口述（raw は文字起こしのまま）。［元の文をコピー］が出る。ほかは今の見本のまま（raw の無い行）
-const HISTORY_TIDY = [
-  { id: 'h0', text: '明日の会議は、資料を見てから決めます。', raw: 'えーと、明日の会議は、あの、あの、資料を見てから決めます。', tidy: 'ai',
-    createdAt: '2026-10-17T23:50:00.000Z', durationSec: 5, chars: 19, procMs: 1600 },
-  ...HISTORY,
 ];
 
 /**
@@ -1022,7 +1025,6 @@ function fixtures() {
     'koeApp.meetingTypes': lib.typesForView(),   // 0.11.0 V-1・V-5: { types, selectable }
     'koeApp.memoTypes': memoTypes.listMemoTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値
-    'koeApp.getHistory': HISTORY,
     'koeApp.meetingStatus': { active: false, paused: false, startedAt: null, segments: [] },
     'koeApp.pagesSearch': LIST,
     'koeApp.pagesSearchFull': { hits: [], total: 0, truncated: false },

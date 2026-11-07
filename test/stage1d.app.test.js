@@ -87,7 +87,8 @@ const mail = (local) => local + String.fromCharCode(64) + 'example.com';
 const M = mail('kaigi');
 const R1 = '会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。';
 // 0.10.0 LS-5（D62）で意図して変えた: オフラインモードは守秘のボタンでない
-const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。ネットワークが不安定なときは、議事録の画面の［オフラインモード］で、その会議の文字起こしを PC の中で行います。';
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議と音声入力の音声」は「会議の音声」
+const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。ネットワークが不安定なときは、議事録の画面の［オフラインモード］で、その会議の文字起こしを PC の中で行います。';
 const L3 = 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。';
 const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
 const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
@@ -581,7 +582,8 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
   const offPop = l.byId.get('setPopOffline');
   assert.ok(offPop && offPop.parentNode === card, 'オフラインのカードに頭の説明の吹き出しが無い');
-  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしが']) {
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議と音声入力は」は「会議は」
+  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議はそのまま使えます。', 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしが']) {
     assert.ok(offPop.textContent.includes(w), `吹き出しに「${w}」が無い（前の文 ${OFFLINE_D21.length} 字の芯）`);
   }
   assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');

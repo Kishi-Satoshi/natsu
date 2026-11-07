@@ -44,9 +44,11 @@ test('1b2 P-1・G6: 操作（#pActs）は上の帯（.pagebar）にあり、ペ�
   l.key({ key: 'Escape' }); await l.drain();
   assert.ok(!acts.closest('.col').inert && acts.hidden === false);
   assert.strictEqual(S.declsFor(rules, '.pacts[hidden]', { at: '' }).display, 'none', '本物の画面で hidden が .pacts の display に負ける');
-  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' }); await l.drain();
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、ページのタブを Ctrl+W で
+  // 閉じた（選んでいるタブの無い）形で見る
+  l.key({ key: 'w', code: 'KeyW', ctrlKey: true }); await l.drain();
   assert.strictEqual(acts.hidden, true);
-  assert.deepStrictEqual(crumb(l), ['🎤', '音声入力']);
+  assert.deepStrictEqual(crumb(l), ['', '']);
 });
 
 test('1b2 P-1・G6: 別のページのタブを読み込んでいる間は、操作（#pActs）を隠す（前のページの［削除］が押せない）', async () => {
