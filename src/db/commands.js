@@ -52,7 +52,7 @@ const SL = require('../statelog');
 const blockEdit = require('../blockEdit');
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 3・4・7〜11）: 要約のブロックは木（children）。命令は行を locate で探し、置き場は spotOf（NR6）
 const BT = require('../blockTree');
-const { diffPage, diffSegments, applyOps, invertOps, opsMatch, pageRow } = require('./ops');
+const { diffPage, diffSegments, applyOps, invertOps, opsMatch, pageRow, isDocType } = require('./ops');
 // 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の決めたこと 1〜17・HR6）: ページの木は parent_id だけ。歩くのは JS（SQL の再帰を使わない: 決めたこと 6）
 const PT = require('../pageTree');
 // 0.15.0 PR-1（計画の HR14）: 白紙のページの子の並びの鍵は、本文の子ページの行の順から作る（等しい間の鍵）
@@ -85,6 +85,7 @@ const HOT_QUERIES = Object.freeze({
   // PH-2 直し（R12）: attrs の全部（メモ・要約の欄）は読まない。木と一覧の判定に使う欄だけを SQL で取り出す
   pageRows: "select id, parent_id, ord, text, created_at, trashed_at, json_extract(attrs, '$.meeting.phase') as phase, json_extract(attrs, '$.kind') as kind, json_extract(attrs, '$.icon') as icon from blocks where type = 'page'",
   pageRow: 'select id, type, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
+  typeOf: 'select type from blocks where id = ?',   // 0.16.0 DS-2: 行の型（データベースの行か）
   pageBlocks: 'select id, type, text, rich, attrs, ord, parent_id from blocks where page_id = ? and id <> ? order by ord',
   // 0.15.0 PR-1（HR14）: 白紙のページの本文の並び（行の木の形と、子ページの行の指すページだけ。文・飾り・ほかの欄は読まない）
   bodyRows: "select id, parent_id, ord, type, json_extract(attrs, '$.page') as sub from blocks where page_id = ? and id <> ? order by ord",
@@ -99,7 +100,7 @@ const HOT_QUERIES = Object.freeze({
 // 生の形（markShortBlocks の前）と、ブロックの並びの鍵。無い行・ページでない行は null。ゴミ箱は opts.trashed のときだけ
 function loadPage(db, id, { trashed = false } = {}) {
   const row = db.prepare(HOT_QUERIES.pageRow).get(id);
-  if (!row || row.type !== 'page') return null;
+  if (!row || !isDocType(row.type)) return null;   // 0.16.0 DS-2: データベースの行（row）もページとして開ける
   if (row.trashed_at !== null && row.trashed_at !== undefined && !trashed) return null;
   const page = { ...JSON.parse(row.attrs || '{}'), id: row.id, title: row.text };
   if (row.created_at) page.createdAt = row.created_at;
@@ -191,6 +192,8 @@ function setTypePage(p, { type, preset }, at) {
 // 鍵なら locked で断る（画面の外の道からも直せない）。making（要約を作っている間）は DB からは分からないので見ない。
 // 要約を保存する命令（page.put）とメモ・題名・種類の命令は鍵を見ない
 function summaryLockedPage(db, page) {
+  // 0.16.0 DS-2（決めたこと 26）: データベースの行の本文は白紙のページと同じ本文（要約でない）なので鍵を掛けない
+  if (db.prepare(HOT_QUERIES.typeOf).get(page.id)?.type === 'row') return false;
   const live = isObj(page.meeting) && LIVE_PHASES.includes(page.meeting.phase);
   return summaryLock(page, { live, segments: readSegments(db, page.id) }) !== '';
 }
@@ -386,7 +389,7 @@ function splitAtOk(text, at) {
 function addedDup(db, a, row) {
   const page = readPage(db, a.pageId);
   if (!page) return null;
-  const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type !== 'page');
+  const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && !isDocType(o.row.type));
   return { page, blockId: add ? add.id : null };
 }
 // 結合の送り直し: つないだ先とつないだ所を oplog の1行から作り直す（今の行を消していなければ、区切り線を消したか頭の行: 今の行の頭）
@@ -853,7 +856,7 @@ function pasteInto(db, ctx, p, a) {
 function pasteDup(db, a, row) {
   const page = readPage(db, a.pageId);
   if (!page) return null;
-  const added = new Set(JSON.parse(row.ops || '[]').filter((o) => o && o.op === 'add' && o.row && o.row.type !== 'page').map((o) => o.id));
+  const added = new Set(JSON.parse(row.ops || '[]').filter((o) => o && o.op === 'add' && o.row && !isDocType(o.row.type)).map((o) => o.id));
   const order = BT.flattenBlocks(page.blocks).map((b) => b.id).filter((id) => added.has(id));
   const text = RT.plainOf(a.rich);
   if (a.at > 0 && a.at < text.length) order.pop();
@@ -1427,7 +1430,7 @@ const DEFS = {
     dupResult: (db, a, row) => {
       const page = readPage(db, a.pageId);
       if (!page) return null;
-      const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type !== 'page');
+      const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && !isDocType(o.row.type));
       return { page, blockId: add ? add.id : null };
     } },
   'block.remove': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id' },
@@ -1745,7 +1748,7 @@ const DEFS = {
     dupResult: (db, a, row) => {
       const page = readPage(db, a.pageId);
       if (!page) return null;
-      const added = new Set(JSON.parse(row.ops || '[]').filter((o) => o && o.op === 'add' && o.row && o.row.type !== 'page').map((o) => o.id));
+      const added = new Set(JSON.parse(row.ops || '[]').filter((o) => o && o.op === 'add' && o.row && !isDocType(o.row.type)).map((o) => o.id));
       return { page, ids: BT.walk(page.blocks).filter((w) => added.has(w.b.id) && !(w.parentId !== null && added.has(w.parentId))).map((w) => w.b.id) };
     } },
   // 選んだ行の型を変える（行ごとは block.turnInto と同じ: turnBlock）。区切り線へは文も子も無い行だけ（1つでもあれば全部を断る: EQ16 (a)・NR7・R65）→ page

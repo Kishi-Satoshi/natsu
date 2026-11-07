@@ -28,6 +28,7 @@ const { isDeepStrictEqual } = require('node:util');
 const { searchFold } = require('../cite');
 const { evenKeys, keyBetween, keysBetween } = require('./keys');
 const { VIEW_KEYS } = require('../blockTree');
+const { foldCells } = require('../dbModel');
 
 const PAGE_FIXED = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const DB_MADE = ['rev', 'routeText', 'qualityView'];     // DB が作る欄（書くときは黙って捨てる）。0.11.0 Q-3 で qualityView を足した
@@ -37,11 +38,21 @@ const PAGE_ORD = 'i';                     // ページの行の並びの鍵（2a
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const str = (v) => (typeof v === 'string' ? v : '');
+// 0.16.0 DS-2（計画 docs/plans/2026-11-04-160.md の決めたこと 2・3・TR1）: ページとして開ける行の型（ページの行と、データベースの行 row）。
+// 判定はこの1か所。一覧・木・ゴミ箱・会議の見回り・MCP の読み手は今どおり type = 'page' だけを読む（行を混ぜない: 決めたこと 3）
+const isDocType = (type) => type === 'page' || type === 'row';
 
 // ---------------------------------------------------------------- 検索の欄
 function pageFold(title, memo) { return searchFold(title) + '\u0001' + searchFold(memo); }
 function textFold(text) { return searchFold(text); }
-function foldOfRow(type, text, attrs) {
+// 0.16.0 DS-2（決めたこと 6）: データベースの行は、題名と、セルの文字（テキスト・URL・メール・電話）と選択肢の名前。列（cols）は
+// 親のデータベースのページの attrs.cols（applyOps が読んで渡す）。1つの欄ずつ寄せ、間は \u0001（欄をまたいで当たらない）
+function rowFold(text, attrs, cols) {
+  const cells = isObj(attrs) && isObj(attrs.cells) ? attrs.cells : {};
+  return [text, ...foldCells(Array.isArray(cols) ? cols : [], cells).split('\n')].map(searchFold).join('\u0001');
+}
+function foldOfRow(type, text, attrs, cols) {
+  if (type === 'row') return rowFold(text, attrs, cols);
   return type === 'page' ? pageFold(text, isObj(attrs) ? attrs.memo : '') : textFold(text);
 }
 
@@ -61,6 +72,16 @@ function pageRow(page, { ord = PAGE_ORD } = {}) {
 }
 
 // parentId は親の行の ID（最上位はページの ID。0.13.1 決めたこと 7: 子は parent_id と兄弟の中の鍵 ord を持つ）
+// 0.16.0 DS-2（決めたこと 2）: データベースの行。page_id は自分（行の本文のブロックは page_id が行の ID）・parent_id はデータベースのページ・
+// text は題名・attrs は { cells, by: { c, u }, no }（作成者・最終更新者・ID の列の番号）。作成日時・最終更新日時は列
+function rowBlock({ id, db, ord, title, cells, by, no, at }) {
+  return {
+    id, type: 'row', page_id: id, parent_id: db, ord,
+    text: str(title), rich: null, attrs: { cells: isObj(cells) ? cells : {}, by, no },
+    rev: 1, created_at: str(at), updated_at: str(at), trashed_at: null,
+  };
+}
+
 function blockRow(b, pageId, ord, parentId = pageId) {
   return {
     id: b.id, type: b.type, page_id: pageId, parent_id: parentId, ord,
@@ -213,11 +234,19 @@ function diffSegments(oldSegs, newSegs, pageId) {
 // ---------------------------------------------------------------- 当てる
 const ROW_COLS = 'id, type, page_id, parent_id, ord, text, rich, attrs, fold, rev, created_at, updated_at, trashed_at';
 
+// 0.16.0 DS-2: データベースの行の列（親のデータベースのページの attrs.cols。無ければ空）
+function colsOfDb(db, dbId) {
+  const r = typeof dbId === 'string' ? db.prepare('select attrs from blocks where id = ? and type = ?').get(dbId, 'page') : null;
+  const attrs = r ? JSON.parse(r.attrs || '{}') : {};
+  return Array.isArray(attrs.cols) ? attrs.cols : [];
+}
+
 function insertRow(db, row) {
   const attrs = isObj(row.attrs) ? row.attrs : {};
+  const cols = row.type === 'row' ? colsOfDb(db, row.parent_id) : null;
   db.prepare(`insert into blocks(${ROW_COLS}) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     row.id, row.type, row.page_id, row.parent_id ?? null, row.ord, str(row.text),
-    Array.isArray(row.rich) ? JSON.stringify(row.rich) : null, JSON.stringify(attrs), foldOfRow(row.type, str(row.text), attrs),
+    Array.isArray(row.rich) ? JSON.stringify(row.rich) : null, JSON.stringify(attrs), foldOfRow(row.type, str(row.text), attrs, cols),
     Number.isSafeInteger(row.rev) ? row.rev : 1, str(row.created_at), str(row.updated_at), row.trashed_at ?? null);
 }
 
@@ -236,7 +265,7 @@ function upsertSeg(db, seg, pageId, n) {
 }
 
 function setField(db, row, key, value, st) {
-  if (row.type === 'page' && (key === 'createdAt' || key === 'updatedAt')) {
+  if (isDocType(row.type) && (key === 'createdAt' || key === 'updatedAt')) {
     const col = key === 'createdAt' ? 'created_at' : 'updated_at';
     db.prepare(`update blocks set ${col} = ? where id = ?`).run(str(value), row.id);
     return;
@@ -249,16 +278,17 @@ function setField(db, row, key, value, st) {
   if (value === undefined) delete attrs[key]; else attrs[key] = value;
   db.prepare('update blocks set attrs = ? where id = ?').run(JSON.stringify(attrs), row.id);
   if (row.type === 'page' && key === 'memo') st.refold.add(row.id);
+  if (row.type === 'row') st.refold.add(row.id);   // 0.16.0 DS-2: データベースの行はセルが検索の欄に入る（決めたこと 6）
 }
 
 function applyOne(db, o, back, st) {
   if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('applyOps: 操作の形が正しくない');
   switch (o.op) {
     case 'add': {
-      if (!back) { insertRow(db, o.row); st.touched.add(o.row.page_id); if (o.row.type === 'page') st.fresh.add(o.row.id); return; }
+      if (!back) { insertRow(db, o.row); st.touched.add(o.row.page_id); if (isDocType(o.row.type)) st.fresh.add(o.row.id); return; }
       const r = rowOf(db, o.id);
       db.prepare('delete from blocks where id = ?').run(o.id);
-      st.touched.add(r.page_id); if (r.type === 'page') st.fresh.add(r.id);
+      st.touched.add(r.page_id); if (isDocType(r.type)) st.fresh.add(r.id);
       return;
     }
     case 'trash':
@@ -328,12 +358,12 @@ function applyOps(db, ops, dir = 'forward') {
   const st = { touched: new Set(), fresh: new Set(), refold: new Set() };
   for (const o of back ? [...ops].reverse() : ops) applyOne(db, o, back, st);
   for (const id of st.refold) {
-    const r = db.prepare('select type, text, attrs, fold from blocks where id = ?').get(id);
+    const r = db.prepare('select type, parent_id, text, attrs, fold from blocks where id = ?').get(id);
     if (!r) continue;
-    const fold = foldOfRow(r.type, r.text, JSON.parse(r.attrs || '{}'));
+    const fold = foldOfRow(r.type, r.text, JSON.parse(r.attrs || '{}'), r.type === 'row' ? colsOfDb(db, r.parent_id) : null);
     if (fold !== r.fold) db.prepare('update blocks set fold = ? where id = ?').run(fold, id);
   }
-  for (const pid of st.touched) if (!st.fresh.has(pid)) db.prepare("update blocks set rev = rev + 1 where id = ? and type = 'page'").run(pid);
+  for (const pid of st.touched) if (!st.fresh.has(pid)) db.prepare("update blocks set rev = rev + 1 where id = ? and type in ('page', 'row')").run(pid);
 }
 
 // ---------------------------------------------------------------- 元に戻す（0.14.0 EB-1。決めたこと 2〜5・R60。F100）
@@ -469,4 +499,4 @@ function opsMatch(db, ops, { pageId } = {}) {
   return true;
 }
 
-module.exports = { diffPage, diffSegments, applyOps, invertOps, opsMatch, pageRow, blockRow, segRow, pageFold, textFold, foldOfRow };
+module.exports = { diffPage, diffSegments, applyOps, invertOps, opsMatch, pageRow, blockRow, rowBlock, segRow, pageFold, textFold, foldOfRow, isDocType };

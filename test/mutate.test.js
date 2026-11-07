@@ -1380,6 +1380,8 @@ const IDS_160 = [
   // 0.16.0 DS-1（表の行の順に）
   'tb-cell-number', 'tb-cell-select', 'tb-cell-url', 'tb-cell-len', 'tb-cell-date', 'tb-cell-readonly', 'tb-convert-num', 'tb-opt-dup',
   'tb-sort-empty', 'tb-sort-select', 'tb-sort-ord', 'tb-filter-andor', 'tb-filter-depth', 'tb-filter-date', 'tb-agg-filtered', 'tb-group-empty', 'tb-view-norm',
+  // 0.16.0 DS-2（表の行の順に）
+  'tb-row-type', 'tb-listed-rows', 'tb-isdoc', 'tb-row-read', 'tb-row-rev', 'tb-row-fold',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
