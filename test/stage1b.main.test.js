@@ -32,7 +32,9 @@ describe('第1b回 画面の覚え書き（main）', { concurrency: Number(proce
     // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の決めたこと 39）で意図して変えた: ui:get は / メニューの「最近使ったもの」（slashRecent）も返す
     // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 19）で意図して変えた: ui:get はサイドバーの木の開け閉め（tree）も返す
     // 0.15.0 PL-1（決めたこと 37）で意図して変えた: ui:get はアイコンの選びの最近使ったもの（emojiRecent）も返す
-    assert.deepStrictEqual(r.ui, { sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, slashRecent: [], tree: { open: [] }, emojiRecent: [] });
+    // 0.15.1 PS-1（計画 docs/plans/2026-11-04-151.md の決めたこと 24）で意図して変えた: ui:get はサイドバーのセクション（sections。無ければ既定）も返す
+    assert.deepStrictEqual(r.ui, { sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, slashRecent: [], tree: { open: [] }, emojiRecent: [],
+      sections: { private: { open: true, sort: 'manual', show: 0 } } });
     assert.strictEqual(r.winStateText, null, '起動しただけで書いた');
   });
 

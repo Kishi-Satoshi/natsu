@@ -14,7 +14,7 @@ const D2 = [...D1, { id: 2, bounds: { x: 1920, y: 0, width: 1280, height: 1024 }
 // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の決めたこと 39）で意図して変えた: 正しい覚え書きに / メニューの「最近使ったもの」（slashRecent）がある
 // 0.15.0 PH-1（計画 docs/plans/2026-11-03-150.md の決めたこと 19・R2）で意図して変えた: 正しい覚え書きにサイドバーの木の開け閉め（tree）がある
 // 0.15.1 ND-1（計画 docs/plans/2026-11-04-151.md の決めたこと 5・D114）で意図して変えた: 音声入力のタブを無くした（読むときに黙って落とす）ので、見本のタブはページの2つにした
-const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'page:pa2'], active: 'page:pa2' }, slashRecent: ['h2'], tree: { open: ['pa1'] }, emojiRecent: ['📄'], ...o });   // 0.15.0 PL-1 で意図して変えた: emojiRecent（最近使ったアイコン）も覚える
+const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false }, tabs: { open: ['page:pa1', 'page:pa2'], active: 'page:pa2' }, slashRecent: ['h2'], tree: { open: ['pa1'] }, emojiRecent: ['📄'], sections: { private: { open: true, sort: 'manual', show: 0 } }, ...o });   // 0.15.0 PL-1 で意図して変えた: emojiRecent（最近使ったアイコン）も覚える。0.15.1 PS-1（計画 docs/plans/2026-11-04-151.md の決めたこと 24）で意図して変えた: サイドバーのセクション（sections）も覚える
 
 test('N6: 置き場所は %LOCALAPPDATA%\\natsu\\window-state.json（Roaming の userData ではない）。無ければ userData', () => {
   const local = path.join(path.parse(process.cwd()).root, 'Local');
@@ -91,7 +91,8 @@ test('N6・F7: タブは形の正しい鍵だけ・録音中のページ（live�
 // 0.9.0 U-1（SP3・D24）: 設定はタブでなくポップアップで開く。前の版が覚えたタブの settings は、読むときに黙って落とす
 //（無いページとして数えない: 数えると main が「無いページのタブを N 個外した」と事実と違う記録を書く）
 // 0.15.1 ND-1（決めたこと 5）で意図して変えた: TAB_FIXED は空。前の版の音声入力のタブ（dictation）も settings と同じく黙って落とす
-test('SP3: TAB_FIXED は空（0.15.1）。settings と dictation は黙って落とす（dropped に数えない・active が settings なら残りの最後）', () => {
+// 0.15.1 PS-1（決めたこと 32）で意図して変えた: TAB_FIXED はライブラリのタブだけ（test/stage151.ps.test.js の PS-1・D125）
+test('SP3: TAB_FIXED はライブラリのタブだけ（0.15.1）。settings と dictation は黙って落とす（dropped に数えない・active が settings なら残りの最後）', () => {
   assert.strictEqual(W.tabKeyOk('settings'), false);
   assert.strictEqual(W.tabKeyOk('dictation'), false);
   assert.deepStrictEqual(W.keepTabs({ open: ['page:pa1', 'settings', 'dictation'], active: 'settings' }, () => true), { tabs: { open: ['page:pa1'], active: 'page:pa1' }, dropped: 0 });

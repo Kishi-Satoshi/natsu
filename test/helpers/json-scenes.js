@@ -1145,6 +1145,16 @@ module.exports = {
       c.out.set = await c.handlers['ui:set']({}, { emojiRecent: ['🌸', '🦕', '🚀'] });
       c.out.again = await c.handlers['ui:get']({});
     } },
+  // 0.15.1 PS-1（計画 docs/plans/2026-11-04-151.md の決めたこと 24・32・F158）: ui:get はサイドバーのセクション（sections）を照らして渡す（壊れた項目だけ既定）。
+  // ui:set で送った形を覚えて次の ui:get に出す（後の版のセクションも残す）。ライブラリのタブ（'library'）も覚える。覚え書きの無い起動は既定
+  'ws-sections-get': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS({ sections: { private: { open: false, sort: 'x', show: 10 }, favorites: { open: false } } }) },
+    act: async (c) => {
+      c.out.ui = await c.handlers['ui:get']({});
+      c.out.set = await c.handlers['ui:set']({}, { sections: { private: { open: true, sort: 'edited', show: 5 }, favorites: { open: false } }, tabs: { open: ['library'], active: 'library' } });
+      c.out.again = await c.handlers['ui:get']({});
+      c.out.none = { sections: require('../../src/winstate').sectionsOf({}) };
+    } },
   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・F116）: 白紙のページの page:summarize は断る（Claude Code を呼ばない・ページを書かない）。
   // 画面と同じ役 app の口で白紙のページを作り、ページの rev・更新の時刻と、呼んだ子のプロセスを見る
   'blank-summarize': { files: { 'settings.json': pretty(TYPICAL) },

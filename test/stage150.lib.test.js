@@ -200,7 +200,8 @@ test('PH-1・F115: 5,000 ページ・深さ 1,000 の木の pageTree と descend
 test('PH-1・F118: winstate の tree.open（形の悪い ID・重なり・501 個目は落とす・repaired に tree・ほかの項目は残る・applyUi の tree も同じ照らし）', () => {
   const D1 = [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
   const good = (o = {}) => ({ v: 1, bounds: { x: 100, y: 80, width: 1200, height: 800 }, maximized: false, zoom: 1.25, sidebar: { width: 300, collapsed: false },
-    tabs: { open: ['page:pa1'], active: 'page:pa1' }, slashRecent: ['h2'], tree: { open: ['pa1', 'pb2'] }, emojiRecent: [], ...o });   // 0.15.0 PL-1 で意図して変えた: emojiRecent も覚える
+    tabs: { open: ['page:pa1'], active: 'page:pa1' }, slashRecent: ['h2'], tree: { open: ['pa1', 'pb2'] }, emojiRecent: [],
+    sections: { private: { open: true, sort: 'manual', show: 0 } }, ...o });   // 0.15.0 PL-1 で意図して変えた: emojiRecent も覚える。0.15.1 PS-1（計画 docs/plans/2026-11-04-151.md の決めたこと 24）で意図して変えた: sections も覚える
   assert.deepStrictEqual(W.defaults().tree, { open: [] });
   assert.strictEqual(W.TREE_MAX, 500);
   assert.deepStrictEqual(W.normalize(good(), D1), { state: good(), repaired: [] }, '正しい値はそのまま');
