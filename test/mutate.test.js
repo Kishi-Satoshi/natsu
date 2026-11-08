@@ -1388,9 +1388,17 @@ const IDS_151 = [
   'nd-help-word', 'nd-help-src', 'nd-help-cite',
   // 0.15.1 ND-3（表の行の順に）
   'nd-winh-note',
-  // 0.15.1 PS-1（表の行の順に）
-  'ps-ws-norm', 'ps-ws-unknown', 'ps-sort-edited', 'ps-sort-level', 'ps-show-limit', 'ps-show-kids', 'ps-ren-line',
-  'lb-tab-keep', 'lb-rel-time', 'lb-sort-name', 'lb-sort-level', 'lb-search',
+  // 0.15.1 PS-1・PS-2（表の行の順に）
+  'ps-ws-norm', 'ps-ws-unknown',   // PS-1
+  'ps-head-text', 'ps-head-fold', 'ps-head-aria', 'ps-head-hide', 'ps-fold-save', 'ps-fold-restore', 'ps-sort-save', 'ps-add-unfold', 'ps-add-top', 'ps-open-keep',
+  'ps-fold-selend', 'ps-bottom-pin', 'ps-menu-select', 'ps-menu-esc', 'ps-tree-label',   // PS-2
+  'ps-sort-edited', 'ps-sort-level',   // PS-1
+  'ps-sort-drag',   // PS-2
+  'ps-show-limit', 'ps-show-kids',   // PS-1
+  'ps-more-open',   // PS-2
+  'ps-ren-line',   // PS-1
+  'lb-open',   // PS-2
+  'lb-tab-keep', 'lb-rel-time', 'lb-sort-name', 'lb-sort-level', 'lb-search',   // PS-1
 ];
 // 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足し、Task G の前に表の全部とちょうど同じかを見る形に替える（0.15.0 の R1 と同じ）
 const BUILT_151 = [
@@ -1400,6 +1408,7 @@ const BUILT_151 = [
   ['nd-set-keep', 'nd-hk-save'], ['nd-tidy-send', 'nd-tidy-send'], ['nd-login-moments', 'nd-login-moments'],   // ND-1
   ['ps-ws-norm', 'ps-ws-unknown'], ['ps-sort-edited', 'ps-sort-level'], ['ps-show-limit', 'ps-show-kids'], ['ps-ren-line', 'ps-ren-line'],   // PS-1
   ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-name'], ['lb-sort-level', 'lb-search'],   // PS-1
+  ['ps-head-text', 'ps-tree-label'], ['ps-sort-drag', 'ps-sort-drag'], ['ps-more-open', 'ps-more-open'], ['lb-open', 'lb-open'],   // PS-2
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）

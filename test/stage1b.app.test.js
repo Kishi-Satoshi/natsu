@@ -30,7 +30,8 @@ test('N2: サイドバーは議事録のタブの外にいて、上から NaTsu�
   // 第1b2回 L-2: 検索の欄は検索の窓へ移り、サイドバーには窓を開く［🔍 検索］（#sideSearch）がある
   assert.ok(!side.querySelector('#searchBox'), '検索の欄がサイドバーに残っている');
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 下の行は［⚙️ 設定］（音声入力の行は無い）
-  const order = ['wordmark', 'sideSearch', 'mtToggleBtn', 'tabBtnNotes', 'plist', 'tabBtnSettings'];
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 一覧の見出しは「プライベート」（#privHead）
+  const order = ['wordmark', 'sideSearch', 'mtToggleBtn', 'privHead', 'plist', 'tabBtnTrash', 'tabBtnSettings'];
   assert.ok(!side.querySelector('#tabBtnDictation'), '［🎤 音声入力］の行が残っている');
   const all = side._walk([]);
   const at = (k) => all.findIndex((e) => e.id === k || e.className === k);

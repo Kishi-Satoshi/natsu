@@ -637,9 +637,13 @@ test('ED-5・F52: uiState の slashRecent を頭に出す。壊れていても�
 test('ED-5・F42: メニューを開いて Esc → メニューが閉じ、ev.defaultPrevented が真、/ と語は残る、一覧の選択は外れない、録音の口は呼ばれない。続けて打っても開き直さない', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
+    // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出しの［選ぶ］は［···］の［ページを選ぶ］に移った。
+    // 選ぶ形かは押した形（aria-pressed）でなく、一覧の行のチェックボックスで見る
+    const selOn = () => $(l, 'plist').querySelectorAll('.pchk').length > 0;
+    $(l, 'privMore').dispatchEvent({ type: 'click' });
     $(l, 'listSelect').dispatchEvent({ type: 'click' });
     await l.drain();
-    assert.strictEqual($(l, 'listSelect').getAttribute('aria-pressed'), 'true');
+    assert.strictEqual(selOn(), true);
     const t = typeInput(l, 'e1', '/みだ');
     assert.ok(slashBoxOf(l));
     const ev = l.key({ key: 'Escape' }, t);
@@ -647,7 +651,7 @@ test('ED-5・F42: メニューを開いて Esc → メニューが閉じ、ev.de
     assert.strictEqual(ev.defaultPrevented, true);
     assert.strictEqual(slashBoxOf(l), null);
     assert.strictEqual(t.textContent, '/みだ');
-    assert.strictEqual($(l, 'listSelect').getAttribute('aria-pressed'), 'true', 'メニューの Esc で一覧の選択が外れた');
+    assert.strictEqual(selOn(), true, 'メニューの Esc で一覧の選択が外れた');
     typeInput(l, 'e1', '/みだし');
     assert.strictEqual(slashBoxOf(l), null, 'Esc で閉じたのに開き直した');
     const rec = l.calls.filter((c) => /^(meeting(Toggle|Start|Discard|SetPaused|Stop)|toggleRecording|cancel)/.test(c.method));

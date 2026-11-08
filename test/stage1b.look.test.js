@@ -171,7 +171,8 @@ test('simdom: [属性="値"] と [属性] のセレクタが当たる（今は�
 });
 
 // 意図: 配線テストと画面テストを壊さないため、今の id は1つも消さない。設計書「id を残す理由」
-const IDS_1A_1C = ['tabBtnNotes', 'tabBtnSettings', 'tabNotes', 'mtToggleBtn', 'mtDiscardBtn', 'searchBox', 'fltAll', 'fltActions', 'fltFull', 'plist',
+// 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 一覧の見出しは「議事録」（#tabBtnNotes）から「プライベート」（#privHead。押すと畳む）に替わった（消えたことを見る）
+const IDS_1A_1C = ['privHead', 'tabBtnSettings', 'tabNotes', 'mtToggleBtn', 'mtDiscardBtn', 'searchBox', 'fltAll', 'fltActions', 'fltFull', 'plist',
   'pageWrap', 'pTitle', 'pProps', 'pTypeRow', 'pType', 'pTypeHint', 'pActs', 'paneBtnNote', 'paneBtnScript', 'paneBtnMemo', 'pBody', 'pProgress', 'pNote', 'pScript', 'pMemo',
   'tabSettings', 'verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg', 'updNotes',
   'themeSel', 'meetingHotkey', 'meetingHotkeyWarn', 'pillPos', 'micSelect', 'micReloadBtn', 'useSystemAudio', 'spkField', 'spkNow', 'spkReloadBtn',
@@ -190,10 +191,11 @@ const IDS_1D_REMOVED = ['onlineAdv', 'sttKey', 'sttKeySave', 'sttKeyTest', 'sttK
 // 0.10.0 LS-3（D59）で意図して消した10: 詳細設定の要約のエンジンの欄（要約は Claude Code。一覧から外し、消えたことを見る）
 // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のサイドバーの行・ページ・履歴・設定の欄の 13（一覧から外し、消えたことを見る: D114）
 const IDS_ND3_REMOVED = ['tabBtnDictation', 'tabDictation', 'stToday', 'stTotal', 'stSaved', 'recBtn', 'histSearch', 'clearBtn', 'histList', 'hotkey', 'hotkeyWarn', 'autoPaste', 'aiTidy'];
+const IDS_PS2_REMOVED = ['tabBtnNotes'];
 const IDS_LS3_REMOVED = ['testSumMsg', 'sumServerExe', 'pickSumExeBtn', 'sumModelPath', 'pickSumModelBtn', 'sumThreads', 'sumPort', 'sumCtx', 'testSumBtn', 'setPopSThreads'];
 test('N2・F9: 第1b回の前からある id は1つも消えていない（作る id は setMeetingUi の中に残る。D5 で意図して消した5つと、1d で意図して消した6つと、0.10.0 LS-3 で意図して消した10を除く）', () => {
   for (const id of IDS_1A_1C) assert.ok(html.includes(`id="${id}"`), `id="${id}" が消えた`);
-  for (const id of [...IDS_D5_REMOVED, ...IDS_1D_REMOVED, ...IDS_LS3_REMOVED, ...IDS_ND3_REMOVED]) assert.ok(!html.includes(`id="${id}"`) && !html.includes(`$('${id}')`), `id="${id}" が残っている`);
+  for (const id of [...IDS_D5_REMOVED, ...IDS_1D_REMOVED, ...IDS_LS3_REMOVED, ...IDS_ND3_REMOVED, ...IDS_PS2_REMOVED]) assert.ok(!html.includes(`id="${id}"`) && !html.includes(`$('${id}')`), `id="${id}" が残っている`);
 });
 
 // 偽 DOM に配置が無いので、宣言で見る。見た目そのものは C-2 の画像。.pcol は本文の列

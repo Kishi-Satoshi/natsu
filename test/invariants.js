@@ -80,7 +80,8 @@ const BOOT_REACHED = [
 const WIRED = [
   { screen: 'app', id: 'openDataBtn', types: ['click'], 由来: 'v0.10.3 で消えた復旧導線。設定フッタの中にしか無い' },
   { screen: 'app', id: 'tabSettings', types: ['change'], 由来: '設定の自動保存。切れると入力が黙って捨てられる' },
-  { screen: 'app', id: 'tabBtnNotes', types: ['click'], 由来: 'タブ切り替え' },
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 一覧の見出し「議事録」（#tabBtnNotes）は「プライベート」（#privHead）に替わった
+  { screen: 'app', id: 'privHead', types: ['click'], 由来: '0.15.1 D124: プライベートの見出し。切れると畳めない' },
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: サイドバーの［🎤 音声入力］（tabBtnDictation）は無い
   { screen: 'app', id: 'tabBtnSettings', types: ['click'], 由来: 'タブ切り替え。設定画面へ入る唯一の導線（0.9.0 U-1 からポップアップを開く）' },
   // 0.9.0 U-1（SP1〜SP3・F13）: 設定のポップアップの閉じ方（×・Esc と Tab の閉じ込め・外の地）と左の項目の列（押す・↑↓）。切れると閉じられない・項目を替えられない
@@ -97,6 +98,7 @@ const WIRED = [
   { screen: 'app', id: 'claudeInstall', types: ['click'], 由来: '第1b回の続き Lane F: ［Claude Code を入れる］。切れると入れ方の案内が行き止まりになる' },
   { screen: 'app', id: 'mcpRegister', types: ['click'], 由来: '0.10.0 C-3（MR8）: ［Claude デスクトップに登録］。切れると Claude から議事録を読めるようにする道が無い' },
   { screen: 'app', id: 'mcpUnregister', types: ['click'], 由来: '0.10.0 C-3（MR8）: ［登録を外す］。切れると Claude デスクトップの設定から NaTsu を外せない' },
+  // 0.15.1 PS-2（D124）: ［選ぶ］は見出しの［···］の［ページを選ぶ］（id を引き継ぐ）
   { screen: 'app', id: 'listSelect', types: ['click'], 由来: '0.10.0 L-2（D70）: 一覧の［選ぶ］。切れるといくつもの議事録のリンクを写せない' },
   { screen: 'app', id: 'selCopy', types: ['click'], 由来: '0.10.0 L-2（D70）: 選んだ議事録の［リンクを写す］' },
   { screen: 'app', id: 'selCancel', types: ['click'], 由来: '0.10.0 L-2（D70）: 選ぶ形の［やめる］。切れると Esc のほかに選ぶ形を終えられない' },

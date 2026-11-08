@@ -2,6 +2,8 @@
  * stage151.ps.test.js — 0.15.1 サイドバーの「プライベート」のセクション・行の［···］と名前を変える・ライブラリ（計画 docs/plans/2026-11-04-151.md の
  * Task PS-1〜PS-5。D124・D125）
  * PS-1（F158・F161・F162・F164）: 純粋な部品（src/sideSection.js）と窓の覚え書きの sections・ライブラリのタブ（TAB_FIXED）・ui:get の sections。
+ * PS-2（F157〜F162）: 見出し「プライベート」（押すと畳む・↗・［＋］・［···］の並べ替え・表示・ページを選ぶ）・［もっと見る］・畳み・並べ替え・表示を覚える。
+ *       画面の sideSection の写しは src/sideSection.js と字も答えも同じ（R30）。
  * 題名は作った物。実在の人名・社名は使わない。
  */
 'use strict';
@@ -230,4 +232,313 @@ test('PS-1・F158: ui:get は window-state.json の sections を照らして渡�
   assert.deepStrictEqual(r.again.sections, { private: P({ sort: 'edited', show: 5 }), favorites: { open: false } });
   assert.deepStrictEqual(r.again.tabs, { open: ['library'], active: 'library' }, 'ライブラリのタブが戻らない');
   assert.deepStrictEqual(r.none.sections, { private: P() });
+});
+
+// ================================================================ PS-2（画面: 最小 DOM の simrun で app.html の <script> を走らせる）
+// 見出し「プライベート」（畳む・↗・［＋］・［···］）・並べ替えと表示の数・［もっと見る］（決めたこと 20〜28・F157〜F162）
+const fs = require('node:fs');
+const { load } = require('./helpers/simrun.js');
+const { titleAt } = require('./helpers/titles');
+
+const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
+const HTML = fs.readFileSync(APP, 'utf8');
+const fmt = (e) => `${e.constructor.name}: ${e.message}`;
+const $ = (l, id) => l.document.getElementById(id);
+// 見本の一覧（DB の pages.list と同じ並び: 作った新しい順）。最上位 7 つ（pg7…pg1）。pg6 の中に k1・k2（並びの鍵の順）。
+// 最終更新（updatedAt）は作った日と別: pg2 がいちばん新しく、pg5・pg7・pg6 の順。子の k2 は全部の中でいちばん新しい（段をまたがない）
+const AT = (d) => `2026-11-${d}.000Z`;
+const UROW = (id, createdAt, updatedAt, o = {}) => ({ id, title: titleAt(createdAt), date: createdAt.slice(0, 10), durationSec: 600, hasSummary: true, createdAt, updatedAt, parentId: null, ord: 'i', ...o });
+const ULIST = () => [
+  UROW('pg7', AT('07T00:00:00'), AT('07T01:00:00')),
+  UROW('k2', AT('06T08:00:00'), AT('20T00:00:00'), { parentId: 'pg6', ord: 'r', kind: 'blank' }),
+  UROW('k1', AT('06T07:00:00'), AT('06T07:00:00'), { parentId: 'pg6', ord: 'i', kind: 'blank' }),
+  UROW('pg6', AT('06T00:00:00'), AT('06T00:00:00')),
+  UROW('pg5', AT('05T00:00:00'), AT('15T00:00:00')),
+  UROW('pg4', AT('04T00:00:00'), AT('04T00:00:00')),
+  UROW('pg3', AT('03T00:00:00'), AT('03T00:00:00')),
+  UROW('pg2', AT('02T00:00:00'), AT('18T00:00:00')),
+  UROW('pg1', AT('01T00:00:00'), AT('01T00:00:00')),
+];
+const UPAGE = (id) => {
+  const p = ULIST().find((x) => x.id === id);
+  return p ? { page: { id, title: p.title, date: p.date, createdAt: p.createdAt, updatedAt: p.updatedAt, durationSec: 600, blocks: [], memo: '', meetingType: 'general', ...(p.kind ? { kind: p.kind } : {}) }, segments: [] } : null;
+};
+const UNEW = () => ({ page: { id: 'pnew1', kind: 'blank', title: '', date: '2026-11-08', createdAt: '2026-11-08T01:00:00.000Z', durationSec: 0, blocks: [], memo: '' }, segments: [] });
+async function bootUi(o = {}) {
+  const l = await load(APP, { returns: {
+    pagesSearch: () => (o.list ? o.list() : ULIST()), pageGet: (id) => UPAGE(id) || (id === 'pnew1' ? UNEW() : null), pageCreate: () => ({ id: 'pnew1', page: UNEW().page }),
+    pageMove: () => ULIST(), uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, ...(o.ui || {}) }), ...(o.returns || {}) } });
+  await l.drain();
+  return l;
+}
+const uRows = (l) => $(l, 'plist').querySelectorAll('.pitem');
+const uIds = (l) => uRows(l).map((r) => r.dataset.pid);
+const uRow = (l, id) => uRows(l).find((r) => r.dataset.pid === id);
+const press = async (l, el, o = {}) => { el.dispatchEvent({ type: 'click', ...o }); await l.drain(); };
+const secSaves = (l) => l.called('uiSave').map((c) => c.args[0]).filter((p) => p && p.sections);
+const menuTop = (l) => $(l, 'privMenu').querySelectorAll('.mitem').filter((x) => x.parentNode === $(l, 'privMenu'));
+const labels = (l) => menuTop(l).map((b) => b.textContent);
+const tabKeysOf = (l) => $(l, 'tabbar').querySelectorAll('[role="tab"]').map((t) => t.dataset.key);
+const hiddenUp = (el) => {
+  for (let n = el; n && n.tagName && !n.tagName.startsWith('#'); n = n.parentNode) {
+    if (n.hidden || /display:\s*none/.test(n.getAttribute('style') || '') || (n.style && n.style.display === 'none')) return true;
+  }
+  return false;
+};
+// Tab で届く順（サイドバーの中。DOM の順で、tabIndex が 0 以上で、隠れた祖先の無い物）
+const tabStops = (l) => $(l, 'side')._walk([]).filter((e) => {
+  const ti = e.tabIndex !== undefined ? e.tabIndex : e.hasAttribute('tabindex') ? Number(e.getAttribute('tabindex')) : ['button', 'input', 'select', 'textarea'].includes(e.tagName) ? 0 : -1;
+  return ti >= 0 && !hiddenUp(e);
+}).map((e) => e.id || (e.dataset && e.dataset.pid ? `row:${e.dataset.pid}` : e.className));
+const pickMenu = async (l, head, label) => {
+  await press(l, $(l, 'privMore'));
+  $(l, head).focus();
+  l.key({ key: 'ArrowRight' }, $(l, 'privMenu')); await l.drain();
+  const it = menuTop(l).find((b) => b.textContent === label);
+  assert.ok(it, `［${label}］が無い`);
+  await press(l, it);
+};
+const SORT_NOTE = '並べ替えを「手動」に戻すと、手で並べられます';
+const MANUAL = ['pg7', 'pg6', 'pg5', 'pg4', 'pg3', 'pg2', 'pg1'];
+const EDITED = ['pg2', 'pg5', 'pg7', 'pg6', 'pg4', 'pg3', 'pg1'];
+
+test('PS-2（R30）: 画面の写し（app.html の sideSectionView）は src/sideSection.js と字も答えも同じ', () => {
+  const at = HTML.indexOf('  // ---- sideSection の写し');
+  const end = HTML.indexOf('  // ---- sideSection の写しはここまで');
+  assert.ok(at > 0 && end > at, 'app.html に sideSection の写しが無い');
+  const seg = HTML.slice(at, end);
+  const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'sideSection.js'), 'utf8');
+  const body = SRC.slice(SRC.indexOf('const SECTION_DEFAULT'), SRC.indexOf('\nmodule.exports')).replace(/\s+$/, '');
+  assert.ok(seg.includes(body.split('\n').map((x) => (x ? `    ${x}` : x)).join('\n')), 'app.html の写しの字が src/sideSection.js と違う');
+  const app = new Function(`${seg}\nreturn sideSectionView;`)();   // eslint-disable-line no-new-func
+  assert.deepStrictEqual([app.SECTION_DEFAULT, app.SORTS, app.SHOW_STEPS], [SS.SECTION_DEFAULT, SS.SORTS, SS.SHOW_STEPS]);
+  for (const raw of [undefined, null, { private: { open: false, sort: 'x', show: 10 }, fav: { open: true }, Bad: { open: true } }]) {
+    assert.deepStrictEqual(app.normSections(raw), SS.normSections(raw));
+  }
+  for (const o of [{}, { sort: 'edited' }, { show: 5 }, { sort: 'edited', show: 10 }]) {
+    for (const open of [new Set(), new Set(['pa', 'pb'])]) assert.deepStrictEqual(app.sectionRows(TREE, open, o), SS.sectionRows(TREE, open, o), JSON.stringify(o));
+  }
+  const now = Date.parse('2026-11-08T00:00:00.000Z');
+  for (const iso of ['2026-11-07T23:59:30.000Z', '2026-11-07T20:00:00.000Z', '2026-10-01T00:00:00.000Z', 'x']) {
+    assert.strictEqual(app.relTime(iso, now), SS.relTime(iso, now));
+    assert.strictEqual(app.stampText(iso), SS.stampText(iso));
+  }
+  const titleOf = (id) => ({ pa: 'あ', pb: 'ア', pc: 'a', pd: 'カ' })[id] || id;
+  for (const o of [{}, { col: 'title' }, { col: 'title', dir: 'desc' }, { col: 'edited', dir: 'desc' }, { q: 'あ' }, { open: new Set(['pa']) }]) {
+    assert.deepStrictEqual(app.libraryRows(TREE, { titleOf, ...o }), SS.libraryRows(TREE, { titleOf, ...o }), JSON.stringify(o));
+  }
+  assert.strictEqual(app.oneLineTitle(' a\nb\tc '), SS.oneLineTitle(' a\nb\tc '));
+  assert.strictEqual(app.kanaFold('カタカナ ＡＢ'), SS.kanaFold('カタカナ ＡＢ'));
+});
+
+test('PS-2・F157・F161: 見出しは「プライベート」と印 ⌄（#tabBtnNotes は無い）。押すと #plist に hidden・aria-expanded="false"・印 ›・title「プライベートを開く」、もう一度で元に戻る（木・開け閉め・選んでいる行は同じ）', T, async () => {
+  const l = await bootUi({ ui: { tree: { open: ['pg6'] } } });
+  assert.strictEqual(l.root.querySelectorAll('#tabBtnNotes').length, 0, '#tabBtnNotes が残っている');
+  const h = $(l, 'privHead');
+  assert.ok(h && h.tagName === 'button' && h.getAttribute('type') === 'button', '見出しが type="button" の button でない（Enter・Space は本物の button が押す）');
+  const mark = h.querySelector('[aria-hidden="true"]');
+  assert.ok(mark, '印が aria-hidden の別の span でない');
+  const look = () => [h.textContent, mark.textContent, h.getAttribute('aria-expanded'), h.getAttribute('aria-controls'), h.title, $(l, 'plist').hidden];
+  assert.deepStrictEqual(look(), ['プライベート⌄', '⌄', 'true', 'plist', 'プライベートを畳む', false]);
+  assert.strictEqual($(l, 'plist').getAttribute('aria-label'), 'プライベートのページ');
+  await press(l, uRow(l, 'pg5'));
+  const before = uIds(l);
+  assert.deepStrictEqual(before, ['pg7', 'pg6', 'k1', 'k2', 'pg5', 'pg4', 'pg3', 'pg2', 'pg1']);
+  await press(l, h);
+  assert.deepStrictEqual(look(), ['プライベート›', '›', 'false', 'plist', 'プライベートを開く', true]);
+  assert.deepStrictEqual(uIds(l), before, '畳むと木が変わった');
+  await press(l, h);
+  assert.deepStrictEqual(look(), ['プライベート⌄', '⌄', 'true', 'plist', 'プライベートを畳む', false]);
+  assert.deepStrictEqual(uIds(l), before, '開き直すと木の開け閉めが変わった');
+  assert.ok(uRow(l, 'pg5').classList.contains('sel'), '開き直すと選んでいる行が変わった');
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg5'], '見出しを押すとタブが替わった（前の goNotes の動き）');
+  // 見出しの行に［選ぶ］の字のボタンが無い（［···］の［ページを選ぶ］へ移った）・［＋］は「ページを追加」・↗ は「ライブラリで開く」・［···］は「プライベートのメニュー」
+  assert.ok(!$(l, 'side').querySelectorAll('button').some((b) => b.textContent === '選ぶ'), '［選ぶ］のボタンが残っている');
+  const btn = (id) => [$(l, id).textContent, $(l, id).getAttribute('title'), $(l, id).getAttribute('aria-label')];
+  assert.deepStrictEqual([btn('privLib'), btn('newPageBtn'), btn('privMore')],
+    [['↗', 'ライブラリで開く', 'ライブラリで開く'], ['＋', 'ページを追加', 'ページを追加'], ['···', 'プライベートのメニュー', 'プライベートのメニュー']]);
+  assert.deepStrictEqual([$(l, 'privMore').getAttribute('aria-haspopup'), $(l, 'privMore').getAttribute('aria-expanded')], ['menu', 'false']);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-2・F157（決めたこと 26）: Tab の並びは［検索］→［新しい議事録］→ 見出し → ↗・［＋］・［···］→ 木の行1つ →［もっと見る］→［設定］。畳んでいるときは木の行と［もっと見る］に届かない', T, async () => {
+  const l = await bootUi({ ui: { sections: { private: { open: true, sort: 'manual', show: 5 } } } });
+  const seg = (xs) => xs.slice(xs.indexOf('sideSearch'), xs.indexOf('tabBtnSettings') + 1);
+  assert.deepStrictEqual(seg(tabStops(l)), ['sideSearch', 'mtToggleBtn', 'privHead', 'privLib', 'newPageBtn', 'privMore', 'row:pg7', 'sideMore', 'tabBtnSettings']);
+  await press(l, $(l, 'privHead'));
+  assert.deepStrictEqual(seg(tabStops(l)), ['sideSearch', 'mtToggleBtn', 'privHead', 'privLib', 'newPageBtn', 'privMore', 'tabBtnSettings']);
+  // 見出しの右の3つは、見出しの行に乗せたとき・その中にフォーカスがあるときだけ見える（PQ6）
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
+  assert.match(css, /\.ph-btn \{[^}]*opacity: 0;/, '見出しの右のボタンがふだんから見えている');
+  assert.match(css, /\.privrow:hover \.ph-btn, \.privrow:focus-within \.ph-btn[^{]*\{[^}]*opacity: 1;/, '乗せる・フォーカスで出ない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-2・F158（PQ5）: 畳む・並べ替え・表示を変えるたびに uiSave({ sections }) の1回（後の版のセクションも送る）。uiState の sections で畳んだ形・最終更新・表示 10 で始まる', T, async () => {
+  const later = { favorites: { open: false } };
+  const l = await bootUi({ ui: { sections: { private: { open: false, sort: 'edited', show: 10 }, ...later } } });
+  assert.strictEqual($(l, 'privHead').getAttribute('aria-expanded'), 'false', '覚えた畳みで始まらない');
+  assert.strictEqual($(l, 'plist').hidden, true);
+  assert.deepStrictEqual(uIds(l), EDITED, '覚えた並べ替え（最終更新）で始まらない');
+  assert.deepStrictEqual(secSaves(l), [], '起動で sections を書いた');
+  await press(l, $(l, 'privHead'));
+  assert.deepStrictEqual(secSaves(l), [{ sections: { private: { open: true, sort: 'edited', show: 10 }, ...later } }]);
+  await pickMenu(l, 'privSort', '手動');
+  assert.deepStrictEqual(secSaves(l).slice(1), [{ sections: { private: { open: true, sort: 'manual', show: 10 }, ...later } }]);
+  await pickMenu(l, 'privShow', '5');
+  assert.deepStrictEqual(secSaves(l).slice(2), [{ sections: { private: { open: true, sort: 'manual', show: 5 }, ...later } }]);
+  assert.strictEqual(secSaves(l).length, 3, '1回の変えに2回以上送った');
+  // 形の悪い覚え書きは項目ごとに照らした形で始まる（壊れた sort だけ既定）
+  const b = await bootUi({ ui: { sections: { private: { open: false, sort: 'x', show: 5 } } } });
+  assert.strictEqual($(b, 'privHead').getAttribute('aria-expanded'), 'false');
+  await press(b, $(b, 'privMore'));
+  assert.deepStrictEqual(labels(b), ['並べ替え: 手動 ›', '表示: 5 ›', 'ページを選ぶ']);
+  assert.deepStrictEqual([...l.errors, ...b.errors].map(fmt), []);
+});
+
+test('PS-2・F159・F161: 畳んでいる間（［＋］は開いてから最上位に pageCreate の1回・リンク・タブ・Ctrl+Shift+N・ライブラリから開いても畳んだまま・選ぶ形の間に畳むと選ぶ形が終わる・下の［設定］は同じ所）', T, async () => {
+  const l = await bootUi();
+  await press(l, uRow(l, 'pg5'));
+  await press(l, uRow(l, 'pg3'), { ctrlKey: true });
+  await press(l, $(l, 'privHead'));
+  // タブ・リンク（main から）・Ctrl+Shift+N の［白紙のページ］・ライブラリのタブで開いても畳んだまま
+  $(l, 'tabbar').querySelectorAll('[role="tab"]').find((t) => t.dataset.key === 'page:pg5').dispatchEvent({ type: 'click' }); await l.drain();
+  l.fire('onPageOpen', 'pg2'); await l.drain();
+  await press(l, $(l, 'privLib'));
+  l.key({ key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true }); await l.drain();
+  l.key({ key: 'Enter' }, $(l, 'newList')); await l.drain();
+  assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [[]], '前提: Ctrl+Shift+N の［白紙のページ］');
+  assert.strictEqual($(l, 'privHead').getAttribute('aria-expanded'), 'false', 'ページを開いたらプライベートが開いた');
+  assert.strictEqual($(l, 'plist').hidden, true);
+  // ［＋］は開いてから、開いているページの中でなく最上位に作る（PQ3 (a)）
+  await press(l, $(l, 'newPageBtn'));
+  assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [[], []], '［＋］が最上位に作らない（開いているページの中に作った）');
+  assert.strictEqual($(l, 'privHead').getAttribute('aria-expanded'), 'true', '畳んだまま［＋］で作った');
+  assert.strictEqual($(l, 'plist').hidden, false);
+  // 選ぶ形の間に畳むと選ぶ形が終わる
+  await press(l, $(l, 'privMore'));
+  await press(l, $(l, 'listSelect'));
+  await press(l, uRow(l, 'pg7'));
+  assert.ok(uRows(l).every((r) => r.querySelector('.pchk')), '前提: 選ぶ形');
+  assert.strictEqual($(l, 'selBar').hidden, false);
+  await press(l, $(l, 'privHead'));
+  await press(l, $(l, 'privHead'));
+  assert.ok(uRows(l).every((r) => !r.querySelector('.pchk')), '選ぶ形のまま畳んだ');
+  assert.strictEqual($(l, 'selBar').hidden, true, '選ぶ形のまま畳んだ（頭の枠）');
+  // 下の［ゴミ箱］［設定］: 畳んだときは伸びる余白（#sideFill）が一覧の所を受け持つ
+  const fill = $(l, 'sideFill');
+  assert.ok(fill, '伸びる余白の部品が無い');
+  assert.strictEqual(fill.hidden, true, '開いているのに余白を出した');
+  await press(l, $(l, 'privHead'));
+  assert.strictEqual(fill.hidden, false, '畳んだのに余白を出さない（下の［設定］が上へ跳ぶ）');
+  const kids = $(l, 'side').children;
+  assert.ok(kids.indexOf(fill) > kids.indexOf($(l, 'plist')) && kids.indexOf(fill) < kids.indexOf($(l, 'tabBtnTrash')), '余白の場所が一覧と［ゴミ箱］の間でない');
+  const css = HTML.slice(HTML.indexOf('<style>'), HTML.indexOf('</style>'));
+  assert.match(css, /\.side-fill \{[^}]*flex: 1;/, '余白が伸びない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-2・F160: 見出しの［···］のメニュー（並べ替え・表示・ページを選ぶ）。→ と Enter で下のメニュー・← と Esc で戻る・Esc で閉じて［···］へ・Tab は中で留める・［ページを選ぶ］で選ぶ形（畳んでいれば開く・ページが無ければ灰色）', T, async () => {
+  const l = await bootUi();
+  const box = $(l, 'privMenu');
+  const more = $(l, 'privMore');
+  assert.strictEqual(box.hidden, true);
+  await press(l, more);
+  assert.strictEqual(box.hidden, false, '［···］で開かない');
+  assert.deepStrictEqual([box.getAttribute('role'), more.getAttribute('aria-expanded')], ['menu', 'true']);
+  assert.deepStrictEqual(menuTop(l).map((b) => [b.textContent, b.getAttribute('role')]), [['並べ替え: 手動 ›', 'menuitem'], ['表示: すべて ›', 'menuitem'], ['ページを選ぶ', 'menuitem']]);
+  assert.deepStrictEqual([$(l, 'privSort').getAttribute('aria-haspopup'), $(l, 'privShow').getAttribute('aria-haspopup')], ['menu', 'menu']);
+  assert.ok(l.document.activeElement === $(l, 'privSort'), '開いて1つ目にフォーカスが無い');
+  // ↓ で次へ・Tab は中で留める（最後から最初へ）
+  l.key({ key: 'ArrowDown' }, box); assert.ok(l.document.activeElement === $(l, 'privShow'));
+  l.key({ key: 'Tab' }, box); assert.ok(l.document.activeElement === $(l, 'listSelect'), 'Tab で次の項目へ移らない');
+  const tabEv = l.key({ key: 'Tab' }, box); await l.drain();
+  assert.ok(tabEv.defaultPrevented && l.document.activeElement === $(l, 'privSort') && !box.hidden, 'Tab でメニューの外へ出た');
+  // → で下のメニュー（手動・最終更新の menuitemradio）・← で戻る
+  l.key({ key: 'ArrowRight' }, box); await l.drain();
+  assert.deepStrictEqual(menuTop(l).map((b) => [b.textContent, b.getAttribute('role'), b.getAttribute('aria-checked')]),
+    [['並べ替え: 手動 ›', 'menuitem', null], ['手動', 'menuitemradio', 'true'], ['最終更新', 'menuitemradio', 'false'], ['表示: すべて ›', 'menuitem', null], ['ページを選ぶ', 'menuitem', null]]);
+  assert.strictEqual($(l, 'privSort').getAttribute('aria-expanded'), 'true');
+  assert.strictEqual(l.document.activeElement.textContent, '手動', '下のメニューの選んでいる項目へフォーカスが行かない');
+  l.key({ key: 'ArrowLeft' }, box); await l.drain();
+  assert.deepStrictEqual(labels(l), ['並べ替え: 手動 ›', '表示: すべて ›', 'ページを選ぶ']);
+  assert.ok(l.document.activeElement === $(l, 'privSort'), '← で［並べ替え ›］へ戻らない');
+  // Enter で表示の下のメニュー（5・10・15・20・すべて）・Esc で戻る（メニューは閉じない）
+  l.key({ key: 'ArrowDown' }, box);
+  l.key({ key: 'Enter' }, box); await l.drain();
+  assert.deepStrictEqual(labels(l), ['並べ替え: 手動 ›', '表示: すべて ›', '5', '10', '15', '20', 'すべて', 'ページを選ぶ']);
+  assert.strictEqual(l.document.activeElement.textContent, 'すべて', '既定（PQ8）がすべてでない');
+  l.key({ key: 'Escape' }, box); await l.drain();
+  assert.ok(!box.hidden && l.document.activeElement === $(l, 'privShow'), 'Esc で下のメニューだけが閉じない');
+  // Esc で閉じて［···］へ
+  const esc = l.key({ key: 'Escape' }, box); await l.drain();
+  assert.ok(esc.defaultPrevented && box.hidden && l.document.activeElement === more, 'Esc で閉じて［···］へフォーカスが戻らない');
+  assert.strictEqual(more.getAttribute('aria-expanded'), 'false');
+  // ［ページを選ぶ］: 畳んでいれば開いて選ぶ形に入る
+  await press(l, $(l, 'privHead'));
+  await press(l, more);
+  l.key({ key: 'End' }, box);
+  assert.ok(l.document.activeElement === $(l, 'listSelect'));
+  l.key({ key: 'Enter' }, box); await l.drain();
+  assert.ok(box.hidden, '［ページを選ぶ］でメニューが閉じない');
+  assert.strictEqual($(l, 'privHead').getAttribute('aria-expanded'), 'true', '畳んだまま選ぶ形に入った');
+  assert.ok(uRows(l).length && uRows(l).every((r) => r.querySelector('.pchk')), '［ページを選ぶ］で選ぶ形に入らない');
+  // ページが無いときは灰色で押しても何も起きない
+  const e = await bootUi({ list: () => [] });
+  await press(e, $(e, 'privMore'));
+  assert.strictEqual($(e, 'listSelect').getAttribute('aria-disabled'), 'true', 'ページが無いのに［ページを選ぶ］が灰色でない');
+  await press(e, $(e, 'listSelect'));
+  assert.strictEqual($(e, 'selBar').hidden, true);
+  assert.deepStrictEqual([...l.errors, ...e.errors].map(fmt), []);
+});
+
+test('PS-2・F162: ［最終更新］で木の並びが sectionRows の答え（段ごと・子は親の下）・［手動］で元の並び。最終更新の間に兄弟の前後へ落とすと pageMove を呼ばず一言（真ん中へは今どおり中へ）', T, async () => {
+  const l = await bootUi({ ui: { tree: { open: ['pg6'] } } });
+  const withKids = (top, kids) => top.flatMap((id) => (id === 'pg6' ? ['pg6', ...kids] : [id]));
+  assert.deepStrictEqual(uIds(l), withKids(MANUAL, ['k1', 'k2']));
+  await pickMenu(l, 'privSort', '最終更新');
+  assert.deepStrictEqual(uIds(l), withKids(EDITED, ['k2', 'k1']), '最終更新の並びが違う（作った日の順・段をまたいだ）');
+  assert.ok($(l, 'privMenu').hidden, '選んでもメニューが閉じない');
+  assert.ok(l.document.activeElement === $(l, 'privMore'), '選んだ後のフォーカスが［···］でない');
+  await press(l, $(l, 'privMore'));
+  assert.deepStrictEqual(labels(l), ['並べ替え: 最終更新 ›', '表示: すべて ›', 'ページを選ぶ']);
+  l.key({ key: 'Escape' }, $(l, 'privMenu')); await l.drain();
+  // 前後へ落とす → 呼ばずに一言・真ん中 → 中へ
+  for (const r of uRows(l)) r._rect = { top: 0, height: 30 };
+  const dt = () => ({ effectAllowed: '', setData() {} });
+  const drag = (id) => uRow(l, id).dispatchEvent({ type: 'dragstart', target: uRow(l, id), dataTransfer: dt() });
+  const drop = (id, y) => uRow(l, id).dispatchEvent({ type: 'drop', clientY: y, dataTransfer: { types: ['application/x-natsu-page'] }, preventDefault() {} });
+  drag('k1'); drop('pg4', 28); await l.drain();
+  drag('pg4'); drop('pg5', 2); await l.drain();
+  assert.deepStrictEqual(l.called('pageMove'), [], '最終更新の間に前後へ落として並べた');
+  assert.strictEqual($(l, 'toast').textContent, SORT_NOTE);
+  for (const r of uRows(l)) r._rect = { top: 0, height: 30 };
+  drag('k1'); drop('pg4', 15); await l.drain();
+  assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [['k1', 'pg4', undefined]], '真ん中へ落としても中へ入らない');
+  await pickMenu(l, 'privSort', '手動');
+  assert.deepStrictEqual(uIds(l), withKids(MANUAL, ['k1', 'k2']), '［手動］で元の並びに戻らない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-2・F162・PQ8: ［表示］の［5］でいちばん上の行が 5 つ（開いた子は数えない）と［もっと見る］。押すと library のタブ。［すべて］で［もっと見る］が無い。↗ も library のタブ（2回押してもタブは1つ）', T, async () => {
+  const l = await bootUi({ ui: { tree: { open: ['pg6'] } } });
+  assert.strictEqual($(l, 'sideMore').hidden, true, '既定（すべて）で［もっと見る］が出た');
+  await pickMenu(l, 'privShow', '5');
+  assert.deepStrictEqual(uIds(l), ['pg7', 'pg6', 'k1', 'k2', 'pg5', 'pg4', 'pg3'], '表示の数に子を数えた・数を見ない');
+  assert.deepStrictEqual([$(l, 'sideMore').hidden, $(l, 'sideMore').textContent, $(l, 'sideMore').tagName, $(l, 'sideMore').className], [false, 'もっと見る', 'button', 'side-more']);
+  await press(l, $(l, 'sideMore'));
+  assert.deepStrictEqual(tabKeysOf(l), ['library'], '［もっと見る］でライブラリを開かない');
+  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').dataset.key, 'library');
+  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').textContent.replace('×', ''), '📚 ライブラリ');
+  assert.deepStrictEqual([$(l, 'tabLibrary').classList.contains('active'), $(l, 'tabNotes').classList.contains('active'), $(l, 'tabLibrary').querySelector('h1').textContent],
+    [true, false, 'ライブラリ'], 'ライブラリの中身が出ない');
+  await press(l, uRow(l, 'pg7'));
+  await press(l, $(l, 'privLib'));
+  await press(l, $(l, 'privLib'));
+  assert.deepStrictEqual(tabKeysOf(l).filter((k) => k === 'library'), ['library'], '↗ でライブラリのタブが増えた');
+  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').dataset.key, 'library', '↗ でライブラリのタブへ移らない');
+  await pickMenu(l, 'privShow', 'すべて');
+  assert.strictEqual($(l, 'sideMore').hidden, true, '［すべて］で［もっと見る］が残った');
+  assert.deepStrictEqual(uIds(l), ['pg7', 'pg6', 'k1', 'k2', 'pg5', 'pg4', 'pg3', 'pg2', 'pg1']);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
 });

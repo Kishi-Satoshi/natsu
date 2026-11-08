@@ -99,12 +99,32 @@
   .side-row.active { background: var(--tint); color: var(--text); font-weight: 500; }
   .side-row:disabled { opacity: .5; cursor: default; }
   .side-row[hidden] { display: none; }   /* 0.15.0 PH-6: ［ゴミ箱］はゴミ箱に何かあるときだけ（.side-row は display を持つので hidden を負けさせない） */
-  /* 「議事録」は見出し（12px・500・--muted・高さ 30px・上に 12px）。押すと今どおり goNotes。
-     showSection が付ける .active の地と太さは見出しには付けない（ホバーの地だけ） */
-  #tabBtnNotes, #tabBtnNotes.active { display: flex; align-items: center; width: 100%; height: 30px; margin-top: 12px; padding: 0 8px; flex: none;
-    background: transparent; border: none; border-radius: 6px; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
-    text-align: left; cursor: pointer; }
-  #tabBtnNotes:hover { background: var(--hover); }
+  /* 0.15.1 PS-2（決めたこと 21・22・27）: 一覧の見出しの行（高さ 30px・上に 12px）。左に「プライベート ⌄」（12px・500・--muted。はみ出せば「…」）、
+     右に ↗・［＋］・［···］（22px の字のボタン）。間は伸びる余白。右の3つはふだん見えず、行に乗せる・中にフォーカスがある・メニューを開いている間だけ出る（PQ6） */
+  .privrow { display: flex; align-items: center; gap: 2px; width: 100%; height: 30px; margin-top: 12px; flex: none; border-radius: 6px; }
+  .privrow:hover { background: var(--hover); }
+  #privHead { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; border: none; border-radius: 6px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; text-align: left; cursor: pointer; }
+  #privHead .ph-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #privHead .ph-mark { flex: none; font-size: 12px; line-height: 1; }
+  .ph-btn { flex: none; width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--text-2);
+    font: inherit; font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; }
+  .privrow:hover .ph-btn, .privrow:focus-within .ph-btn, .ph-btn[aria-expanded="true"] { opacity: 1; }
+  .ph-btn:last-child { margin-right: 4px; }
+  .ph-btn:hover { background: var(--hover); color: var(--text); }
+  /* 見出しの［···］のメニュー（浮く。置き場所は開くときに［···］の下へ）。下のメニューの項目は字下げ・選んでいる項目に ✓ */
+  .privmenu { position: fixed; z-index: 20; min-width: 160px; padding: 4px; display: flex; flex-direction: column;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
+  .privmenu .mitem { background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px; text-align: left;
+    padding: 6px 10px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  .privmenu .mitem:hover, .privmenu .mitem:focus { background: var(--hover); outline: none; }
+  .privmenu .mitem.off { color: var(--muted); cursor: default; }
+  .privmenu .mitem[role="menuitemradio"] { padding-left: 26px; }
+  .privmenu .mitem[aria-checked="true"]::before { content: '✓'; display: inline-block; width: 16px; margin-left: -16px; }
+  /* ［もっと見る］（表示の数より多いとき。一覧の行と同じ字の大きさの灰色）と、畳んだときに一覧の所を受け持つ伸びる余白 */
+  .side-more { flex: none; height: 26px; padding: 0 8px; border: none; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+  .side-more:hover { background: var(--hover); color: var(--text); }
+  .side-fill { flex: 1; min-height: 0; }
   /* アイコン: 行とプロパティの名前は灰色にした絵文字（.ic）、ページは色のある絵文字（.pi） */
   .ic { flex: none; width: 20px; text-align: center; filter: grayscale(1); opacity: .6; }
   .pi { flex: none; width: 20px; text-align: center; }
@@ -210,6 +230,9 @@
 
   /* ================= 議事録: 2ペイン ================= */
   .notes { display: flex; gap: 14px; height: 100%; }
+  /* 0.15.1 PS-2（決めたこと 33）: ライブラリのタブ（大きな題。表と探す欄は PS-4） */
+  .lib { height: 100%; overflow-y: auto; padding: 40px 48px; }
+  .lib-title { margin: 0 0 16px; font-size: 32px; font-weight: 700; line-height: 1.2; color: var(--text); }
   /* サイドバーは議事録のタブの外（どのタブでも出ている）。幅は 200〜480px（つまみで変え、覚える） */
   .side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 1px; position: relative;
     background: var(--side); border-right: 1px solid var(--line); padding: 0 8px 8px; min-height: 0; }
@@ -228,19 +251,8 @@
     font: inherit; font-size: 12px; padding: 0 8px; border-radius: 6px; cursor: pointer; }
   .chip:hover { background: var(--hover); color: var(--text); }
   .chip.on { background: var(--tint); color: var(--text); font-weight: 500; }
-  /* 0.10.0 L-2（D70）: 見出し「議事録」の行の右の［選ぶ］。見出しの行（高さ 30px）に重ね、下の一覧の位置は変えない
-     （上の余白 -26px・高さ 22px・下の余白 3px・間 1px で、前と同じ 30px + 1px） */
-  .list-sel { align-self: flex-end; flex: none; position: relative; height: 22px; margin: -26px 4px 3px 0; padding: 0 8px; border: none; border-radius: 6px;
-    background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
-  .list-sel:hover { background: var(--hover); color: var(--text); }
-  .list-sel[aria-pressed="true"] { background: var(--tint); color: var(--text); font-weight: 500; }
-  .list-sel[hidden], .selbar[hidden] { display: none; }
-  /* 0.15.0 PH-4（決めたこと 25・BQ7 (a)）: 見出し「議事録」の行の［＋］。［選ぶ］と同じく見出しの行に重ね（上の余白 -26px・高さ 22px・下の余白 3px で、
-     下の一覧の位置は変えない）、見出しの字の右に置く。ふだんは見えず、見出しの行に乗せる・フォーカスで出る（今の画面の見た目を変えない） */
-  .list-add { align-self: flex-start; flex: none; position: relative; width: 22px; height: 22px; margin: -26px 0 3px 52px; padding: 0; border: none; border-radius: 6px;
-    background: transparent; color: var(--text-2); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; }
-  #tabBtnNotes:hover ~ .list-add, .list-add:hover, .list-add:focus-visible { opacity: 1; }
-  .list-add:hover { background: var(--hover); color: var(--text); }
+  /* 0.15.1 PS-2: 見出し「議事録」の行に重ねた［選ぶ］（0.10.0 L-2）と［＋］（0.15.0 PH-4）は、見出し「プライベート」の行（.privrow）と［···］の［ページを選ぶ］へ移した */
+  .selbar[hidden] { display: none; }
   /* 選んでいる間の頭の枠（「{数} 件を選んでいます」と［リンクを写す］［やめる］） */
   .selbar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 8px; margin: 2px 0 4px;
     border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 12px; }
@@ -1125,17 +1137,29 @@
       <button class="side-row" id="mtToggleBtn"><span class="ic">＋</span>新しい議事録</button>
       <button class="side-row" id="mtDiscardBtn" style="display:none"><span class="ic">🗑️</span>破棄</button>
     </div>
-    <button id="tabBtnNotes" class="active">議事録</button>
-    <!-- 0.10.0 L-2（D58・D70・決めたこと 101）: 見出し「議事録」の行の右の小さな［選ぶ］（見出しの行に重ね、一覧の位置は変えない）と、1件以上選んでいる間の頭の枠 -->
-    <button id="listSelect" class="list-sel" type="button" aria-pressed="false" hidden>選ぶ</button>
-    <!-- 0.15.0 PH-4（決めたこと 25・BQ7 (a)）: 見出し「議事録」の行の［＋］（白紙のページを最上位に作る。見出しの行に重ね、乗せる・フォーカスで出る） -->
-    <button id="newPageBtn" class="list-add" type="button" title="ページを作る" aria-label="ページを作る">＋</button>
+    <!-- 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の決めたこと 20〜23・D124）: 一覧の見出し「プライベート」（押すと畳む・開く。印 ⌄／› は読み上げない）と、
+         右の ↗（ライブラリで開く）・［＋］（ページを追加。0.15.0 PH-4 の #newPageBtn を置き直した）・［···］（並べ替え・表示・ページを選ぶ）。右の3つは乗せる・フォーカスで出る（PQ6） -->
+    <div class="privrow" id="privRow">
+      <button id="privHead" type="button" aria-expanded="true" aria-controls="plist" title="プライベートを畳む"><span class="ph-t">プライベート</span><span class="ph-mark" aria-hidden="true">⌄</span></button>
+      <button id="privLib" class="ph-btn" type="button" title="ライブラリで開く" aria-label="ライブラリで開く">↗</button>
+      <button id="newPageBtn" class="ph-btn" type="button" title="ページを追加" aria-label="ページを追加">＋</button>
+      <button id="privMore" class="ph-btn" type="button" title="プライベートのメニュー" aria-label="プライベートのメニュー" aria-haspopup="menu" aria-expanded="false" aria-controls="privMenu">···</button>
+    </div>
+    <!-- 見出しの［···］のメニュー（決めたこと 23）。［ページを選ぶ］は 0.10.0 L-2（D70）の［選ぶ］の id を引き継ぐ。下のメニューの項目は開いたときだけ置く -->
+    <div class="privmenu" id="privMenu" role="menu" aria-label="プライベートのメニュー" hidden>
+      <button class="mitem" id="privSort" type="button" role="menuitem" tabindex="-1" aria-haspopup="menu" aria-expanded="false">並べ替え: 手動 ›</button>
+      <button class="mitem" id="privShow" type="button" role="menuitem" tabindex="-1" aria-haspopup="menu" aria-expanded="false">表示: すべて ›</button>
+      <button class="mitem" id="listSelect" type="button" role="menuitem" tabindex="-1">ページを選ぶ</button>
+    </div>
     <div class="selbar" id="selBar" hidden>
       <span id="selCount" role="status"></span>
       <button class="action" id="selCopy" type="button">リンクを写す</button>
       <button class="ghost" id="selCancel" type="button">やめる</button>
     </div>
-    <div class="plist" id="plist" role="tree" aria-label="議事録の一覧"></div>
+    <div class="plist" id="plist" role="tree" aria-label="プライベートのページ"></div>
+    <!-- 0.15.1 PS-2（決めたこと 23・25 (4)）: 表示の数より多いときの［もっと見る］（ライブラリを開く）と、畳んだときに一覧の所を受け持つ伸びる余白（下の［ゴミ箱］［設定］を動かさない） -->
+    <button id="sideMore" class="side-more" type="button" hidden>もっと見る</button>
+    <div class="side-fill" id="sideFill" hidden></div>
     <!-- 0.15.0 PH-6（決めたこと 32・BQ6 (a)）: ［🗑️ ゴミ箱］（ゴミ箱に何かあるときだけ。押すと #trashPop） -->
     <button id="tabBtnTrash" class="side-row" type="button" hidden><span class="ic">🗑️</span>ゴミ箱</button>
     <button id="tabBtnSettings" class="side-row"><span class="ic">⚙️</span>設定</button>
@@ -1200,6 +1224,12 @@
           </div>
           </div>
         </div>
+      </div>
+    </section>
+    <!-- ================= 0.15.1 PS-2（決めたこと 31〜33・D125）: ライブラリ（タブの鍵 'library'。表と探す欄は PS-4） ================= -->
+    <section id="tabLibrary" class="tab">
+      <div class="lib">
+        <h1 class="lib-title">ライブラリ</h1>
       </div>
     </section>
 
@@ -1881,8 +1911,8 @@
   function showSection(n) {
     for (const t of ['Notes']) {
       $('tab' + t).classList.toggle('active', n === t.toLowerCase());
-      $('tabBtn' + t).classList.toggle('active', n === t.toLowerCase());
     }
+    $('tabLibrary').classList.toggle('active', n === 'library');   // 0.15.1 PS-2（D125）: ライブラリのタブ（サイドバーの見出しは .active を持たない）
   }
   // notes は中身だけ（ページのタブは openPageTab が開く）。0.15.1 ND-3（D114）: 音声入力のタブは無くなった。
   // 設定は 0.9.0 U-1（SP1・D24）からタブにせず、今のページの上にポップアップで開く（上の帯にタブを足さない・今のタブを替えない）
@@ -1890,7 +1920,6 @@
     if (n === 'settings') { openSettings(); return; }
     showSection(n);
   }
-  $('tabBtnNotes').onclick = () => goNotes();
   // 設定を開くたびに認識ヒントの状態を聞き直す（記録の途中で main がヒントを止めることがある。0.1.1）。聞き直しは openSettings の中
   $('tabBtnSettings').onclick = () => showTab('settings');
 
@@ -2341,12 +2370,12 @@
     setSideCollapsed(!sideState.collapsed);
   });
   // ---------------- 上のタブ = 開いているページ（第1b回 N3） ----------------
-  // 鍵は 'page:<id>'・'live'（録音中のページ。B-5。覚えない）。設定は 0.9.0 U-1 からタブにしない（ポップアップ）。0.15.1 ND-3（D114）で 'dictation' を外した。
+  // 鍵は 'page:<id>'・'live'（録音中のページ。B-5。覚えない）・'library'（0.15.1 PS-2 のライブラリ。1つだけ）。設定は 0.9.0 U-1 からタブにしない（ポップアップ）。
+  // 0.15.1 ND-3（D114）で 'dictation' を外した。
   // 中身は今の showSection（showTab の役目）と openPage を呼ぶだけ。替える前に flushEdits（blur は来ない: F8）。
   // 並びと選んでいるタブは変わるたびに uiSave({ tabs }) で覚え、起動のときに uiState() のタブを戻す（N6）
   let openTabs = [];          // [{ key }] 帯の並び
   let activeTab = '';         // 選んでいるタブの鍵（無ければ ''）
-  let lastPageTab = '';       // 最後に選んだページのタブ（サイドバーの「議事録」が戻る先）
   let beforeLiveTab = '';     // 記録中のタブを選ぶ前に選んでいたタブ（記録中のタブの代わりに覚える）
   let tabsTouched = false;    // 覚えたタブが届く前に利用者が動かしたら、届いた並びで上書きしない
   let liveShownSent = null;   // main へ最後に知らせた「録音中のページを開いていて、窓が隠れていない」（第1d回 A-8。変わったときだけ送る）
@@ -2358,6 +2387,7 @@
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
     if (k === 'live') return readyNow() ? '新しい議事録' : mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';   // 0.13.0 RDY-2（RT1）: 録音の前のページ
+    if (k === 'library') return '📚 ライブラリ';   // 0.15.1 PS-2（決めたこと 32）
     return k;
   }
   // 記録中のタブ（live）は覚えない（N6）。選んでいる間は、その前に選んでいたタブを覚える
@@ -2565,7 +2595,6 @@
     const before = o.before || { tabs: openTabs.slice(), active: activeTab };
     if (key === 'live' && activeTab !== 'live') beforeLiveTab = activeTab;
     activeTab = key;
-    if (isPageKey(key)) lastPageTab = key;
     renderTabs();
     if (o.focus) { const el = $('tabbar').querySelector(`[data-key="${key}"]`); if (el) el.focus(); }
     if (isPageKey(key)) {
@@ -2623,7 +2652,6 @@
     if (key === 'live' && readyNow() && !closeReady()) return;   // 0.13.0 RDY-2（RD14）: 録音の前のページは何も残さない（メモを書いていたら確かめる）
     tabsTouched = true;
     openTabs.splice(i, 1);
-    if (lastPageTab === key) lastPageTab = '';
     if (key !== activeTab) {
       if (isPageKey(key) && key.slice(5) === curId) clearPage();   // 裏で開いたままのページを残さない
       renderTabs(); saveTabs(); return;
@@ -2640,15 +2668,6 @@
     flushEdits();
     curId = null; curPage = null; curSegs = [];
     renderList(); renderPage();
-  }
-  // サイドバーの「議事録」: 最後に選んだページのタブへ（無ければ空のページ）
-  function goNotes() {
-    const key = hasTab(lastPageTab) ? lastPageTab : ([...openTabs].reverse().find((t) => isPageKey(t.key)) || {}).key;
-    if (key) { activateTab(key, { fromBar: true }); return; }
-    activeTab = '';
-    clearPage();
-    showSection('notes');
-    renderTabs(); saveTabs();
   }
   // Ctrl+Tab／Ctrl+Shift+Tab で次・前のタブ
   document.addEventListener('keydown', (ev) => {
@@ -2687,6 +2706,13 @@
       // 0.15.0 PH-3（決めたこと 19）: サイドバーの木の開け閉め（main が今あるページだけに絞って渡す）。届く前に開け閉めしていたら上書きしない
       const to = st && st.tree && Array.isArray(st.tree.open) ? st.tree.open : null;
       if (to && !treeTouched) { treeOpen = new Set(to.filter((id) => typeof id === 'string').slice(-TREE_OPEN_MAX)); renderList(); }   // PH-3 直し（R28 (2)）: 新しい 500 個
+      // 0.15.1 PS-2（決めたこと 24・PQ5）: プライベートの畳み・並べ替え・表示の数（main が照らした写しを画面でも照らす）。後の版のセクションは送り返すために持つ。
+      // 届く前に利用者が変えていたら、プライベートの3つは上書きしない
+      if (st && st.sections !== undefined) {
+        const ns = sideSectionView.normSections(st.sections).sections;
+        privLater = Object.fromEntries(Object.entries(ns).filter(([k]) => k !== 'private'));
+        if (!privTouched) { privSt = ns.private; renderList(); }
+      }
       const sb = st && st.sidebar;
       if (!sb || sideTouched) return;
       sideState.width = clampSide(sb.width);
@@ -2782,7 +2808,7 @@
   async function refreshList() {
     pages = await window.koeApp.pagesSearch('');
     // 0.10.0 L-2: 一覧に無くなった行の選びを外す。一覧が空なら［選ぶ］を出さない（選ぶ形も終える）
-    $('listSelect').hidden = pages.length === 0;
+    paintPrivMenu();   // 0.15.1 PS-2: ページが無いときは［ページを選ぶ］を灰色に
     if (!pages.length && listSel.on) listSel = selStep(listSel, { type: 'toggleMode' }, []);
     listSel = selStep(listSel, { type: 'keep', ids: listOrder() }, listOrder());
     syncListSel();
@@ -3127,6 +3153,215 @@
     return { pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, pageDropSpot, placeText };
   })();
   // ---- pageTree の写しはここまで
+  // ---- sideSection の写し（0.15.1 PS-2。src/sideSection.js の SECTION_DEFAULT から oneLineTitle まで。字は同じで、行の頭に4つの空白を足した。
+  // 画面は部品を読めないので写す。名前がぶつからないよう関数の中に閉じる。test/stage151.ps.test.js が字と答えを照らす: 計画の R30）
+  const sideSectionView = (() => {
+    const SECTION_DEFAULT = Object.freeze({ open: true, sort: 'manual', show: 0 });
+    const SORTS = Object.freeze(['manual', 'edited']);
+    const SHOW_STEPS = Object.freeze([0, 5, 10, 15, 20]);
+    // 後の版のセクション（第17回のお気に入り・共有など）: 形の正しい名前で、中身が真偽・有限の数・40 字までの文字だけの 10 項目までの組なら、読まずに残す
+    const SECTION_NAME_RE = /^[a-z]{1,20}$/;
+    const SECTIONS_MAX = 10;
+    const ITEMS_MAX = 10;
+    const TEXT_MAX = 40;
+
+    const isObj = (v) => {
+      if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+      const proto = Object.getPrototypeOf(v);
+      return proto === Object.prototype || proto === null;
+    };
+
+    // プライベートの3つの項目を1つずつ照らす（壊れた項目だけ既定に戻す: 持ち主の試作の state-store.js の「項目ごとの検証器」の考え）
+    function normPrivate(p) {
+      const src = isObj(p) ? p : {};
+      return {
+        open: typeof src.open === 'boolean' ? src.open : SECTION_DEFAULT.open,
+        sort: SORTS.includes(src.sort) ? src.sort : SECTION_DEFAULT.sort,
+        show: SHOW_STEPS.includes(src.show) ? src.show : SECTION_DEFAULT.show,
+      };
+    }
+    function laterOk(v) {
+      if (!isObj(v)) return false;
+      const ks = Object.keys(v);
+      if (ks.length > ITEMS_MAX) return false;
+      return ks.every((k) => {
+        const x = v[k];
+        return typeof x === 'boolean' || (typeof x === 'number' && Number.isFinite(x)) || (typeof x === 'string' && x.length <= TEXT_MAX);
+      });
+    }
+    const samePrivate = (a, b) => isObj(b) && Object.keys(b).length === 3 && a.open === b.open && a.sort === b.sort && a.show === b.show;
+
+    // raw → { sections, repaired }。private は無ければ既定（直したことにしない）。セクションは private を入れて 10 まで（11 個目から落とす）
+    function normSections(raw) {
+      const src = isObj(raw) ? raw : {};
+      const sections = { private: normPrivate(src.private) };
+      let repaired = raw !== undefined && !isObj(raw);
+      if (Object.hasOwn(src, 'private') && !samePrivate(sections.private, src.private)) repaired = true;
+      let n = 1;
+      for (const k of Object.keys(src)) {
+        if (k === 'private') continue;
+        if (n >= SECTIONS_MAX || !SECTION_NAME_RE.test(k) || !laterOk(src[k])) { repaired = true; continue; }
+        sections[k] = { ...src[k] };
+        n += 1;
+      }
+      return { sections, repaired };
+    }
+
+    const kidsIn = (tree, id) => (tree && tree.kids && tree.kids.has(id) ? tree.kids.get(id) : []);
+    const rowOf = (tree, id) => (tree && tree.byId && tree.byId.has(id) ? tree.byId.get(id) : null);
+    // ページの最終更新（題名・本文・要約・メモを書いた時）。読めなければいちばん古い扱い
+    function editedAt(tree, id) {
+      const r = rowOf(tree, id);
+      const t = r && typeof r.updatedAt === 'string' ? Date.parse(r.updatedAt) : NaN;
+      return Number.isFinite(t) ? t : -Infinity;
+    }
+    // 兄弟の中だけで並べ替える（木の形は変えない）。同じなら元の（手動の）並び
+    function orderBy(ids, cmp) {
+      return ids.map((id, i) => ({ id, i })).sort((a, b) => cmp(a.id, b.id) || a.i - b.i).map((x) => x.id);
+    }
+
+    // 見えている行 → { rows: [{ id, depth, hasKids, open }], hidden }（0.15.0 の pageTree.visibleRows と同じ形の行）。
+    // sort: 'edited' はどの段も兄弟を最終更新の新しい順に。show はいちばん上の段の数だけ（開いた子は数えずに親の下に出す）
+    function sectionRows(tree, open, opts = {}) {
+      const isOpen = (id) => Boolean(open && typeof open.has === 'function' && open.has(id));
+      const edited = opts && opts.sort === 'edited';
+      const order = (ids) => (edited ? orderBy(ids, (a, b) => editedAt(tree, b) - editedAt(tree, a)) : ids);
+      const limit = opts && SHOW_STEPS.includes(opts.show) ? opts.show : 0;
+      const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
+      const shown = limit ? roots.slice(0, limit) : roots;
+      const out = [];
+      const seen = new Set();
+      const stack = [...shown].reverse().map((id) => ({ id, depth: 0 }));
+      while (stack.length) {
+        const { id, depth } = stack.pop();
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const ks = kidsIn(tree, id);
+        const hasKids = ks.length > 0;
+        const opened = hasKids && isOpen(id);
+        out.push({ id, depth, hasKids, open: opened });
+        if (!opened) continue;
+        const kids = order(ks);
+        for (let i = kids.length - 1; i >= 0; i--) stack.push({ id: kids[i], depth: depth + 1 });
+      }
+      return { rows: out, hidden: roots.length - shown.length };
+    }
+
+    // 最終更新日時の言い方（決めたこと 34）。1分より前は「たった今」、1時間より前は「n 分前」、1日より前は「n 時間前」、7日より前は「n 日前」、
+    // 5週より前は「n 週間前」、それより前は「2026/09/30」（その PC の暦）。未来の日時は「たった今」。読めない値は ''
+    const pad2 = (n) => String(n).padStart(2, '0');
+    function ymd(t) {
+      const d = new Date(t);
+      return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+    }
+    function relTime(iso, now) {
+      const t = typeof iso === 'string' ? Date.parse(iso) : NaN;
+      const n = now instanceof Date ? now.getTime() : Number(now);
+      if (!Number.isFinite(t) || !Number.isFinite(n)) return '';
+      const s = Math.floor((n - t) / 1000);
+      if (s < 60) return 'たった今';
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m} 分前`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h} 時間前`;
+      const d = Math.floor(h / 24);
+      if (d < 7) return `${d} 日前`;
+      if (d < 35) return `${Math.floor(d / 7)} 週間前`;
+      return ymd(t);
+    }
+    // 年/月/日 時:分（行のメニューの「最終更新」・ライブラリの日時の title）。読めない値は ''
+    function stampText(iso) {
+      const t = typeof iso === 'string' ? Date.parse(iso) : NaN;
+      if (!Number.isFinite(t)) return '';
+      const d = new Date(t);
+      return `${ymd(t)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+
+    // 探す語と題名を寄せる（全角と半角: NFKC・英字の大小・カタカナをひらがなに・空白を除く。画面のアイコンの選びの fold と同じ寄せ方）
+    function kanaFold(s) {
+      return String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
+    }
+    // 題名の五十音（決めたこと 34）
+    const COLLATOR = new Intl.Collator('ja');
+
+    // ライブラリの表の行 → [{ id, depth, hasKids, open, place? }]。
+    // opts: col（'' は手動の並び・'title' はページ名・'edited' は最終更新日時）・dir（'asc'・'desc'）・q（探す語）・open（開いている ID の Set）・
+    // titleOf(id)（一覧と同じ名前）・fold（寄せ方。既定 kanaFold）。並べ替えは兄弟の中だけ（木の形は変えない）。語があれば木を崩し、題名に語を含む
+    // ページだけを並べて place（場所: 祖先の名前を「 / 」でつなぐ。最上位は ''）を付ける
+    function libraryRows(tree, opts = {}) {
+      const o = opts && typeof opts === 'object' ? opts : {};
+      const titleOf = typeof o.titleOf === 'function' ? o.titleOf : () => '';
+      const fold = typeof o.fold === 'function' ? o.fold : kanaFold;
+      const sign = o.dir === 'desc' ? -1 : 1;
+      let cmp = null;
+      if (o.col === 'title') {
+        const key = new Map();
+        const t = (id) => { if (!key.has(id)) key.set(id, String(titleOf(id) ?? '')); return key.get(id); };
+        cmp = (a, b) => sign * COLLATOR.compare(t(a), t(b));
+      } else if (o.col === 'edited') {
+        cmp = (a, b) => sign * (editedAt(tree, a) - editedAt(tree, b));
+      }
+      const order = (ids) => (cmp ? orderBy(ids, cmp) : ids);
+      const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
+      const q = fold(o.q);
+      const out = [];
+      const seen = new Set();
+      if (q) {
+        // 語で絞る: 木を手動の並びで歩いて当たる行を集め、並べ替えの列があればその順に（木を崩す）
+        const hits = [];
+        const stack = [...roots].reverse();
+        while (stack.length) {
+          const id = stack.pop();
+          if (seen.has(id)) continue;
+          seen.add(id);
+          if (fold(titleOf(id)).includes(q)) hits.push(id);
+          const ks = order(kidsIn(tree, id));
+          for (let i = ks.length - 1; i >= 0; i--) stack.push(ks[i]);
+        }
+        for (const id of cmp ? orderBy(hits, cmp) : hits) {
+          out.push({ id, depth: 0, hasKids: kidsIn(tree, id).length > 0, open: false, place: placeOf(tree, titleOf, id) });
+        }
+        return out;
+      }
+      const isOpen = (id) => Boolean(o.open && typeof o.open.has === 'function' && o.open.has(id));
+      const stack = [...roots].reverse().map((id) => ({ id, depth: 0 }));
+      while (stack.length) {
+        const { id, depth } = stack.pop();
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const ks = kidsIn(tree, id);
+        const hasKids = ks.length > 0;
+        const opened = hasKids && isOpen(id);
+        out.push({ id, depth, hasKids, open: opened });
+        if (!opened) continue;
+        const kids = order(ks);
+        for (let i = kids.length - 1; i >= 0; i--) stack.push({ id: kids[i], depth: depth + 1 });
+      }
+      return out;
+    }
+    // 祖先の名前を根から「 / 」でつなぐ（5 段より深ければ頭を「…」に。pageTree.placeText と同じ形。輪でも止まる）
+    function placeOf(tree, titleOf, id, max = 5) {
+      const ids = [];
+      const seen = new Set([id]);
+      const parent = tree && tree.parent;
+      for (let cur = parent && parent.get(id) != null ? parent.get(id) : null; cur !== null && !seen.has(cur); cur = parent.get(cur) ?? null) {
+        seen.add(cur);
+        ids.push(cur);
+      }
+      ids.reverse();
+      if (!ids.length) return '';
+      const shown = ids.length > max ? ids.slice(ids.length - max) : ids;
+      const parts = shown.map((x) => String(titleOf(x) ?? ''));
+      return (ids.length > max ? ['…', ...parts] : parts).join(' / ');
+    }
+
+    // 名前を1行に（決めたこと 30）: 改行・タブ（と続いたもの）を1つの空白にし、前後の空白を落とす
+    function oneLineTitle(s) {
+      return String(s ?? '').replace(/[\r\n\t\v\f\u2028\u2029]+/g, ' ').trim();
+    }
+    return { SECTION_DEFAULT, SORTS, SHOW_STEPS, normSections, sectionRows, relTime, stampText, kanaFold, libraryRows, oneLineTitle };
+  })();
+  // ---- sideSection の写しはここまで
   // ---- emojiDict の写し（0.15.0 PL-3。src/emojiDict.js の CATS から pageIconOf まで。字は同じで、行の頭に4つの空白を足した。
   // 画面は部品を読めないので写す。test/stage150.look.app.test.js が字と答えを照らす。辞書の名前とよみは NaTsu が書いたもの: R68）
   const emojiView = (() => {
@@ -3771,16 +4006,21 @@
   let treeTouched = false;      // 覚えた開け閉めが届く前に利用者が開け閉めしたら、届いた値で上書きしない
   let treeFocus = '';           // 木の中で最後にフォーカスした行（Tab で届く行: 決めたこと 20）
   let treeOf = null; let treeFor = null;   // 一覧（pages）から組んだ木（pages を替えたら組み直す）
+  // 0.15.1 PS-2（決めたこと 21〜25・D124）: 見出し「プライベート」の畳み・並べ替え・表示の数（uiState の sections.private。変えるたびに uiSave({ sections }) の1回）。
+  // privLater は後の版のセクション（読まずに送り返す: PR3）
+  let privSt = { ...sideSectionView.SECTION_DEFAULT };
+  let privLater = {};
+  let privTouched = false;   // 覚えた形が届く前に利用者が変えたら、届いた値で上書きしない
   function treeNow() {
     if (treeFor !== pages) {
       treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string')
-        .map((p) => ({ id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt })));
+        .map((p) => ({ id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt, updatedAt: p.updatedAt })));
       treeFor = pages;
     }
     return treeOf;
   }
-  // 見えている行（閉じた行の子は出さない: F115）
-  const treeRows = () => pageTreeView.visibleRows(treeNow(), treeOpen);
+  // 見えている行（閉じた行の子は出さない: F115）。0.15.1 PS-2（決めたこと 23）: 並べ替え（手動・最終更新）と表示の数（いちばん上の段だけ数える）を当てる
+  const treeRows = () => sideSectionView.sectionRows(treeNow(), treeOpen, privSt).rows;
   const treeRowEl = (id) => [...$('plist').children].find((e) => e.dataset && e.dataset.pid === id) || null;
   // PH-3 直し（R28 (2)）: 覚えるのは今子のある行だけで、新しく開いた順の新しい 500 個（Set は足した順なので後ろが新しい。前は先の 500 個で、501 個目から覚えなかった）
   function saveTree() {
@@ -3859,6 +4099,7 @@
     const fa = document.activeElement;
     const hadFocus = fa && fa.parentNode === box && fa.dataset && fa.dataset.pid ? fa.dataset.pid : '';
     box.textContent = '';
+    paintPriv(pages.length ? sideSectionView.sectionRows(treeNow(), null, privSt).hidden : 0);
     if (pages.length === 0) {
       const d = document.createElement('div');
       d.className = 'empty';
@@ -4026,6 +4267,8 @@
       pageDrag = null;
       if (!s) return;
       if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      // 0.15.1 PS-2（決めたこと 23・PR9）: 「最終更新」の間は兄弟の前後へ落としても並べ替えない（並びの鍵を黙って書かない）。真ん中へ落とすのは今どおり中へ
+      if (privSt.sort === 'edited' && s.afterId !== undefined) { toast(SORT_MANUAL_NOTE); return; }
       movePageTo(drag, s.parentId, s.afterId);
     };
   }
@@ -4314,12 +4557,12 @@
     return { lines: all.slice(0, max).map((id) => pageRefLine(byId.get(id), base)), truncated: all.length > max };
   }
   let listSel = { on: false, ids: [], anchor: '' };
-  // 0.15.0 PH-3（決めたこと 23）: 一覧の並びは木の並び（閉じた子も入れた並び。選びを残す・写す並び）。Shift の範囲は見えている行の順（閉じた子は入れない）
-  const listOrder = () => pageTreeView.visibleRows(treeNow(), { has: () => true }).map((r) => r.id);
+  // 0.15.0 PH-3（決めたこと 23）: 一覧の並びは木の並び（閉じた子も入れた並び。選びを残す・写す並び）。Shift の範囲は見えている行の順（閉じた子は入れない）。
+  // 0.15.1 PS-2（決めたこと 23）: 並べ替えと表示の数を当てる（表示の数の外の行は選べない・写す並びは見えている並び）
+  const listOrder = () => sideSectionView.sectionRows(treeNow(), { has: () => true }, privSt).rows.map((r) => r.id);
   const listShown = () => treeRows().map((r) => r.id);
-  // 選びの見た目（［選ぶ］の押した形・頭の枠の数）。行は renderList が描く
+  // 選びの見た目（頭の枠の数）。行は renderList が描く。0.15.1 PS-2: ［選ぶ］は［···］の［ページを選ぶ］（menuitem）に移ったので押した形は持たない
   function syncListSel() {
-    $('listSelect').setAttribute('aria-pressed', listSel.on ? 'true' : 'false');
     const n = listSel.ids.length;
     $('selBar').hidden = !(listSel.on && n > 0);
     $('selCount').textContent = n > 0 ? `${n} 件を選んでいます` : '';
@@ -4332,8 +4575,141 @@
   function pickRow(id, ev) {
     setListSel(selStep(listSel, { type: 'click', id, shift: Boolean(ev && ev.shiftKey) }, listShown()));
   }
-  $('listSelect').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
-  $('newPageBtn').onclick = () => createPageIn();   // 0.15.0 PH-4（決めたこと 25）: 見出しの［＋］は最上位に白紙のページを作る
+  // ---------------- 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の決めたこと 20〜28・D124）: 見出し「プライベート」 ----------------
+  // 押すと畳む・開く（畳んでも木の中身・開け閉め・選んでいる行は変えない。選ぶ形はやめる: PR5）。右に ↗（ライブラリ）・［＋］（ページを追加）・［···］
+  //（並べ替え・表示・ページを選ぶ）。畳み・並べ替え・表示は変えるたびに uiSave({ sections }) の1回（後の版のセクションも送り返す）
+  const SORT_LABELS = Object.freeze([['manual', '手動'], ['edited', '最終更新']]);
+  const SHOW_LABELS = Object.freeze([[5, '5'], [10, '10'], [15, '15'], [20, '20'], [0, 'すべて']]);
+  const SORT_MANUAL_NOTE = '並べ替えを「手動」に戻すと、手で並べられます';
+  const privState = () => ({ ...privSt });
+  function setPriv(patch) {
+    const next = sideSectionView.normSections({ private: { ...privSt, ...patch } }).sections.private;
+    privTouched = true;
+    const folding = privSt.open && !next.open;
+    privSt = next;
+    if (folding && listSel.on) { listSel = selStep(listSel, { type: 'toggleMode' }, listOrder()); syncListSel(); }   // 隠れた行のリンクを写さない（PR5）
+    renderList();
+    saveUi({ sections: { ...privLater, private: privState() } });
+  }
+  // 見出しの印と読み上げ・一覧と［もっと見る］と伸びる余白（renderList が出していないいちばん上の行の数を渡す）
+  function paintPriv(more) {
+    const open = privSt.open;
+    const h = $('privHead');
+    h.setAttribute('aria-expanded', open ? 'true' : 'false');
+    h.title = open ? 'プライベートを畳む' : 'プライベートを開く';
+    h.querySelector('.ph-mark').textContent = open ? '⌄' : '›';
+    $('plist').hidden = !open;
+    $('sideFill').hidden = open;   // 畳んだときは余白が一覧の所を受け持つ（下の［ゴミ箱］［設定］を動かさない: 決めたこと 25 (4)）
+    $('sideMore').hidden = !open || !(more > 0);
+  }
+  $('privHead').onclick = () => setPriv({ open: !privSt.open });
+  // ライブラリのタブ（鍵 'library'。1つだけ。もう開いていればそこへ移る: 決めたこと 32）
+  function openLibrary() {
+    tabsTouched = true;
+    if (!hasTab('library')) openTabs.push({ key: 'library' });
+    return activateTab('library');
+  }
+  $('privLib').onclick = () => openLibrary();
+  $('sideMore').onclick = () => openLibrary();   // 表示の数の外のページはライブラリで（決めたこと 23・PR10）
+  // 見出しの［＋］: 最上位に白紙のページを作る（0.15.0 PH-4。PQ3 (a)）。畳んでいれば開いてから（作った行を見えないままにしない: 決めたこと 22）
+  $('newPageBtn').onclick = () => {
+    if (!privSt.open) setPriv({ open: true });
+    return createPageIn();
+  };
+  // 見出しの［···］のメニュー（決めたこと 23）: ↑↓・Home・End・Tab（中で留める）・Enter・Space。→・Enter・Space で下のメニュー（［書体 ▸］と同じく項目の下に置く）、
+  // ← と Esc で戻る。上の段の Esc と外を押すと閉じて［···］へ
+  let privOpenSub = '';   // 開いている下のメニュー（'sort'・'show'・''）
+  const privMenuOpen = () => !$('privMenu').hidden;
+  function paintPrivMenu() {
+    const sortName = (SORT_LABELS.find(([v]) => v === privSt.sort) || SORT_LABELS[0])[1];
+    $('privSort').textContent = `並べ替え: ${sortName} ›`;
+    $('privShow').textContent = `表示: ${privSt.show ? String(privSt.show) : 'すべて'} ›`;
+    const none = pages.length === 0;
+    if (none) $('listSelect').setAttribute('aria-disabled', 'true'); else $('listSelect').removeAttribute('aria-disabled');
+    $('listSelect').classList.toggle('off', none);
+  }
+  function privSub(which, focus) {
+    const box = $('privMenu');
+    for (const b of box.querySelectorAll('.privopt')) b.remove();
+    $('privSort').setAttribute('aria-expanded', 'false');
+    $('privShow').setAttribute('aria-expanded', 'false');
+    privOpenSub = which || '';
+    if (!which) return;
+    const head = $(which === 'sort' ? 'privSort' : 'privShow');
+    head.setAttribute('aria-expanded', 'true');
+    const cur = which === 'sort' ? privSt.sort : privSt.show;
+    const ref = head.nextSibling;
+    const made = (which === 'sort' ? SORT_LABELS : SHOW_LABELS).map(([v, label]) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'mitem privopt'; b.setAttribute('role', 'menuitemradio'); b.tabIndex = -1;
+      b.textContent = label;
+      b.setAttribute('aria-checked', v === cur ? 'true' : 'false');
+      b.onclick = () => { closePrivMenu(true); setPriv(which === 'sort' ? { sort: v } : { show: v }); };
+      box.insertBefore(b, ref);
+      return b;
+    });
+    if (focus) (made.find((b) => b.getAttribute('aria-checked') === 'true') || made[0]).focus();
+  }
+  function openPrivMenu() {
+    closeTreeMenu();
+    const box = $('privMenu');
+    paintPrivMenu();
+    privSub('');
+    box.hidden = false;
+    $('privMore').setAttribute('aria-expanded', 'true');
+    const rc = $('privMore').getBoundingClientRect();
+    const w = box.offsetWidth || 160;
+    box.style.left = `${Math.max(0, Math.round((rc.right || 0) - w))}px`;
+    box.style.top = `${Math.round(rc.bottom || 0)}px`;
+    menuItems(box)[0].focus();
+  }
+  function closePrivMenu(back) {
+    if (!privMenuOpen()) return;
+    privSub('');
+    $('privMenu').hidden = true;
+    $('privMore').setAttribute('aria-expanded', 'false');
+    if (back) $('privMore').focus();
+  }
+  $('privMore').onclick = () => (privMenuOpen() ? closePrivMenu(true) : openPrivMenu());
+  $('privSort').onclick = () => privSub(privOpenSub === 'sort' ? '' : 'sort', true);
+  $('privShow').onclick = () => privSub(privOpenSub === 'show' ? '' : 'show', true);
+  // ［ページを選ぶ］（0.10.0 L-2 の［選ぶ］を移した）: メニューを閉じて選ぶ形に入る。畳んでいれば開いてから。ページが無いときは灰色
+  $('listSelect').onclick = () => {
+    if (!pages.length) return;
+    closePrivMenu(false);
+    if (!privSt.open) setPriv({ open: true });
+    if (!listSel.on) setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
+  };
+  $('privMenu').onkeydown = (ev) => {
+    if (imeEnter(ev)) return;
+    const box = $('privMenu');
+    const a = document.activeElement;
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      const items = menuItems(box), i = items.indexOf(a), n = items.length;
+      items[i < 0 ? 0 : (i + (ev.shiftKey ? n - 1 : 1)) % n].focus();
+      return;
+    }
+    if (menuStep(box, ev)) return;
+    const head = a === $('privSort') ? 'sort' : a === $('privShow') ? 'show' : '';
+    if (head && (ev.key === 'ArrowRight' || ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); privSub(head, true); return; }
+    if (a && a.classList && a.classList.contains('privopt') && (ev.key === 'ArrowLeft' || ev.key === 'Escape')) {
+      ev.preventDefault();
+      const back = privOpenSub === 'sort' ? 'privSort' : 'privShow';
+      privSub('');
+      $(back).focus();
+      return;
+    }
+    if (ev.key === 'Escape') { ev.preventDefault(); closePrivMenu(true); return; }
+    if ((ev.key === 'Enter' || ev.key === ' ') && a && isIn(a, box) && a.classList.contains('mitem')) { ev.preventDefault(); a.onclick(); }
+  };
+  // 外を押す（フォーカスがメニューの外へ出る）と閉じる。行き先の無い所を押したときは［···］へ戻す
+  $('privMenu').addEventListener('focusout', () => setTimeout(() => {
+    if (!privMenuOpen()) return;
+    const a = document.activeElement;
+    if (isIn(a, $('privMenu')) || a === $('privMore')) return;
+    closePrivMenu(!a || a === document.body);
+  }, 0));
   $('selCancel').onclick = () => setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
   $('selCopy').onclick = async () => {
     const base = await linkBaseNow();

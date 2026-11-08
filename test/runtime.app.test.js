@@ -104,7 +104,8 @@ test('要となるボタンに、実際にハンドラが付く', () => {
   // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの［起動テスト］（testSumBtn）を外した
   for (const id of ['chkUpdBtn', 'applyUpdBtn', 'openDataBtn', 'testBtn', 'engineFetchBtn',
                     // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: サイドバーの［🎤 音声入力］は無い
-                    'tabBtnNotes', 'tabBtnSettings']) {
+                    // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 一覧の見出しは「プライベート」（#privHead。押すと畳む）
+                    'privHead', 'tabBtnSettings']) {
     assert.ok(w.has(id), `${id} にハンドラが付いていない（ボタンが効かない）`);
   }
   assert.ok(待機.wired().some((x) => x.id === 'tabSettings' && x.listeners.includes('change')),

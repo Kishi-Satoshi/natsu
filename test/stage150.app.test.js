@@ -576,7 +576,8 @@ test('PH-4: 見出し「議事録」の行の［＋］・行の［＋］・/ペ�
   try {
     const head = $(l, 'newPageBtn');
     assert.ok(head, '見出しの［＋］が無い');
-    assert.deepStrictEqual([head.textContent, head.getAttribute('title'), head.getAttribute('aria-label')], ['＋', 'ページを作る', 'ページを作る']);
+    // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・決めたこと 22）で意図して変えた: 吹き出しは「ページを追加」（場所は見出しの行の右。押した答えは同じ）
+    assert.deepStrictEqual([head.textContent, head.getAttribute('title'), head.getAttribute('aria-label')], ['＋', 'ページを追加', 'ページを追加']);
     head.dispatchEvent({ type: 'click' });
     await l.drain();
     const made = l.called('pageCreate');

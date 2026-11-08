@@ -297,7 +297,7 @@ test('F11: ［詳細設定（管理者用）］・鍵の欄・3つのボタン�
 test('F5: app:notice が { text, action: \'account\' } のとき、トーストに［ログインし直す］があり、押すと設定の「アカウント」のカードが開いて［ログイン］にフォーカスが行く。文字だけの知らせは今のまま', async () => {
   const l = await load(APP, { returns: fakeMain().returns });
   await l.drain();
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   const toastEl = l.byId.get('toast');
   // 文字だけの知らせ: 文だけで、ボタンは無い
   l.fire('onNotice', '要約を作りました');
@@ -474,7 +474,7 @@ test('D17: 帯は録音中のタブだけのもの。ほかのページのタブ
   await l.drain();
   l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
   assert.strictEqual(l.byId.get('liveSttBanner').hidden, false);
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   const item = l.root.querySelector('#plist .pitem');
   assert.ok(item, '一覧にページが無い（simrun の見本）');
   item.dispatchEvent({ type: 'click' }); await l.drain();
@@ -512,7 +512,7 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
   assert.strictEqual(lastSent(), false, '設定のポップアップで覆ったのに録音中のページを開いているまま');
   await click(l, 'setClose');
   assert.strictEqual(lastSent(), true, '設定を閉じて録音中のページが見えたのに知らせない');
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(lastSent(), false, 'ほかのページのタブへ移ったのに録音中のページを開いているまま');
   liveTab().dispatchEvent({ type: 'click' }); await l.drain();

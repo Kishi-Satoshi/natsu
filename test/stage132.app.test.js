@@ -75,7 +75,7 @@ async function openSaved(returns = {}, before = async () => {}) {
   const l = await load(APP, { now: T0, returns: { pagesSearch: () => PAGES, pageGet, ...returns } });
   await l.drain();
   await before(l);
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
   await click(l, 'paneBtnScript');
   return l;

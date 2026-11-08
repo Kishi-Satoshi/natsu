@@ -46,7 +46,9 @@ const SIGNIN_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 75,
   problem: { code: 'no-login', action: 'signin', text: 'ログインしていないため PC で文字起こししています。［ログイン］を押してログインすると、クラウドで文字起こしします。' } };
 
 // 一覧の1行目を開く（今の画面と同じ）
-const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()";
+// 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 一覧の見出しは「プライベート」（押すと畳む）になったので、
+// 見出し「議事録」を押してからページを開く手順を、押さずに開く形にした（見出しを押していたのはページを開く前の何もしない一手）
+const OPEN_PAGE = "document.querySelector('#plist .pitem').click()";
 // サイドバーを畳む。第1b回 B-2 の前は［«］が無いので何もしない
 const COLLAPSE_SIDE = "(document.getElementById('sideCollapse') || { click() {} }).click()";
 // 検索の窓を開く（第1b2回 L-2 の［🔍 検索］）。L-2 の前は押す物が無いので何もしない
@@ -58,17 +60,17 @@ const OPEN_PALETTE = "(document.getElementById('sideSearch') || { click() {} }).
 const OPEN_THREE_TABS = `(async () => {
   const w = () => new Promise((r) => setTimeout(r, 150));
   const item = (i) => document.querySelectorAll('#plist .pitem')[i || 0];
-  document.getElementById('tabBtnNotes').click(); item().click(); await w();
+  item().click(); await w();
   item(1).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
   item(2).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
-  document.getElementById('tabBtnNotes').click(); item().click(); await w();
+  item().click(); await w();
   return 1;
 })()`;
 // 0.15.0 PH-3: 1行目のページを開いて（非同期なので少し待つ）、子のある閉じた行（p2）のアイコンの所を ▸ にした形。
 // PH-3 直し（R26）: 撮る窓は見せない窓（show: false）でフォーカスを持たず :focus も :hover も当たらない（CI run 41705176203 の画像で ▸ が出なかった）ので、
 // 乗せた・フォーカスした行の CSS（.pitem.kids:hover .pe・.tw）と同じ形を行の style で当てる（focus() で一覧を捲らない）
 const FOCUS_TREE = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   const row = document.querySelector('#plist .pitem.kids[data-pid="p2"]');
   row.querySelector('.pe').style.visibility = 'hidden';
@@ -77,14 +79,14 @@ const FOCUS_TREE = `(async () => {
 })()`;
 // 0.15.0 PH-5: 6 段目のページ（d5）を開いて（祖先の行は開いた覚え書き）、パンくずの「…」を押して隠れた段の一覧を出す
 const OPEN_DEEP = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem[data-pid="d5"]').click();
+  document.querySelector('#plist .pitem[data-pid="d5"]').click();
   await new Promise((r) => setTimeout(r, 300));
   document.querySelector('#crumb [data-crumb="more"]').click();
   return 1;
 })()`;
 // 0.15.0 PH-5: 子のある議事録（一覧の1行目 p1）を開いて、［AI 要約］の欄の最後の「このページの中のページ」まで捲る
 const OPEN_KIDS = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   document.getElementById('pKids').scrollIntoView({ block: 'end' });
@@ -92,7 +94,7 @@ const OPEN_KIDS = `(async () => {
 })()`;
 // 0.15.0 PH-5: サイドバーの木の p2 を開いて「···」の［移動先…］を押す（候補は p2 と子孫を除いた木の順・場所つき）
 const OPEN_MOVE = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem[data-pid="p2"]').click();
+  document.querySelector('#plist .pitem[data-pid="p2"]').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('pMore').click();
   [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '移動先…').click();
@@ -100,28 +102,28 @@ const OPEN_MOVE = `(async () => {
 })()`;
 // 0.15.0 PH-5: 1行目のページを開いて Ctrl+Shift+N（「新しいページ」の選び）
 const OPEN_NEW = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true, bubbles: true }));
   return 1;
 })()`;
 // 0.15.0 PH-6: 1行目のページを開いて、サイドバーの［🗑️ ゴミ箱］を押す
 const OPEN_TRASH = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('tabBtnTrash').click();
   return 1;
 })()`;
 // 0.15.0 PL-3: 1行目のページを開いて（非同期なので少し待つ）、ページの頭のアイコンを押してアイコンの選びを開く
 const OPEN_ICON = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('pIcon').click();
   return 1;
 })()`;
 // 0.15.0 PL-3: 1行目のページを開いて「···」のメニューを開き、［書体 ▸］を押して 標準・明朝・等幅 を出す
 const OPEN_LOOK_MENU = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('pMore').click();
   [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '書体 ▸').click();
@@ -129,21 +131,21 @@ const OPEN_LOOK_MENU = `(async () => {
 })()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('pMore').click();
   return 1;
 })()`;
 // 0.10.0 LS-2 の見直し（取り直しの見比べで、要約の無いページは「文字起こし」の欄で開き、鍵の一言が写っていなかった）: ページを開いてから［AI 要約］の欄を押す
 const OPEN_PAGE_SUMMARY = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   return 1;
 })()`;
 // 0.11.0 V-1: ページを開いてメモのタブにし、会議の種類の欄を一覧の形にして中身（自動・群・種類）を見せる
 const OPEN_TYPE_LIST = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnMemo').click();
   // 欄の高さ（.typeSel の 22px）を外して、一覧の形で全部の項目を見せる（R22 (3)）
@@ -152,7 +154,7 @@ const OPEN_TYPE_LIST = `(async () => {
 })()`;
 // 0.12.0 SP-4: ページを開いて文字起こしのタブにする（札・重なり・文ごとの行）
 const OPEN_PAGE_SCRIPT = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnScript').click();
   document.getElementById('pScript').scrollIntoView({ block: 'start' });   // 文字起こしの行（札・重なり・文ごとの行）が全部見えるように捲る
@@ -167,7 +169,7 @@ const OPEN_READY = `(async () => {
 // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: ページの要約の1つ目の箇条書き（b2）の終わりに「 /」と語を打ち、
 // / メニューを開いた形（本物の Chromium の getSelection でカーソルを行の終わりに置き、input を起こす）
 const OPEN_SLASH = (q) => `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
@@ -179,7 +181,7 @@ const OPEN_SLASH = (q) => `(async () => {
 })()`;
 // 0.13.0 ED-6（E1・決めたこと 24）: ページの要約の1つ目の箇条書き（b2）の ⠿ を押してメニューを開き、［変換 ▸］の中を開いた形
 const OPEN_BLOCK_MENU = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.grip').click();
@@ -189,7 +191,7 @@ const OPEN_BLOCK_MENU = `(async () => {
 // 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 19〜21）: 行 b2 の頭の4文字を選んで道具の帯を出し、then を続ける（リンクの欄・色のメニュー）
 // EB-5 直し: tail なら行の文の終わりの4字を選ぶ（拡大 200% で右へ寄った選びの帯と色のメニューが欄の幅に収まるかを撮る）
 const SELECT_MARKS = (then, tail = false) => `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
@@ -208,7 +210,7 @@ const LINK_REFUSED = `t.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', c
 const COLOR_OPEN = "document.querySelector('#markBar .mb-color').click();";
 // 0.14.0 EK-4（計画 docs/plans/2026-10-26-140.md の決めたこと 28）: 行 b2 で Esc を押して行を選び、Shift+↓ を2回で3行を選んだ形（選んだ行の地の色）
 const SELECT_ROWS = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
@@ -221,7 +223,7 @@ const SELECT_ROWS = `(async () => {
 })()`;
 // 0.13.0 ED-7（E5）: ページを開いて［AI 要約］の欄の頭まで捲る（新しい型の行が全部見えるように。撮った画像の確かめで、欄が窓の下に切れていた）
 const OPEN_TYPES = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   document.querySelector('#pNote .blk').scrollIntoView({ block: 'start' });
@@ -229,7 +231,7 @@ const OPEN_TYPES = `(async () => {
 })()`;
 // 0.14.0 MB-4: ページ（か録音中のページ）を開いてメモのタブにし、メモの行の頭まで捲る
 const OPEN_MEMO = (page) => `(async () => {
-  ${page ? "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();" : ''}
+  ${page ? "document.querySelector('#plist .pitem').click();" : ''}
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnMemo').click();
   const b = document.querySelector('#pMemo .memorows'); if (b) b.scrollIntoView({ block: 'center' });
@@ -237,7 +239,7 @@ const OPEN_MEMO = (page) => `(async () => {
 })()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
 const OPEN_QUALITY = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   const c = document.getElementById('qualityCard'); if (c) c.scrollIntoView({ block: 'end' });
   return 1;
@@ -249,9 +251,21 @@ const LIVE_PICK_SALES = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
   return 1;
 })()`;
+// 0.15.1 PS-2（D124）: 見出し「プライベート」を押して畳む（1行目のページを開いた後）
+const FOLD_PRIVATE = `${OPEN_PAGE}; document.getElementById('privHead').click()`;
+// 見出しの右の3つは乗せたとき・フォーカスがあるときだけ出る（PQ6）。撮る窓は :hover も :focus-within も当たらない（0.15.0 PH-3 直し R26 と同じ）ので、
+// 乗せた行の CSS（.privrow:hover の地と .ph-btn の opacity: 1）と同じ形を style で当てる
+const SHOW_PRIVATE_BTNS = "document.getElementById('privRow').style.background = 'var(--hover)'; for (const id of ['privLib', 'newPageBtn', 'privMore']) document.getElementById(id).style.opacity = '1'";
+// 見出しの［···］を開き、［並べ替え: 手動 ›］の下のメニュー（手動・最終更新）を開いた形
+const PRIVATE_MENU = `(async () => {
+  ${SHOW_PRIVATE_BTNS};
+  document.getElementById('privMore').click();
+  document.getElementById('privSort').click();
+  await new Promise((r) => setTimeout(r, 150));
+  return 1;
+})()`;
 // 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
 const SELECT_TWO = `(() => {
-  document.getElementById('tabBtnNotes').click();
   document.getElementById('listSelect').click();
   const rows = () => document.querySelectorAll('#plist .pitem');
   rows()[0].click(); rows()[2].click();
@@ -288,9 +302,10 @@ const LATE_STT = { route: 'local', lastTextAt: FIXED_NOW - 95000, segSec: 75, sl
 const SLOW_SEG = '（文字起こし待ち: 会議の後で文字起こしします）';
 const SIGNED_OUT = { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } };
 const SCREENS = [
-  { name: 'notes-empty-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click()" },
-  { name: 'notes-page-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()" },
-  { name: 'notes-page-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()" },
+  // 0.15.1 PS-2（D124）で意図して変えた: notes-empty-light は起動したままの形（見出しを押す手順は無い。押していた goNotes は、開いたタブの無い起動では何もしなかった）
+  { name: 'notes-empty-light', page: 'app', theme: 'light' },
+  { name: 'notes-page-light', page: 'app', theme: 'light', act: OPEN_PAGE },
+  { name: 'notes-page-dark', page: 'app', theme: 'dark', act: OPEN_PAGE },
   { name: 'settings-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click()" },
   { name: 'settings-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnSettings').click()" },
   // 第1b回で足した画面（C-2 で基準を取るまでは取り直し待ち）
@@ -469,6 +484,13 @@ const SCREENS = [
   { name: 'page-menu-look-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true, font: 'serif' }); }, act: OPEN_LOOK_MENU },
   // PL-3 直し（R77）: 小さい文字の拡大 200%（狭い窓の題名は標準の狭い窓より小さい）
   { name: 'look-small-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ small: true }); }, act: OPEN_PAGE },
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・D124）: 見出し「プライベート」を畳んだサイドバーの明暗（印 ›・下の［設定］が同じ所）・
+  // 見出しの右の ↗・［＋］・［···］と開いた［···］のメニューと［並べ替え ›］の下のメニュー・表示 5 と［もっと見る］・拡大 200% の見出しの行。足した画面（まだ基準が無い）
+  { name: 'side-private-folded-light', page: 'app', theme: 'light', act: FOLD_PRIVATE },
+  { name: 'side-private-folded-dark', page: 'app', theme: 'dark', act: FOLD_PRIVATE },
+  { name: 'side-private-menu-light', page: 'app', theme: 'light', act: PRIVATE_MENU },
+  { name: 'side-private-more-light', page: 'app', theme: 'light', get answers() { return moreAnswers(); } },
+  { name: 'side-private-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: `${OPEN_PAGE}; ${SHOW_PRIVATE_BTNS}` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -604,6 +626,8 @@ const RETAKE = new Set([
   'live-memo-blocks-light', 'sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light',
   'page-rows-dark', 'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light', 'trash-pop-light', 'icon-pop-light', 'icon-pop-dark', 'look-wide-light',
   'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light', 'look-small-zoom200-light',
+  // 0.15.1 PS-2（D124）: 足した5枚（まだ基準が無い）
+  'side-private-folded-light', 'side-private-folded-dark', 'side-private-menu-light', 'side-private-more-light', 'side-private-zoom200-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -737,6 +761,24 @@ function treeAnswers() {
   return {
     'koeApp.pagesSearch': [...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
     'koeApp.uiState': { tree: { open: ['p1', 'p1a', 'p1a1', 'p1a1a'] } },
+  };
+}
+
+/**
+ * 0.15.1 PS-2（D124）: 表示 5 と［もっと見る］。いちばん上に8つのページ（見本の議事録3つと白紙のページ5つ）。表示の数は uiState の sections（覚えた形）
+ */
+function moreAnswers() {
+  const blank = (id, title, at) => ({ id, title, date: at.slice(0, 10), durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'blank' });
+  const tops = [
+    blank('pm5', '採用の進め方', '2026-10-17T05:00:00.000Z'),
+    blank('pm4', '見積もりの内訳', '2026-10-17T04:00:00.000Z'),
+    blank('pm3', '次回の議題', '2026-10-17T03:00:00.000Z'),
+    blank('pm2', 'プロジェクトの資料', '2026-10-17T02:00:00.000Z'),
+    blank('pm1', '数の根拠', '2026-10-17T01:00:00.000Z'),
+  ];
+  return {
+    'koeApp.pagesSearch': [...tops, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
+    'koeApp.uiState': { sections: { private: { open: true, sort: 'manual', show: 5 } } },
   };
 }
 
