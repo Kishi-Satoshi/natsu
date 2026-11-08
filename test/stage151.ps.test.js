@@ -4,6 +4,7 @@
  * PS-1（F158・F161・F162・F164）: 純粋な部品（src/sideSection.js）と窓の覚え書きの sections・ライブラリのタブ（TAB_FIXED）・ui:get の sections。
  * PS-2（F157〜F162）: 見出し「プライベート」（押すと畳む・↗・［＋］・［···］の並べ替え・表示・ページを選ぶ）・［もっと見る］・畳み・並べ替え・表示を覚える。
  *       画面の sideSection の写しは src/sideSection.js と字も答えも同じ（R30）。
+ * 要素を比べるときは assert.ok(a === b, 文) にする（赤のときに報告が最小 DOM の木を丸ごと書き出し、CI の記憶を使い切る: 0.11.0 R22・0.15.1 R41）。
  * 題名は作った物。実在の人名・社名は使わない。
  */
 'use strict';
@@ -655,7 +656,7 @@ test('PS-3・F163: 行の［···］（.pmore・「ページのメニュー」�
   const p5 = ULIST().find((p) => p.id === 'pg5');
   assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [`NaTsu の議事録「${p5.title}」（${p5.date}）${ORIGIN}/open#p=pg5`]);
   assert.strictEqual($(l, 'toast').textContent, 'リンクを写しました。');
-  assert.strictEqual(rowMenu(l), null, '写した後もメニューが残る');
+  assert.ok(rowMenu(l) === null, '写した後もメニューが残る');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -680,7 +681,7 @@ test('PS-3・F163: 名前を変える（［名前を変える］・行で Ctrl+S
   box.dispatchEvent({ type: 'blur' }); await l.drain();
   assert.strictEqual(ev.defaultPrevented, true);
   assert.deepStrictEqual(sent(), [['pg5', '見積もりの件']], 'Enter とフォーカスの外れで2回送った');
-  assert.strictEqual(renameBox(l), null);
+  assert.ok(renameBox(l) === null, '決めた後も欄が残る');
   assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, '見積もりの件', '一覧の名前が替わらない');
   // 行で Ctrl+Shift+R・外を押す（フォーカスが外れる）と決まる
   uRow(l, 'pg4').focus();
@@ -734,14 +735,14 @@ test('PS-3・F163: 名前を変えられないとき（DB が断る → 元に�
   l.key(CSR, uRow(l, 'pg5')); await l.drain();
   renameBox(l).value = '断られる名前';
   l.key({ key: 'Enter' }, renameBox(l)); await l.drain();
-  assert.strictEqual(renameBox(l), null);
+  assert.ok(renameBox(l) === null, '断られた後も欄が残る');
   assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, was, '断られたのに元に戻さない');
   assert.strictEqual($(l, 'toast').textContent, '名前を変えられませんでした。');
   // 選ぶ形の間は何もしない
   await press(l, $(l, 'privMore'));
   await press(l, $(l, 'listSelect'));
   l.key(CSR, uRow(l, 'pg5')); await l.drain();
-  assert.strictEqual(renameBox(l), null, '選ぶ形の間に欄が出た');
+  assert.ok(renameBox(l) === null, '選ぶ形の間に欄が出た');
   await press(l, $(l, 'selCancel'));
   // 開いているページ: ページの頭の題名と本文の文字の欄の Ctrl+Shift+R は何もしない。行の名前を変えるとタブと頭の題名も替わる
   const ok = renamable();
@@ -750,7 +751,7 @@ test('PS-3・F163: 名前を変えられないとき（DB が断る → 元に�
   for (const el of [$(o, 'pTitle'), $(o, 'pMemo')].filter(Boolean)) {
     el.focus();
     o.key(CSR, el); await o.drain();
-    assert.strictEqual(renameBox(o), null, `${el.id} の Ctrl+Shift+R で名前の欄が出た`);
+    assert.ok(renameBox(o) === null, `${el.id} の Ctrl+Shift+R で名前の欄が出た`);
   }
   o.key(CSR, uRow(o, 'pg5')); await o.drain();
   renameBox(o).value = '替えた題名';
