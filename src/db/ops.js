@@ -291,12 +291,16 @@ function setField(db, row, key, value, st) {
     return;
   }
   const attrs = JSON.parse(row.attrs || '{}');
+  const prevCols = attrs.cols;
   const cellKey = row.type === 'row' ? cellColOf(key) : null;
   if (cellKey !== null) setCellIn(attrs, cellKey, value);   // 0.16.0 DS-3（決めたこと 5）: セルは列ごとの set（cell:<列の ID>）。cells の中の1つだけを書く
   else if (value === undefined) delete attrs[key]; else attrs[key] = value;
   db.prepare('update blocks set attrs = ? where id = ?').run(JSON.stringify(attrs), row.id);
   if (row.type === 'page' && key === 'memo') st.refold.add(row.id);
-  if (row.type === 'page' && key === 'cols') { st.refoldDb.add(row.id); st.cols.delete(row.id); }   // 0.16.0 DS-3（R14）: 列（名前・選択肢・消した印・種類）が変われば、行の検索の欄を全部作り直す
+  if (row.type === 'page' && key === 'cols') {   // 0.16.0 DS-3（R14）: 列（名前・選択肢・消した印・種類）が変われば、行の検索の欄を作り直す
+    st.cols.delete(row.id);
+    foldPlanAdd(st.refoldDb, row.id, prevCols, value);   // DS-3 直し（rv42 I3・R61）: 検索の欄に入る所が変わった列の値のある行だけ（名前・見せ方・入らない列の並びは作り直さない）
+  }
   if (row.type === 'row') st.refold.add(row.id);   // 0.16.0 DS-2: データベースの行はセルが検索の欄に入る（決めたこと 6）
 }
 
@@ -370,13 +374,41 @@ function applyOne(db, o, back, st) {
   }
 }
 
+// 0.16.0 DS-3 直し（rv42 I3・R61）: 行の検索の欄に入る列（決めたこと 6: テキスト・URL・メール・電話と、選択肢の名前）の形。列の書き込みの前と後で比べ、
+// 入る列の並びが変われば全部の行（欄の並びが変わる）、入る列の種類・選択肢の名前・消した印が変われば、その列に値のある行だけを作り直す
+const FOLD_TYPES = Object.freeze(['text', 'url', 'email', 'phone', 'select', 'multi', 'status']);
+function foldShape(cols) {
+  const out = new Map();
+  for (const c of Array.isArray(cols) ? cols : []) {
+    if (!isObj(c) || c.gone || !FOLD_TYPES.includes(c.type)) continue;
+    out.set(c.id, JSON.stringify([c.type, Array.isArray(c.opts) ? c.opts.map((o) => (isObj(o) ? [o.id, o.name] : null)) : null]));
+  }
+  return out;
+}
+function foldPlanAdd(plans, dbId, before, after) {
+  const a = foldShape(before), b = foldShape(after);
+  const common = (x, y) => [...x.keys()].filter((k) => y.has(k));
+  const plan = plans.get(dbId) || { all: false, cols: new Set() };
+  if (common(a, b).join('\u0001') !== common(b, a).join('\u0001')) plan.all = true;
+  for (const k of new Set([...a.keys(), ...b.keys()])) if (a.get(k) !== b.get(k)) plan.cols.add(k);
+  if (plan.all || plan.cols.size) plans.set(dbId, plan);
+}
+// 作り直す行の ID（全部か、どれかの列に値のある行）
+function foldPlanRows(db, dbId, plan) {
+  if (plan.all) return db.prepare("select id from blocks where type = 'row' and parent_id = ?").all(dbId);
+  const cols = [...plan.cols].filter((c) => /^[A-Za-z0-9_-]{1,64}$/.test(c));
+  if (!cols.length) return [];
+  const where = cols.map(() => 'json_extract(attrs, ?) is not null').join(' or ');
+  return db.prepare(`select id from blocks where type = 'row' and parent_id = ? and (${where})`).all(dbId, ...cols.map((c) => `$.cells."${c}"`));
+}
+
 function applyOps(db, ops, dir = 'forward') {
   if (!Array.isArray(ops)) throw new Error('applyOps: 操作の列が無い');
   if (dir !== 'forward' && dir !== 'backward') throw new Error('applyOps: 向きが正しくない');
   const back = dir === 'backward';
-  const st = { touched: new Set(), fresh: new Set(), refold: new Set(), refoldDb: new Set(), cols: new Map() };
+  const st = { touched: new Set(), fresh: new Set(), refold: new Set(), refoldDb: new Map(), cols: new Map() };
   for (const o of back ? [...ops].reverse() : ops) applyOne(db, o, back, st);
-  for (const dbId of st.refoldDb) for (const r of db.prepare("select id from blocks where type = 'row' and parent_id = ?").all(dbId)) st.refold.add(r.id);
+  for (const [dbId, plan] of st.refoldDb) for (const r of foldPlanRows(db, dbId, plan)) st.refold.add(r.id);
   for (const id of st.refold) {
     const r = db.prepare('select type, parent_id, text, attrs, fold from blocks where id = ?').get(id);
     if (!r) continue;
@@ -527,7 +559,7 @@ function opsMatch(db, ops, { pageId, dbId } = {}) {
 // データベースの行（row）の add・ブロックとしての trash（足したのを戻す）・trash ⇄ restore（行のゴミ箱）・move・text（題名）・set（cell:<列>）と、
 // データベースのページの set（cols）だけ。ID の列の次の番号 nextNo（消しても詰めない: 決めたこと 29）・ビュー（見た目の設定: 決めたこと 47）・
 // 行の最終更新日時と更新者（戻すのも書き込みなので、edit.revert が今の時刻と自分で書き直す）は戻さず、照らさない
-const DB_NO_REVERT = Object.freeze(['nextNo', 'views', 'updatedAt', 'by']);
+const DB_NO_REVERT = Object.freeze(['nextNo', 'views', 'updatedAt', 'by', 'seq']);   // seq: 振った列と選択肢の ID の数（使い直さない: R56）
 const isDbRow = (r, dbId) => isObj(r) && r.type === 'row' && r.parent_id === dbId;
 function invertDbOps(ops, dbId) {
   const out = [];

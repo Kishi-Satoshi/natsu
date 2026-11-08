@@ -573,7 +573,8 @@ test('DS-3・F146: rows.paste（選んだセルから右下へ埋まる・足り
   // Ctrl+Z の1回で全部戻る（足した行・セル・選択肢）
   assert.strictEqual(code(revert(db, d, [p.tx]).r), 'ok');
   const after = dump(db);
-  const strip = (rows) => rows[0].map(({ rev, updated_at, attrs, ...r }) => ({ ...r, attrs: (() => { const a = JSON.parse(attrs); delete a.by; delete a.nextNo; return a; })() }));
+  // DS-3 直し（R56）で意図して変えた: 振った ID の数 seq も戻さない（nextNo と同じ。ID を使い直さない）
+  const strip = (rows) => rows[0].map(({ rev, updated_at, attrs, ...r }) => ({ ...r, attrs: (() => { const a = JSON.parse(attrs); delete a.by; delete a.nextNo; delete a.seq; return a; })() }));
   assert.deepStrictEqual(strip(after), strip(snap), '戻しても表が元に戻らない');
   // 絞り込みのあるビューで足した行に値が入る
   ok(call(db, 'view.update', { db: d, viewId: 'v1', patch: { filter: { op: 'and', items: [{ col: sel, cmp: 'any', value: ['o1'] }] } } }), 'view.update filter');
@@ -776,4 +777,262 @@ test('DS-2 直し・R40（rv40 F5）: 1つの applyOps の中では、データ�
   const r2 = core.call(wrapped, { role: 'app', cmd: 'rows.paste', args: { db: d, viewId: 'v1', at: { row: ids[299], col: 'title' }, grid }, tx: txOf('app') }, { now, labels: {} });
   assert.deepStrictEqual([code(r2), r2.result.added], ['ok', 299]);
   assert.ok(reads <= 2, `貼り付けで列を ${reads} 回読んだ`);
+}));
+
+// ---------------------------------------------------------------- DS-3 直し（2026-11-08 の 9304bb5..e3981e3 の点検: rv42）
+const attrsOf = (db, id) => JSON.parse(db.prepare('select attrs from blocks where id = ?').get(id).attrs);
+const liveRows = (db, d) => db.prepare("select count(*) c from blocks where type = 'row' and parent_id = ? and trashed_at is null").get(d).c;
+
+test('DS-3 直し・I1（rv42）: 列と選択肢の ID は使い直さない（完全に消した列・消した選択肢の ID を、後の列・選択肢に振らない）。完全に消すと、ビューの設定からもその列を外す', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const c1 = colAdd(db, d, 'text', 'メモ');
+  const c2 = colAdd(db, d, 'text', '備考');
+  ok(call(db, 'view.update', { db: d, viewId: 'v1', patch: { sort: [{ col: c2, dir: 'asc' }], filter: { op: 'and', items: [{ col: c2, cmp: 'contains', value: 'abc' }] },
+    group: { col: c2 }, agg: { [c2]: 'count' } } }), 'view.update');
+  ok(call(db, 'col.remove', { db: d, col: c2 }), 'col.remove');
+  ok(call(db, 'col.purge', { db: d, col: c2 }), 'col.purge');
+  assert.ok(!JSON.stringify(attrsOf(db, d).views).includes(`"${c2}"`), '完全に消した列がビューの設定に残る');
+  const c3 = colAdd(db, d, 'text', '次');
+  assert.notStrictEqual(c3, c2, '完全に消した列の ID を使い直した');
+  assert.ok(![c1, c2].includes(c3));
+  // 新しい列に、消した列の絞り込みが生き返らない
+  const r = rowAddA(db, d, { cells: { [c3]: 'xyz' } });
+  assert.deepStrictEqual(view(db, d).rows.map((x) => x.id), [r]);
+  // 選択肢: 一番大きい ID の選択肢を消してから足しても、その ID を振らない（画面が送った ID でも、新しい選択肢は DB が振り直す）
+  const s = selectCol(db, d);
+  ok(call(db, 'col.setOpts', { db: d, col: s, opts: [{ id: 'o1', name: '高', color: 'red' }] }), 'col.setOpts 消す');
+  const got = ok(call(db, 'col.setOpts', { db: d, col: s, opts: [{ id: 'o1', name: '高', color: 'red' }, { id: 'o2', name: '中', color: 'blue' }] }), 'col.setOpts 足す').col;
+  assert.strictEqual(got.opts[0].id, 'o1');
+  assert.ok(!['o1', 'o2'].includes(got.opts[1].id), `消した選択肢の ID を使い直した: ${got.opts[1].id}`);
+  assert.deepStrictEqual(dbGet(db, d).cols.find((c) => c.id === s).opts.map((o) => o.name), ['高', '中']);
+  // 種類の読み替え（選択 → テキスト → 選択）と貼り付けで足す選択肢も、前に振った ID を使い直さない
+  const r2 = rowAddA(db, d, { cells: { [s]: got.opts[1].id } });
+  ok(call(db, 'col.setType', { db: d, col: s, type: 'text' }), 'col.setType text');
+  const back = ok(call(db, 'col.setType', { db: d, col: s, type: 'select' }), 'col.setType select').col;
+  const used = new Set(['o1', 'o2', got.opts[1].id]);
+  assert.ok(back.opts.every((o) => !used.has(o.id)), `読み替えで前の ID を使い直した: ${back.opts.map((o) => o.id)}`);
+  assert.deepStrictEqual(back.opts.map((o) => o.name), ['中']);
+  assert.strictEqual(cellsOf(db, r2)[s], back.opts[0].id, '読み替えたセルが振り直した ID を指さない');
+  for (const o of back.opts) used.add(o.id);
+  const p = ok(call(db, 'rows.paste', { db: d, viewId: 'v1', at: { row: r2, col: s }, grid: [['新しい']] }), 'rows.paste');
+  assert.strictEqual(p.unread, 0);
+  const after = dbGet(db, d).cols.find((c) => c.id === s).opts;
+  const fresh = after.find((o) => o.name === '新しい');
+  assert.ok(fresh && !used.has(fresh.id), '貼り付けで足した選択肢が前の ID を使い直した');
+  assert.strictEqual(cellsOf(db, r2)[s], fresh.id);
+}));
+
+test('DS-3 直し・I2（rv42）: 列を足した歩みの edit.revert は、その列に値のある行（ゴミ箱の行も）があれば stale（何も変えない・行のセルを残さない）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const add = callTx(db, 'col.add', { db: d, type: 'text', name: 'メモ' });
+  const c = add.r.result.col.id;
+  const r = rowAddA(db, d, { cells: { [c]: 'abc' } });
+  assert.strictEqual(code(revert(db, d, [add.tx]).r), 'stale', '値のある列を消した');
+  assert.ok(dbGet(db, d).cols.some((x) => x.id === c));
+  assert.strictEqual(cellsOf(db, r)[c], 'abc');
+  ok(call(db, 'rows.trash', { db: d, ids: [r] }), 'rows.trash');
+  assert.strictEqual(code(revert(db, d, [add.tx]).r), 'stale', 'ゴミ箱の行に値のある列を消した');
+  // 値の無い列なら戻せる
+  const add2 = callTx(db, 'col.add', { db: d, type: 'number', name: '数' });
+  assert.strictEqual(code(revert(db, d, [add2.tx]).r), 'ok');
+  assert.ok(!dbGet(db, d).cols.some((x) => x.id === add2.r.result.col.id));
+}));
+
+test('DS-3 直し・M1（rv42）: 元に戻す・やり直しでも、1つのデータベースの行は 10,000 まで（rows.trash の戻し・row.add のやり直しは too-big・何も変えない）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const rows = [];
+  for (let i = 0; i < LIMITS.dbRows - 1; i += 1) rows.push(rowAdd(`rm${i}`, d, `k${String(i).padStart(5, '0')}`, `行 ${i}`));
+  put(db, rows);
+  rows.length = 0;
+  assert.strictEqual(liveRows(db, d), LIMITS.dbRows - 1);
+  const t1 = callTx(db, 'rows.trash', { db: d, ids: ['rm0'] });
+  rowAddA(db, d);
+  rowAddA(db, d);
+  assert.strictEqual(liveRows(db, d), LIMITS.dbRows);
+  assert.strictEqual(code(revert(db, d, [t1.tx]).r), 'too-big', 'rows.trash の戻しで上限を越えた');
+  assert.strictEqual(liveRows(db, d), LIMITS.dbRows);
+  assert.ok(blockOf(db, 'rm0').trashed_at, '断ったのに行が戻った');
+  // row.add の歩みを戻して（ゴミ箱へ）から1行足し、やり直す
+  const a = callTx(db, 'row.add', { db: d });
+  assert.strictEqual(code(a.r), 'too-big');
+  ok(call(db, 'rows.trash', { db: d, ids: ['rm1'] }), 'rows.trash');
+  const a2 = callTx(db, 'row.add', { db: d });
+  const undo = revert(db, d, [a2.tx]);
+  assert.strictEqual(code(undo.r), 'ok');
+  rowAddA(db, d);
+  assert.strictEqual(code(revert(db, d, [undo.tx]).r), 'too-big', 'row.add のやり直しで上限を越えた');
+  assert.strictEqual(liveRows(db, d), LIMITS.dbRows);
+}));
+
+test('DS-3 直し・M2（rv42）: rows.paste で同じ時刻に足す行の ID が重ならない（1つの命令の中で振った ID を覚える）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const r0 = rowAddA(db, d);
+  const nodeCrypto = require('node:crypto');
+  const real = nodeCrypto.randomBytes;
+  const seq = [5, 5, 5, 6, 6, 7, 7, 8];
+  nodeCrypto.randomBytes = (n) => { const b = Buffer.alloc(n); b.writeUInt32BE(seq.length ? seq.shift() : 9, 0); return b; };
+  let r;
+  try { r = call(db, 'rows.paste', { db: d, viewId: 'v1', at: { row: r0, col: 'title' }, grid: [['甲'], ['乙'], ['丙'], ['丁']] }); }
+  finally { nodeCrypto.randomBytes = real; }
+  assert.strictEqual(code(r), 'ok', '同じ時刻に足した行の ID が重なった');
+  assert.strictEqual(r.result.added, 3);
+  assert.deepStrictEqual(titles(db, d), ['甲', '乙', '丙', '丁']);
+}));
+
+test('DS-3 直し・M3（rv42）: 表の書く命令の送り直し（同じ tx）は、1回目と同じ形の答え（R29）を今の中身から作り直す', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const c = colAdd(db, d, 'text', 'メモ');
+  const s = selectCol(db, d);
+  const r1 = rowAddA(db, d, { title: '一' });   // データベースの行の題名（D77 の会議の題名でない）
+  const r2 = rowAddA(db, d, { title: '二' });   // データベースの行の題名（D77 の会議の題名でない）
+  const twice = (cmd, args) => {
+    const tx = txOf('app');
+    const a = core.call(db, { role: 'app', cmd, args, tx }, { now, labels: {} });
+    const b = core.call(db, { role: 'app', cmd, args, tx }, { now, labels: {} });
+    assert.strictEqual(code(a), 'ok', cmd);
+    assert.strictEqual(b.dup, true, `${cmd}: 送り直しでない`);
+    assert.deepStrictEqual(b.result, a.result, `${cmd}: 送り直しの答えが違う`);
+    return a.result;
+  };
+  twice('col.add', { db: d, type: 'number', name: '金額' });
+  twice('col.rename', { db: d, col: c, name: '覚え' });
+  twice('col.move', { db: d, col: c, after: '' });
+  ok(call(db, 'row.setCell', { db: d, id: r1, col: c, value: '12' }), 'row.setCell');
+  ok(call(db, 'row.setCell', { db: d, id: r2, col: c, value: 'abc' }), 'row.setCell');
+  const st = twice('col.setType', { db: d, col: c, type: 'number' });
+  assert.strictEqual(st.emptied, 1);
+  twice('col.setOpts', { db: d, col: s, opts: [{ id: 'o1', name: '高', color: 'red' }] });
+  const n = colAdd(db, d, 'number', '数');
+  twice('col.setFmt', { db: d, col: n, fmt: 'yen' });
+  twice('col.remove', { db: d, col: n });
+  twice('col.restore', { db: d, col: n });
+  ok(call(db, 'col.remove', { db: d, col: n }), 'col.remove');
+  twice('col.purge', { db: d, col: n });
+  twice('row.move', { db: d, id: r2, afterId: '' });
+  twice('rows.setCell', { db: d, ids: [r1, r2], col: s, value: 'o1' });
+  const p = twice('rows.paste', { db: d, viewId: 'v1', at: { row: r2, col: 'title' }, grid: [['三', '3', 'x', '1', 'e'], ['四', 'y', 'z', '2', 'f'], ['五', '5', '高', '3', 'g']] });
+  assert.deepStrictEqual(p, { filled: 12, added: 1, skipped: 3, unread: 1 }, '貼り付けの数（このテストの前提）');
+  const v = twice('view.add', { db: d, layout: 'list', name: 'リスト' });
+  twice('view.update', { db: d, viewId: v.view.id, patch: { sort: [{ col: 'title', dir: 'desc' }] } });
+  twice('view.move', { db: d, viewId: v.view.id, after: '' });
+  twice('view.remove', { db: d, viewId: v.view.id });
+}));
+
+test('DS-3 直し（rv42 の手の変異 m3・m4・m6・m7・m18・m23）: 足した行の戻しは後でセルが変われば stale・列の歩みは後で列が変われば stale・種類の読み替えと選択肢を消すはゴミ箱の行にも当てる・戻すと行の最終更新は今の時刻と自分・消した列のセルは書けない・db.view は出す列のセルだけ', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const c = colAdd(db, d, 'text', 'メモ');
+  const s = selectCol(db, d);
+  // m3: 足した行の歩みを、後で書いたセルの上から戻さない
+  const a = callTx(db, 'row.add', { db: d, cells: { [c]: 'x' } });
+  ok(call(db, 'row.setCell', { db: d, id: a.r.result.id, col: c, value: 'y' }), 'row.setCell');
+  assert.strictEqual(code(revert(db, d, [a.tx]).r), 'stale', '後で書いたセルの行を戻して消した');
+  // m4: 列の名前の歩みを、後で列を足した上から戻さない
+  const rn = callTx(db, 'col.rename', { db: d, col: c, name: '覚え' });
+  colAdd(db, d, 'number', '数');
+  assert.strictEqual(code(revert(db, d, [rn.tx]).r), 'stale', '後で列が変わったのに列の歩みを戻した');
+  // m6: ゴミ箱の行にも読み替えと選択肢を消すが当たる（R32・R34）
+  const t = rowAddA(db, d, { cells: { [c]: '12', [s]: 'o2' } });
+  ok(call(db, 'rows.trash', { db: d, ids: [t] }), 'rows.trash');
+  ok(call(db, 'col.setType', { db: d, col: c, type: 'number' }), 'col.setType');
+  ok(call(db, 'col.setOpts', { db: d, col: s, opts: [{ id: 'o1', name: '高', color: 'red' }] }), 'col.setOpts');
+  assert.deepStrictEqual(cellsOf(db, t), { [c]: 12 }, 'ゴミ箱の行のセルを読み替えない・消した選択肢を外さない');
+  // m7: 戻して書き直した行の最終更新日時と更新者は、戻した時刻と自分（R31）
+  const r = rowAddA(db, d);
+  const w = callTx(db, 'row.setCell', { db: d, id: r, col: c, value: 5 });
+  clock += 3600000;
+  ok(revert(db, d, [w.tx]).r, 'edit.revert');
+  const row = view(db, d).rows.find((x) => x.id === r);
+  assert.strictEqual(row.updatedAt, new Date(clock).toISOString(), '戻した行の最終更新日時が戻した時刻でない');
+  assert.deepStrictEqual(row.by, { c: 'me', u: 'me' });
+  // m18: 消した列のセルは書けない
+  ok(call(db, 'col.remove', { db: d, col: c }), 'col.remove');
+  assert.strictEqual(code(call(db, 'row.setCell', { db: d, id: r, col: c, value: 1 })), 'bad-args', '消した列のセルを書けた');
+  assert.strictEqual(code(call(db, 'rows.setCell', { db: d, ids: [r], col: c, value: 1 })), 'bad-args');
+  ok(call(db, 'col.restore', { db: d, col: c }), 'col.restore');
+  // m23: db.view は出す列のセルだけ
+  ok(call(db, 'row.setCell', { db: d, id: r, col: c, value: 7 }), 'row.setCell');
+  ok(call(db, 'view.update', { db: d, viewId: 'v1', patch: { props: dbGet(db, d).views[0].props.map((p) => (p.col === c ? { ...p, show: false } : p)) } }), 'view.update');
+  assert.ok(!Object.hasOwn(view(db, d).rows.find((x) => x.id === r).cells, c), '隠した列のセルを返した');
+}));
+
+test('DS-3 直し（rv42 の手の変異 m2・m12・m11・m16・m1）: 末尾に足す並びの鍵は短いまま（R31）・列とビューの設定が 256KB を越えると too-big・リレーションの列は書けず貼り付けでは飛ばす・1つの applyOps で列を書いたら覚えた列を捨てる', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const r0 = rowAddA(db, d);
+  // m2: 1,500 行を末尾に足しても、並びの鍵は 6 字まで
+  const grid = Array.from({ length: 1500 }, (_, i) => [`行 ${i}`]);
+  ok(call(db, 'rows.paste', { db: d, viewId: 'v1', at: { row: r0, col: 'title' }, grid }), 'rows.paste');
+  const longest = db.prepare("select max(length(ord)) m from blocks where type = 'row' and parent_id = ?").get(d).m;
+  assert.ok(longest <= 6, `並びの鍵が長い（${longest} 字）`);
+  // m12: 列の設定（選択肢）が 256KB を越える書き込みは too-big
+  const opts = Array.from({ length: 200 }, (_, i) => ({ id: `o${i + 1}`, name: `${'x'.repeat(95)}${String(i).padStart(4, '0')}`, color: 'default' }));
+  let last = 'ok';
+  for (let k = 0; k < 12 && last === 'ok'; k += 1) {
+    const sc = colAdd(db, d, 'select', `選択 ${k}`);
+    last = code(call(db, 'col.setOpts', { db: d, col: sc, opts }));
+  }
+  assert.strictEqual(last, 'too-big', '256KB を越える列の設定を書いた');
+  assert.ok(Buffer.byteLength(JSON.stringify({ cols: attrsOf(db, d).cols, views: attrsOf(db, d).views })) <= LIMITS.dbAttrs);
+  // m11・m16: リレーションの列（DR-1 まで命令では作れないので種で置く）は row.setCell では書けず、貼り付けでは飛ばす
+  const d2 = mkDb(db);
+  const a2 = attrsOf(db, d2);
+  put(db, [{ op: 'set', id: d2, key: 'cols', value: [...a2.cols, { id: 'c9', name: 'つなぐ', type: 'rel', db: d2 }], old: a2.cols }]);
+  const q = rowAddA(db, d2);
+  assert.strictEqual(code(call(db, 'row.setCell', { db: d2, id: q, col: 'c9', value: [q] })), 'bad-args');
+  ok(call(db, 'view.update', { db: d2, viewId: 'v1', patch: { props: [{ col: 'title', show: true, wrap: false }, { col: 'c9', show: true, wrap: false }] } }), 'view.update');
+  const pr = ok(call(db, 'rows.paste', { db: d2, viewId: 'v1', at: { row: q, col: 'title' }, grid: [['甲', q]] }), 'rows.paste');
+  assert.deepStrictEqual([pr.filled, pr.skipped], [1, 1], 'リレーションの列に貼った');
+  // m1: 1つの applyOps で、行を足して（列を覚える）から列の選択肢の名前を変えると、行の検索の欄は新しい名前
+  const d3 = mkDb(db);
+  const s3 = selectCol(db, d3);
+  const cols3 = attrsOf(db, d3).cols;
+  const renamed = cols3.map((x) => (x.id === s3 ? { ...x, opts: x.opts.map((o) => (o.id === 'o1' ? { ...o, name: '最優先' } : o)) } : x));
+  put(db, [rowAdd('rq1', d3, 'k1', '行', { [s3]: 'o1' }), { op: 'set', id: d3, key: 'cols', value: renamed, old: cols3 }]);
+  assert.ok(blockOf(db, 'rq1').fold.includes(searchFold('最優先')), '列を書いた後も前の列で検索の欄を作った');
+}));
+
+test('PERF・DS-3 直し・I3（rv42）: 1万行で、列の名前・並び・見せ方を変えても行の検索の欄を読み直さない。列を消す・戻す・選択肢の名前を変える・種類を変えるとその列に値のある行だけを作り直す（かかった時間を出す: 目安は持ち主に問う）', { timeout: 300000 }, (tc) => withDb((db) => {
+  const d = mkDb(db);
+  const txt = colAdd(db, d, 'text', 'メモ');
+  const sel = selectCol(db, d);
+  const num = colAdd(db, d, 'number', '金額');
+  const empty = colAdd(db, d, 'text', '空');
+  const rows = [];
+  for (let i = 0; i < 10000; i += 1) rows.push(rowAdd(`rp${i}`, d, `k${String(i).padStart(5, '0')}`, `行 ${i}`, { [txt]: `メモ ${i % 97}`, [sel]: i % 3 ? 'o1' : 'o2', [num]: i }, i + 1));
+  put(db, rows);
+  rows.length = 0;
+  const SQL = 'select type, parent_id, text, attrs, fold from blocks where id = ?';
+  let reads = 0;
+  const wrapped = new Proxy(db, { get(target, key) {
+    const v = Reflect.get(target, key);
+    if (key === 'prepare') return (sql, ...rest) => { if (sql === SQL) reads += 1; return v.call(target, sql, ...rest); };
+    return typeof v === 'function' ? v.bind(target) : v;
+  } });
+  const times = {};
+  const run = (name, cmd, args) => {
+    reads = 0;
+    const t0 = process.hrtime.bigint();
+    const tx = txOf('app');
+    const r = core.call(wrapped, { role: 'app', cmd, args, tx }, { now, labels: {} });
+    times[name] = Math.round(Number(process.hrtime.bigint() - t0) / 1e6);
+    assert.strictEqual(code(r), 'ok', name);
+    return { r, n: reads, tx };
+  };
+  // 検索の欄に入らない変え方は、行を1つも読み直さない
+  for (const [name, cmd, args] of [['col.rename', 'col.rename', { db: d, col: txt, name: '覚え' }], ['col.move', 'col.move', { db: d, col: num, after: '' }],
+    ['col.setFmt', 'col.setFmt', { db: d, col: num, fmt: 'yen' }], ['col.remove（値の無い列）', 'col.remove', { db: d, col: empty }], ['col.remove（数値）', 'col.remove', { db: d, col: num }]]) {
+    assert.strictEqual(run(name, cmd, args).n, 0, `${name} で行の検索の欄を読み直した`);
+  }
+  // 値のある列だけ: 選択肢の名前を変える・テキストの列を消す・戻す・種類を変える
+  const so = run('col.setOpts（名前を変える）', 'col.setOpts', { db: d, col: sel, opts: [{ id: 'o1', name: '最優先', color: 'red' }, { id: 'o2', name: '低', color: 'default' }] });
+  assert.strictEqual(so.n, 10000);
+  assert.ok(blockOf(db, 'rp1').fold.includes(searchFold('最優先')));
+  assert.strictEqual(run('col.remove（テキスト）', 'col.remove', { db: d, col: txt }).n, 10000);
+  assert.ok(!blockOf(db, 'rp1').fold.includes(searchFold('メモ 1')), '消した列の文字が検索の欄に残る');
+  assert.strictEqual(run('col.restore（テキスト）', 'col.restore', { db: d, col: txt }).n, 10000);
+  assert.ok(blockOf(db, 'rp1').fold.includes(searchFold('メモ 1')));
+  const st = run('col.setType（選択 → テキスト）', 'col.setType', { db: d, col: sel, type: 'text' });
+  assert.strictEqual(st.n, 10000);
+  run('col.setType の Ctrl+Z', 'edit.revert', { pageId: d, steps: [st.tx] });
+  assert.strictEqual(dbGet(db, d).cols.find((c) => c.id === sel).type, 'select');
+  tc.diagnostic(`1万行の列の命令（ミリ秒）: ${JSON.stringify(times)}`);
 }));

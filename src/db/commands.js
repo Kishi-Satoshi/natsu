@@ -1351,10 +1351,12 @@ function liveRow(db, d, id) {
   return { ...rowView(r), raw: r, attrs: JSON.parse(r.attrs || '{}') };
 }
 // 新しい行の ID（決めたこと 2: r＋時刻の36進＋5字。ページの ID と同じ作り方）
-function newRowId(db, now, rand = randU32) {
+// issued: 同じ命令の中で振った ID（まだ書いていない。同じ時刻に足す行で重ならない: rv42 M2・R60）
+function newRowId(db, now, rand = randU32, issued = null) {
   for (;;) {
     const id = `r${now().getTime().toString(36)}${rand().toString(36).padStart(7, '0').slice(-5)}`;
-    if (!db.prepare(HOT_QUERIES.pageRow).get(id)) return id;
+    if (issued && issued.has(id)) continue;
+    if (!db.prepare(HOT_QUERIES.pageRow).get(id)) { if (issued) issued.add(id); return id; }
   }
 }
 // 末尾に足す並びの鍵（R31: keyBetween(最後, null) は足すたびに1字ずつ長くなる（1万行で 2,000 字）ので、4 桁の 36 進の数として1つ進める）
@@ -1408,6 +1410,55 @@ function touchOps(r, ctx) {
 function dbSet(d, key, value) {
   if (Buffer.byteLength(JSON.stringify({ ...d.attrs, [key]: value }), 'utf8') > LIMITS.dbAttrs) throw refuse('too-big');
   return { op: 'set', id: d.id, key, value, old: d.attrs[key] };
+}
+// 列と選択肢の ID は使い直さない（rv42 I1・R56）: 前の並びに無い列と、前のその列に無い選択肢（読み替え・貼り付け・画面が足した選択肢）の ID が、
+// 今までに振った一番大きい数（データベースの attrs.seq の c と o。無ければ今ある ID の一番大きい数）以下なら、その次の数に振り直す（大きければそのまま）。
+// 新しい列の選択肢はその列の中だけの ID なので見ない。→ { cols, ops（列の set と数の set）, mapCell(列の ID, 値) → 振り直した ID の値 }。
+// 数は元に戻すで戻さない（DB_NO_REVERT）
+const SEQ_NUM_RE = /^[co](\d{1,9})$/;
+function freshIds(d, cols) {
+  const num = (id) => { const m = SEQ_NUM_RE.exec(String(id)); return m ? Number(m[1]) : 0; };
+  const was0 = isObj(d.attrs.seq) ? d.attrs.seq : {};
+  const seq = { c: Number.isSafeInteger(was0.c) ? was0.c : 0, o: Number.isSafeInteger(was0.o) ? was0.o : 0 };
+  for (const c of d.cols) { seq.c = Math.max(seq.c, num(c.id)); for (const o of Array.isArray(c.opts) ? c.opts : []) seq.o = Math.max(seq.o, num(o.id)); }
+  const take = (head, id) => { const n = num(id); if (n > seq[head]) { seq[head] = n; return id; } seq[head] += 1; return `${head}${seq[head]}`; };
+  const was = new Map(d.cols.map((c) => [c.id, c]));
+  const maps = new Map();
+  const out = cols.map((c) => {
+    if (!was.has(c.id)) return c.id === 'title' ? c : { ...c, id: take('c', c.id) };
+    if (!Array.isArray(c.opts)) return c;
+    const old = new Set((Array.isArray(was.get(c.id).opts) ? was.get(c.id).opts : []).map((o) => o.id));
+    const map = new Map();
+    const opts = c.opts.map((o) => { if (old.has(o.id)) return o; const id = take('o', o.id); if (id !== o.id) map.set(o.id, id); return id === o.id ? o : { ...o, id }; });
+    if (!map.size) return c;
+    maps.set(c.id, map);
+    const next = { ...c, opts };
+    if (isObj(c.groups)) next.groups = Object.fromEntries(Object.entries(c.groups).map(([k, ids]) => [k, Array.isArray(ids) ? ids.map((x) => map.get(x) || x) : ids]));
+    return next;
+  });
+  const ops = [dbSet(d, 'cols', out)];
+  if (seq.c !== was0.c || seq.o !== was0.o) ops.push({ op: 'set', id: d.id, key: 'seq', value: seq, old: d.attrs.seq });
+  const mapCell = (colId, v) => {
+    const map = maps.get(colId);
+    if (!map || v === undefined || v === null) return v;
+    return Array.isArray(v) ? v.map((x) => map.get(x) || x) : (map.get(v) || v);
+  };
+  return { cols: out, ops, mapCell };
+}
+// 振り直した選択肢の ID を、同じ命令のセルの操作（cell:<列> の set と、足した行のセル）にも当てる
+function remapCellOps(list, mapCell) {
+  return list.map((o) => {
+    if (o.op === 'set' && typeof o.key === 'string' && o.key.startsWith('cell:')) {
+      const v = mapCell(o.key.slice(5), o.value);
+      return v === o.value ? o : { ...o, value: v };
+    }
+    if (o.op === 'add' && o.row && isObj(o.row.attrs) && isObj(o.row.attrs.cells)) {
+      const cells = {};
+      for (const [k, v] of Object.entries(o.row.attrs.cells)) cells[k] = mapCell(k, v);
+      return { ...o, row: { ...o.row, attrs: { ...o.row.attrs, cells } } };
+    }
+    return o;
+  });
 }
 const dbDone = (db, d, ops, result, rows = []) => { applyOps(db, ops); return { ops, pageIds: ops.length ? [d.id, ...rows] : [], result }; };
 const viewOf = (d, id) => d.views.find((v) => v.id === id);
@@ -1524,7 +1575,7 @@ function rowsTrash(db, a, ctx) {
 }
 // 何行何列かの貼り付け（DQ7 (a)・決めたこと 52・R35）: ビューの見えている並びで、選んだセルから右下へ。足りない行は足し（絞り込みの値を入れる）、
 // 右にはみ出した列・書けない列・リレーションは飛ばして skipped に、種類に読めない値は空にして unread に数える。全部が1つの命令（Ctrl+Z の1回）
-function rowsPaste(db, a, ctx) {
+function rowsPaste(db, a, ctx, dry = false) {
   const d = mustDb(db, a.db);
   const raw = viewOf(d, a.viewId);
   if (!raw) throw refuse('bad-args');
@@ -1546,6 +1597,7 @@ function rowsPaste(db, a, ctx) {
   const rowOps = [];
   const addOps = [];
   let last = db.prepare(HOT_QUERIES.dbLastOrd).get(d.id).m;
+  const issued = new Set();
   let no = Number.isSafeInteger(d.attrs.nextNo) && d.attrs.nextNo > 0 ? d.attrs.nextNo : 1;
   const who = whoOf(ctx);
   const at = ctx.now().toISOString();
@@ -1571,16 +1623,19 @@ function rowsPaste(db, a, ctx) {
     });
     if (fresh) {
       last = appendKey(last);
-      const nid = newRowId(db, ctx.now);
+      const nid = newRowId(db, ctx.now, randU32, issued);
       addOps.push({ op: 'add', id: nid, row: rowBlock({ id: nid, db: d.id, ord: last, title: fresh.title, cells: fresh.cells, by: { c: who, u: who }, no, at }) });
       no += 1;
       st.added += 1;
     } else if (mine.length) rowOps.push(...mine, ...touchOps(r, ctx));
   });
+  if (dry) return st;   // 送り直しの答え（数だけ。書かない: R59）
   const newCols = d.cols.map((c) => colsNow.get(c.id) || c);
   const ops = [];
-  if (!isDeepStrictEqual(newCols, d.cols)) ops.push(dbSet(d, 'cols', newCols));   // 読み替えで足した選択肢
-  ops.push(...addOps, ...rowOps);
+  if (!isDeepStrictEqual(newCols, d.cols)) {   // 読み替えで足した選択肢（ID はデータベースの数から振り直す: R56）
+    const f = freshIds(d, newCols);
+    ops.push(...f.ops, ...remapCellOps([...addOps, ...rowOps], f.mapCell));
+  } else ops.push(...addOps, ...rowOps);
   if (st.added) ops.push({ op: 'set', id: d.id, key: 'nextNo', value: no, old: d.attrs.nextNo });
   return dbDone(db, d, ops, st);
 }
@@ -1597,7 +1652,8 @@ function colAdd(db, a) {
   const i = a.after === undefined ? cols.length : a.after === '' ? 0 : cols.findIndex((c) => c.id === a.after) + 1;
   if (i < 0 || (a.after && i === 0)) throw refuse('bad-args');
   cols.splice(i, 0, col);
-  return dbDone(db, d, [dbSet(d, 'cols', cols)], { col });
+  const f = freshIds(d, cols);   // 列の ID は使い直さない（R56）
+  return dbDone(db, d, f.ops, { col: f.cols[i] });
 }
 // 列を置き換えた並び（照らしてから）
 function colsWith(d, col) {
@@ -1638,7 +1694,8 @@ function colSetType(db, a) {
     if (got.value === null) emptied += 1;
     cellSets.push({ op: 'set', id: r.id, key: `cell:${from.id}`, value: got.value ?? undefined, old: was });
   }
-  return dbDone(db, d, [dbSet(d, 'cols', colsWith(d, to)), ...cellSets], { col: to, emptied });
+  const f = freshIds(d, colsWith(d, to));   // 読み替えで足した選択肢の ID は使い直さない（R56）
+  return dbDone(db, d, [...f.ops, ...remapCellOps(cellSets, f.mapCell)], { col: f.cols.find((c) => c.id === to.id), emptied });
 }
 function colMove(db, a) {
   const d = mustDb(db, a.db);
@@ -1675,7 +1732,11 @@ function colPurge(db, a) {
   const col = colIn(d.cols, a.col);
   if (!col || !col.gone) throw refuse('bad-args');
   const cells = allRows(db, d).filter((r) => Object.hasOwn(r.cells, col.id)).map((r) => ({ op: 'set', id: r.id, key: `cell:${col.id}`, value: undefined, old: r.cells[col.id] }));
-  return dbDone(db, d, [dbSet(d, 'cols', d.cols.filter((c) => c.id !== col.id)), ...cells], { purged: col.id });
+  const rest = d.cols.filter((c) => c.id !== col.id);
+  const views = d.views.map((v) => DV.normalizeView(v, rest).view);   // ビューの設定からもその列を外す（R56）
+  const out = [dbSet(d, 'cols', rest)];
+  if (!isDeepStrictEqual(views, d.views)) out.push(dbSet({ ...d, attrs: { ...d.attrs, cols: rest } }, 'views', views));
+  return dbDone(db, d, [...out, ...cells], { purged: col.id });
 }
 // 選択肢を置き換える（名前・色・並び・足す・消す。消した選択肢はセルからも外す: R34）→ { col }
 function colSetOpts(db, a) {
@@ -1704,7 +1765,8 @@ function colSetOpts(db, a) {
     const value = Array.isArray(now) && !now.length ? undefined : now;
     if (!isDeepStrictEqual(value, was)) cells.push({ op: 'set', id: r.id, key: `cell:${col.id}`, value, old: was });
   }
-  return dbDone(db, d, [dbSet(d, 'cols', cols), ...cells], { col: next });
+  const f = freshIds(d, cols);   // 新しい選択肢の ID は DB が振る（消した選択肢の ID を使い直さない: R56）
+  return dbDone(db, d, [...f.ops, ...cells], { col: f.cols.find((c) => c.id === col.id) });
 }
 // 数値の見せ方（fmt）と ID の接頭辞（prefix。'' は外す）（R33）→ { col }
 function colSetFmt(db, a) {
@@ -1779,7 +1841,16 @@ function dbRevert(db, a, ctx, fwd) {
   // 戻すと消える行（足した行）に本文があれば戻さない（本文を親の無い行にしない）
   const body = db.prepare('select count(*) as c from blocks where page_id = ? and id <> ?');
   if (back.some((o) => o.op === 'trash' && isObj(o.old) && body.get(o.id, o.id).c > 0)) throw refuse('stale');
+  // 戻すと消える列（足した列の戻し）に値のある行があれば戻さない（ゴミ箱の行も。行に持ち主の無いセルを残さない: rv42 I2・R57）
+  for (const o of back) {
+    if (o.op !== 'set' || o.id !== a.pageId || o.key !== 'cols' || !Array.isArray(o.value) || !Array.isArray(o.old)) continue;
+    const keep = new Set(o.value.map((c) => c && c.id));
+    const lost = o.old.map((c) => c && c.id).filter((id) => !keep.has(id));
+    if (lost.length && db.prepare(HOT_QUERIES.dbAllRows).all(a.pageId).some((r) => { const c = JSON.parse(r.attrs || '{}').cells; return isObj(c) && lost.some((id) => Object.hasOwn(c, id)); })) throw refuse('stale');
+  }
   applyOps(db, back);
+  // 行を戻す・やり直すでも、1つのデータベースの行は 10,000 まで（rv42 M1・R58。越えれば何も変えない）
+  if (back.some((o) => o.op === 'restore' || o.op === 'add') && db.prepare(HOT_QUERIES.dbRowCount).get(a.pageId).c > LIMITS.dbRows) throw refuse('too-big');
   const touched = [...new Set(back.filter((o) => o.op === 'text' || (o.op === 'set' && o.key.startsWith('cell:'))).map((o) => o.id))];
   const meta = [];
   for (const id of touched) {
@@ -1790,6 +1861,37 @@ function dbRevert(db, a, ctx, fwd) {
   return { ops: [...back, ...meta], pageIds: [a.pageId, ...touched], result: { page: readPage(db, a.pageId) } };
 }
 
+// ---- 送り直しの答え（rv42 M3・R59: 1回目と同じ R29 の形を、今の中身と oplog の1行から作り直す。データベースが無ければ null）
+const dupOps = (row) => { try { const l = JSON.parse(row.ops || '[]'); return Array.isArray(l) ? l : []; } catch (_) { return []; } };
+const dupDb = (db, a) => dbOf(db, a.db);
+const dupCol = (db, a) => { const d = dupDb(db, a); const col = d ? colIn(d.cols, a.col) : null; return col ? { col } : null; };
+// 1回目に足した物（列・ビュー）の ID: oplog の set の前と後の並びで、後にだけある ID
+function dupNewId(row, key) {
+  const o = dupOps(row).find((x) => x && x.op === 'set' && x.key === key && Array.isArray(x.value));
+  if (!o) return null;
+  const old = new Set((Array.isArray(o.old) ? o.old : []).map((x) => x && x.id));
+  const got = o.value.find((x) => x && !old.has(x.id));
+  return got ? got.id : null;
+}
+const DUP = {
+  'col.add': (db, a, row) => { const d = dupDb(db, a); const id = dupNewId(row, 'cols'); const col = d && id ? colIn(d.cols, id) : null; return col ? { col } : null; },
+  'col.setType': (db, a, row) => {
+    const got = dupCol(db, a);
+    return got ? { ...got, emptied: dupOps(row).filter((o) => o && o.op === 'set' && o.key === `cell:${a.col}` && (o.value === undefined || o.value === null)).length } : null;
+  },
+  'col.purge': (db, a) => ({ purged: a.col }),
+  'view.add': (db, a, row) => { const d = dupDb(db, a); const id = dupNewId(row, 'views'); const v = d && id ? viewOf(d, id) : null; return v ? { view: v } : null; },
+  'view.one': (db, a) => { const d = dupDb(db, a); const v = d ? viewOf(d, a.viewId) : null; return v ? { view: v } : null; },
+  'view.remove': (db, a) => ({ removed: a.viewId }),
+  'row.move': (db, a) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); return r ? { row: rowView(r) } : null; },
+  'rows.setCell': (db, a, row) => ({ changed: new Set(dupOps(row).filter((o) => o && (o.op === 'text' || (o.op === 'set' && String(o.key).startsWith('cell:')))).map((o) => o.id)).size }),
+  // 貼り付けは同じ引数で数え直す（書かない）。足した行は oplog の1行の数
+  'rows.paste': (db, a, row, ctx) => {
+    let st;
+    try { st = rowsPaste(db, a, ctx, true); } catch (_) { return null; }
+    return { ...st, added: dupOps(row).filter((o) => o && o.op === 'add').length };
+  },
+};
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -2323,24 +2425,24 @@ const DEFS = {
     dupResult: (db, a) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); return r ? { row: rowView(r) } : null; } },
   'rows.setCell': { roles: ['app'], write: true, args: { db: 'id', ids: 'ids', col: 'id', value: 'cellArg' }, pageOf: dbOfArgs,
     run: (db, a, ctx) => { const out = setCells(db, a, ctx, a.ids); return { ...out, result: { changed: out.changed.length } }; },
-    dupResult: () => null },
-  'row.move': { roles: ['app'], write: true, args: { db: 'id', id: 'id', afterId: 'idOrEmpty' }, pageOf: dbOfArgs, run: rowMove, dupResult: () => null },
+    dupResult: DUP['rows.setCell'] },
+  'row.move': { roles: ['app'], write: true, args: { db: 'id', id: 'id', afterId: 'idOrEmpty' }, pageOf: dbOfArgs, run: rowMove, dupResult: DUP['row.move'] },
   'rows.trash': { roles: ['app'], write: true, args: { db: 'id', ids: 'ids' }, pageOf: dbOfArgs, run: rowsTrash,
     dupResult: (_db, _a, row) => ({ trashed: JSON.parse(row.ops || '[]').length }) },
-  'rows.paste': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', at: 'cellRef', grid: 'pasteGrid' }, pageOf: dbOfArgs, run: rowsPaste, dupResult: () => null },
-  'col.add': { roles: ['app'], write: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?' }, pageOf: dbOfArgs, run: colAdd, dupResult: () => null },
-  'col.rename': { roles: ['app'], write: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: () => null },
-  'col.setType': { roles: ['app'], write: true, args: { db: 'id', col: 'id', type: 'colType' }, pageOf: dbOfArgs, run: colSetType, dupResult: () => null },
-  'col.move': { roles: ['app'], write: true, args: { db: 'id', col: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: colMove, dupResult: () => null },
-  'col.remove': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRemove, dupResult: () => null },
-  'col.restore': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRestore, dupResult: () => null },
-  'col.purge': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colPurge, dupResult: () => null },
-  'col.setOpts': { roles: ['app'], write: true, args: { db: 'id', col: 'id', opts: 'optsArg', groups: 'groupsArg?' }, pageOf: dbOfArgs, run: colSetOpts, dupResult: () => null },
-  'col.setFmt': { roles: ['app'], write: true, args: { db: 'id', col: 'id', fmt: 'short?', prefix: 'short?' }, pageOf: dbOfArgs, run: colSetFmt, dupResult: () => null },
-  'view.add': { roles: ['app'], write: true, args: { db: 'id', layout: 'layout?', name: 'short?', from: 'id?' }, pageOf: dbOfArgs, run: viewAdd, dupResult: () => null },
-  'view.update': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', patch: 'viewPatch' }, pageOf: dbOfArgs, run: viewUpdate, dupResult: () => null },
-  'view.remove': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id' }, pageOf: dbOfArgs, run: viewRemove, dupResult: () => null },
-  'view.move': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: viewMove, dupResult: () => null },
+  'rows.paste': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', at: 'cellRef', grid: 'pasteGrid' }, pageOf: dbOfArgs, run: rowsPaste, dupResult: DUP['rows.paste'] },
+  'col.add': { roles: ['app'], write: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?' }, pageOf: dbOfArgs, run: colAdd, dupResult: DUP['col.add'] },
+  'col.rename': { roles: ['app'], write: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: dupCol },
+  'col.setType': { roles: ['app'], write: true, args: { db: 'id', col: 'id', type: 'colType' }, pageOf: dbOfArgs, run: colSetType, dupResult: DUP['col.setType'] },
+  'col.move': { roles: ['app'], write: true, args: { db: 'id', col: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: colMove, dupResult: dupCol },
+  'col.remove': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRemove, dupResult: dupCol },
+  'col.restore': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRestore, dupResult: dupCol },
+  'col.purge': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colPurge, dupResult: DUP['col.purge'] },
+  'col.setOpts': { roles: ['app'], write: true, args: { db: 'id', col: 'id', opts: 'optsArg', groups: 'groupsArg?' }, pageOf: dbOfArgs, run: colSetOpts, dupResult: dupCol },
+  'col.setFmt': { roles: ['app'], write: true, args: { db: 'id', col: 'id', fmt: 'short?', prefix: 'short?' }, pageOf: dbOfArgs, run: colSetFmt, dupResult: dupCol },
+  'view.add': { roles: ['app'], write: true, args: { db: 'id', layout: 'layout?', name: 'short?', from: 'id?' }, pageOf: dbOfArgs, run: viewAdd, dupResult: DUP['view.add'] },
+  'view.update': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', patch: 'viewPatch' }, pageOf: dbOfArgs, run: viewUpdate, dupResult: DUP['view.one'] },
+  'view.remove': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id' }, pageOf: dbOfArgs, run: viewRemove, dupResult: DUP['view.remove'] },
+  'view.move': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: viewMove, dupResult: DUP['view.one'] },
 };
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
