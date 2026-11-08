@@ -264,6 +264,26 @@ const PRIVATE_MENU = `(async () => {
   await new Promise((r) => setTimeout(r, 150));
   return 1;
 })()`;
+// 0.15.1 PS-3（D124）: 1行目のページを開いて、その行の［···］で行のメニュー（6つの項目と最終更新の行）を開いた形。行の［···］と［＋］は乗せたときだけ出る
+//（撮る窓は :hover が当たらない）ので、乗せた行の CSS と同じ形を style で当てる
+const ROW_MENU = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${OPEN_PAGE}; await w(200);
+  const row = document.querySelector('#plist .pitem');
+  row.style.background = 'var(--hover)';
+  for (const b of row.querySelectorAll('.pmore, .padd')) b.style.display = 'inline-flex';
+  row.querySelector('.pmore').click(); await w(150);
+  return 1;
+})()`;
+// 0.15.1 PS-3（D124）: 2行目で Ctrl+Shift+R を押して、行の題名の所の名前を変える欄を出した形（今の題名を全部選んだ形）
+const ROW_RENAME = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${OPEN_PAGE}; await w(200);
+  const row = document.querySelectorAll('#plist .pitem')[1];
+  row.focus();
+  row.dispatchEvent(new KeyboardEvent('keydown', { key: 'R', code: 'KeyR', ctrlKey: true, shiftKey: true, bubbles: true })); await w(150);
+  return 1;
+})()`;
 // 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
 const SELECT_TWO = `(() => {
   document.getElementById('listSelect').click();
@@ -491,6 +511,9 @@ const SCREENS = [
   { name: 'side-private-menu-light', page: 'app', theme: 'light', act: PRIVATE_MENU },
   { name: 'side-private-more-light', page: 'app', theme: 'light', get answers() { return moreAnswers(); } },
   { name: 'side-private-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: `${OPEN_PAGE}; ${SHOW_PRIVATE_BTNS}` },
+  // 0.15.1 PS-3（計画の「取り直す画面（RETAKE）」・D124）: 行の［···］のメニュー（6つと最終更新の行）と、行の中の名前を変える欄。足した画面（まだ基準が無い）
+  { name: 'side-row-menu-light', page: 'app', theme: 'light', act: ROW_MENU },
+  { name: 'side-row-rename-light', page: 'app', theme: 'light', act: ROW_RENAME },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -628,6 +651,8 @@ const RETAKE = new Set([
   'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light', 'look-small-zoom200-light',
   // 0.15.1 PS-2（D124）: 足した5枚（まだ基準が無い）
   'side-private-folded-light', 'side-private-folded-dark', 'side-private-menu-light', 'side-private-more-light', 'side-private-zoom200-light',
+  // 0.15.1 PS-3（D124）: 足した2枚（まだ基準が無い）
+  'side-row-menu-light', 'side-row-rename-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';

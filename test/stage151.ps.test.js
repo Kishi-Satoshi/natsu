@@ -592,3 +592,183 @@ test('PS-2・F162・PQ8: ［表示］の［5］でいちばん上の行が 5 つ
   assert.deepStrictEqual(uIds(l), ['pg7', 'pg6', 'k1', 'k2', 'pg5', 'pg4', 'pg3', 'pg2', 'pg1']);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ================================================================ PS-3（行の［···］と、その場で名前を変える: 決めたこと 29・30・F163）
+const ORIGIN = 'https://natsu-help.natsu-code.workers.dev';
+const rowMenu = (l) => l.document.querySelector('.treemenu');
+const rowItems = (l) => rowMenu(l).querySelectorAll('.mitem');
+const renameBox = (l) => $(l, 'plist').querySelector('input.pren');
+const CSR = { key: 'R', code: 'KeyR', ctrlKey: true, shiftKey: true };
+const tokyo = (t) => {
+  const prev = process.env.TZ;
+  process.env.TZ = 'Asia/Tokyo';
+  t.after(() => { if (prev === undefined) delete process.env.TZ; else process.env.TZ = prev; });
+};
+// 名前を変えられる一覧（pageSetTitle で一覧の題名も替わる。fail が真なら断る）
+function renamable(o = {}) {
+  const names = new Map();
+  const list = () => ULIST().map((p) => (names.has(p.id) ? { ...p, title: names.get(p.id) || (p.kind === 'blank' ? '無題のページ' : '(無題の議事録)') } : p));
+  return {
+    list,
+    returns: {
+      linkBase: () => `${ORIGIN}/open#p=`,
+      pageGet: (id) => { const p = list().find((x) => x.id === id); const g = UPAGE(id); return g && p ? { ...g, page: { ...g.page, title: names.has(id) ? names.get(id) : g.page.title } } : null; },
+      pageSetTitle: (id, title) => { if (o.fail) throw Object.assign(new Error('bad-args'), { code: 'bad-args' }); names.set(id, title); return { ok: true }; },
+    },
+  };
+}
+
+test('PS-3・F163: 行の［···］（.pmore・「ページのメニュー」・tabIndex -1・右端の［＋］の左）で行のメニュー。6つの項目の並びと、区切りの下に押せない「最終更新 年/月/日 時:分」（updatedAt）。右クリック・Shift+F10 も同じ。［リンクを写す］は今の［リンクを写す］と同じ行', T, async (t) => {
+  tokyo(t);
+  const r0 = renamable();
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  const row = uRow(l, 'pg5');
+  const more = row.querySelector('.pmore');
+  assert.ok(more, '行に［···］が無い');
+  assert.deepStrictEqual([more.tagName, more.textContent, more.title, more.getAttribute('aria-label'), more.tabIndex], ['button', '···', 'ページのメニュー', 'ページのメニュー', -1]);
+  const kids = row.children;
+  assert.ok(kids.indexOf(more) >= 0 && kids.indexOf(more) + 1 === kids.indexOf(row.querySelector('.padd')), '［···］が右端の［＋］のすぐ左に無い');
+  await press(l, more);
+  assert.ok(rowMenu(l), '［···］で行のメニューが出ない');
+  const want = ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '新しいタブで開く', '削除'];
+  assert.deepStrictEqual(rowItems(l).map((b) => b.textContent), want);
+  assert.deepStrictEqual(rowItems(l).map((b) => b.getAttribute('data-kbd')), [null, 'Ctrl+Shift+R', null, null, 'Ctrl+Enter', null]);
+  assert.deepStrictEqual(rowItems(l).map((b) => b.getAttribute('aria-keyshortcuts')), [null, 'Control+Shift+R', null, null, 'Control+Enter', null]);
+  const foot = rowMenu(l).querySelector('.mfoot');
+  assert.ok(foot, '最終更新の行が無い');
+  assert.deepStrictEqual([foot.textContent, foot.getAttribute('role'), foot.tabIndex], ['最終更新 2026/11/15 09:00', 'none', undefined], '最終更新の行が updatedAt でない（作った日時を出した）');
+  assert.ok(rowMenu(l).querySelector('.msep'), '区切りが無い');
+  assert.ok(foot.id && rowMenu(l).getAttribute('aria-describedby') === foot.id, '最終更新の行をメニューの説明として読まない');
+  // ↑↓ は項目だけ（最終更新の行で止まらない）
+  assert.ok(l.document.activeElement === rowItems(l)[0]);
+  l.key({ key: 'ArrowUp' }, rowMenu(l));
+  assert.strictEqual(l.document.activeElement.textContent, '削除', '↑ で最終更新の行に止まった');
+  l.key({ key: 'Escape' }, rowMenu(l)); await l.drain();
+  // 右クリック・Shift+F10 も同じメニュー
+  uRow(l, 'pg5').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain();
+  assert.deepStrictEqual(rowItems(l).map((b) => b.textContent), want);
+  l.key({ key: 'Escape' }, rowMenu(l)); await l.drain();
+  l.key({ key: 'F10', shiftKey: true }, uRow(l, 'pg5')); await l.drain();
+  assert.deepStrictEqual(rowItems(l).map((b) => b.textContent), want);
+  // ［リンクを写す］: 「···」のページのメニュー・選んだ行の［リンクを写す］と同じ行（決めたこと 100 の形）
+  await press(l, rowItems(l)[0]);
+  const p5 = ULIST().find((p) => p.id === 'pg5');
+  assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [`NaTsu の議事録「${p5.title}」（${p5.date}）${ORIGIN}/open#p=pg5`]);
+  assert.strictEqual($(l, 'toast').textContent, 'リンクを写しました。');
+  assert.strictEqual(rowMenu(l), null, '写した後もメニューが残る');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-3・F163: 名前を変える（［名前を変える］・行で Ctrl+Shift+R → 行の題名の所に1行の欄。変換中の Enter では決まらない・Enter で pageSetTitle の1回（続くフォーカスの外れで2回目を送らない）・外を押すと決まる・Esc でやめて行へ・同じ名前は送らない・改行とタブは1行に・空も送る）', T, async () => {
+  const r0 = renamable();
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  const sent = () => l.called('pageSetTitle').map((c) => c.args);
+  // ［名前を変える］
+  await press(l, uRow(l, 'pg5').querySelector('.pmore'));
+  await press(l, rowItems(l)[1]);
+  let box = renameBox(l);
+  assert.ok(box, '［名前を変える］で欄が出ない');
+  assert.ok(box.parentNode === uRow(l, 'pg5').querySelector('.t'), '欄が行の題名の所に無い');
+  assert.deepStrictEqual([box.value, box.getAttribute('aria-label'), box.maxLength, l.document.activeElement === box], [ULIST().find((p) => p.id === 'pg5').title, 'ページの名前', 500, true]);
+  // 変換中の Enter（isComposing・keyCode 229）では決まらない
+  box.value = '見積もりの件';
+  l.key({ key: 'Enter', isComposing: true }, box); l.key({ key: 'Enter', keyCode: 229 }, box); await l.drain();
+  assert.deepStrictEqual(sent(), [], '変換確定の Enter で名前が決まった');
+  assert.ok(renameBox(l) === box, '変換確定の Enter で欄が閉じた');
+  // Enter で1回・続くフォーカスの外れで2回目を送らない
+  const ev = l.key({ key: 'Enter' }, box);
+  box.dispatchEvent({ type: 'blur' }); await l.drain();
+  assert.strictEqual(ev.defaultPrevented, true);
+  assert.deepStrictEqual(sent(), [['pg5', '見積もりの件']], 'Enter とフォーカスの外れで2回送った');
+  assert.strictEqual(renameBox(l), null);
+  assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, '見積もりの件', '一覧の名前が替わらない');
+  // 行で Ctrl+Shift+R・外を押す（フォーカスが外れる）と決まる
+  uRow(l, 'pg4').focus();
+  const k = l.key(CSR, uRow(l, 'pg4')); await l.drain();
+  assert.strictEqual(k.defaultPrevented, true);
+  box = renameBox(l);
+  assert.ok(box && box.parentNode === uRow(l, 'pg4').querySelector('.t'), 'Ctrl+Shift+R で欄が出ない');
+  box.value = '  会議の\n控え\tその二  ';
+  box.dispatchEvent({ type: 'blur' }); await l.drain();
+  assert.deepStrictEqual(sent().slice(1), [['pg4', '会議の 控え その二']], '外を押して決まらない・改行とタブを1行に寄せない');
+  // Esc でやめる（送らない・元の題名・フォーカスは行へ）
+  uRow(l, 'pg3').focus();
+  l.key(CSR, uRow(l, 'pg3')); await l.drain();
+  box = renameBox(l);
+  box.value = '取り消す名前';
+  const esc = l.key({ key: 'Escape' }, box);
+  box.dispatchEvent({ type: 'blur' }); await l.drain();
+  assert.strictEqual(esc.defaultPrevented, true);
+  assert.deepStrictEqual(sent().length, 2, 'Esc で名前を決めた');
+  assert.strictEqual(uRow(l, 'pg3').querySelector('.t').textContent, ULIST().find((p) => p.id === 'pg3').title);
+  assert.ok(l.document.activeElement === uRow(l, 'pg3'), 'Esc の後のフォーカスが行でない');
+  // 同じ名前は送らない・空は送る（一覧は「(無題の議事録)」）
+  l.key(CSR, uRow(l, 'pg2')); await l.drain();
+  l.key({ key: 'Enter' }, renameBox(l)); await l.drain();
+  assert.deepStrictEqual(sent().length, 2, '同じ名前を送った');
+  l.key(CSR, uRow(l, 'pg1')); await l.drain();
+  renameBox(l).value = '   ';
+  l.key({ key: 'Enter' }, renameBox(l)); await l.drain();
+  assert.deepStrictEqual(sent().slice(2), [['pg1', '']]);
+  assert.strictEqual(uRow(l, 'pg1').querySelector('.t').textContent, '(無題の議事録)');
+  // 欄の中のキーは木へ渡らない（↓ で行が移らない・Space で開かない）。一覧を読み直しても（main の知らせ）欄と打った字はそのまま
+  l.key(CSR, uRow(l, 'pg7')); await l.drain();
+  renameBox(l).value = '打ちかけ';
+  l.fire('onPagesUpdated'); await l.drain();
+  box = renameBox(l);
+  assert.ok(box && box.parentNode === uRow(l, 'pg7').querySelector('.t') && box.value === '打ちかけ' && l.document.activeElement === box, '一覧を読み直すと名前の欄か打った字が消えた');
+  assert.deepStrictEqual(sent().length, 3, '読み直しで名前を決めた');
+  l.key({ key: 'ArrowDown' }, box); l.key({ key: ' ' }, box); await l.drain();
+  assert.ok(renameBox(l) === box && l.document.activeElement === box, '欄の中の ↓・Space が木の行を動かした');
+  assert.deepStrictEqual(l.called('pageGet'), [], '欄の中のキーでページを開いた');
+  box.dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(l.called('pageGet'), [], '欄を押すとページを開いた');
+  l.key({ key: 'Escape' }, box); await l.drain();
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-3・F163: 名前を変えられないとき（DB が断る → 元に戻して「名前を変えられませんでした。」・選ぶ形の間と本文・ページの題名の欄の Ctrl+Shift+R は何もしない）と、開いているページの名前を変えるとタブとページの頭の題名も替わる', T, async () => {
+  const bad = renamable({ fail: true });
+  const l = await bootUi({ list: bad.list, returns: bad.returns });
+  const was = ULIST().find((p) => p.id === 'pg5').title;
+  l.key(CSR, uRow(l, 'pg5')); await l.drain();
+  renameBox(l).value = '断られる名前';
+  l.key({ key: 'Enter' }, renameBox(l)); await l.drain();
+  assert.strictEqual(renameBox(l), null);
+  assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, was, '断られたのに元に戻さない');
+  assert.strictEqual($(l, 'toast').textContent, '名前を変えられませんでした。');
+  // 選ぶ形の間は何もしない
+  await press(l, $(l, 'privMore'));
+  await press(l, $(l, 'listSelect'));
+  l.key(CSR, uRow(l, 'pg5')); await l.drain();
+  assert.strictEqual(renameBox(l), null, '選ぶ形の間に欄が出た');
+  await press(l, $(l, 'selCancel'));
+  // 開いているページ: ページの頭の題名と本文の文字の欄の Ctrl+Shift+R は何もしない。行の名前を変えるとタブと頭の題名も替わる
+  const ok = renamable();
+  const o = await bootUi({ list: ok.list, returns: ok.returns });
+  await press(o, uRow(o, 'pg5'));
+  for (const el of [$(o, 'pTitle'), $(o, 'pMemo')].filter(Boolean)) {
+    el.focus();
+    o.key(CSR, el); await o.drain();
+    assert.strictEqual(renameBox(o), null, `${el.id} の Ctrl+Shift+R で名前の欄が出た`);
+  }
+  o.key(CSR, uRow(o, 'pg5')); await o.drain();
+  renameBox(o).value = '替えた題名';
+  o.key({ key: 'Enter' }, renameBox(o)); await o.drain();
+  assert.strictEqual($(o, 'tabbar').querySelector('[data-key="page:pg5"]').textContent.replace('×', ''), '替えた題名', 'タブの名前が替わらない');
+  assert.strictEqual($(o, 'pTitle').textContent, '替えた題名', 'ページの頭の題名が替わらない');
+  assert.deepStrictEqual([...l.errors, ...o.errors].map(fmt), []);
+});
+
+test('PS-3・F163: 近道の表（src/shortcuts.js の SHORTCUTS）に Ctrl+Shift+R の行と、新しい項目の並びに直した Shift+F10 の行。設定の表にも同じ行が出る', T, async () => {
+  const { SHORTCUTS } = require('../src/shortcuts');
+  const at = (k, w) => SHORTCUTS.find((r) => r.keys === k && r.where.startsWith(w));
+  assert.deepStrictEqual({ ...at('Ctrl+Shift+R', 'サイドバー') }, { keys: 'Ctrl+Shift+R', what: 'ページの名前を変える', where: 'サイドバーのページの一覧（ライブラリの行でも）', codes: [] });
+  assert.strictEqual(at('Shift+F10', 'サイドバー').what, '行のメニューを開く（リンクを写す・名前を変える・移動先・中にページを作る・新しいタブで開く・削除）');
+  assert.ok(SHORTCUTS.indexOf(at('Ctrl+Shift+R', 'サイドバー')) === SHORTCUTS.indexOf(at('Shift+F10', 'サイドバー')) + 1, 'Ctrl+Shift+R の行が Shift+F10 の次に無い');
+  const l = await bootUi();
+  $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
+  const text = $(l, 'tabSettings').textContent;
+  assert.ok(text.includes('Ctrl+Shift+R') && text.includes('ページの名前を変える'), '設定の近道の表に Ctrl+Shift+R の行が無い');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

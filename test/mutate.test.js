@@ -1398,7 +1398,9 @@ const IDS_151 = [
   'ps-sort-drag',   // PS-2
   'ps-show-limit', 'ps-show-kids',   // PS-1
   'ps-more-open',   // PS-2
+  'ps-row-more', 'ps-row-items', 'ps-row-footer', 'ps-ren-ime', 'ps-ren-esc', 'ps-ren-one',   // PS-3
   'ps-ren-line',   // PS-1
+  'ps-ren-key', 'ps-shortcut-row',   // PS-3
   'lb-open',   // PS-2
   'lb-tab-keep', 'lb-rel-time', 'lb-sort-name',   // PS-1
   'lb-sort-num',   // ND-1・PS-1 直し（R36）
@@ -1413,6 +1415,7 @@ const BUILT_151 = [
   ['ps-ws-norm', 'ps-ws-item'], ['ps-sort-edited', 'ps-sort-level'], ['ps-show-limit', 'ps-show-kids'], ['ps-ren-line', 'ps-ren-line'],   // PS-1
   ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-num'], ['lb-sort-level', 'lb-search'],   // PS-1
   ['ps-head-text', 'ps-tree-label'], ['ps-sort-drag', 'ps-sort-drag'], ['ps-more-open', 'ps-more-open'], ['lb-open', 'lb-open'],   // PS-2
+  ['ps-row-more', 'ps-ren-one'], ['ps-ren-key', 'ps-shortcut-row'],   // PS-3
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）

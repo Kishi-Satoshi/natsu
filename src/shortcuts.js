@@ -5,6 +5,7 @@
 // 「Ctrl+Shift+Digit7」の形の ev.code の組。keyAction の受けないキーは空） }。効く所ごとに続けて並べる（設定の表は効く所の見出しで区切る）。
 // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md・D114）: NaTsu の音声入力は無くなった（Windows の音声入力を使う）。表の下の一言はその案内。
 // 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 20・26・28・BQ7 (a)）: Ctrl+Shift+N（新しいページの選び）・Ctrl+Shift+U（親のページへ）と、サイドバーのページの一覧のキーの行を足した。
+// 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の決めたこと 29・30・D124）: 行のメニューの新しい項目の並び（Shift+F10 の行）と、Ctrl+Shift+R（ページの名前を変える）の行を足した。
 // 画面（app.html）はこの表を写す（test/stage140.app.test.js が同じ行かを照らす）。
 
 const SHORTCUTS = Object.freeze([
@@ -59,7 +60,8 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Home・End', what: '最初・最後の行へ', where: 'サイドバーのページの一覧', codes: [] },
   { keys: 'Enter', what: 'ページを今のタブで開く', where: 'サイドバーのページの一覧', codes: [] },
   { keys: 'Ctrl+Enter', what: 'ページを新しいタブで開く', where: 'サイドバーのページの一覧', codes: [] },
-  { keys: 'Shift+F10', what: '行のメニューを開く（中にページを作る・移動先・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+  { keys: 'Shift+F10', what: '行のメニューを開く（リンクを写す・名前を変える・移動先・中にページを作る・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+  { keys: 'Ctrl+Shift+R', what: 'ページの名前を変える', where: 'サイドバーのページの一覧（ライブラリの行でも）', codes: [] },
 ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
 
 module.exports = { SHORTCUTS };

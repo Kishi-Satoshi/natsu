@@ -286,6 +286,19 @@
   .pitem .padd { flex: none; display: none; align-items: center; justify-content: center; width: 22px; height: 22px; margin-right: -4px; padding: 0;
     border: none; border-radius: 4px; background: transparent; color: var(--text-2); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
   .pitem:hover .padd { display: inline-flex; }
+  /* 0.15.1 PS-3（決めたこと 29・PQ6）: 行の［···］（［＋］の左。乗せたとき・行にフォーカスがあるときだけ）と、行の題名の所の名前を変える1行の欄 */
+  .pitem .pmore { flex: none; display: none; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0;
+    border: none; border-radius: 4px; background: transparent; color: var(--text-2); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+  .pitem:hover .pmore, .pitem:focus .pmore { display: inline-flex; }
+  .pitem .pmore:hover { background: var(--tint); color: var(--text); }
+  .pitem .pren { width: 100%; min-width: 0; height: 22px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg);
+    color: var(--text); font: inherit; outline: none; }
+  .pitem .pren:focus { border-color: var(--accent); }   /* 入力中の枠 */
+  /* 行のメニューの近道（右に灰色）・区切り・最終更新の行（押せない灰色の文） */
+  .treemenu .mitem[data-kbd] { display: flex; gap: 24px; }
+  .treemenu .mitem[data-kbd]::after { content: attr(data-kbd); margin-left: auto; color: var(--muted); }
+  .treemenu .msep { height: 0; margin: 4px 6px; border-top: 1px solid var(--line); }
+  .treemenu .mfoot { padding: 4px 10px 2px; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .pitem .padd:hover { background: var(--tint); color: var(--text); }
   .pitem .ptw { flex: none; width: 12px; margin: 0 -4px 0 -2px; text-align: center; color: var(--text-2); font-size: 12px; cursor: pointer; }   /* PH-3 直し（R28 (3)）: 選ぶ形の ▸ */
   .pitem.dragging { opacity: .5; }
@@ -1977,7 +1990,8 @@
     { keys: 'Home・End', what: '最初・最後の行へ', where: 'サイドバーのページの一覧', codes: [] },
     { keys: 'Enter', what: 'ページを今のタブで開く', where: 'サイドバーのページの一覧', codes: [] },
     { keys: 'Ctrl+Enter', what: 'ページを新しいタブで開く', where: 'サイドバーのページの一覧', codes: [] },
-    { keys: 'Shift+F10', what: '行のメニューを開く（中にページを作る・移動先・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Shift+F10', what: '行のメニューを開く（リンクを写す・名前を変える・移動先・中にページを作る・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Ctrl+Shift+R', what: 'ページの名前を変える', where: 'サイドバーのページの一覧（ライブラリの行でも）', codes: [] },
   ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
   // 効く所が替わる所に見出しの行（th colspan=2）を入れ、キーは「・」で区切った1つずつを <kbd> で（文字は textContent で入れる）
   function renderShortcuts() {
@@ -4107,6 +4121,7 @@
     // 描き直してもフォーカスを同じ行に戻す（決めたこと 20。閉じて隠れたら一番近い見えている祖先へ）
     const fa = document.activeElement;
     const hadFocus = fa && fa.parentNode === box && fa.dataset && fa.dataset.pid ? fa.dataset.pid : '';
+    if (renameEd && renameEd.input) { renameEd.value = renameEd.input.value; renameEd.hadFocus = document.activeElement === renameEd.input; renameEd.remount = true; }   // 0.15.1 PS-3
     box.textContent = '';
     paintPriv(pages.length ? sideSectionView.sectionRows(treeNow(), null, privSt).hidden : 0);
     if (pages.length === 0) {
@@ -4157,7 +4172,12 @@
         add.type = 'button'; add.className = 'padd'; add.textContent = '＋'; add.tabIndex = -1;
         add.title = 'この中にページを作る'; add.setAttribute('aria-label', 'この中にページを作る');
         add.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); createPageIn(p.id); };
-        el.append(add);
+        // 0.15.1 PS-3（決めたこと 29）: ［＋］の左に［···］（行のメニュー。キーボードは今どおり Shift+F10・メニューのキー）
+        const more = document.createElement('button');
+        more.type = 'button'; more.className = 'pmore'; more.textContent = '···'; more.tabIndex = -1;
+        more.title = 'ページのメニュー'; more.setAttribute('aria-label', 'ページのメニュー');
+        more.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); openTreeMenu(p.id); };
+        el.append(more, add);
       }
       el.setAttribute('title', rowTitle(p));
       asOption(el, p.id === curId, (ev) => (listSel.on ? pickRow(p.id, ev) : openFromList(p.id, ev)));
@@ -4173,6 +4193,7 @@
       box.appendChild(el);
     }
     if (want) { const el = treeRowEl(want); if (el) { treeFocus = want; el.focus(); } }
+    if (renameEd) mountRename();   // 0.15.1 PS-3: 描き直しても名前を変えている欄を同じ行に戻す（打った字もそのまま）
     paintBodyPages();   // 0.15.0 PR-2（決めたこと 56）: 一覧を読み直したら、白紙のページの本文の子ページの行の題名とアイコンも今の値に
     renderKids();   // 0.15.0 PH-5（決めたこと 27）: 議事録の子ページの一覧も今の一覧の並びと題名で
   }
@@ -4196,7 +4217,8 @@
     if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
     return r.id;
   }
-  // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［移動先…］［新しいタブで開く］［削除］（HR4。［移動先…］は PH-5: R24）
+  // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［移動先…］［新しいタブで開く］［削除］（HR4。［移動先…］は PH-5: R24）。
+  // 0.15.1 PS-3（決めたこと 29）: 行の［···］でも開き、［リンクを写す］［名前を変える］を足して6つの並びにし、区切りの下に押せない「最終更新 年/月/日 時:分」
   let treeMenu = null;   // 開いているとき { id, box }
   function closeTreeMenu(back) {
     const m = treeMenu;
@@ -4213,10 +4235,21 @@
     box.className = 'blockmenu treemenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ページのメニュー');
     treeMenu = { id, box };
     const run = (fn) => () => { closeTreeMenu(); fn(); };
-    menuItem(box, '中にページを作る', run(() => createPageIn(id)));
+    const kbd = (b, shown, aria) => { b.setAttribute('data-kbd', shown); b.setAttribute('aria-keyshortcuts', aria); return b; };   // 右に灰色の近道（CSS の attr）
+    menuItem(box, 'リンクを写す', run(() => copyRowLink(id)));
+    kbd(menuItem(box, '名前を変える', run(() => startRename(id))), 'Ctrl+Shift+R', 'Control+Shift+R');
     menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
-    menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true })));
+    menuItem(box, '中にページを作る', run(() => createPageIn(id)));
+    kbd(menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true }))), 'Ctrl+Enter', 'Control+Enter');
     menuItem(box, '削除', run(() => deletePageFlow(id)));
+    const at = sideSectionView.stampText((pages.find((p) => p && p.id === id) || {}).updatedAt);
+    if (at) {
+      const sep = document.createElement('div'); sep.className = 'msep'; sep.setAttribute('role', 'separator');
+      const foot = document.createElement('div'); foot.className = 'mfoot'; foot.id = 'treeMenuFoot'; foot.setAttribute('role', 'none');
+      foot.textContent = `最終更新 ${at}`;
+      box.append(sep, foot);
+      box.setAttribute('aria-describedby', foot.id);   // 読み上げはメニューの説明として（↑↓ では止まらない）
+    }
     box.onkeydown = (ev) => {
       if (imeEnter(ev)) return;
       if (menuStep(box, ev)) return;
@@ -4235,6 +4268,95 @@
     box.style.top = `${vh && below + h > vh ? Math.max(0, Math.round((rc.top || 0) - h)) : below}px`;
     menuItems(box)[0].focus();
   }
+  // ---------------- 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の決めたこと 29・30・D124）: 行の［リンクを写す］と、その場で名前を変える ----------------
+  // ［リンクを写す］は「···」のページのメニュー・選んだ行の［リンクを写す］と同じ行（pageRefLine。決めたこと 100 の形）
+  async function copyRowLink(id) {
+    const page = pages.find((p) => p && p.id === id);
+    if (!page) return;
+    const base = await linkBaseNow();
+    if (!base) { toast('リンクを写せませんでした。'); return; }
+    await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
+  }
+  // 名前を変える（［名前を変える］・行で Ctrl+Shift+R）: 行の題名の所を1行の欄に替える。Enter（変換確定の Enter は先に抜ける）か外を押すと page.setTitle の1回
+  //（同じ名前は送らない・Enter とフォーカスの外れが続いても1回）。Esc でやめて行へ。改行・タブは空白に寄せ前後の空白を落とす（sideSection.oneLineTitle）。
+  // 空も送る（一覧は「無題のページ」「(無題の議事録)」）。断られたら元に戻して一言。元に戻す（Ctrl+Z）の歩みにはしない（ページの頭の題名と同じ）
+  const RENAME_MAX = 500;   // 題名の上限（src/db/validate.js の LIMITS.title）
+  let renameEd = null;      // 名前を変えている行 { id, old, value, input, done, remount, hadFocus }
+  // 事象の来た所が名前を変えられる行なら、その行のページの ID（木の行。ライブラリの行は PS-4）
+  function renameHost(el) {
+    return el && el.parentNode === $('plist') && el.dataset && typeof el.dataset.pid === 'string' ? el.dataset.pid : '';
+  }
+  function startRename(id) {
+    if (listSel.on) return false;   // 選ぶ形の間は何もしない（チェックボックスの行に欄を出さない）
+    if (renameEd) commitRename(renameEd);
+    const p = pages.find((x) => x && x.id === id);
+    if (!p || !treeRowEl(id)) return false;
+    renameEd = { id, old: p.title, value: p.title, input: null, done: false, remount: false, hadFocus: true };
+    mountRename();
+    return true;
+  }
+  function mountRename() {
+    const ed = renameEd;
+    if (!ed) return;
+    const row = treeRowEl(ed.id);
+    if (!row) { renameEd = null; return; }   // 畳んだ・表示の数の外になった行はやめる（送らない）
+    const t = row.querySelector('.t');
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'pren'; inp.maxLength = RENAME_MAX; inp.value = ed.value; inp.spellcheck = false;
+    inp.setAttribute('aria-label', 'ページの名前');
+    const stop = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); };
+    inp.onclick = stop; inp.onmousedown = stop; inp.ondblclick = stop;   // 欄を押しても行のページを開かない
+    inp.oninput = () => { ed.value = inp.value; };
+    inp.onkeydown = (ev) => {
+      stop(ev);   // 欄の中のキーは木（↑↓・Space・Enter・Shift+F10）へ渡さない
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Enter') { ev.preventDefault(); commitRename(ed); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); cancelRename(ed); }
+    };
+    inp.addEventListener('blur', () => { if (!ed.remount) commitRename(ed); });
+    row.draggable = false;   // 欄の中の文字を選ぶ引っ張りで行を動かさない
+    t.textContent = '';
+    t.append(inp);
+    ed.input = inp;
+    const focus = !ed.remount || ed.hadFocus;
+    ed.remount = false;
+    if (focus) { inp.focus(); if (!ed.typed) inp.select(); ed.typed = true; }
+  }
+  function cancelRename(ed = renameEd) {
+    if (!ed || ed.done) return;
+    ed.done = true;
+    if (renameEd === ed) renameEd = null;
+    renderList();
+    focusTreeRow(ed.id);
+  }
+  async function commitRename(ed = renameEd) {
+    if (!ed || ed.done) return;
+    ed.done = true;
+    if (renameEd === ed) renameEd = null;
+    const v = sideSectionView.oneLineTitle(ed.input ? ed.input.value : ed.value);
+    const back = Boolean(ed.input) && document.activeElement === ed.input;
+    renderList();
+    if (back) focusTreeRow(ed.id);
+    if (v === ed.old) return;
+    let ok = true;
+    try { const r = await window.koeApp.pageSetTitle(ed.id, v); if (r && r.ok === false) ok = false; } catch (_) { ok = false; }
+    if (!ok) { toast('名前を変えられませんでした。'); return; }
+    // 開いているページはタブの名前とページの頭の題名も（題名を書いている途中なら頭はそのまま）
+    if (curPage && curId === ed.id) {
+      curPage.title = v;
+      if (document.activeElement !== $('pTitle')) $('pTitle').textContent = v;
+    }
+    await refreshList();
+  }
+  // 行にフォーカスがあるときの Ctrl+Shift+R（本文や題名の文字の欄では何もしない。窓のメニューの段は無いので読み直しにはならない: K8）
+  document.addEventListener('keydown', (ev) => {
+    if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey || (ev.code !== 'KeyR' && String(ev.key).toLowerCase() !== 'r')) return;
+    if (imeEnter(ev)) return;
+    const id = renameHost(ev.target);
+    if (!id) return;
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    startRename(id);
+  });
   // 引っ張って動かす（決めたこと 21）: 行の真ん中へ落とすとその中（最後の子）へ・上か下の4分の1はその前か後ろ。自分と子孫の上では印を出さず、
   // 落としても何もしない。Esc でやめる。落とす所は pageTreeView.pageDropSpot（要約の行の dropSpot とは別の部品）
   let pageDrag = null;   // 引っ張っているページの ID
