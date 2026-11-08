@@ -296,7 +296,7 @@
   .pitem .pren:focus { border-color: var(--accent); }   /* 入力中の枠 */
   /* 行のメニューの近道（右に灰色）・区切り・最終更新の行（押せない灰色の文） */
   .treemenu .mitem[data-kbd] { display: flex; gap: 24px; }
-  .treemenu .mitem[data-kbd]::after { content: attr(data-kbd); margin-left: auto; color: var(--muted); }
+  .treemenu .mitem[data-kbd]::after { content: attr(data-kbd) / ""; margin-left: auto; color: var(--muted); }   /* 0.15.1 PS-3 直し 2（R43）: 代わりの文を空にして読み上げの名前に入れない */
   .treemenu .msep { height: 0; margin: 4px 6px; border-top: 1px solid var(--line); }
   .treemenu .mfoot { padding: 4px 10px 2px; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .pitem .padd:hover { background: var(--tint); color: var(--text); }
@@ -4188,6 +4188,7 @@
         const more = document.createElement('button');
         more.type = 'button'; more.className = 'pmore'; more.textContent = '···'; more.tabIndex = -1;
         more.title = 'ページのメニュー'; more.setAttribute('aria-label', 'ページのメニュー');
+        more.setAttribute('aria-hidden', 'true');   // 0.15.1 PS-3 直し 2（R43）: マウスだけの部品（キーボードは Shift+F10）。フォーカスした行の読み上げに入れない
         more.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); openTreeMenu(p.id); };
         el.append(more, add);
       }
@@ -4248,7 +4249,7 @@
     treeMenu = { id, box };
     const run = (fn) => () => { closeTreeMenu(); fn(); };
     const kbd = (b, shown, aria) => { b.setAttribute('data-kbd', shown); b.setAttribute('aria-keyshortcuts', aria); return b; };   // 右に灰色の近道（CSS の attr）
-    menuItem(box, 'リンクを写す', run(() => copyRowLink(id)));
+    menuItem(box, 'リンクを写す', () => { closeTreeMenu(true); copyRowLink(id); });   // 0.15.1 PS-3 直し 2（R43）: 写した後のフォーカスは行へ
     kbd(menuItem(box, '名前を変える', run(() => startRename(id))), 'Ctrl+Shift+R', 'Control+Shift+R');
     menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
     menuItem(box, '中にページを作る', run(() => createPageIn(id)));
@@ -4298,12 +4299,17 @@
   function renameHost(el) {
     return el && el.parentNode === $('plist') && el.dataset && typeof el.dataset.pid === 'string' ? el.dataset.pid : '';
   }
+  // 0.15.1 PS-3 直し 2（R43）: 一覧の行の名前が無題の代わりの字（src/pagerules.js）なら、欄は空で始め、代わりの字は手引きに出す
+  const untitledName = (p) => (p && p.kind === 'blank' ? blankUntitled() : '(無題の議事録)');
+  // 名前の欄から行へ渡さないキー（木の動き）。ほかのキー（Ctrl+W・Ctrl+Tab・Ctrl+P・Ctrl+\ など）は窓の近道へ届く
+  const RENAME_TREE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', ' ', 'F10', 'ContextMenu', 'Escape']);
   function startRename(id) {
     if (listSel.on) return false;   // 選ぶ形の間は何もしない（チェックボックスの行に欄を出さない）
     if (renameEd) commitRename(renameEd);
     const p = pages.find((x) => x && x.id === id);
     if (!p || !treeRowEl(id)) return false;
-    renameEd = { id, old: p.title, value: p.title, input: null, done: false, remount: false, hadFocus: true };
+    const stand = p.title === untitledName(p);
+    renameEd = { id, old: p.title, value: stand ? '' : p.title, stand, input: null, done: false, remount: false, hadFocus: true };
     mountRename();
     return true;
   }
@@ -4316,16 +4322,21 @@
     const inp = document.createElement('input');
     inp.type = 'text'; inp.className = 'pren'; inp.maxLength = RENAME_MAX; inp.value = ed.value; inp.spellcheck = false;
     inp.setAttribute('aria-label', 'ページの名前');
+    if (ed.stand) inp.setAttribute('placeholder', ed.old);
     const stop = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); };
-    inp.onclick = stop; inp.onmousedown = stop; inp.ondblclick = stop;   // 欄を押しても行のページを開かない
+    inp.onclick = stop; inp.onmousedown = stop; inp.ondblclick = stop; inp.ondragstart = stop;   // 欄を押しても行のページを開かない・行を引っ張らない
     inp.oninput = () => { ed.value = inp.value; };
     inp.onkeydown = (ev) => {
-      stop(ev);   // 欄の中のキーは木（↑↓・Space・Enter・Shift+F10）へ渡さない
+      if (RENAME_TREE_KEYS.has(ev.key)) stop(ev);   // 木の使うキー（↑↓←→・Home・End・Enter・Space・Shift+F10・メニューのキー・Esc）だけ行へ渡さない
       if (imeEnter(ev)) return;
       if (ev.key === 'Enter') { ev.preventDefault(); commitRename(ed); }
       else if (ev.key === 'Escape') { ev.preventDefault(); cancelRename(ed); }
     };
-    inp.addEventListener('blur', () => { if (!ed.remount) commitRename(ed); });
+    // 欄の外を押す・Tab で出ると決める。窓を切り替えただけ（窓のフォーカスが外れた）では決めない（戻ると欄はそのまま）
+    inp.addEventListener('blur', () => {
+      if (ed.remount || (typeof document.hasFocus === 'function' && !document.hasFocus())) return;
+      commitRename(ed, { inPlace: true });
+    });
     row.draggable = false;   // 欄の中の文字を選ぶ引っ張りで行を動かさない
     t.textContent = '';
     t.append(inp);
@@ -4341,23 +4352,34 @@
     renderList();
     focusTreeRow(ed.id);
   }
-  async function commitRename(ed = renameEd) {
+  // o.inPlace（欄の外を押した・Tab で出た blur）: 押した所（別の行・ボタン）の click を消さないよう、一覧を作り直さずにその場で欄を名前に戻す
+  //（mousedown と mouseup の間に行を作り直すと click が来ない: R43）。一覧は答えの後に読み直す
+  async function commitRename(ed = renameEd, o = {}) {
     if (!ed || ed.done) return;
     ed.done = true;
     if (renameEd === ed) renameEd = null;
-    const v = sideSectionView.oneLineTitle(ed.input ? ed.input.value : ed.value);
-    const back = Boolean(ed.input) && document.activeElement === ed.input;
-    renderList();
-    if (back) focusTreeRow(ed.id);
+    const typed = sideSectionView.oneLineTitle(ed.input ? ed.input.value : ed.value);
+    // 持ち主の答え（2026-11-08）「ページの頂と同じく、元の名前に戻す（おすすめ）」: 空にして決めたら元の名前に戻し、何も書かない（ページの頭の題名と同じ）
+    const v = typed === '' ? ed.old : typed;
+    if (o.inPlace && ed.input && ed.input.parentNode) {
+      ed.input.parentNode.textContent = v;
+      const row = treeRowEl(ed.id);
+      if (row) row.draggable = !listSel.on;
+    } else {
+      const back = Boolean(ed.input) && document.activeElement === ed.input;
+      renderList();
+      if (back) focusTreeRow(ed.id);
+    }
     if (v === ed.old) return;
     let ok = true;
     try { const r = await window.koeApp.pageSetTitle(ed.id, v); if (r && r.ok === false) ok = false; } catch (_) { ok = false; }
-    if (!ok) { toast('名前を変えられませんでした。'); return; }
-    // 開いているページはタブの名前とページの頭の題名も（題名を書いている途中なら頭はそのまま）
+    if (!ok) { toast('名前を変えられませんでした。'); renderList(); return; }
+    // 開いているページはタブの名前とページの頭の題名も（題名を書いている途中なら頭はそのまま）。頭の題名と同じく、会議の種類の一言も聞く（0.11.0 V-4）
     if (curPage && curId === ed.id) {
       curPage.title = v;
       if (document.activeElement !== $('pTitle')) $('pTitle').textContent = v;
     }
+    askTitleType(ed.id, v);
     await refreshList();
   }
   // 行にフォーカスがあるときの Ctrl+Shift+R（本文や題名の文字の欄では何もしない。窓のメニューの段は無いので読み直しにはならない: K8）

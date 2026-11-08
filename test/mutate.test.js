@@ -1401,6 +1401,7 @@ const IDS_151 = [
   'ps-show-limit', 'ps-show-kids',   // PS-1
   'ps-more-open',   // PS-2
   'ps-row-more', 'ps-row-items', 'ps-row-footer', 'ps-ren-ime', 'ps-ren-esc', 'ps-ren-one',   // PS-3
+  'ps-ren-inplace', 'ps-ren-empty', 'ps-row-aria',   // PS-3 直し 2（R43）
   'ps-ren-line',   // PS-1
   'ps-ren-key', 'ps-shortcut-row',   // PS-3
   'lb-open',   // PS-2
@@ -1417,7 +1418,7 @@ const BUILT_151 = [
   ['ps-ws-norm', 'ps-ws-item'], ['ps-sort-edited', 'ps-sort-level'], ['ps-show-limit', 'ps-show-kids'], ['ps-ren-line', 'ps-ren-line'],   // PS-1
   ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-num'], ['lb-sort-level', 'lb-search'],   // PS-1
   ['ps-head-text', 'ps-tree-label'], ['ps-sort-drag', 'ps-sort-drag'], ['ps-more-open', 'ps-more-open'], ['lb-open', 'lb-open'],   // PS-2
-  ['ps-row-more', 'ps-ren-one'], ['ps-ren-key', 'ps-shortcut-row'],   // PS-3
+  ['ps-row-more', 'ps-row-aria'], ['ps-ren-key', 'ps-shortcut-row'],   // PS-3
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
@@ -1455,7 +1456,7 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');
   const rows = planRows151();
-  assert.strictEqual(rows.length, 80, '計画の 0.15.1 の表（nd- 31・ps- 37・lb- 12）が読めない');   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
+  assert.strictEqual(rows.length, 83, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 12）が読めない');   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');
