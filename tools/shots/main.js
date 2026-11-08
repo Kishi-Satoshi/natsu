@@ -448,6 +448,10 @@ function boot() {
           : c.status === 'size' ? '基準と大きさが違う（前・後・差分を書いた）' : `${c.note || '基準が無い'}（今の画像を書いた）`;
         console.log(`${c.status === 'same' ? 'OK' : SH.RETAKE.has(c.name) ? '取り直し待ち' : 'NG'} 比べる ${c.name} — ${why}`);
       }
+      // 0.15.1 ND-5（計画 docs/plans/2026-11-04-151.md の WQ8）: 取り直し待ちの画面ごとの違いの場所の枠と、サイドバーの所だけかの一覧（成果物の1つのファイル）
+      const report = SH.retakeReport(compare);
+      fs.writeFileSync(path.join(args.out, 'retake-regions.json'), `${JSON.stringify(report, null, 1)}\n`);
+      console.log(`取り直し待ちの違いの場所: ${report.length} 枚・サイドバーの所の外にも違いがある ${report.filter((r) => !r.onlySide).length} 枚（retake-regions.json）`);
       const missingScreens = SH.SCREENS.filter((s) => !compare.some((c) => c.name === s.name));
       for (const s of missingScreens) errors.push(`${s.name}: 比べる画像が無い`);
     } else {

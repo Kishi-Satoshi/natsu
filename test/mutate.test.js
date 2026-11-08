@@ -1414,19 +1414,6 @@ const IDS_151 = [
   'lb-sort-level', 'lb-search',   // PS-1
   'lb-new', 'lb-text', 'lb-kids',   // PS-4
 ];
-// 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足し、Task G の前に表の全部とちょうど同じかを見る形に替える（0.15.0 の R1 と同じ）
-const BUILT_151 = [
-  ['nd-help-word', 'nd-help-cite'],   // ND-4
-  ['nd-preload-api', 'nd-ui-word'], ['nd-winh-note', 'nd-winh-note'],   // ND-3
-  ['nd-hk-dict', 'nd-overlay-mode'], ['nd-tray-items', 'nd-engine-lock'],   // ND-2
-  ['nd-set-keep', 'nd-hk-reload'], ['nd-tidy-send', 'nd-tidy-send'], ['nd-login-moments', 'nd-login-moments'],   // ND-1
-  ['ps-ws-norm', 'ps-ws-item'], ['ps-sort-edited', 'ps-sort-level'], ['ps-show-limit', 'ps-show-kids'], ['ps-ren-line', 'ps-ren-line'],   // PS-1
-  ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-num'], ['lb-sort-level', 'lb-search'],   // PS-1
-  ['ps-head-text', 'ps-tree-label'], ['ps-sort-drag', 'ps-sort-drag'], ['ps-more-open', 'ps-more-open'], ['lb-open', 'lb-open'],   // PS-2
-  ['ps-row-more', 'ps-row-aria'], ['ps-ren-key', 'ps-shortcut-row'],   // PS-3
-  ['ps-help-head', 'ps-help-head'],   // PS-5
-  ['lb-rows', 'lb-rows'], ['lb-sort-dir', 'lb-sort-dir'], ['lb-new', 'lb-kids'],   // PS-4
-];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
 const GONE_151 = [
@@ -1457,7 +1444,7 @@ function planRows151() {
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   return [...table.matchAll(/^\| ((?:nd|ps|lb)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
 }
-test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の「変異の表」の行の順で、作ったタスクの行とちょうど同じ。nd-・ps-・lb- の変異は IDS_151 にある。どれも決まったテストのファイルを持ち、why が 0.15.1 で始まる', { timeout: 5000 }, () => {
+test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の「変異の表」の nd-・ps-・lb- の行とちょうど同じ（行の順。0.15.1 ND-5 で作ったタスクの範囲から表の全部に）。nd-・ps-・lb- の変異は IDS_151 にある。どれも決まったテストのファイルを持ち、why が 0.15.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_151.filter((id) => !byId.has(id)), [], 'IDS_151 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
@@ -1467,12 +1454,8 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');
-  const built = BUILT_151.flatMap(([from, to]) => {
-    const i = rows.indexOf(from); const j = rows.indexOf(to);
-    assert.ok(i >= 0 && j >= i, `作ったタスクの範囲 ${from}〜${to} が表に無い`);
-    return rows.slice(i, j + 1);
-  });
-  assert.deepStrictEqual(IDS_151, rows.filter((id) => built.includes(id)), 'IDS_151 が作ったタスクの表の行とちょうど同じでない');
+  // 0.15.1 ND-5（計画の「変異の表」の決まり・G3）で意図して変えた: 表の全部のタスクを作ったので、作ったタスクの範囲（BUILT_151）でなく、表の nd-・ps-・lb- の行とちょうど同じ（行の順）
+  assert.deepStrictEqual(IDS_151, rows, 'IDS_151 が計画の「変異の表」の nd-・ps-・lb- の行とちょうど同じでない（行の順）');
   // 前の版の頭の照らしと、並べて作る 0.16.0 の頭（tb・vw: 計画の「並べて作る決まり」の 4）に当たらない
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/]) {
     assert.deepStrictEqual(IDS_151.filter((id) => re.test(id)), [], `${re} に当たる 0.15.1 の id`);
@@ -1496,4 +1479,8 @@ test('G3・0.15.1: GONE_151 の変異は一覧にも、どの版の IDS にも�
   assert.ok(at > 0, '計画に GONE_151 の表が無い');
   const table = plan.slice(at, plan.indexOf('（見込みの数', at));
   for (const id of GONE_151) assert.ok(table.includes(`\`${id}\``), `${id} が計画の GONE_151 の表に無い`);
+  // 0.15.1 ND-5（F154・G3）: GONE_151 は計画の表の id とちょうど同じ（表の2つ目の列の id。外す理由の文の中の id は数えない）
+  const inTable = table.split('\n').map((l) => l.split('|')).filter((c) => c.length >= 4 && /`[a-z]/.test(c[2])).flatMap((c) => [...c[2].matchAll(/`([a-z0-9-]+)`/g)].map((m) => m[1]));
+  assert.deepStrictEqual([...inTable].sort(), [...GONE_151].sort(), 'GONE_151 が計画の「前の版の変異の片付け」の表とちょうど同じでない');
+  assert.strictEqual(GONE_151.length, 70);
 });

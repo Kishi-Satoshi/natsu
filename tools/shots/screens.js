@@ -1186,9 +1186,80 @@ function compareAll({ baseDir, outDir, shots, png, fs, tolerance = TOLERANCE }) 
     write(`${name}.before.png`, baseBuf);
     write(`${name}.after.png`, png.encodePng(shot));
     write(`${name}.diff.png`, png.encodePng(d.image));
-    out.push({ name, status: d.sizeMismatch ? 'size' : 'diff', count: d.count, box: d.box });
+    out.push({ name, status: d.sizeMismatch ? 'size' : 'diff', count: d.count, box: d.box, regions: diffRegions(base, shot, { tolerance }) });   // 0.15.1 ND-5（WQ8）
   }
   return out;
+}
+
+/**
+ * 0.15.1 ND-5（計画 docs/plans/2026-11-04-151.md の WQ8）: 基準と今の画像の違いの場所の枠。色の差が tolerance を越える画素を、cell 画素の升目に
+ * 落として 8 方向につながった升の塊ごとにまとめ、塊の中の違う画素をちょうど囲む → [{ x0, y0, x1, y1 }]（上から・左から）。同じなら空。
+ * 大きさが違えば画像の全部の1つ。升目でまとめるので、cell より近い違いは1つの枠になる（字の1つずつに枠を作らない）
+ */
+function diffRegions(a, b, { tolerance = TOLERANCE, cell = 8 } = {}) {
+  if (a.width !== b.width || a.height !== b.height) return [{ x0: 0, y0: 0, x1: Math.max(a.width, b.width) - 1, y1: Math.max(a.height, b.height) - 1 }];
+  const { width: w, height: h } = a;
+  const cw = Math.ceil(w / cell);
+  const ch = Math.ceil(h / cell);
+  const cells = new Array(cw * ch).fill(null);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      let differs = false;
+      for (let k = 0; k < 4; k++) if (Math.abs(a.data[i + k] - b.data[i + k]) > tolerance) { differs = true; break; }
+      if (!differs) continue;
+      const c = Math.floor(y / cell) * cw + Math.floor(x / cell);
+      const r = cells[c];
+      if (!r) cells[c] = { x0: x, y0: y, x1: x, y1: y };
+      else { r.x0 = Math.min(r.x0, x); r.y0 = Math.min(r.y0, y); r.x1 = Math.max(r.x1, x); r.y1 = Math.max(r.y1, y); }
+    }
+  }
+  const seen = new Uint8Array(cw * ch);
+  const out = [];
+  for (let c = 0; c < cells.length; c++) {
+    if (!cells[c] || seen[c]) continue;
+    seen[c] = 1;
+    const box = { ...cells[c] };
+    const stack = [c];
+    while (stack.length) {
+      const q = stack.pop();
+      const cx = q % cw;
+      const cy = Math.floor(q / cw);
+      const r = cells[q];
+      box.x0 = Math.min(box.x0, r.x0); box.y0 = Math.min(box.y0, r.y0); box.x1 = Math.max(box.x1, r.x1); box.y1 = Math.max(box.y1, r.y1);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
+          const n = ny * cw + nx;
+          if (cells[n] && !seen[n]) { seen[n] = 1; stack.push(n); }
+        }
+      }
+    }
+    out.push(box);
+  }
+  return out.sort((p, q) => p.y0 - q.y0 || p.x0 - q.x0);
+}
+/** 枠の全部が、どれかの場所の中にあるか（場所の外に1画素でもはみ出せば偽。枠が無ければ真） */
+function onlyIn(regions, areas) {
+  return (regions || []).every((r) => (areas || []).some((a) => r.x0 >= a.x0 && r.y0 >= a.y0 && r.x1 <= a.x1 && r.y1 <= a.y1));
+}
+// サイドバーの所（既定の幅 260px と幅のつまみ 4px。拡大率を掛ける）。0.15.1 の取り直し（音声入力の行・見出しの行）はここに出る見込み
+const SIDE_AREA_PX = 264;
+function sideArea(zoom = 1) {
+  return { x0: 0, y0: 0, x1: Math.round(SIDE_AREA_PX * (Number(zoom) || 1)) - 1, y1: SIZE.height - 1 };
+}
+/**
+ * 取り直し待ちの画面ごとの違いの場所の一覧（CI の成果物 retake-regions.json の中身）: [{ name, status, count, regions, onlySide }]。
+ * onlySide はサイドバーの所だけが違うか（基準と同じ画面は書かない。基準の無い画面・大きさの違う画面は偽 = 画像で見てもらう）
+ */
+function retakeReport(compare) {
+  const zoomOf = (n) => (SCREENS.find((s) => s.name === n) || {}).zoom || 1;
+  return (compare || []).filter((c) => RETAKE.has(c.name) && c.status !== 'same').map((c) => ({
+    name: c.name, status: c.status, count: c.count || 0, regions: c.regions || [],
+    onlySide: c.status === 'diff' && onlyIn(c.regions || [], [sideArea(zoomOf(c.name))]),
+  }));
 }
 
 /**
@@ -1339,6 +1410,7 @@ function ensureContentSize(win, size) {
 }
 
 module.exports = {
+  diffRegions, onlyIn, sideArea, retakeReport,   // 0.15.1 ND-5（WQ8）
   SIZE, OVERLAY_SIZE, SHOT_AREA, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
   WAVE_SPEECH, NUDGE_SIZE, NUDGE_PROBE, nudgeWindowFor, detectAnswers,
   PANEL_PROBE, PANEL_PROBE_SCALES, PANEL_PROBE_STATES, judgePanel, panelWindowFor, shotSizeFor, watchdogMs,

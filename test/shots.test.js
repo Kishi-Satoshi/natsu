@@ -1408,3 +1408,68 @@ test('0.9.3 M-7: パネルの画面は透過の窓で撮る（明暗は onShow �
   // 本物の preload のパネルの橋（koeNudge）が偽の橋の名前にある
   assert.ok(SH.apiNamesOf(read('src/preload.js')).koeNudge.includes('onShow'));
 });
+
+// ---------------------------------------------------------------- 0.15.1 Task ND-5（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・F154・F157・WQ8）
+test('ND-5: 撮る画面の一覧に音声入力の画面が無く、RETAKE_151 は計画の「取り直す画面」の表とちょうど同じ（消す3枚は無い・新しい 11 枚は NEW_151・ほかはサイドバーの出る app の画面の全部）', { timeout: 5000 }, () => {
+  const plan = read('docs/plans/2026-11-04-151.md');
+  const at = plan.indexOf('## 取り直す画面（RETAKE）');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  const rows = table.split('\n').filter((l) => /^\| `/.test(l));
+  const namesIn = (l) => [...l.split('|')[1].matchAll(/`([a-z0-9-]+)`/g)].map((m) => m[1]);
+  const gone = rows.filter((l) => l.includes('（消す）')).flatMap(namesIn);
+  const added = rows.filter((l) => /（新。第[45]版）/.test(l)).flatMap(namesIn);
+  assert.deepStrictEqual(gone, GONE_SHOTS_151, '表の消す3枚と GONE_SHOTS_151 が違う');
+  assert.deepStrictEqual(added, NEW_151, '表の新しい画面と NEW_151 が違う（並びも）');
+  assert.strictEqual(NEW_151.length, 11);
+  const names = SH.SCREENS.map((s) => s.name);
+  assert.deepStrictEqual(names.filter((n) => /dictation|history-tidy/.test(n) || GONE_SHOTS_151.includes(n)), [], '音声入力の画面が残っている');
+  for (const n of rows.flatMap(namesIn).filter((x) => !gone.includes(x))) assert.ok(SH.RETAKE.has(n), `表の ${n} が取り直し待ちに無い`);
+  assert.deepStrictEqual([...SH.RETAKE], SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light').map((s) => s.name), '取り直し待ちがサイドバーの出る app の画面の全部でない');
+  for (const n of NEW_151) assert.ok(names.includes(n) && !fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n}: 撮る画面に無いか、まだ見てもらっていない基準がある`);
+});
+
+test('ND-5・F157: 撮る画面の手順（tools/shots/screens.js）とテストの手順に、前の見出し（#tabBtnNotes）を押す字が無い', { timeout: 5000 }, () => {
+  assert.ok(!read('tools/shots/screens.js').includes('tabBtnNotes'), '撮る画面の手順に tabBtnNotes がある');
+  const step = /(click\(l, |getElementById\(|\$\(l, |byId\.get\(|querySelector\('#)'?"?tabBtnNotes/;
+  const hits = fs.readdirSync(path.join(ROOT, 'test')).filter((f) => f.endsWith('.js')).flatMap((f) => read(`test/${f}`).split('\n').map((l, i) => [f, i + 1, l]))
+    .filter(([, , l]) => step.test(l) && !l.includes('step.test(')).map(([f, n]) => `${f}:${n}`);   // この照らしの見本の行は数えない
+  assert.deepStrictEqual(hits, [], 'テストの手順に前の見出しを押す所がある');
+  // 照らしの形そのものが当たること（空振りしない）
+  assert.ok(step.test("await click(l, 'tabBtnNotes');") && step.test("document.getElementById('tabBtnNotes').click()"));
+});
+
+test('ND-5・WQ8: 違いの場所の枠（diffRegions: 色の差が TOLERANCE を越える画素を、つながった塊ごとに囲む・同じなら空）と、決まった場所の中だけか（onlyIn: 場所の外に1画素でもあれば偽）', { timeout: 5000 }, () => {
+  const W = 40, H = 30;
+  const paint = (im, x0, y0, x1, y1, v = 0) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) im.data[(y * W + x) * 4] = v; return im; };
+  const base = img(W, H);
+  assert.deepStrictEqual(SH.diffRegions(base, img(W, H)), [], '同じ画像で枠を返した');
+  assert.deepStrictEqual(SH.diffRegions(base, paint(img(W, H), 3, 4, 6, 5)), [{ x0: 3, y0: 4, x1: 6, y1: 5 }]);
+  const two = paint(paint(img(W, H), 1, 1, 2, 2), 30, 20, 33, 25);
+  assert.deepStrictEqual(SH.diffRegions(base, two), [{ x0: 1, y0: 1, x1: 2, y1: 2 }, { x0: 30, y0: 20, x1: 33, y1: 25 }]);
+  // 色の差 2 までは同じ（TOLERANCE）
+  assert.deepStrictEqual(SH.diffRegions(base, paint(img(W, H), 5, 5, 9, 9, 253)), []);
+  assert.deepStrictEqual(SH.diffRegions(base, paint(img(W, H), 5, 5, 5, 5, 252)), [{ x0: 5, y0: 5, x1: 5, y1: 5 }]);
+  // 大きさが違えば全部の1つ
+  assert.deepStrictEqual(SH.diffRegions(img(4, 3), img(5, 3)), [{ x0: 0, y0: 0, x1: 4, y1: 2 }]);
+  // 決まった場所の中だけか
+  const area = [{ x0: 0, y0: 0, x1: 9, y1: 29 }];
+  assert.strictEqual(SH.onlyIn([{ x0: 1, y0: 1, x1: 9, y1: 29 }], area), true);
+  assert.strictEqual(SH.onlyIn([{ x0: 1, y0: 1, x1: 10, y1: 2 }], area), false, '場所の外に1画素はみ出しても真');
+  assert.strictEqual(SH.onlyIn([], area), true);
+  // 比べた結果に枠が付き、取り直し待ちの一覧（retake-regions.json の中身）はサイドバーの所だけかを書く
+  const side = SH.sideArea(1);
+  assert.deepStrictEqual(side, { x0: 0, y0: 0, x1: 263, y1: SH.SIZE.height - 1 });
+  assert.deepStrictEqual(SH.sideArea(2), { x0: 0, y0: 0, x1: 527, y1: SH.SIZE.height - 1 });
+  const rep = SH.retakeReport([
+    { name: 'notes-page-light', status: 'diff', count: 10, regions: [{ x0: 10, y0: 700, x1: 200, y1: 760 }] },
+    { name: 'settings-light', status: 'diff', count: 99, regions: [{ x0: 10, y0: 10, x1: 20, y1: 20 }, { x0: 600, y0: 300, x1: 700, y1: 310 }] },
+    { name: 'notes-page-zoom200-light', status: 'diff', count: 5, regions: [{ x0: 300, y0: 10, x1: 520, y1: 40 }] },
+    { name: 'side-row-menu-light', status: 'missing' },
+    { name: 'overlay-h-light-rec-100', status: 'same' },
+  ]);
+  assert.deepStrictEqual(rep.map((r) => [r.name, r.status, r.onlySide]), [['notes-page-light', 'diff', true], ['settings-light', 'diff', false], ['notes-page-zoom200-light', 'diff', true], ['side-row-menu-light', 'missing', false]],
+    '取り直し待ちでない画面を書いた・サイドバーの所だけかを違えた');
+  assert.deepStrictEqual(rep[1].regions, [{ x0: 10, y0: 10, x1: 20, y1: 20 }, { x0: 600, y0: 300, x1: 700, y1: 310 }]);
+  const main = read('tools/shots/main.js');
+  assert.ok(main.includes("'retake-regions.json'") && main.includes('SH.retakeReport('), '撮る道具が違いの場所の一覧を書かない');
+});
