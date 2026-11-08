@@ -233,7 +233,8 @@ const GONE_SHOTS_151 = ['dictation-light', 'settings-dictation-light', 'history-
 // notes-collapsed-light のほか。105 枚）。録音バーと会議の知らせのパネルは変わらない（WQ1）
 // 0.15.1 PS-2（計画の「取り直す画面（RETAKE）」・D124）で意図して変えた: 見出し「プライベート」の5枚を足した（NEW_151。まだ基準が無い。G で基準にする）
 const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-private-menu-light', 'side-private-more-light', 'side-private-zoom200-light',
-  'side-row-menu-light', 'side-row-rename-light'];   // 0.15.1 PS-3 で行の［···］のメニューと名前を変える欄の2枚を足した
+  'side-row-menu-light', 'side-row-rename-light',   // 0.15.1 PS-3 で行の［···］のメニューと名前を変える欄の2枚を足した
+  'library-light', 'library-dark', 'library-zoom200-light', 'library-search-light'];   // 0.15.1 PS-4 でライブラリの4枚を足した
 const RETAKE_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light').map((s) => s.name);
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -287,7 +288,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を、PR-2 で子ページの行の明暗の2枚を足した。PH-5・PH-6・PL-3 で足した画面も（版を 0.15.0 に上げる commit で基準にした）
     ...NEW_150].filter((n) => !GONE_SHOTS_151.includes(n)).concat(
     // 0.15.1 PS-2 で意図して変えた: 見出し「プライベート」の畳んだ明暗・［···］のメニュー・［もっと見る］・拡大 200% の5枚を足した（取り直し待ち・まだ基準が無い）。
-    // PS-3 で行の［···］のメニューと名前を変える欄の2枚を足した
+    // PS-3 で行の［···］のメニューと名前を変える欄の2枚を、PS-4 でライブラリの4枚を足した
     NEW_151));
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -299,7 +300,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
     ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2],
     ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2], ['sidebar-tree-zoom200-light', 2], ['look-wide-zoom200-light', 2], ['look-small-zoom200-light', 2],
-    ['side-private-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直し・0.15.0 PL-3（全幅の拡大 200%）・0.15.1 PS-2（見出しの行）で意図して足した
+    ['side-private-zoom200-light', 2], ['library-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直し・0.15.0 PL-3（全幅の拡大 200%）・0.15.1 PS-2（見出しの行）で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -788,7 +789,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・D114）で意図して変えた: 取り直し待ちは RETAKE_151（105 枚）。録音バーとパネル・サイドバーを畳んだ画面は入れない
   // 0.15.1 PS-2 で意図して変えた: 足した5枚（NEW_151）も取り直し待ち（110 枚）
   assert.deepStrictEqual([...SH.RETAKE], RETAKE_151);
-  assert.strictEqual(RETAKE_151.length, 112);   // 0.15.1 PS-3 で意図して変えた: 足した2枚（行のメニュー・名前を変える欄）も
+  assert.strictEqual(RETAKE_151.length, 116);   // 0.15.1 PS-3 で意図して変えた: 足した2枚（行のメニュー・名前を変える欄）も。PS-4 でライブラリの4枚も
   const plan151 = read('docs/plans/2026-11-04-151.md');
   const table151 = plan151.slice(plan151.indexOf('## 取り直す画面（RETAKE）'), plan151.indexOf('\n## ', plan151.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of NEW_151) assert.ok(table151.includes(`\`${n}\``), `0.15.1 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -1186,7 +1187,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.1 PS-3 直し 2（計画の R43）: 名前の欄の blur はその場で戻す・窓の切り替えでは決めない・無題の欄は空で手引き・空は元の名前・木のキーだけ止める・
   // 行の［···］は aria-hidden・近道の灰色の字は読み上げない（CSS の代わりの文を空に）・［リンクを写す］の後は行へ。見た目は変わらない見込み（side-row-rename-light は
   // 名前のある行で撮る）。値を今の app.html に合わせた（前の値は 6f780a0e…）
-  assert.strictEqual(sha, '12e5e607f7ea35ac2409d112f9589670fe12a2feaa50001b8eb009e77914f11f',
+  // 0.15.1 PS-4（計画の「取り直す画面」・D125）: ライブラリ（#tabLibrary の頭・探す欄・［＋ 新しいページ］・treegrid の表と CSS・<script> の描き方と行のキー）・
+  // 覚えたライブラリのタブを起動で戻す・ライブラリの行の行のメニューと名前を変える欄。変わる画面は足した library-* の4枚（ほかの画面はサイドバーと同じ見た目）。
+  // 値を今の app.html に合わせた（PS-3 直し 2 の後に作り直したので、前の値は 12e5e607…）
+  assert.strictEqual(sha, '8f86330eae1e9ec32ec5b1da4dcebbfd2a7c050af9f543361133006815969a2d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

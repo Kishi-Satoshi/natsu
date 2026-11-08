@@ -230,9 +230,33 @@
 
   /* ================= 議事録: 2ペイン ================= */
   .notes { display: flex; gap: 14px; height: 100%; }
-  /* 0.15.1 PS-2（決めたこと 33）: ライブラリのタブ（大きな題。表と探す欄は PS-4） */
+  /* 0.15.1 PS-2・PS-4（決めたこと 33〜35）: ライブラリのタブ（大きな題・種類のタブ・探す欄と［＋ 新しいページ］・ページ名と最終更新日時の表）。色は今のトークンだけ */
   .lib { height: 100%; overflow-y: auto; padding: 40px 48px; }
   .lib-title { margin: 0 0 16px; font-size: 32px; font-weight: 700; line-height: 1.2; color: var(--text); }
+  .lib-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .lib-kinds { display: flex; gap: 4px; margin-right: auto; }
+  .lib-kind { height: 28px; padding: 0 10px; border: none; border-radius: 6px; background: transparent; color: var(--text-2); font: inherit; font-size: 14px; cursor: pointer; }
+  .lib-kind[aria-selected="true"] { background: var(--tint); color: var(--text); font-weight: 500; }
+  .lib-search { width: 220px; max-width: 100%; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+  .lib-grid { margin-top: 4px; }
+  .lib-head, .lib-row { display: flex; align-items: center; min-height: 34px; border-bottom: 1px solid var(--line); }
+  .lib-head { color: var(--muted); font-size: 12px; }
+  .lib-col { height: 28px; padding: 0 4px; border: none; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  .lib-col:hover { background: var(--hover); color: var(--text); }
+  .lib-head [aria-sort="ascending"] .lib-col::after { content: ' ↑'; }
+  .lib-head [aria-sort="descending"] .lib-col::after { content: ' ↓'; }
+  .lib-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
+  .lib-time { flex: none; width: 160px; padding: 0 8px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
+  .lib-row { cursor: pointer; border-radius: 6px; }
+  .lib-row:hover { background: var(--hover); }
+  .lib-tw { flex: none; width: 16px; text-align: center; color: var(--text-2); font-size: 12px; }
+  .lib-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .lib-tx .t { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib-place { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib-empty { padding: 24px 8px; color: var(--muted); font-size: 14px; }
+  .lib-row .pren { width: 100%; min-width: 0; height: 24px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; outline: none; }
+  .lib-row .pren:focus { border-color: var(--accent); }   /* 入力中の枠 */
+  @media (max-width: 760px) { .lib { padding: 24px 16px; } .lib-time { width: 110px; } }
   /* サイドバーは議事録のタブの外（どのタブでも出ている）。幅は 200〜480px（つまみで変え、覚える） */
   .side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 1px; position: relative;
     background: var(--side); border-right: 1px solid var(--line); padding: 0 8px 8px; min-height: 0; }
@@ -1239,10 +1263,26 @@
         </div>
       </div>
     </section>
-    <!-- ================= 0.15.1 PS-2（決めたこと 31〜33・D125）: ライブラリ（タブの鍵 'library'。表と探す欄は PS-4） ================= -->
+    <!-- ================= 0.15.1 PS-2・PS-4（決めたこと 31〜38・D125）: ライブラリ（タブの鍵 'library'）。大きな題・種類のタブ（プライベートの1つ）・
+         探す欄・［＋ 新しいページ］と、ページ名・最終更新日時の表（treegrid。列の見出しを押すと並べ替え）。絞り込みと表示の設定は作らない ================= -->
     <section id="tabLibrary" class="tab">
       <div class="lib">
-        <h1 class="lib-title">ライブラリ</h1>
+        <h1 class="lib-title" id="libTitle">ライブラリ</h1>
+        <div class="lib-bar">
+          <div class="lib-kinds" role="tablist" aria-labelledby="libTitle">
+            <button class="lib-kind" id="libKindPrivate" type="button" role="tab" aria-selected="true">プライベート</button>
+          </div>
+          <input type="text" class="lib-search" id="libSearch" placeholder="ページを探す" aria-label="ライブラリの中を探す" />
+          <button class="action" id="libNew" type="button">＋ 新しいページ</button>
+        </div>
+        <div class="lib-grid" id="libGrid" role="treegrid" aria-labelledby="libTitle">
+          <div class="lib-head" role="row">
+            <div class="lib-name" role="columnheader" aria-sort="none"><button class="lib-col" id="libColTitle" type="button">ページ名</button></div>
+            <div class="lib-time" role="columnheader" aria-sort="none"><button class="lib-col" id="libColEdited" type="button">最終更新日時</button></div>
+          </div>
+          <div id="libRows" role="rowgroup"></div>
+        </div>
+        <div class="lib-empty" id="libEmpty" hidden>当てはまるページはありません</div>
       </div>
     </section>
 
@@ -1926,6 +1966,7 @@
       $('tab' + t).classList.toggle('active', n === t.toLowerCase());
     }
     $('tabLibrary').classList.toggle('active', n === 'library');   // 0.15.1 PS-2（D125）: ライブラリのタブ（サイドバーの見出しは .active を持たない）
+    if (n === 'library') renderLibrary();   // 0.15.1 PS-4: 開くたびに今の一覧で描く
   }
   // notes は中身だけ（ページのタブは openPageTab が開く）。0.15.1 ND-3（D114）: 音声入力のタブは無くなった。
   // 設定は 0.9.0 U-1（SP1・D24）からタブにせず、今のページの上にポップアップで開く（上の帯にタブを足さない・今のタブを替えない）
@@ -2649,7 +2690,9 @@
     if (!hasTab(key)) {
       const at = openTabs.findIndex((t) => t.key === activeTab);
       const live = openTabs.findIndex((t) => t.key === 'live');
+      const rep = o.replaceKey ? openTabs.findIndex((t) => t.key === o.replaceKey) : -1;   // 0.15.1 PS-4: ライブラリの行は、ライブラリのタブをそのページに替える
       if (o.replaceLive && live >= 0) openTabs[live] = { key };
+      else if (rep >= 0) openTabs[rep] = { key };
       else if (!o.newTab && at >= 0 && isPageKey(activeTab)) openTabs[at] = { key };
       else openTabs.push({ key });
     }
@@ -2699,7 +2742,8 @@
   function restoreTabs(tb) {
     const hasLive = hasTab('live');
     const open = [];
-    for (const k of tb.open) if (isPageKey(k) && !open.includes(k) && open.length < 20) open.push(k);   // 0.15.1 ND-3（F152）: 前の版の 'dictation' は開かない
+    // 0.15.1 ND-3（F152）: 前の版の 'dictation' は開かない。0.15.1 PS-4（決めたこと 32）: ライブラリのタブ（'library'）は戻す
+    for (const k of tb.open) if ((isPageKey(k) || k === 'library') && !open.includes(k) && open.length < 20) open.push(k);
     if (!open.length) return;
     openTabs = open.map((key) => ({ key }));
     const active = open.includes(tb.active) ? tb.active : open[open.length - 1];
@@ -4044,10 +4088,11 @@
   let privSt = { ...sideSectionView.SECTION_DEFAULT };
   let privLater = {};
   let privTouched = false;   // 覚えた形が届く前に利用者が変えたら、届いた値で上書きしない
+  // 一覧の1行 → 木の部品の行（並べ替えの「最終更新」は updatedAt: 0.15.1 PS-2）
+  function treeRowOf(p) { return { id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt, updatedAt: p.updatedAt }; }
   function treeNow() {
     if (treeFor !== pages) {
-      treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string')
-        .map((p) => ({ id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt, updatedAt: p.updatedAt })));
+      treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string').map(treeRowOf));
       treeFor = pages;
     }
     return treeOf;
@@ -4132,7 +4177,7 @@
     // 描き直してもフォーカスを同じ行に戻す（決めたこと 20。閉じて隠れたら一番近い見えている祖先へ）
     const fa = document.activeElement;
     const hadFocus = fa && fa.parentNode === box && fa.dataset && fa.dataset.pid ? fa.dataset.pid : '';
-    if (renameEd && renameEd.input) { renameEd.value = renameEd.input.value; renameEd.hadFocus = document.activeElement === renameEd.input; renameEd.remount = true; }   // 0.15.1 PS-3
+    if (renameEd && renameEd.where !== 'library' && renameEd.input) { renameEd.value = renameEd.input.value; renameEd.hadFocus = document.activeElement === renameEd.input; renameEd.remount = true; }   // 0.15.1 PS-3
     box.textContent = '';
     const view = pages.length ? treeView() : { rows: [], hidden: 0 };
     paintPriv(view.hidden);
@@ -4140,7 +4185,9 @@
       const d = document.createElement('div');
       d.className = 'empty';
       d.innerHTML = '<div class="big">議事録はありません</div>［＋ 新しい議事録］で会議を録音すると、要約と文字起こしが作られます。';
-      box.appendChild(d); return;
+      box.appendChild(d);
+      if (activeTab === 'library') renderLibrary();   // 0.15.1 PS-4
+      return;
     }
     for (const p of pages) if (p && p.id && typeof p.title === 'string') tabTitles.set(p.id, p.title);
     renderTabs();   // タブの名前は題名を追う
@@ -4206,7 +4253,8 @@
       box.appendChild(el);
     }
     if (want) { const el = treeRowEl(want); if (el) { treeFocus = want; el.focus(); } }
-    if (renameEd) mountRename();   // 0.15.1 PS-3: 描き直しても名前を変えている欄を同じ行に戻す（打った字もそのまま）
+    if (renameEd && renameEd.where !== 'library') mountRename();   // 0.15.1 PS-3: 描き直しても名前を変えている欄を同じ行に戻す（打った字もそのまま）
+    if (activeTab === 'library') renderLibrary();   // 0.15.1 PS-4: ライブラリも今の一覧で
     paintBodyPages();   // 0.15.0 PR-2（決めたこと 56）: 一覧を読み直したら、白紙のページの本文の子ページの行の題名とアイコンも今の値に
     renderKids();   // 0.15.0 PH-5（決めたこと 27）: 議事録の子ページの一覧も今の一覧の並びと題名で
   }
@@ -4232,25 +4280,29 @@
   }
   // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［移動先…］［新しいタブで開く］［削除］（HR4。［移動先…］は PH-5: R24）。
   // 0.15.1 PS-3（決めたこと 29）: 行の［···］でも開き、［リンクを写す］［名前を変える］を足して6つの並びにし、区切りの下に押せない「最終更新 年/月/日 時:分」
-  let treeMenu = null;   // 開いているとき { id, box }
+  let treeMenu = null;   // 開いているとき { id, box, where }
   function closeTreeMenu(back) {
     const m = treeMenu;
     if (!m) return;
     treeMenu = null;
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
-    if (back) focusTreeRow(m.id);
+    if (back) focusRowOf(m.where, m.id);
   }
-  function openTreeMenu(id) {
+  // 0.15.1 PS-4（決めたこと 36）: ライブラリの行でも同じメニュー（where: 'library'）。Esc で戻るのも、名前を変える欄も、その行
+  const rowOf = (where, id) => (where === 'library' ? libRowEl(id) : treeRowEl(id));
+  const focusRowOf = (where, id) => (where === 'library' ? focusLibRow(id) : focusTreeRow(id));
+  function openTreeMenu(id, o = {}) {
     closeTreeMenu();
-    const row = treeRowEl(id);
+    const where = o.where === 'library' ? 'library' : 'tree';
+    const row = rowOf(where, id);
     if (!row || listSel.on) return;
     const box = document.createElement('div');
     box.className = 'blockmenu treemenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ページのメニュー');
-    treeMenu = { id, box };
+    treeMenu = { id, box, where };
     const run = (fn) => () => { closeTreeMenu(); fn(); };
     const kbd = (b, shown, aria) => { b.setAttribute('data-kbd', shown); b.setAttribute('aria-keyshortcuts', aria); return b; };   // 右に灰色の近道（CSS の attr）
     menuItem(box, 'リンクを写す', () => { closeTreeMenu(true); copyRowLink(id); });   // 0.15.1 PS-3 直し 2（R43）: 写した後のフォーカスは行へ
-    kbd(menuItem(box, '名前を変える', run(() => startRename(id))), 'Ctrl+Shift+R', 'Control+Shift+R');
+    kbd(menuItem(box, '名前を変える', run(() => startRename(id, where))), 'Ctrl+Shift+R', 'Control+Shift+R');
     menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
     menuItem(box, '中にページを作る', run(() => createPageIn(id)));
     kbd(menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true }))), 'Ctrl+Enter', 'Control+Enter');
@@ -4295,28 +4347,29 @@
   // 空も送る（一覧は「無題のページ」「(無題の議事録)」）。断られたら元に戻して一言。元に戻す（Ctrl+Z）の歩みにはしない（ページの頭の題名と同じ）
   const RENAME_MAX = 500;   // 題名の上限（src/db/validate.js の LIMITS.title）
   let renameEd = null;      // 名前を変えている行 { id, old, value, input, done, remount, hadFocus }
-  // 事象の来た所が名前を変えられる行なら、その行のページの ID（木の行。ライブラリの行は PS-4）
+  // 事象の来た所が名前を変えられる行なら、その行のページの ID（木の行と、0.15.1 PS-4 のライブラリの行）
   function renameHost(el) {
-    return el && el.parentNode === $('plist') && el.dataset && typeof el.dataset.pid === 'string' ? el.dataset.pid : '';
+    return el && (el.parentNode === $('plist') || el.parentNode === $('libRows')) && el.dataset && typeof el.dataset.pid === 'string' ? el.dataset.pid : '';
   }
+  const renameWhere = (el) => (el && el.parentNode === $('libRows') ? 'library' : 'tree');
   // 0.15.1 PS-3 直し 2（R43）: 一覧の行の名前が無題の代わりの字（src/pagerules.js）なら、欄は空で始め、代わりの字は手引きに出す
   const untitledName = (p) => (p && p.kind === 'blank' ? blankUntitled() : '(無題の議事録)');
   // 名前の欄から行へ渡さないキー（木の動き）。ほかのキー（Ctrl+W・Ctrl+Tab・Ctrl+P・Ctrl+\ など）は窓の近道へ届く
   const RENAME_TREE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', ' ', 'F10', 'ContextMenu', 'Escape']);
-  function startRename(id) {
+  function startRename(id, where = 'tree') {
     if (listSel.on) return false;   // 選ぶ形の間は何もしない（チェックボックスの行に欄を出さない）
     if (renameEd) commitRename(renameEd);
     const p = pages.find((x) => x && x.id === id);
-    if (!p || !treeRowEl(id)) return false;
+    if (!p || !rowOf(where, id)) return false;
     const stand = p.title === untitledName(p);
-    renameEd = { id, old: p.title, value: stand ? '' : p.title, stand, input: null, done: false, remount: false, hadFocus: true };
+    renameEd = { id, where, old: p.title, value: stand ? '' : p.title, stand, input: null, done: false, remount: false, hadFocus: true };
     mountRename();
     return true;
   }
   function mountRename() {
     const ed = renameEd;
     if (!ed) return;
-    const row = treeRowEl(ed.id);
+    const row = rowOf(ed.where, ed.id);
     if (!row) { renameEd = null; return; }   // 畳んだ・表示の数の外になった行はやめる（送らない）
     const t = row.querySelector('.t');
     const inp = document.createElement('input');
@@ -4350,7 +4403,7 @@
     ed.done = true;
     if (renameEd === ed) renameEd = null;
     renderList();
-    focusTreeRow(ed.id);
+    focusRowOf(ed.where, ed.id);
   }
   // o.inPlace（欄の外を押した・Tab で出た blur）: 押した所（別の行・ボタン）の click を消さないよう、一覧を作り直さずにその場で欄を名前に戻す
   //（mousedown と mouseup の間に行を作り直すと click が来ない: R43）。一覧は答えの後に読み直す
@@ -4363,12 +4416,12 @@
     const v = typed === '' ? ed.old : typed;
     if (o.inPlace && ed.input && ed.input.parentNode) {
       ed.input.parentNode.textContent = v;
-      const row = treeRowEl(ed.id);
-      if (row) row.draggable = !listSel.on;
+      const row = rowOf(ed.where, ed.id);
+      if (row) row.draggable = ed.where === 'tree' && !listSel.on;
     } else {
       const back = Boolean(ed.input) && document.activeElement === ed.input;
       renderList();
-      if (back) focusTreeRow(ed.id);
+      if (back) focusRowOf(ed.where, ed.id);
     }
     if (v === ed.old) return;
     let ok = true;
@@ -4389,8 +4442,127 @@
     const id = renameHost(ev.target);
     if (!id) return;
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
-    startRename(id);
+    startRename(id, renameWhere(ev.target));
   });
+  // ---------------- 0.15.1 PS-4（計画 docs/plans/2026-11-04-151.md の決めたこと 31〜38・D125）: ライブラリ ----------------
+  // プライベートのページの全部を、タブ（鍵 'library'）の中の表（treegrid）で並べる。並べ替え・探す語・開け閉めは窓のメモリだけ（覚えない: PR13）。
+  // 行はサイドバーの木と同じ一覧（DB の listedRows。ゴミ箱・録音中の写し・録音の前のページは無い）。並べ替えと探すは sideSection.libraryRows（兄弟の中で・木を崩さない）。
+  // 題名（他人の文字）は textContent だけ（0.14.0 EB-6）。表示の数（決めたこと 23）はライブラリには効かない（いつも全部）
+  const lib = { col: '', dir: 'asc', q: '', open: new Set(), focus: '' };
+  const libSource = () => pages;
+  const libRowEl = (id) => [...$('libRows').children].find((e) => e.dataset && e.dataset.pid === id) || null;
+  function libRowsOf(src) {
+    const tree = src === pages ? treeNow() : pageTreeView.pageTree(src.filter((p) => p && typeof p.id === 'string').map(treeRowOf));
+    const byId = new Map(src.filter((p) => p && typeof p.id === 'string').map((p) => [p.id, p]));
+    const rows = sideSectionView.libraryRows(tree, { col: lib.col, dir: lib.dir, q: lib.q, open: lib.open, titleOf: (id) => (byId.get(id) || {}).title || '' });
+    return { rows: rows.filter((r) => byId.has(r.id)), byId };
+  }
+  function renderLibrary() {
+    const box = $('libRows');
+    const fa = document.activeElement;
+    const hadFocus = fa && fa.parentNode === box && fa.dataset ? fa.dataset.pid : '';
+    if (renameEd && renameEd.where === 'library' && renameEd.input) { renameEd.value = renameEd.input.value; renameEd.hadFocus = document.activeElement === renameEd.input; renameEd.remount = true; }
+    box.textContent = '';
+    for (const [id, col] of [['libColTitle', 'title'], ['libColEdited', 'edited']]) {
+      $(id).parentNode.setAttribute('aria-sort', lib.col === col ? (lib.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+    }
+    const { rows, byId } = libRowsOf(libSource());
+    $('libEmpty').hidden = rows.length > 0;
+    const now = Date.now();
+    const ids = rows.map((r) => r.id);
+    const reach = (ids.includes(hadFocus) ? hadFocus : '') || (ids.includes(lib.focus) ? lib.focus : '') || ids[0];
+    const stopEv = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); };
+    for (const r of rows) {
+      const p = byId.get(r.id);
+      const el = document.createElement('div');
+      el.className = 'lib-row'; el.dataset.pid = r.id; el.setAttribute('role', 'row'); el.setAttribute('aria-level', String(r.depth + 1));
+      if (r.hasKids && !lib.q) el.setAttribute('aria-expanded', r.open ? 'true' : 'false');
+      el.tabIndex = r.id === reach ? 0 : -1;
+      el.draggable = false;   // 引っ張って動かすのはサイドバーと［移動先…］（決めたこと 36）
+      const name = document.createElement('div'); name.className = 'lib-name'; name.setAttribute('role', 'gridcell');
+      if (r.depth > 0) name.style.paddingLeft = `${8 + TREE_INDENT * Math.min(r.depth, TREE_INDENT_MAX)}px`;
+      const tw = document.createElement('span'); tw.className = 'lib-tw'; tw.setAttribute('aria-hidden', 'true');
+      if (r.hasKids && !lib.q) {
+        tw.textContent = r.open ? '▾' : '▸'; tw.title = r.open ? '閉じる' : '開く';
+        tw.onclick = (ev) => { stopEv(ev); toggleLibRow(r.id); };
+      }
+      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p);
+      const tx = document.createElement('div'); tx.className = 'lib-tx';
+      const tt = document.createElement('span'); tt.className = 't';
+      tt.textContent = p.title;
+      tx.append(tt);
+      if (r.place) { const pl = document.createElement('span'); pl.className = 'lib-place'; pl.textContent = r.place; tx.append(pl); }
+      name.append(tw, ic, tx);
+      const time = document.createElement('div'); time.className = 'lib-time'; time.setAttribute('role', 'gridcell');
+      time.textContent = sideSectionView.relTime(p.updatedAt, now);
+      time.title = sideSectionView.stampText(p.updatedAt);
+      el.append(name, time);
+      el.onclick = (ev) => openFromLibrary(r.id, ev);
+      el.onmousedown = (ev) => { if (ev && ev.button === 1 && typeof ev.preventDefault === 'function') ev.preventDefault(); };
+      el.onauxclick = (ev) => { if (ev && ev.button === 1) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); openFromLibrary(r.id, ev); } };
+      el.onkeydown = (ev) => libKey(ev, r.id);
+      el.oncontextmenu = (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); openTreeMenu(r.id, { where: 'library' }); };
+      box.appendChild(el);
+    }
+    if (hadFocus) { const el = libRowEl(reach); if (el) { lib.focus = reach; el.focus(); } }
+    if (renameEd && renameEd.where === 'library') mountRename();
+  }
+  function focusLibRow(id) {
+    const el = libRowEl(id);
+    if (!el) return;
+    lib.focus = id;
+    for (const e of $('libRows').children) if (e.dataset && e.dataset.pid) e.tabIndex = e === el ? 0 : -1;
+    el.focus();
+  }
+  function toggleLibRow(id, on = !lib.open.has(id)) {
+    if (on) lib.open.add(id); else lib.open.delete(id);
+    renderLibrary();
+  }
+  // 行を押す・Enter は今のタブ（ライブラリのタブがそのページに替わる）・Ctrl+押す・Ctrl+Enter・中クリックは新しいタブ（決めたこと 36・PR13）
+  function openFromLibrary(id, ev) {
+    const newTab = Boolean(ev) && Boolean(ev.ctrlKey || ev.metaKey || ev.button === 1);
+    return newTab ? openPageTab(id, { newTab: true }) : openPageTab(id, { replaceKey: 'library' });
+  }
+  // 行のキー（木の決まり: ↑↓・Home・End・→←・Enter・Ctrl+Enter・Shift+F10 とメニューのキー）。Ctrl+Shift+R は document の受け口（名前を変える）
+  function libKey(ev, id) {
+    if (imeEnter(ev)) return;
+    const { rows } = libRowsOf(libSource());
+    const i = rows.findIndex((r) => r.id === id);
+    if (i < 0) return;
+    const r = rows[i];
+    const k = ev.key;
+    const stop = () => { if (typeof ev.preventDefault === 'function') ev.preventDefault(); };
+    if (k === 'ArrowDown') { stop(); if (i + 1 < rows.length) focusLibRow(rows[i + 1].id); }
+    else if (k === 'ArrowUp') { stop(); if (i > 0) focusLibRow(rows[i - 1].id); }
+    else if (k === 'Home') { stop(); focusLibRow(rows[0].id); }
+    else if (k === 'End') { stop(); focusLibRow(rows[rows.length - 1].id); }
+    else if (k === 'ArrowRight') {
+      stop();
+      if (!r.hasKids || lib.q) return;
+      if (!r.open) { lib.focus = id; toggleLibRow(id, true); return; }
+      focusLibRow(rows[i + 1].id);
+    } else if (k === 'ArrowLeft') {
+      stop();
+      if (lib.q) return;
+      if (r.hasKids && r.open) { lib.focus = id; toggleLibRow(id, false); return; }
+      const up = treeNow().parent.get(id) || null;
+      if (up) focusLibRow(up);
+    } else if (k === 'Enter' || k === ' ') {
+      stop();
+      openFromLibrary(id, { ctrlKey: k === 'Enter' && Boolean(ev.ctrlKey || ev.metaKey) });
+    } else if (k === 'ContextMenu' || (k === 'F10' && ev.shiftKey)) { stop(); openTreeMenu(id, { where: 'library' }); }
+  }
+  // 列の見出し: 押すとその列で並べ替え、もう一度押すと逆（ページ名は名前の順から、最終更新日時は新しい順から）
+  function libSortBy(col) {
+    if (lib.col === col) lib.dir = lib.dir === 'asc' ? 'desc' : 'asc';
+    else { lib.col = col; lib.dir = col === 'edited' ? 'desc' : 'asc'; }
+    renderLibrary();
+  }
+  $('libColTitle').onclick = () => libSortBy('title');
+  $('libColEdited').onclick = () => libSortBy('edited');
+  $('libSearch').addEventListener('input', () => { lib.q = $('libSearch').value; renderLibrary(); });
+  $('libNew').onclick = () => createPageIn();   // 最上位に白紙のページを作って開く（ライブラリのタブは残る: 決めたこと 33）
+  // ---- ライブラリの描き方はここまで
   // 引っ張って動かす（決めたこと 21）: 行の真ん中へ落とすとその中（最後の子）へ・上か下の4分の1はその前か後ろ。自分と子孫の上では印を出さず、
   // 落としても何もしない。Esc でやめる。落とす所は pageTreeView.pageDropSpot（要約の行の dropSpot とは別の部品）
   let pageDrag = null;   // 引っ張っているページの ID

@@ -284,6 +284,15 @@ const ROW_RENAME = `(async () => {
   row.dispatchEvent(new KeyboardEvent('keydown', { key: 'R', code: 'KeyR', ctrlKey: true, shiftKey: true, bubbles: true })); await w(150);
   return 1;
 })()`;
+// 0.15.1 PS-4（D125）: 見出しの ↗ でライブラリのタブを開く（探す形は語「見積」を入れて木を崩した形）
+const OPEN_LIBRARY = "document.getElementById('privLib').click()";
+const LIBRARY_SEARCH = `(async () => {
+  document.getElementById('privLib').click();
+  await new Promise((r) => setTimeout(r, 150));
+  const q = document.getElementById('libSearch'); q.value = '見積'; q.dispatchEvent(new Event('input'));
+  await new Promise((r) => setTimeout(r, 150));
+  return 1;
+})()`;
 // 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
 const SELECT_TWO = `(() => {
   document.getElementById('listSelect').click();
@@ -514,6 +523,12 @@ const SCREENS = [
   // 0.15.1 PS-3（計画の「取り直す画面（RETAKE）」・D124）: 行の［···］のメニュー（6つと最終更新の行）と、行の中の名前を変える欄。足した画面（まだ基準が無い）
   { name: 'side-row-menu-light', page: 'app', theme: 'light', act: ROW_MENU },
   { name: 'side-row-rename-light', page: 'app', theme: 'light', act: ROW_RENAME },
+  // 0.15.1 PS-4（計画の「取り直す画面（RETAKE）」・D125）: ライブラリ（題・種類のタブ・探す欄・［＋ 新しいページ］・表・相対の日時・▸）の明暗・拡大 200% と、
+  // 探したとき（木を崩して場所付き）。サイドバーの木と同じ見本（0.15.0 PH-3 の treeAnswers）。足した画面（まだ基準が無い）
+  { name: 'library-light', page: 'app', theme: 'light', get answers() { return treeAnswers(); }, act: OPEN_LIBRARY },
+  { name: 'library-dark', page: 'app', theme: 'dark', get answers() { return treeAnswers(); }, act: OPEN_LIBRARY },
+  { name: 'library-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return treeAnswers(); }, act: OPEN_LIBRARY },
+  { name: 'library-search-light', page: 'app', theme: 'light', get answers() { return treeAnswers(); }, act: LIBRARY_SEARCH },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -653,6 +668,8 @@ const RETAKE = new Set([
   'side-private-folded-light', 'side-private-folded-dark', 'side-private-menu-light', 'side-private-more-light', 'side-private-zoom200-light',
   // 0.15.1 PS-3（D124）: 足した2枚（まだ基準が無い）
   'side-row-menu-light', 'side-row-rename-light',
+  // 0.15.1 PS-4（D125）: 足した4枚（まだ基準が無い）
+  'library-light', 'library-dark', 'library-zoom200-light', 'library-search-light',
 ]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';

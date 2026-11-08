@@ -4,6 +4,8 @@
  * PS-1（F158・F161・F162・F164）: 純粋な部品（src/sideSection.js）と窓の覚え書きの sections・ライブラリのタブ（TAB_FIXED）・ui:get の sections。
  * PS-2（F157〜F162）: 見出し「プライベート」（押すと畳む・↗・［＋］・［···］の並べ替え・表示・ページを選ぶ）・［もっと見る］・畳み・並べ替え・表示を覚える。
  *       画面の sideSection の写しは src/sideSection.js と字も答えも同じ（R30）。
+ * PS-3（F163）: 行の［···］と行のメニューの6つ・最終更新の行・その場で名前を変える（Ctrl+Shift+R）・近道の表。
+ * PS-4（F164）: ライブラリ（タブ・頭・treegrid の表・並べ替え・探す・行の動き・他人の文字）。
  * 要素を比べるときは assert.ok(a === b, 文) にする（赤のときに報告が最小 DOM の木を丸ごと書き出し、CI の記憶を使い切る: 0.11.0 R22・0.15.1 R41）。
  * 題名は作った物。実在の人名・社名は使わない。
  */
@@ -316,7 +318,7 @@ const UPAGE = (id) => {
 };
 const UNEW = () => ({ page: { id: 'pnew1', kind: 'blank', title: '', date: '2026-11-08', createdAt: '2026-11-08T01:00:00.000Z', durationSec: 0, blocks: [], memo: '' }, segments: [] });
 async function bootUi(o = {}) {
-  const l = await load(APP, { returns: {
+  const l = await load(APP, { ...(o.now !== undefined ? { now: o.now } : {}), returns: {
     pagesSearch: () => (o.list ? o.list() : ULIST()), pageGet: (id) => UPAGE(id) || (id === 'pnew1' ? UNEW() : null), pageCreate: () => ({ id: 'pnew1', page: UNEW().page }),
     pageMove: () => ULIST(), uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, ...(o.ui || {}) }), ...(o.returns || {}) } });
   await l.drain();
@@ -997,5 +999,187 @@ test('PS-3 直し 2・F163: 行の［···］は読み上げない（aria-hidde
   assert.ok(l.document.activeElement === uRow(l, 'pg5'), '［リンクを写す］の後にフォーカスが行へ戻らない');
   l.key({ key: 'F10', shiftKey: true }, uRow(l, 'pg3')); await l.drain();
   assert.ok(rowMenu(l).querySelector('.mfoot') === null && rowMenu(l).querySelector('.msep') === null && !rowMenu(l).hasAttribute('aria-describedby'), '最終更新が無いのに最終更新の行か区切りを出した');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// ================================================================ PS-4（ライブラリ: 決めたこと 31〜38・D125・F164）
+const NOW = Date.parse('2026-11-20T03:00:00.000Z');   // 一覧の最終更新より後の決まった時（相対の日時を決める）
+const libRows = (l) => $(l, 'libRows').querySelectorAll('.lib-row');
+const libIds = (l) => libRows(l).map((r) => `${'  '.repeat(Number(r.getAttribute('aria-level')) - 1)}${r.dataset.pid}`);
+const libRow = (l, id) => libRows(l).find((r) => r.dataset.pid === id);
+const openLib = async (l) => { await press(l, $(l, 'privLib')); };
+const head = (l, id) => $(l, id).parentNode;   // 列の見出し（role="columnheader"）
+const typeQ = async (l, q) => { const b = $(l, 'libSearch'); b.value = q; b.dispatchEvent({ type: 'input', target: b }); await l.drain(); };
+
+test('PS-4・F164: ライブラリのタブ（↗・［もっと見る］で鍵 library の1つだけ・名前「📚 ライブラリ」・覚えたタブの library で起動すると戻る・Ctrl+W で閉じる・パンくずとページの「···」は無い）', T, async () => {
+  const l = await bootUi({ ui: { tabs: { open: ['page:pg5', 'library'], active: 'library' } } });
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg5', 'library'], '覚えたライブラリのタブで起動しても戻らない');
+  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').dataset.key, 'library');
+  assert.strictEqual($(l, 'tabLibrary').classList.contains('active'), true);
+  assert.deepStrictEqual([$(l, 'crumb').querySelector('.ct').textContent, $(l, 'pActs').hidden], ['', true], 'パンくずかページの「···」が出ている');
+  await openLib(l);
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg5', 'library'], '↗ でライブラリのタブが増えた');
+  l.key({ key: 'w', code: 'KeyW', ctrlKey: true }); await l.drain();
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg5'], 'Ctrl+W でライブラリのタブを閉じない');
+  assert.deepStrictEqual(l.called('uiSave').map((c) => c.args[0]).filter((p) => p.tabs).pop(), { tabs: { open: ['page:pg5'], active: 'page:pg5' } });
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4・F164: 頭と表（題「ライブラリ」・種類のタブ「プライベート」・検索の欄・［＋ 新しいページ］は最上位に作って開く・treegrid の「ページ名」「最終更新日時」・サイドバーの木と同じページ・相対の日時と title・▸ で子）', T, async (t) => {
+  tokyo(t);
+  const live = { id: 'plive', title: titleAt('2026-11-20T02:00:00.000Z'), createdAt: '2026-11-20T02:00:00.000Z', durationSec: 0, blocks: [], memo: '', meeting: { phase: 'recording' } };
+  const l = await bootUi({ now: NOW, ui: { tree: { open: ['pg6'] } }, returns: { pageGet: (id) => (id === 'plive' ? { page: live, segments: [] } : UPAGE(id) || (id === 'pnew1' ? UNEW() : null)) } });
+  l.fire('onPageOpen', 'plive'); await l.drain();   // 録音中の写し（一覧に無い）を開いていてもライブラリには出さない
+  await openLib(l);
+  assert.strictEqual($(l, 'tabLibrary').querySelector('h1').textContent, 'ライブラリ');
+  const kinds = $(l, 'tabLibrary').querySelector('[role="tablist"]');
+  assert.deepStrictEqual(kinds.querySelectorAll('[role="tab"]').map((x) => [x.textContent, x.getAttribute('aria-selected')]), [['プライベート', 'true']]);
+  const q = $(l, 'libSearch');
+  assert.deepStrictEqual([q.tagName, q.getAttribute('placeholder'), q.getAttribute('aria-label')], ['input', 'ページを探す', 'ライブラリの中を探す']);
+  assert.strictEqual($(l, 'libNew').textContent, '＋ 新しいページ');
+  assert.strictEqual($(l, 'libGrid').getAttribute('role'), 'treegrid');
+  assert.deepStrictEqual([head(l, 'libColTitle'), head(l, 'libColEdited')].map((h) => [h.getAttribute('role'), h.textContent, h.getAttribute('aria-sort')]),
+    [['columnheader', 'ページ名', 'none'], ['columnheader', '最終更新日時', 'none']]);
+  // 行はサイドバーの木と同じページ（手動の並び・ライブラリの開け閉めはサイドバーと別で、初めは閉じている）
+  assert.deepStrictEqual(libIds(l), MANUAL, '行がサイドバーの木と違う（録音中の写しを出した）');
+  const r5 = libRow(l, 'pg5');
+  assert.deepStrictEqual([r5.getAttribute('role'), r5.getAttribute('aria-level')], ['row', '1']);
+  const cells = r5.querySelectorAll('[role="gridcell"]');
+  assert.strictEqual(cells.length, 2);
+  assert.strictEqual(cells[0].querySelector('.t').textContent, ULIST().find((p) => p.id === 'pg5').title);
+  assert.deepStrictEqual([cells[1].textContent, cells[1].title], ['5 日前', '2026/11/15 09:00'], '最終更新日時の言い方か title が違う');
+  assert.deepStrictEqual([libRow(l, 'pg7').querySelectorAll('[role="gridcell"]')[1].textContent, libRow(l, 'pg1').querySelectorAll('[role="gridcell"]')[1].textContent], ['1 週間前', '2 週間前']);
+  // ▸ で子（k1・k2）
+  const r6 = libRow(l, 'pg6');
+  assert.strictEqual(r6.getAttribute('aria-expanded'), 'false');
+  const tw = r6.querySelector('.lib-tw');
+  assert.deepStrictEqual([tw.textContent, tw.getAttribute('aria-hidden')], ['▸', 'true']);
+  await press(l, tw);
+  assert.deepStrictEqual(libIds(l), ['pg7', 'pg6', '  k1', '  k2', 'pg5', 'pg4', 'pg3', 'pg2', 'pg1'], '▸ で子の行が出ない');
+  assert.deepStrictEqual([libRow(l, 'pg6').getAttribute('aria-expanded'), libRow(l, 'pg6').querySelector('.lib-tw').textContent], ['true', '▾']);
+  assert.deepStrictEqual(l.called('uiSave').map((c) => c.args[0]).filter((p) => p.tree).length, 0, 'ライブラリの開け閉めを覚えた（サイドバーの木と別・窓のメモリだけ）');
+  // ［＋ 新しいページ］は最上位に作って開く（ライブラリのタブは残る）
+  await press(l, $(l, 'libNew'));
+  assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [[]], '［＋ 新しいページ］が最上位に作らない（開いていたページの中に作った）');
+  assert.ok(tabKeysOf(l).includes('library') && tabKeysOf(l).includes('page:pnew1'), 'ライブラリのタブが残らないか、作ったページを開かない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4・F164: 並べ替え（「ページ名」は名前の順・もう一度で逆・aria-sort。「最終更新日時」は新しい順・もう一度で古い順。木の形は崩れない）と探す（木を崩して場所付き・当たりが無いと「当てはまるページはありません」・語は覚えない）', T, async () => {
+  const names = { pg7: '定例 第10回', pg6: '定例 第2回', k1: 'かいぎの控え', k2: 'あさの資料', pg5: 'イベントの準備', pg4: 'うみの資料', pg3: '定例 第1回', pg2: 'Weekly', pg1: 'えきの地図' };
+  const list = () => ULIST().map((p) => ({ ...p, title: names[p.id] }));
+  const l = await bootUi({ list, returns: { pageGet: (id) => UPAGE(id) } });
+  await openLib(l);
+  await press(l, libRow(l, 'pg6').querySelector('.lib-tw'));
+  await press(l, $(l, 'libColTitle'));
+  assert.deepStrictEqual(libIds(l), ['pg2', 'pg5', 'pg4', 'pg1', 'pg3', 'pg6', '  k2', '  k1', 'pg7'], 'ページ名の並べ替えが名前の順でない・木が崩れた');
+  assert.deepStrictEqual([head(l, 'libColTitle').getAttribute('aria-sort'), head(l, 'libColEdited').getAttribute('aria-sort')], ['ascending', 'none']);
+  await press(l, $(l, 'libColTitle'));
+  assert.deepStrictEqual(libIds(l), ['pg7', 'pg6', '  k1', '  k2', 'pg3', 'pg1', 'pg4', 'pg5', 'pg2'], 'もう一度押しても逆にならない');
+  assert.strictEqual(head(l, 'libColTitle').getAttribute('aria-sort'), 'descending');
+  await press(l, $(l, 'libColEdited'));
+  assert.deepStrictEqual(libIds(l), ['pg2', 'pg5', 'pg7', 'pg6', '  k2', '  k1', 'pg4', 'pg3', 'pg1'], '最終更新日時が新しい順でない');
+  assert.deepStrictEqual([head(l, 'libColTitle').getAttribute('aria-sort'), head(l, 'libColEdited').getAttribute('aria-sort')], ['none', 'descending']);
+  await press(l, $(l, 'libColEdited'));
+  assert.strictEqual(head(l, 'libColEdited').getAttribute('aria-sort'), 'ascending');
+  assert.deepStrictEqual(libIds(l).slice(0, 2), ['pg1', 'pg3']);
+  // 探す: カタカナの語でひらがなの題名に当たり、木を崩して場所を付ける
+  await typeQ(l, 'カイギ');
+  assert.deepStrictEqual(libIds(l), ['k1']);
+  assert.strictEqual(libRow(l, 'k1').querySelector('.lib-place').textContent, '定例 第2回');
+  assert.strictEqual($(l, 'libEmpty').hidden, true);
+  await typeQ(l, '見つからない語');
+  assert.deepStrictEqual(libIds(l), []);
+  assert.deepStrictEqual([$(l, 'libEmpty').hidden, $(l, 'libEmpty').textContent], [false, '当てはまるページはありません']);
+  // 語は覚えない（uiSave に出ない）
+  assert.ok(!l.called('uiSave').some((c) => JSON.stringify(c.args[0]).includes('見つからない語')), '探す語を覚えた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4: 行の動き（押す・Enter で今のタブ（ライブラリのタブがページに替わる）・Ctrl+押す・Ctrl+Enter で新しいタブ・↑↓・→←・Shift+F10 で行のメニュー・Ctrl+Shift+R で名前を変える欄が行の中に出る）', T, async () => {
+  const r0 = renamable();
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  await openLib(l);
+  const k = (id, o) => { const ev = l.key(o, libRow(l, id)); return l.drain().then(() => ev); };
+  assert.strictEqual(libRows(l).filter((r) => r.tabIndex === 0).length, 1, 'Tab で届く行が1つでない');
+  libRow(l, 'pg7').focus();
+  await k('pg7', { key: 'ArrowDown' });
+  assert.ok(l.document.activeElement === libRow(l, 'pg6'), '↓ で次の行へ移らない');
+  await k('pg6', { key: 'ArrowRight' });
+  assert.deepStrictEqual(libIds(l).slice(0, 4), ['pg7', 'pg6', '  k1', '  k2'], '→ で開かない');
+  await k('pg6', { key: 'ArrowRight' });
+  assert.ok(l.document.activeElement === libRow(l, 'k1'), '開いた行の → で最初の子へ移らない');
+  await k('k1', { key: 'ArrowLeft' });
+  assert.ok(l.document.activeElement === libRow(l, 'pg6'), '子の ← で親へ移らない');
+  await k('pg6', { key: 'ArrowLeft' });
+  assert.deepStrictEqual(libIds(l).slice(0, 3), ['pg7', 'pg6', 'pg5'], '← で閉じない');
+  await k('pg6', { key: 'ArrowUp' });
+  assert.ok(l.document.activeElement === libRow(l, 'pg7'));
+  // Shift+F10 で行のメニュー（サイドバーと同じ6つ）・Esc で行へ
+  await k('pg5', { key: 'F10', shiftKey: true });
+  assert.deepStrictEqual(rowItems(l).map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '新しいタブで開く', '削除']);
+  l.key({ key: 'Escape' }, rowMenu(l)); await l.drain();
+  assert.ok(l.document.activeElement === libRow(l, 'pg5'), 'メニューの Esc でライブラリの行へ戻らない');
+  // Ctrl+Shift+R で名前を変える欄がライブラリの行の中に出る
+  await k('pg5', CSR);
+  const box = $(l, 'libRows').querySelector('input.pren');
+  assert.ok(box && box.parentNode === libRow(l, 'pg5').querySelector('.t'), '名前を変える欄がライブラリの行の中に出ない');
+  assert.ok($(l, 'plist').querySelector('input.pren') === null, 'サイドバーの行にも欄が出た');
+  box.value = 'ライブラリで替えた名前';
+  l.key({ key: 'Enter' }, box); await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pg5', 'ライブラリで替えた名前']]);
+  assert.strictEqual(libRow(l, 'pg5').querySelector('.t').textContent, 'ライブラリで替えた名前');
+  assert.ok(l.document.activeElement === libRow(l, 'pg5'), '決めた後にライブラリの行へ戻らない');
+  // Ctrl+Enter・Ctrl+押すで新しいタブ（ライブラリは残る）
+  await k('pg4', { key: 'Enter', ctrlKey: true });
+  assert.deepStrictEqual(tabKeysOf(l), ['library', 'page:pg4'], 'Ctrl+Enter で新しいタブに開かない');
+  $(l, 'tabbar').querySelector('[data-key="library"]').dispatchEvent({ type: 'click' }); await l.drain();
+  libRow(l, 'pg3').dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain();
+  assert.deepStrictEqual(tabKeysOf(l), ['library', 'page:pg4', 'page:pg3'], 'Ctrl+押すで新しいタブに開かない');
+  // 押す・Enter は今のタブ（ライブラリのタブがページに替わる）
+  $(l, 'tabbar').querySelector('[data-key="library"]').dispatchEvent({ type: 'click' }); await l.drain();
+  await k('pg2', { key: 'Enter' });
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg2', 'page:pg4', 'page:pg3'], 'Enter でライブラリのタブがページに替わらない');
+  await openLib(l);
+  libRow(l, 'pg1').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg2', 'page:pg4', 'page:pg3', 'page:pg1'], '押すとライブラリのタブがページに替わらない');
+  assert.strictEqual(l.called('pageMove').length, 0);
+  assert.ok(libRows(l).length === 0 || libRows(l).every((r) => !r.draggable), 'ライブラリの行を引っ張れる');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4・F164（PS-3 直し 2 と合わせて）: ライブラリの行の名前の欄も、欄の外を押す blur でその場で決める（ライブラリの行は同じ要素のまま・サイドバーの同じページの行は引っ張れるまま）', T, async () => {
+  const r0 = renamable();
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  await openLib(l);
+  const row5 = libRow(l, 'pg5');
+  const row4 = libRow(l, 'pg4');
+  assert.strictEqual(uRow(l, 'pg5').draggable, true);
+  l.key(CSR, row5); await l.drain();
+  const box = $(l, 'libRows').querySelector('input.pren');
+  box.value = 'ライブラリで押して決める名前';
+  row4.dispatchEvent({ type: 'mousedown', button: 0 });
+  row4.focus();
+  box.dispatchEvent({ type: 'blur' });
+  assert.ok(libRow(l, 'pg5') === row5 && libRow(l, 'pg4') === row4, '欄の blur でライブラリの行を作り直した');
+  assert.strictEqual(row5.querySelector('.t').textContent, 'ライブラリで押して決める名前', 'その場で名前を戻さない');
+  assert.strictEqual(row5.draggable, false, 'ライブラリの行を引っ張れるようにした');
+  assert.strictEqual(uRow(l, 'pg5').draggable, true, 'ライブラリで決めたのにサイドバーの行を引っ張れなくした');
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pg5', 'ライブラリで押して決める名前']]);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4・F164: 他人の文字（題名）は textContent で入れる（HTML の字はそのまま字として出る）', T, async () => {
+  const evil = '<img src=x onerror="window.__x=1">会議';
+  const l = await bootUi({ list: () => ULIST().map((p) => (p.id === 'pg5' ? { ...p, title: evil } : p)) });
+  await openLib(l);
+  const t = libRow(l, 'pg5').querySelector('.t');
+  assert.strictEqual(t.textContent, evil);
+  assert.strictEqual(t.querySelectorAll('img').length, 0, '題名を HTML として入れた');
+  await typeQ(l, '会議');
+  assert.strictEqual(libRow(l, 'pg5').querySelector('.t').querySelectorAll('img').length, 0);
+  const lib = HTML.slice(HTML.indexOf('function renderLibrary('), HTML.indexOf('// ---- ライブラリの描き方はここまで'));
+  assert.ok(lib.length > 100 && !/innerHTML/.test(lib), 'ライブラリの描き方に innerHTML がある');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });

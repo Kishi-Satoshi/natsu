@@ -1405,9 +1405,13 @@ const IDS_151 = [
   'ps-ren-line',   // PS-1
   'ps-ren-key', 'ps-shortcut-row',   // PS-3
   'lb-open',   // PS-2
-  'lb-tab-keep', 'lb-rel-time', 'lb-sort-name',   // PS-1
+  'lb-tab-keep',   // PS-1
+  'lb-rows',   // PS-4
+  'lb-rel-time', 'lb-sort-name',   // PS-1
   'lb-sort-num',   // ND-1・PS-1 直し（R36）
+  'lb-sort-dir',   // PS-4
   'lb-sort-level', 'lb-search',   // PS-1
+  'lb-new', 'lb-text', 'lb-kids',   // PS-4
 ];
 // 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足し、Task G の前に表の全部とちょうど同じかを見る形に替える（0.15.0 の R1 と同じ）
 const BUILT_151 = [
@@ -1419,6 +1423,7 @@ const BUILT_151 = [
   ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-num'], ['lb-sort-level', 'lb-search'],   // PS-1
   ['ps-head-text', 'ps-tree-label'], ['ps-sort-drag', 'ps-sort-drag'], ['ps-more-open', 'ps-more-open'], ['lb-open', 'lb-open'],   // PS-2
   ['ps-row-more', 'ps-row-aria'], ['ps-ren-key', 'ps-shortcut-row'],   // PS-3
+  ['lb-rows', 'lb-rows'], ['lb-sort-dir', 'lb-sort-dir'], ['lb-new', 'lb-kids'],   // PS-4
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）

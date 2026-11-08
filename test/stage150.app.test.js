@@ -2077,17 +2077,32 @@ test('PH-5 直し 2・R56 M-6: Ctrl+Shift+U は検索の窓・［移動先…］
   } finally { r.done(); }
 });
 
-test('PH-5 直し 2・R56 M-6・0.15.1 ND-3（R9）: 議事録の子ページの一覧は、ページのタブを Ctrl+W で閉じて選んでいるタブが無いときに読み直しても出さない', T, async () => {
+// 0.15.1 PS-4（計画 docs/plans/2026-11-04-151.md の R9・R34・D125）で意図して変えた: ND-3 の Ctrl+W の場面（R9）を、ページを閉じずに移るライブラリのタブへ移る形に
+// 戻した（開いたページは裏に残るので、renderKids の「選んでいるタブがそのページか」の照らしだけが子ページの一覧を出さない）
+test('PH-5 直し 2・R56 M-6・0.15.1 ND-3（R9）・PS-4: 議事録の子ページの一覧は、ページを開いたままライブラリのタブへ移ってから読み直しても出さない', T, async () => {
   const l = await boot();
   l.fire('onPageOpen', 'pa2'); await l.drain();
   $(l, 'paneBtnNote').dispatchEvent({ type: 'click' });
   assert.strictEqual($(l, 'pKids').hidden, false, '前提: 子ページの一覧が出る');
-  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、ページのタブを Ctrl+W で
-  // 閉じて、選んでいるタブの無い形で一覧を読み直す
-  l.key({ key: 'w', code: 'KeyW', ctrlKey: true }); await l.drain();
-  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]'), null, '前提: 選んでいるタブが無い');
+  $(l, 'privLib').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').dataset.key, 'library', '前提: ライブラリのタブを選んでいる');
   l.fire('onPagesUpdated'); await l.drain();
-  assert.strictEqual($(l, 'pKids').hidden, true, '選んでいるタブが無いときに一覧を読み直すと、子ページの一覧が出てしまった（出さないはず）');
+  assert.strictEqual($(l, 'pKids').hidden, true, 'ライブラリのタブで一覧を読み直すと、裏のページの子ページの一覧が出てしまった（出さないはず）');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.15.1 PS-4（R9・R12 の申し送り）: 書きかけの題名は、ライブラリのタブへ移る前に保存する（pageSetTitle の1回）。戻るとページは開いたまま（読み直さない）', T, async () => {
+  const l = await boot({ returns: { pageSetTitle: () => ({ ok: true }) } });
+  l.fire('onPageOpen', 'pa2'); await l.drain();
+  const t = $(l, 'pTitle');
+  t.focus();
+  t.textContent = '書きかけの題名';
+  const n = l.called('pageGet').length;
+  $(l, 'privLib').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa2', '書きかけの題名']], 'ライブラリへ移る前に書きかけの題名を保存しない');
+  $(l, 'tabbar').querySelector('[data-key="page:pa2"]').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('pageGet').length, n, 'ライブラリから戻るとページを読み直した');
+  assert.strictEqual($(l, 'pTitle').textContent, '書きかけの題名');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
