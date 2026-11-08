@@ -1183,3 +1183,54 @@ test('PS-4・F164: 他人の文字（題名）は textContent で入れる（HTM
   assert.ok(lib.length > 100 && !/innerHTML/.test(lib), 'ライブラリの描き方に innerHTML がある');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ================================================================ PS-5（ヘルプ: 決めたこと 20〜38・D124・D125・F160）
+const ROOT = path.join(__dirname, '..');
+const articles = () => {
+  const out = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (f.endsWith('.md')) out.push(f); } };
+  walk(path.join(ROOT, 'help', 'articles'));
+  return out;
+};
+const readmeScreens = () => {
+  const t = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const at = t.indexOf('### 画面の使い方');
+  return t.slice(at, t.indexOf('\n### ', at + 5));
+};
+const PAGE_TREE = () => fs.readFileSync(path.join(ROOT, 'help', 'articles', 'find', 'page-tree.md'), 'utf8');
+const secOf = (t, id) => { const at = t.search(new RegExp(`^## .*\\{#${id}\\}$`, 'm')); return at < 0 ? '' : t.slice(at, (t.indexOf('\n## ', at + 3) + 1 || t.length + 1) - 1); };
+
+test('PS-5・F160: どの記事にも、README の「画面の使い方」にも、見出し「議事録」と見出しの右の［選ぶ］の字が無い（見出しは「プライベート」・［選ぶ］は［···］の［ページを選ぶ］）', T, () => {
+  for (const [name, t] of [...articles().map((f) => [path.relative(ROOT, f), fs.readFileSync(f, 'utf8')]), ['README.md の画面の使い方', readmeScreens()]]) {
+    assert.ok(!/見出し「議事録」/.test(t), `${name} に 見出し「議事録」`);
+    assert.ok(!/［選ぶ］/.test(t), `${name} に ［選ぶ］`);
+  }
+  assert.ok(readmeScreens().includes('見出し「プライベート」'), 'README の画面の使い方にプライベートの見出しが無い');
+  const mcp = fs.readFileSync(path.join(ROOT, 'help', 'articles', 'start', 'claude-mcp.md'), 'utf8');
+  assert.ok(mcp.includes('［···］ から ［ページを選ぶ］'), 'Claude の記事が［ページを選ぶ］を案内しない');
+});
+
+test('PS-5・D124・D125: find/page-tree.md に節 #private・#rename・#library。並べ替え・表示・ページを選ぶ・もっと見る・名前を変える（Ctrl+Shift+R・変換確定の Enter・Esc・Tab と窓の切り替え・空は元の名前・無題は空から: R43）・ライブラリ（↗・名前の順・探す・新しいページ）。名前の順は五十音と言い切らない（R36）', T, () => {
+  const t = PAGE_TREE();
+  const priv = secOf(t, 'private');
+  const ren = secOf(t, 'rename');
+  const lib = secOf(t, 'library');
+  assert.ok(priv && ren && lib, '節 #private・#rename・#library のどれかが無い');
+  for (const w of ['見出し「プライベート」', '⌄', '›', '［並べ替え］', '［手動］', '［最終更新］', '［表示］', '［もっと見る］', '［ページを選ぶ］', '並べ替えを「手動」に戻すと、手で並べられます']) assert.ok(priv.includes(w), `#private に ${w} が無い`);
+  for (const w of ['［名前を変える］', '[[Ctrl+Shift+R]]', '[[Enter]]', '[[Esc]]', '変換を確定する', '名前を変えられませんでした。', '[[Tab]]', 'ほかの窓に切り替えただけでは決まりません', '空のまま決めると、元の名前に戻ります', '欄は空から始まります']) assert.ok(ren.includes(w), `#rename に ${w} が無い`);
+  // 持ち主の答え（2026-11-08）「ページの頂と同じく、元の名前に戻す」: 空にすると無題の名前で出る、とは書かない（R43）
+  assert.ok(!/空にすると、一覧では/.test(ren), '#rename が空の名前を無題の名前で出すと書いている');
+  for (const w of ['↗', '［もっと見る］', '「ページ名」', '「最終更新日時」', '名前の順（数は小さい順。漢字は読みの順には並びません）', '「ページを探す」', '当てはまるページはありません', '［＋ 新しいページ］']) assert.ok(lib.includes(w), `#library に ${w} が無い`);
+  assert.ok(!/五十音/.test(t), '名前の順を五十音と言い切った（漢字は読みの順にならない: R36）');
+  assert.ok(!/見出し「議事録」の行の右の ［＋］/.test(t));
+  // 行のメニューの並び（決めたこと 29）と、木のキーの表の Ctrl+Shift+R（SHORTCUTS と同じ説明）
+  assert.ok(secOf(t, 'tree').includes('（［リンクを写す］・［名前を変える］・［移動先…］・［中にページを作る］・［新しいタブで開く］・［削除］）'), '行のメニューの並びが違う');
+  const { SHORTCUTS } = require('../src/shortcuts');
+  const r = SHORTCUTS.find((x) => x.keys === 'Ctrl+Shift+R');
+  assert.ok(secOf(t, 'tree').includes(`| [[${r.keys}]] | ${r.what} |`), '木のキーの表に Ctrl+Shift+R の行が無い（SHORTCUTS と違う）');
+});
+
+test('PS-5: ヘルプと README の新しい節は Notion の名前と文を写していない（NaTsu の画面の言い方: PR11）', T, () => {
+  const t = [PAGE_TREE(), readmeScreens(), fs.readFileSync(path.join(ROOT, 'help', 'articles', 'start', 'overview.md'), 'utf8')].join('\n');
+  for (const w of ['Notion', 'notion', 'ノーション', 'リンクをコピー', '名前の変更', '新規ページ', 'チームスペース', 'サイドバーの整理']) assert.ok(!t.includes(w), `${w} がある`);
+});

@@ -1404,6 +1404,7 @@ const IDS_151 = [
   'ps-ren-inplace', 'ps-ren-empty', 'ps-row-aria',   // PS-3 直し 2（R43）
   'ps-ren-line',   // PS-1
   'ps-ren-key', 'ps-shortcut-row',   // PS-3
+  'ps-help-head',   // PS-5
   'lb-open',   // PS-2
   'lb-tab-keep',   // PS-1
   'lb-rows',   // PS-4
@@ -1423,6 +1424,7 @@ const BUILT_151 = [
   ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-num'], ['lb-sort-level', 'lb-search'],   // PS-1
   ['ps-head-text', 'ps-tree-label'], ['ps-sort-drag', 'ps-sort-drag'], ['ps-more-open', 'ps-more-open'], ['lb-open', 'lb-open'],   // PS-2
   ['ps-row-more', 'ps-row-aria'], ['ps-ren-key', 'ps-shortcut-row'],   // PS-3
+  ['ps-help-head', 'ps-help-head'],   // PS-5
   ['lb-rows', 'lb-rows'], ['lb-sort-dir', 'lb-sort-dir'], ['lb-new', 'lb-kids'],   // PS-4
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。

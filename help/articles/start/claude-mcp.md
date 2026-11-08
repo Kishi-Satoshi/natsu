@@ -1,7 +1,7 @@
 ---
 title: Claude から議事録を読む（MCP）
 description: Claude デスクトップに NaTsu を登録すると、Claude に「10/20 の議事録を読んで」のように頼めるようになる。登録の仕方・送られるもの・つながらないとき
-updated: 2026-11-04
+updated: 2026-11-08
 sources: README.md, src/renderer/app.html, src/main.js, src/mcp-config.js, src/mcp/tools.js, src/mcp/format.js
 related: start/claude-code, record/pc-only, find/delete-and-backups
 ---
@@ -32,7 +32,7 @@ Claude は、頼みに関係のある箇所だけを、日付・題名・時刻�
 ## 議事録のリンクを渡す {#link}
 
 - ページの「···」の ［リンクを写す］ で、その会議のリンクの1行を写せます。Claude に貼ると、その会議を読みます（1on1 の会議でも、リンクで指せば読みます）。
-- いくつもの会議を渡すときは、左の一覧の見出し「議事録」の右の ［選ぶ］ を押し、会議を選んで ［リンクを写す］ を押します（Shift を押しながら押すと範囲で選べます。終えるときは ［やめる］ か Esc）。
+- いくつもの会議を渡すときは、左の一覧の見出し「プライベート」の右の ［···］ から ［ページを選ぶ］ を押し、会議を選んで ［リンクを写す］ を押します（Shift を押しながら押すと範囲で選べます。終えるときは ［やめる］ か Esc）。
 
 ## うまく探してもらうコツ {#tips}
 
