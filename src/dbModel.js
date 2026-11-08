@@ -276,22 +276,38 @@ const TRUE_WORDS = Object.freeze(['はい', 'true', 'yes', 'y', '1', '✓', 'on'
 const THOUSANDS_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
 const DECIMAL_RE = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i;   // 指数の形（1e+21・1e-7: 数を文字にした形）も読む（DS-1 直し F9）
 const DATE_TEXT_RE = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?$/;
+const TIME_TEXT_RE = /^(\d{1,2}):(\d{2})$/;
+const MONEY_RE = /^([+-]?)[¥$](?=[\d.])/;   // 見せる文字の「¥1,200」「-$5.25」（DV-2 直し rv46 M6: 写した値を貼り戻せる）
 
 // 文字 → 数（全角を寄せ、3桁区切りのカンマを外した数だけ。読めなければ null）
 function readNumber(s) {
   let t = String(s).normalize('NFKC').replace(/\u2212/g, '-').trim();
+  t = t.replace(MONEY_RE, '$1');
+  if (t.endsWith(SHOW.percent)) t = t.slice(0, -SHOW.percent.length).trim();   // 「40%」（打った数のまま: R8）
   if (THOUSANDS_RE.test(t)) t = t.replace(/,/g, '');
   const n = DECIMAL_RE.test(t) ? Number(t) : NaN;
   return Number.isFinite(n) ? n : null;
 }
-// 文字 → 日付（YYYY-MM-DD・YYYY/MM/DD と HH:MM の形だけ。推し量らない: 決めたこと 14）
+// 文字 → 日付（YYYY-MM-DD・YYYY/MM/DD と HH:MM の形だけ。推し量らない: 決めたこと 14）。
+// DV-2 直し（rv46 M6）: 見せる文字の期間「A → B」（B は日付と時刻か、同じ日の終わりの時刻だけ）も読む（写した値を貼り戻せる）
 function readDate(s) {
-  const m = DATE_TEXT_RE.exec(String(s).normalize('NFKC').trim());
+  const t = String(s).normalize('NFKC').trim();
+  const at = t.indexOf(SHOW.arrow.trim());
+  const left = at < 0 ? t : t.slice(0, at).trim();
+  const m = DATE_TEXT_RE.exec(left);
   if (!m) return null;
   const p2 = (x) => x.padStart(2, '0');
   const out = { start: `${m[1]}-${p2(m[2])}-${p2(m[3])}` };
   if (m[4] !== undefined) out.time = `${p2(m[4])}:${m[5]}`;
-  return realDay(out.start) && (out.time === undefined || realTime(out.time)) ? out : null;
+  if (at >= 0) {
+    const right = t.slice(at + SHOW.arrow.trim().length).trim();
+    const e = DATE_TEXT_RE.exec(right);
+    const tm = TIME_TEXT_RE.exec(right);
+    if (e) { out.end = `${e[1]}-${p2(e[2])}-${p2(e[3])}`; if (e[4] !== undefined) out.endTime = `${p2(e[4])}:${e[5]}`; }
+    else if (tm) out.endTime = `${p2(tm[1])}:${tm[2]}`;
+    else return null;
+  }
+  try { return dateCell(null, out); } catch (_) { return null; }
 }
 const splitNames = (s) => String(s).split(NAME_SPLIT_RE).map((x) => x.trim()).filter(Boolean);
 // もとの値の文字（テキストへの読み替え。日付とチェックは見せる文字と同じ形）

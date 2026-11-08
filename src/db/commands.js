@@ -93,7 +93,7 @@ const HOT_QUERIES = Object.freeze({
   typeOf: 'select type from blocks where id = ?',   // 0.16.0 DS-2: 行の型（データベースの行か）
   // 0.16.0 DS-3（決めたこと 30）: データベースの行（生きている行・全部の行・並びの鍵・数・末尾の鍵・1つの行）
   dbRows: "select id, ord, text, attrs, rev, created_at, updated_at from blocks where type = 'row' and parent_id = ? and trashed_at is null",
-  dbAllRows: "select id, attrs from blocks where type = 'row' and parent_id = ?",
+  dbAllRows: "select id, attrs, trashed_at from blocks where type = 'row' and parent_id = ?",
   dbOrds: "select id, ord from blocks where type = 'row' and parent_id = ?",
   dbRowCount: "select count(*) as c from blocks where type = 'row' and parent_id = ? and trashed_at is null",
   dbLastOrd: "select max(ord) as m from blocks where type = 'row' and parent_id = ?",
@@ -340,7 +340,11 @@ function entryOf(db, row) {
 
 // アクションタブの1画面分（今の store.actionView と同じ答え。ToDo のあるページだけ読む）。rows は一覧に出す行（0.10.0 R-2: MCP の読み手は
 // 出さない会議を除いた行を渡す。省略は listedRows の全部。外す判定は listedRows の1か所のまま）
-function actionView(db, { q, assignee } = {}, rows = listedRows(db)) {
+// noPrivate（DV-2 直し・2026-11-08 の持ち主の答え「PC の中だけの会議の名前は候補に出さない（おすすめ）」・R83）: オフラインモードの会議（経路か会議の印）と、
+// 印の分からない会議（片付けた落ちた会議で経路の記録が無い）を外す（データベースのユーザーの列の候補のため。アクション一覧は渡さない）
+const privateMeeting = (p) => p.kind !== 'blank' && p.kind !== 'database' && ((isObj(p.route) && p.route.localOnly === true)
+  || (isObj(p.meeting) && p.meeting.localOnly === true) || (p.recovered === true && !isObj(p.route)));
+function actionView(db, { q, assignee, noPrivate } = {}, rows = listedRows(db)) {
   const fq = searchFold(q);
   const who = String(assignee || '');
   const withTodo = new Set(db.prepare(HOT_QUERIES.todoPages).all().map((r) => r.page_id));
@@ -350,7 +354,7 @@ function actionView(db, { q, assignee } = {}, rows = listedRows(db)) {
   for (const { id } of rows) {
     if (!withTodo.has(id)) continue;
     const page = readPage(db, id);
-    if (!page) continue;
+    if (!page || (noPrivate && privateMeeting(page))) continue;
     for (const b of BT.flattenBlocks(page.blocks)) {   // 0.13.1（F48）: 子の ToDo も（閉じたトグルの中も。開け閉めは見た目だけ）
       if (b.type !== 'todo' || b.checked || !b.text) continue;
       const row = R.actionRow(page, b);
@@ -1669,7 +1673,7 @@ function colRename(db, a) {
   return dbDone(db, d, [dbSet(d, 'cols', colsWith(d, next))], { col: next });
 }
 // そのデータベースの全部の行（ゴミ箱の行も。列の種類を変える・選択肢を消す・完全に消すは、戻したときに形の違うセルを残さない）
-const allRows = (db, d) => db.prepare(HOT_QUERIES.dbAllRows).all(d.id).map((r) => ({ id: r.id, cells: (JSON.parse(r.attrs || '{}').cells) || {} }));
+const allRows = (db, d) => db.prepare(HOT_QUERIES.dbAllRows).all(d.id).map((r) => ({ id: r.id, cells: (JSON.parse(r.attrs || '{}').cells) || {}, trashed: r.trashed_at !== null }));
 // 種類を変える（決めたこと 13: セルを新しい種類に読み替えて同じ命令で書き直す。前の値は oplog にあり、Ctrl+Z で戻る）→ { col, emptied }
 // 種類を変えたときの新しい列とセルの書き直し（col.setType と、変える前に数を見る col.typeCheck の両方: R63）→ { from, to, cellSets, emptied } | null（同じ種類）
 function typePlan(db, d, a) {
@@ -1685,16 +1689,17 @@ function typePlan(db, d, a) {
   }
   const cellSets = [];
   let emptied = 0;
+  let shown = 0;   // DV-2 直し（rv46 M7・R85）: そのうちゴミ箱でない行（確かめの数）
   for (const r of allRows(db, d)) {
     if (!Object.hasOwn(r.cells, from.id)) continue;
     const was = r.cells[from.id];
     let got;
     try { got = DM.convertCell(from, to, was); } catch (_) { throw refuse('bad-args'); }
     to = got.col;
-    if (got.value === null) emptied += 1;
+    if (got.value === null) { emptied += 1; if (!r.trashed) shown += 1; }
     cellSets.push({ op: 'set', id: r.id, key: `cell:${from.id}`, value: got.value ?? undefined, old: was });
   }
-  return { from, to, cellSets, emptied };
+  return { from, to, cellSets, emptied, shown };
 }
 function colSetType(db, a) {
   const d = mustDb(db, a.db);
@@ -1708,7 +1713,7 @@ function colSetType(db, a) {
 function colTypeCheck(db, a) {
   const d = mustDb(db, a.db);
   const plan = typePlan(db, d, a);
-  return { result: { emptied: plan ? plan.emptied : 0 } };
+  return { result: { emptied: plan ? plan.shown : 0 } };   // 確かめに出す数はゴミ箱でない行だけ（読み替えはゴミ箱の行にも当てる: R32・R85）
 }
 function colMove(db, a) {
   const d = mustDb(db, a.db);
@@ -1928,7 +1933,7 @@ const DEFS = {
     run: (db, a) => ({ result: a.q ? S.searchList(db, a.q, searchView(db)) : listPages(db) }) },
   'pages.searchFull': { roles: ['app', 'main'], write: false, args: { q: 'text?', limit: 'num?' },
     run: (db, a) => ({ result: S.searchFull(db, a.q || '', a.limit, searchView(db)) }) },
-  'pages.actionView': { roles: ['app', 'main'], write: false, args: { q: 'text?', assignee: 'short?' },
+  'pages.actionView': { roles: ['app', 'main'], write: false, args: { q: 'text?', assignee: 'short?', noPrivate: 'bool?' },
     run: (db, a) => ({ result: actionView(db, a) }) },
   // 0.10.0 LS-2（決めたこと 104）: 要約待ちのページ（一覧に出るページのうち summaryWait が真）。main の見回りが mainlib.summaryRetryPick に渡す
   // 0.11.0 M-5（P14 (a)）: 人が選んだ種類（typeAuto 偽・選べる鍵）の会議の作った時刻と種類だけ（since より後。ゴミ箱と録音中の写しは除く）

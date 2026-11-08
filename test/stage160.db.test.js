@@ -1038,7 +1038,8 @@ test('PERF・DS-3 直し・I3（rv42）: 1万行で、列の名前・並び・�
 }));
 
 // ---------------------------------------------------------------- DV-2（決めたこと 13・TR6・R63）
-test('DV-2・R63: col.typeCheck（読む命令）は種類を変えると読めずに空になるセルの数（ゴミ箱の行も）を返し、何も書かない。col.setType の emptied と同じ・変えられない種類は bad-args', T, () => withDb((db) => {
+// DV-2 直し（rv46 M7・R85）で意図して直した: 確かめに出す数はゴミ箱でない行だけ（col.setType はゴミ箱の行も読み替え、emptied はそれも数える）
+test('DV-2・R63: col.typeCheck（読む命令）は種類を変えると読めずに空になるセルの数（ゴミ箱でない行）を返し、何も書かない。変えられない種類は bad-args', T, () => withDb((db) => {
   const d = mkDb(db);
   const a = colAdd(db, d, 'text', 'メモ');
   rowAddA(db, d, { cells: { [a]: '12' } });
@@ -1049,7 +1050,7 @@ test('DV-2・R63: col.typeCheck（読む命令）は種類を変えると読め�
   const seq = () => db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
   const before = seq();
   const peek = ok(call(db, 'col.typeCheck', { db: d, col: a, type: 'number' }), 'col.typeCheck');
-  assert.deepStrictEqual(peek, { emptied: 2 });
+  assert.deepStrictEqual(peek, { emptied: 1 });
   assert.strictEqual(seq(), before, '読む命令が oplog に書いた');
   assert.strictEqual(core.COMMANDS['col.typeCheck'].write, false);
   assert.deepStrictEqual(ok(call(db, 'col.typeCheck', { db: d, col: a, type: 'text' }), 'same'), { emptied: 0 });
@@ -1057,7 +1058,7 @@ test('DV-2・R63: col.typeCheck（読む命令）は種類を変えると読め�
   assert.strictEqual(cellsOf(db, gone)[a], 'よみ');
   assert.strictEqual(dbGet(db, d).cols.find((c) => c.id === a).type, 'text', '読む命令で種類が変わった');
   for (const [col, type] of [[a, 'rel'], [a, 'ctime'], ['title', 'text'], ['c99', 'text']]) assert.strictEqual(code(call(db, 'col.typeCheck', { db: d, col, type })), 'bad-args', `${col} → ${type}`);
-  assert.strictEqual(ok(call(db, 'col.setType', { db: d, col: a, type: 'number' }), 'col.setType').emptied, peek.emptied, 'col.setType の emptied と違う');
+  assert.strictEqual(ok(call(db, 'col.setType', { db: d, col: a, type: 'number' }), 'col.setType').emptied, 2, 'col.setType がゴミ箱の行を読み替えない');
 }));
 
 // ---------------------------------------------------------------- DV-1 直し（2026-11-08 の e3981e3..6377ef8 の点検 rv44: F5・F6）
@@ -1121,3 +1122,26 @@ test('DV-1 直し（rv44 F5）: 足した選択肢を戻すと、その選択肢
   assert.strictEqual(code(revert(db, d, [pa.tx]).r), 'ok', '貼り付けの戻しが stale');
   assert.ok(!cols().opts.some((o) => o.name === '青'));
 }));
+
+// ================================================================ DV-2 直し（2026-11-08 の 6377ef8..6a9f0c5 の点検 rv46）
+test('DV-2 直し（2026-11-08 の持ち主の答え「PC の中だけの会議の名前は候補に出さない（おすすめ）」・R83）: pages.actionView の noPrivate は、オフラインモードの会議と印の分からない会議（片付けた落ちた会議で経路の記録が無い）の担当を数えない。アクション一覧（noPrivate 無し）は今のまま', T, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const seedOne = (id, who, patch) => {
+      const s = pageOf(id);
+      s.page.blocks = s.page.blocks.map((b) => (b.type === 'todo' ? { ...b, assignee: who } : b));
+      Object.assign(s.page, patch);
+      t.seed(s.page, s.segments);
+    };
+    seedOne('pa1', '総務係', {});
+    seedOne('pa2', '人事係', { route: { stt: { cloud: 0, local: 3, provider: '' }, localOnly: true } });
+    seedOne('pa3', '経理係', { meeting: { phase: 'done', recovered: false, localOnly: true } });
+    seedOne('pa4', '企画係', { recovered: true, route: undefined });
+    const all = ok(call(db, 'pages.actionView', {}), 'pages.actionView');
+    assert.deepStrictEqual(all.people.map((p) => p.name).sort(), ['人事係', '企画係', '経理係', '総務係'].sort(), 'アクション一覧が変わった');
+    const out = ok(call(db, 'pages.actionView', { noPrivate: true }), 'pages.actionView');
+    assert.deepStrictEqual(out.people.map((p) => p.name), ['総務係']);
+    assert.ok(out.actions.every((a) => a.pageId === 'pa1'));
+  } finally { t.done(); }
+});

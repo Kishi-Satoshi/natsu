@@ -97,7 +97,8 @@ test('dialog:pick はファイルだけを選ばせ（フォルダの分岐は�
   // 第2a1回 M-3（ST5）: main はアクション一覧を中継しない（画面は preload の DB の口へ直に頼む。絞り込みはそのまま渡す）
   assert.ok(!m.includes("ipcMain.handle('pages:actionView'"), 'main が pages:actionView をまだ中継している');
   // 第2a1回 P-1: 画面の口は main を通らず DB の口へ（引数の形 { q, assignee } はそのまま）
-  assert.ok(preload.includes("  pagesActionView: ({ q, assignee }) => dbCall('pages.actionView', { q, assignee }),"), 'preload の pagesActionView が無い（書式込み）');
+  // 0.16.0 DV-2 直し（R83）で意図して直した: ユーザーの列の候補だけが渡す noPrivate（真のときだけ送る。アクション一覧の { q, assignee } は今のまま）
+  assert.ok(preload.includes("  pagesActionView: ({ q, assignee, noPrivate }) => dbCall('pages.actionView', { q, assignee, ...(noPrivate ? { noPrivate: true } : {}) }),"), 'preload の pagesActionView が無い（書式込み）');
   // app が使わなくなったので、統合で openActions / assigneeList は preload と main から外した
   assert.ok(!preload.includes('openActions:') && !preload.includes('assigneeList:'), '使われない openActions / assigneeList が preload に残っている');
   assert.ok(!m.includes("'pages:openActions'") && !m.includes("'pages:assignees'"), '使われない handle が main に残っている');

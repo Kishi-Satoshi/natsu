@@ -212,7 +212,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   // ページ（議事録）。14 の名前は DB の口へ（第2a1回 ST5。名前・引数・返す形は今の IPC と同じ）。要約と会議の型は今どおり main
   pagesSearch: (q) => dbCall('pages.list', { q: q || '' }),
   pagesSearchFull: (q) => dbCall('pages.searchFull', { q: q || '', limit: 60 }),
-  pagesActionView: ({ q, assignee }) => dbCall('pages.actionView', { q, assignee }),
+  pagesActionView: ({ q, assignee, noPrivate }) => dbCall('pages.actionView', { q, assignee, ...(noPrivate ? { noPrivate: true } : {}) }),   // 0.16.0 DV-2 直し（R83）: ユーザーの列の候補は PC の中だけの会議を外す
   // 0.11.0 V-1・V-5: { types, selectable }（types の各項目に memo＝種類から決まるメモの型の鍵）。memoTypes はメモの型の表（名前・見出しとヒント・雛形）
   meetingTypes: () => ipcRenderer.invoke('meta:types'),
   memoTypes: () => ipcRenderer.invoke('meta:memo-types'),
