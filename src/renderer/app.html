@@ -9591,23 +9591,30 @@
   async function dbOpen(id) {
     const st = dbNew(id);
     dbSt = st;
+    st.opening = true;
     let info = null;
     try { info = await window.koeApp.dbGet(id); } catch (_) { info = null; }
+    st.opening = false;
     if (dbSt !== st) return;
     st.info = info && Array.isArray(info.views) && info.views.length ? info : null;
     st.viewId = st.info ? st.info.views[0].id : '';
     dbPaint();
     await dbLoad(false);
   }
-  // 窓の行を読む（force: 印が変わったかを見るために読み直す）。読んだ分の印が変わっていれば、覚えた行を捨てて読み直す
+  // 窓の行を読む（force: 印が変わったかを見るために読み直す）。読んだ分の印が変わっていれば、覚えた行を捨てて窓を読み直す
+  // DV-1 直し（rv44 F1・F7・R72）: 印を確かめる頼み（force）は st.check に残し、後から来た読み（捲る）に追い越されても、その読みが確かめる。
+  // 印が変わったら（どの読みで知っても）窓を読み直す。読みが断られたら、表は前のまま残し、次の読みで確かめる
   async function dbLoad(force) {
     const st = dbSt;
-    if (!st || !dbViewOf(st)) return;
+    if (!st) return;
+    if (!st.info) { if (force && !st.opening) dbOpen(st.id); return; }   // 列とビューを読めなかった: 知らせで開き直す（rv44 F1）
+    if (!dbViewOf(st)) return;
+    if (force) st.check = true;
     const seq = ++st.seq;
     let fresh = false;
-    let check = force;
     for (let pass = 0; pass < 4; pass += 1) {
       const unknown = st.shown < 0;
+      const check = st.check;
       const w = dbWin(st);
       const want = [];
       for (let i = w.from; i < w.from + w.count; i += 1) if (check || !st.rows.has(i)) want.push(i);
@@ -9624,22 +9631,23 @@
         let r;
         try { r = await window.koeApp.dbView(st.id, st.viewId, from, count); } catch (_) { r = null; }
         if (dbSt !== st || st.seq !== seq) return;
-        if (!r) { st.shown = 0; st.rows.clear(); fresh = true; restart = false; k = want.length; break; }
+        if (!r) { st.check = true; if (fresh || !st.painted) dbPaintRows(); return; }   // 断られた: 表は前のまま（次の読みで確かめる）
         if (r.sig !== st.sig) {
           const had = st.sig !== '';
           st.sig = r.sig; st.total = r.total; st.shown = r.shown; st.agg = r.agg || {};
           st.rows.clear();
           fresh = true;
-          if (check) { check = false; restart = true; }
-          if (had && await dbInfoAgain(st, seq)) { restart = true; break; }   // 列とビューが変わった: 骨組みから描き直して窓を読み直す
+          st.check = false;
+          restart = true;   // 印が変わった: この読みの行のほかは窓を読み直す
+          if (had && await dbInfoAgain(st, seq)) break;   // 列とビューが変わった: 骨組みから描き直して窓を読み直す
           if (dbSt !== st || st.seq !== seq) return;
         }
         r.rows.forEach((row, n) => {
-          if (!st.rows.has(from + n)) fresh = true;
+          if (!st.rows.has(from + n) && dbDrawn(st, from + n)) fresh = true;   // 描いた窓の外の行は覚えるだけ（窓の端に近づいたら描く: rv44 F3）
           st.rows.set(from + n, row);
           st.known.set(row.id, row);
         });
-        if (check) { check = false; restart = true; break; }   // 印が同じ: 覚えた行のまま（描き直さない）
+        if (check && st.check) { st.check = false; restart = true; break; }   // 印が同じ: 覚えた行のまま（描き直さない）
       }
       if (!restart && !(unknown && st.shown >= 0)) break;   // 初めて行の数を知ったら、その数の窓でもう一度
     }
@@ -9770,7 +9778,7 @@
     p.all.checked = st.shown > 0 && st.checked.size >= st.shown;
     const cell = st.sel ? dbCellEl(st.sel.row, st.sel.col) : null;
     p.grid.tabIndex = cell ? -1 : 0;
-    if (hadFocus) (cell || p.grid).focus();   // 描き直してもフォーカスを同じセルに戻す（決めたこと 51）
+    if (hadFocus) (cell || p.grid).focus({ preventScroll: true });   // 描き直してもフォーカスを同じセルに戻す（決めたこと 51。DV-1 直し rv44 F3: 戻すときに捲らない）
   }
   function dbWaitEl(i) {
     const el = document.createElement('div');
@@ -9791,6 +9799,7 @@
     grip.ondragstart = (ev) => dbDragStart(ev, row.id);
     const ck = document.createElement('input');
     ck.type = 'checkbox'; ck.className = 'dbcheck';
+    ck.tabIndex = -1;   // DV-1 直し（rv44 F9）: 行のチェックは Tab で止めない（表は1つの Tab の止まり。押して選ぶ）
     ck.checked = st.checked.has(row.id);
     ck.setAttribute('aria-label', dbRowName(row));
     ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = st.shown > 0 && st.checked.size >= st.shown; };
@@ -9834,8 +9843,10 @@
     f.hidden = !any;
   }
   // 下の集計の見せる文字（決めたこと 21・R9。割合は丸めて %・数値の列の数は列の見せ方・日付は日付の見せ方・期間は日の数）
+  // DV-1 直し（rv44 F4・R55）: 日付・作成日時・最終更新日時の range は「期間」（数値と ID は「範囲」）
+  const dbAggLabel = (col, kind) => (kind === 'range' && col && ['date', 'ctime', 'mtime'].includes(col.type) ? '期間' : DB_AGG_LABEL[kind] || '');
   function dbAggText(col, kind, x) {
-    const label = DB_AGG_LABEL[kind] || '';
+    const label = dbAggLabel(col, kind);
     if (x === null || x === undefined) return label;
     let s;
     if (/Pct$/.test(kind)) s = `${Math.round(x)}%`;
@@ -9855,11 +9866,22 @@
     return null;
   }
   // 捲った: 窓が替われば覚えた行で描き直し、足りない分を読む
+  // DV-1 直し（rv44 F3・R72）: 見えている行と上下 50 行の窓が、描いた窓から 10 行より多くずれたときだけ描き直す（1行捲るたびに 120 行を描き直さない）。
+  // 書いている間にそこまで捲ったら、書いた値を決めて（書き手を閉じて）描く（描き直しを待たせて空の所を見せない）
+  const DB_EDGE = 10;
+  const dbDrawn = (st, i) => !st.painted || (i >= st.painted.from && i < st.painted.from + st.painted.count);
   function dbOnScroll() {
     const st = dbSt;
     if (!st || !st.painted || st.shown <= 0) return;
+    const sc = dbScroller();
+    const seen = dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: 0, total: st.shown });
+    const p = st.painted;
     const w = dbWin(st);
-    if (w.from !== st.painted.from || w.count !== st.painted.count) dbPaintRows();
+    const near = seen.from < p.from || seen.from + seen.count > p.from + p.count || Math.abs(w.from - p.from) > DB_EDGE || Math.abs(w.from + w.count - (p.from + p.count)) > DB_EDGE;
+    if (near) {
+      if (st.editing) dbEditEnd(true);
+      dbPaintRows();
+    }
     dbLoad(false);
   }
   function dbPickView(viewId) {
@@ -9937,7 +9959,7 @@
     if (k === 'ArrowUp') return go(ri - 1, ci);
     if (k === 'ArrowRight') return go(ri, ci + 1);
     if (k === 'ArrowLeft') return go(ri, ci - 1);
-    if (k === 'Tab') {
+    if (k === 'Tab' && !ctrl && !ev.altKey) {   // DV-1 直し（rv44 F8）: Ctrl+Tab・Alt+Tab は窓のもの（止めない）
       if (!ev.shiftKey && ci === cols.length - 1 && ri >= st.shown - 1) return;   // 表の末で Tab: 表の外の次の部品へ
       if (ev.shiftKey && ci === 0 && ri === 0) return;
       if (!ev.shiftKey) return ci < cols.length - 1 ? go(ri, ci + 1) : go(ri + 1, 0);
@@ -9996,7 +10018,7 @@
       if (imeEnter(ev)) return;
       if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, 'enter'); return; }
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(false, 'stay'); return; }
-      if (ev.key === 'Tab') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, ev.shiftKey ? 'left' : 'right'); }
+      if (ev.key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, ev.shiftKey ? 'left' : 'right'); }   // DV-1 直し（rv44 F8）
     };
     inp.onblur = () => { if (dbSt === st && st.editing && st.editing.inp === inp) dbEditEnd(true); };
     inp.focus();
@@ -10021,7 +10043,7 @@
       if (cell && row && col) dbCellFill(st, cell, col, row);
     }
     if (dbSt !== st) return;
-    st.dirty = false;
+    if (!st.editing && st.dirty) { st.dirty = false; dbPaintRows(); }   // DV-1 直し（rv44 F2）: ほかのセルを書いている間は描き直しを待たせたまま（その書き手を閉じるときに描く）
     if (then === 'enter' && ed.col === 'title' && last) { await dbAddRow(ed.row); return; }   // 最後の行の題名で Enter: 次の行（決めたこと 24）
     const ci = cols.indexOf(ed.col);
     if (then === 'right' && ci < cols.length - 1) { dbSelect(ed.row, cols[ci + 1]); return; }
@@ -10122,6 +10144,7 @@
       m.appendChild(b); items.push(b);
     }
     m.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;   // DV-1 直し（rv44）: 変換中のキーは先に抜ける
       if (ev.key === 'Escape') { ev.preventDefault(); dbMenuClose(); from.focus(); return; }
       const i = items.indexOf(document.activeElement);
       if (ev.key === 'ArrowDown' && items.length) { ev.preventDefault(); items[(i + 1) % items.length].focus(); }
@@ -10287,6 +10310,7 @@
       if (!b.disabled) btns.push(b);
     }
     m.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;   // 変換中のキーは先に抜ける
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbMenuClose(); if (anchor && anchor.isConnected !== false) anchor.focus(); return; }
       const i = btns.indexOf(document.activeElement);
       if (ev.key === 'ArrowDown' && btns.length) { ev.preventDefault(); btns[(i + 1) % btns.length].focus(); }
@@ -10403,7 +10427,7 @@
     const st = dbSt;
     const v = dbViewOf(st);
     const now = (v.agg || {})[col.id] || '';
-    dbMenuAt(anchor, dbViewView.AGG_KINDS(col).map((k) => ({ label: DB_AGG_LABEL[k], on: now === k, fn: () => {
+    dbMenuAt(anchor, dbViewView.AGG_KINDS(col).map((k) => ({ label: dbAggLabel(col, k), on: now === k, fn: () => {
       dbMenuClose();
       const agg = { ...(v.agg || {}) };
       if (now === k) delete agg[col.id]; else agg[col.id] = k;   // 同じ集計をもう一度選ぶと外す

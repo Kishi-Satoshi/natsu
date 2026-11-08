@@ -1059,3 +1059,65 @@ test('DV-2・R63: col.typeCheck（読む命令）は種類を変えると読め�
   for (const [col, type] of [[a, 'rel'], [a, 'ctime'], ['title', 'text'], ['c99', 'text']]) assert.strictEqual(code(call(db, 'col.typeCheck', { db: d, col, type })), 'bad-args', `${col} → ${type}`);
   assert.strictEqual(ok(call(db, 'col.setType', { db: d, col: a, type: 'number' }), 'col.setType').emptied, peek.emptied, 'col.setType の emptied と違う');
 }));
+
+// ---------------------------------------------------------------- DV-1 直し（2026-11-08 の e3981e3..6377ef8 の点検 rv44: F5・F6）
+test('DV-1 直し・R56: 足した列を戻した後に足す列は、戻した列の ID を使い直さない（seq は元に戻すで戻さない）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const a1 = callTx(db, 'col.add', { db: d, type: 'text', name: '一つ目' });
+  const id1 = ok(a1.r, 'col.add').col.id;
+  assert.strictEqual(code(revert(db, d, [a1.tx]).r), 'ok');
+  assert.ok(!dbGet(db, d).cols.some((c) => c.id === id1));
+  const id2 = colAdd(db, d, 'text', '二つ目');
+  assert.notStrictEqual(id2, id1, '戻した列の ID を使い直した');
+}));
+
+test('DV-1 直し・R56: 振り直した選択肢の ID はステータスのまとまりにも当てる', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const s = colAdd(db, d, 'status', '状態');
+  const sel = colAdd(db, d, 'select', '優先度');
+  const so = ok(call(db, 'col.setOpts', { db: d, col: sel, opts: [{ id: 'o4', name: '高', color: 'red' }, { id: 'o5', name: '低', color: 'default' }] }), 'opts').col.opts;
+  const st = dbGet(db, d).cols.find((c) => c.id === s);
+  const reuse = so[0].id;   // ほかの列で使った ID（この列には無い）を画面が送った
+  const got = ok(call(db, 'col.setOpts', { db: d, col: s, opts: [...st.opts, { id: reuse, name: '保留', color: 'gray' }], groups: { ...st.groups, doing: [...st.groups.doing, reuse] } }), 'status opts').col;
+  const made = got.opts.find((o) => o.name === '保留');
+  assert.notStrictEqual(made.id, reuse, 'ほかの列の選択肢の ID を使い直した（このテストの前提）');
+  assert.ok(got.groups.doing.includes(made.id), '振り直した ID が「進行中」のまとまりに無い');
+  assert.ok(!got.groups.doing.includes(reuse), '古い ID がまとまりに残る');
+}));
+
+test('DV-1 直し・R61: 検索の欄に入る列の並びが変わると、値のある行の検索の欄をその並びに作り直す', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const a = colAdd(db, d, 'text', '甲');
+  const b = colAdd(db, d, 'text', '乙');
+  const r = rowAddA(db, d, { title: '行', cells: { [a]: 'あかい', [b]: 'みどり' } });   // データベースの行の題名（D77 の会議の題名でない）
+  const f0 = blockOf(db, r).fold;
+  assert.ok(f0.indexOf(searchFold('あかい')) < f0.indexOf(searchFold('みどり')), '前提: 列の並びの順');
+  ok(call(db, 'col.move', { db: d, col: b, after: 'title' }), 'col.move');
+  const f1 = blockOf(db, r).fold;
+  assert.ok(f1.indexOf(searchFold('みどり')) < f1.indexOf(searchFold('あかい')), '列を並べ替えても検索の欄が古い並びのまま');
+}));
+
+test('DV-1 直し（rv44 F5）: 足した選択肢を戻すと、その選択肢を持つ行（ゴミ箱の行も）があれば stale（何も変えない）。貼り付けで足した選択肢は行と一緒に戻る', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const s = selectCol(db, d);
+  const cols = () => dbGet(db, d).cols.find((c) => c.id === s);
+  const ad = callTx(db, 'col.setOpts', { db: d, col: s, opts: [...cols().opts, { id: 'o9', name: '黄', color: 'yellow' }] });
+  const nid = ok(ad.r, 'col.setOpts').col.opts.at(-1).id;
+  const r = rowAddA(db, d, { cells: { [s]: nid } });
+  assert.strictEqual(code(revert(db, d, [ad.tx]).r), 'stale', '持ち主のいる選択肢を戻して消した');
+  assert.ok(cols().opts.some((o) => o.id === nid));
+  ok(call(db, 'rows.trash', { db: d, ids: [r] }), 'rows.trash');
+  assert.strictEqual(code(revert(db, d, [ad.tx]).r), 'stale', 'ゴミ箱の行の選択肢を消した');
+  // 誰も持っていなければ戻せる
+  const ad2 = callTx(db, 'col.setOpts', { db: d, col: s, opts: [...cols().opts, { id: 'o10', name: '紫', color: 'purple' }] });
+  ok(ad2.r, 'col.setOpts 2');
+  assert.strictEqual(code(revert(db, d, [ad2.tx]).r), 'ok');
+  assert.ok(!cols().opts.some((o) => o.name === '紫'));
+  // 貼り付けで足した選択肢と行は、同じ歩みで一緒に戻る（戻した後に持ち主はいない）
+  const r2 = rowAddA(db, d, {});
+  const pa = callTx(db, 'rows.paste', { db: d, viewId: 'v1', at: { row: r2, col: s }, grid: [['青']] });
+  ok(pa.r, 'rows.paste');
+  assert.ok(cols().opts.some((o) => o.name === '青'));
+  assert.strictEqual(code(revert(db, d, [pa.tx]).r), 'ok', '貼り付けの戻しが stale');
+  assert.ok(!cols().opts.some((o) => o.name === '青'));
+}));

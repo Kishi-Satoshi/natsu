@@ -13,7 +13,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { load } = require('./helpers/simrun.js');
 const { tmpDb } = require('./helpers/dbtmp');
-const { parseHTML } = require('./helpers/simdom');
+const { parseHTML, Element } = require('./helpers/simdom');
 const S = require('./helpers/simcss');
 const core = require('../src/db/core');
 const ops = require('../src/db/ops');
@@ -89,7 +89,7 @@ async function openDb(o = {}) {
   Object.assign(returns, o.returns || {});
   const l = await load(APP, { caret: true, returns });
   L = l;
-  Object.assign(l, { t, db, call, steps, id, c1, c2, c3, c4, rows, ...more, done: () => t.done() });
+  Object.assign(l, { K, returns, t, db, call, steps, id, c1, c2, c3, c4, rows, ...more, done: () => t.done() });
   await l.drain();
   l.fire('onPageOpen', id);
   await l.drain(60);
@@ -835,5 +835,184 @@ test('DV-2・F146: セルを選んで Ctrl+C → 値を写す。表計算の形�
     assert.strictEqual($(l, 'toast').textContent, '1回に貼れるのは 2,000 個の値までです。');
     assert.strictEqual(l.called('rowsPaste').length, n);
     assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ================================================================ DV-1 直し（2026-11-08 の e3981e3..6377ef8 の点検 rv44。R72〜）
+test('DV-1 直し（rv44 F1）: 表の読みが一度断られても表は消えず、次の知らせで読み直す。開くときの db.get が断られても、次の知らせで表を描く', T, async () => {
+  const l = await openDb();
+  try {
+    const real = l.returns.dbView;
+    l.returns.dbView = () => Promise.reject(Object.assign(new Error('retry'), { code: 'retry' }));
+    l.fire('onPagesUpdated'); await l.drain(60);
+    assert.strictEqual(dataRows(l).length, 3, '一度の読みの断りで表が消えた');
+    l.returns.dbView = real;
+    l.call('row.setCell', { db: l.id, id: l.rows[1], col: l.c1, value: '直した' });
+    l.fire('onPagesUpdated'); await l.drain(60);
+    assert.strictEqual(dataRows(l).length, 3);
+    assert.strictEqual(cellOf(l, l.rows[1], l.c1).textContent, '直した');
+    l.returns.dbView = () => Promise.reject(Object.assign(new Error('retry'), { code: 'retry' }));
+    l.fire('onPagesUpdated'); await l.drain(60);
+    l.returns.dbView = real;
+    l.fire('onPagesUpdated'); await l.drain(60);
+    assert.strictEqual(dataRows(l).length, 3, '中身が同じまま読み直すと表が空のまま');
+  } finally { l.done(); }
+  // 開くときの db.get の断り
+  let fail = true;
+  const l2 = await openDb({ returns: { dbGet: (...a) => (fail ? Promise.reject(Object.assign(new Error('retry'), { code: 'retry' })) : l2.K.dbGet(...a)) } });
+  try {
+    assert.strictEqual(dataRows(l2).length, 0);
+    fail = false;
+    l2.fire('onPagesUpdated'); await l2.drain(80);
+    assert.strictEqual(dataRows(l2).length, 3, 'db.get が一度断られると、知らせが来ても表を描かない');
+  } finally { l2.done(); }
+});
+
+test('DV-1 直し（rv44 F2）: セルを書いている間に別のセルを押して書き始めても、前のセルに書き手が残らない', T, async () => {
+  const l = await openDb();
+  try {
+    const [r0, r1] = l.rows;
+    cellOf(l, r0, l.c1).dispatchEvent({ type: 'click' }); await l.drain(60);
+    editor(l).value = 'X';
+    editor(l).onblur();
+    cellOf(l, r1, l.c1).dispatchEvent({ type: 'click' });
+    await l.drain(80);
+    const eb = cellOf(l, r1, l.c1).querySelector('.dbedit');
+    assert.ok(eb, '前提: 2つ目のセルを書いている');
+    await press(l, eb, { key: 'Escape' });
+    assert.strictEqual(box(l).querySelectorAll('.dbedit').length, 0, '書き手が残った');
+    assert.strictEqual(cellOf(l, r0, l.c1).textContent, 'X');
+  } finally { l.done(); }
+});
+
+test('DV-1 直し（rv44 F7）: 書いた後の読み直しの間に捲っても、表は新しい値を描き、窓の行を空のまま残さない', T, async () => {
+  const l = await openDb({ many: 300 });
+  try {
+    height(l, 640);
+    await scrollTo(l, 0);
+    const r0 = dataRows(l)[0].dataset.id;
+    cellOf(l, r0, l.c1).dispatchEvent({ type: 'click' }); await l.drain(60);
+    editor(l).value = '新しい値';
+    l.key({ key: 'Enter' }, editor(l));
+    await l.drain(1);
+    scroller(l).scrollTop = 32 * 5; scroller(l).dispatchEvent({ type: 'scroll' });
+    await l.drain(80);
+    assert.strictEqual(box(l).querySelectorAll('.dbwait').length, 0, '読んでいない行が空のまま');
+    assert.strictEqual(box(l).querySelectorAll('.dbedit').length, 0);
+    assert.strictEqual(cellOf(l, r0, l.c1).textContent, '新しい値', '捲ると古い値のまま');
+  } finally { l.done(); }
+  const s = await openDb();
+  try {
+    height(s, 640);
+    const r0 = s.rows[0];
+    cellOf(s, r0, s.c1).dispatchEvent({ type: 'click' }); await s.drain(60);
+    editor(s).value = '新しい値';
+    s.key({ key: 'Enter' }, editor(s));
+    await s.drain(6);
+    scroller(s).dispatchEvent({ type: 'scroll' });
+    await s.drain(80);
+    assert.strictEqual(box(s).querySelectorAll('.dbedit').length, 0, '書き手が残った');
+    assert.strictEqual(cellOf(s, r0, s.c1).textContent, '新しい値');
+    // 確かめの読み（知らせ）が答える前に捲った: 確かめは捲った読みが引き継ぐ（窓の行は覚えているので、引き継がないと読まない）
+    const real = s.returns.dbView;
+    let hold = null;
+    s.returns.dbView = (...a) => { if (!hold) return new Promise((res) => { hold = () => res(real(...a)); }); return real(...a); };
+    s.call('row.setCell', { db: s.id, id: s.rows[2], col: s.c1, value: 'ほかで直した' });
+    s.fire('onPagesUpdated'); await s.drain(20);
+    assert.ok(hold, '前提: 確かめの読みが止まっている');
+    scroller(s).dispatchEvent({ type: 'scroll' }); await s.drain(60);
+    hold(); await s.drain(60);
+    s.returns.dbView = real;
+    assert.strictEqual(cellOf(s, s.rows[2], s.c1).textContent, 'ほかで直した', '捲ると確かめが捨てられた');
+  } finally { s.done(); }
+});
+
+test('DV-1 直し（rv44 F3）: 描き直してセルにフォーカスを戻しても捲らない（preventScroll）・少し捲っただけでは描き直さない・書いている間に遠くへ捲ると書いた値を決めて行を描く', T, async () => {
+  const seen = [];
+  const was = Element.prototype.focus;
+  Element.prototype.focus = function (o) { seen.push(o); return was.call(this, o); };
+  const l = await openDb({ many: 1000 });
+  try {
+    height(l, 640);
+    await scrollTo(l, 0);
+    const r0 = dataRows(l)[0].dataset.id;
+    cellOf(l, r0, l.c3).dispatchEvent({ type: 'click' }); await l.drain(60);   // チェックのセル（押すと切り替えて描き直す）
+    seen.length = 0;
+    l.fire('onPagesUpdated'); l.call('row.setCell', { db: l.id, id: 'rz10', col: l.c1, value: 'ほか' }); l.fire('onPagesUpdated'); await l.drain(60);
+    assert.ok(seen.length > 0 && seen.every((o) => o && o.preventScroll === true), `描き直しのフォーカスが捲る: ${JSON.stringify(seen)}`);
+    const before = dataRows(l);
+    await scrollTo(l, 32 * 3);
+    assert.ok(dataRows(l).every((r, i) => r === before[i]), '3 行捲っただけで描き直した');
+    // 書いている間に遠くへ捲る
+    const r1 = dataRows(l)[4].dataset.id;
+    cellOf(l, r1, l.c1).dispatchEvent({ type: 'click' }); await l.drain(60);
+    editor(l).value = '捲る前に書いた';
+    await scrollTo(l, 32 * 400);
+    assert.strictEqual(box(l).querySelectorAll('.dbwait').length, 0, '書いている間に捲った所が空');
+    assert.ok(dataRows(l).length > 0 && Number(dataRows(l)[0].dataset.i) >= 300, '捲った所の行を描かない');
+    assert.strictEqual(cellsIn(l, r1) ? cellsIn(l, r1).cells[l.c1] : l.call('db.view', { id: l.id, viewId: 'v1', from: 0, count: 200 }).rows.find((r) => r.id === r1).cells[l.c1], '捲る前に書いた');
+  } finally { Element.prototype.focus = was; l.done(); }
+});
+
+test('DV-1 直し（rv44 F4）: 日付の列の下の集計の期間は「期間 n 日」（数値の範囲は「範囲」）', T, async () => {
+  const l = await openDb({ before: (call, d) => { call('view.update', { db: d.id, viewId: 'v1', patch: { agg: { [d.c4]: 'range', [d.c2]: 'range' } } }); } });
+  try {
+    const aggs = box(l).querySelectorAll('.dbagg').map((a) => a.textContent).filter(Boolean);
+    assert.ok(aggs.includes('範囲 200'), JSON.stringify(aggs));
+    assert.ok(aggs.some((x) => /^期間 \d+ 日$/.test(x)), `日付の期間の名前が違う: ${JSON.stringify(aggs)}`);
+    await clickEl(l, head(l, l.c4)); await clickEl(l, item(l, '集計 ▸'));
+    assert.ok(items(l).some((b) => b.textContent === '期間') && !items(l).some((b) => b.textContent === '範囲'), '集計の選びの日付の期間の名前が違う');
+  } finally { l.done(); }
+});
+
+test('DV-1 直し（rv44 F6）: データベースのページの「···」に［コピー］が無い（R54）・表の末のセルの Tab は表の外へ（R48）', T, async () => {
+  const l = await openDb();
+  try {
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    const labels = $(l, 'pMenu').querySelectorAll('.mitem').map((b) => b.textContent);
+    assert.ok(labels.includes('リンクを写す') && !labels.includes('コピー'), JSON.stringify(labels));
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    cellOf(l, l.rows[0], 'title').dispatchEvent({ type: 'click' }); await l.drain(60);
+    await press(l, editor(l), { key: 'Escape' });
+    await press(l, active(l), { key: 'End', ctrlKey: true });
+    const last = active(l);
+    assert.strictEqual(last.dataset.col, l.c4);
+    const ev = await press(l, last, { key: 'Tab' });
+    assert.ok(!ev.defaultPrevented, '表の末のセルの Tab を止めた（表の外へ出ない）');
+    assert.ok(active(l) === last);
+  } finally { l.done(); }
+});
+
+test('DV-1 直し（rv44 F6・R47）: 全部を選ぶは窓の外の行も選び、2,000 を越えると［削除］［列の値を変える ▸］は押せない（［リンクを写す］は押せる）', T, async () => {
+  const l = await openDb({ many: 2001 });
+  try {
+    const all = box(l).querySelector('.dbcheckall');
+    all.checked = true; all.dispatchEvent({ type: 'change' }); await l.drain(120);
+    const bar = box(l).querySelector('.dbselbar');
+    assert.strictEqual(bar.querySelector('.dbselcount').textContent, '2004 行を選んでいます', '窓の外の行を選ばない');
+    assert.deepStrictEqual(bar.querySelectorAll('button').map((b) => [b.textContent, b.disabled]), [['削除', true], ['リンクを写す', false], ['列の値を変える ▸', true]]);
+  } finally { l.done(); }
+});
+
+test('DV-1 直し（rv44 F8・F9）: 表の中の Ctrl+Tab・Ctrl+Shift+Tab は止めない（窓のタブを替える）・行のチェックは Tab で止まらない・メニューは変換中のキーを先に抜ける', T, async () => {
+  const l = await openDb();
+  try {
+    assert.ok(box(l).querySelectorAll('.dbcheck').every((c) => c.tabIndex === -1), '行のチェックが Tab で止まる');
+    cellOf(l, l.rows[0], l.c2).dispatchEvent({ type: 'click' }); await l.drain(60);
+    const ed = editor(l);
+    assert.ok(ed, '前提: 書いている');
+    // 窓の受け口（document の Ctrl+Tab: タブを替える）が受け、書き手は右のセルへ動かない（偽 DOM は泡立たないので、書き手の受け口の後に document の受け口を呼ぶ）
+    const e1 = await press(l, ed, { key: 'Tab', ctrlKey: true });
+    assert.ok(e1.defaultPrevented, '窓の Ctrl+Tab が受けない');
+    assert.ok(!(cellOf(l, l.rows[0], l.c3).getAttribute('aria-selected') === 'true'), '書き手の Ctrl+Tab で右のセルへ動いた');
+    cellOf(l, l.rows[0], l.c3).dispatchEvent({ type: 'click' }); await l.drain(60);   // チェックのセル（切り替えて選ぶ）
+    const cell = active(l);
+    for (const o of [{ key: 'Tab', ctrlKey: true }, { key: 'Tab', ctrlKey: true, shiftKey: true }, { key: 'Tab', altKey: true }]) {
+      await press(l, cell, o);
+      assert.ok(active(l) === cell, `セルが ${JSON.stringify(o)} を受けた`);
+    }
+    await clickEl(l, head(l, l.c1));
+    await press(l, menu(l), { key: 'Escape', isComposing: true });
+    assert.ok(menu(l), '変換中の Esc でメニューを閉じた');
   } finally { l.done(); }
 });

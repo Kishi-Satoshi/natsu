@@ -1862,6 +1862,23 @@ function dbRevert(db, a, ctx, fwd) {
     if (lost.length && db.prepare(HOT_QUERIES.dbAllRows).all(a.pageId).some((r) => { const c = JSON.parse(r.attrs || '{}').cells; return isObj(c) && lost.some((id) => Object.hasOwn(c, id)); })) throw refuse('stale');
   }
   applyOps(db, back);
+  // 戻すと消える選択肢（足した選択肢の戻し）を、戻した後も持つ行があれば戻さない（ゴミ箱の行も。行に持ち主の無い選択肢の ID を残さない: rv44 F5・R72）。
+  // 同じ歩みで行のセルも戻る（貼り付けで足した選択肢と行）ので、当てた後に見る（断れば命令ごと戻る）
+  const lostOpts = [];
+  for (const o of back) {
+    if (o.op !== 'set' || o.id !== a.pageId || o.key !== 'cols' || !Array.isArray(o.value) || !Array.isArray(o.old)) continue;
+    const after = new Map(o.value.filter(isObj).map((c) => [c.id, c]));
+    for (const c of o.old) {
+      const n = isObj(c) ? after.get(c.id) : null;
+      if (!n || !Array.isArray(c.opts)) continue;
+      const keep = new Set((Array.isArray(n.opts) ? n.opts : []).map((x) => x && x.id));
+      for (const x of c.opts) if (x && !keep.has(x.id)) lostOpts.push([c.id, x.id]);
+    }
+  }
+  if (lostOpts.length && db.prepare(HOT_QUERIES.dbAllRows).all(a.pageId).some((r) => {
+    const c = JSON.parse(r.attrs || '{}').cells;
+    return isObj(c) && lostOpts.some(([col, id]) => c[col] === id || (Array.isArray(c[col]) && c[col].includes(id)));
+  })) throw refuse('stale');
   // 行を戻す・やり直すでも、1つのデータベースの行は 10,000 まで（rv42 M1・R58。越えれば何も変えない）
   if (back.some((o) => o.op === 'restore' || o.op === 'add') && db.prepare(HOT_QUERIES.dbRowCount).get(a.pageId).c > LIMITS.dbRows) throw refuse('too-big');
   const touched = [...new Set(back.filter((o) => o.op === 'text' || (o.op === 'set' && o.key.startsWith('cell:'))).map((o) => o.id))];
