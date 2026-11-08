@@ -773,3 +773,117 @@ test('PS-3・F163: 近道の表（src/shortcuts.js の SHORTCUTS）に Ctrl+Shif
   assert.ok(text.includes('Ctrl+Shift+R') && text.includes('ページの名前を変える'), '設定の近道の表に Ctrl+Shift+R の行が無い');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
+
+// ================================================================ PS-2 直し（2026-11-08 の e70aa9e..32e3fa1 の点検・R42）
+test('PS-2 直し・F160: 選ぶ形の間はいつも下の帯と［やめる］を出す（0 件でも。［リンクを写す］は 0 件では押せない）。［ページを選ぶ］の後のフォーカスは木の行（持ち主の答え 2026-11-08）', T, async () => {
+  const l = await bootUi();
+  uRow(l, 'pg7').focus();
+  for (const id of ['pg7', 'pg6']) { l.key({ key: 'ArrowDown' }, uRow(l, id)); await l.drain(); }   // 木の中で pg5 へ移る
+  await press(l, $(l, 'privMore'));
+  l.key({ key: 'End' }, $(l, 'privMenu'));
+  l.key({ key: 'Enter' }, $(l, 'privMenu')); await l.drain();
+  assert.ok(uRows(l).every((r) => r.querySelector('.pchk')), '前提: 選ぶ形');
+  const a = l.document.activeElement;
+  assert.ok(a && a.parentNode === $(l, 'plist') && a.dataset.pid === 'pg5', '［ページを選ぶ］の後のフォーカスが前の木の行でない（隠れたメニューの項目に残る）');
+  assert.deepStrictEqual([$(l, 'selBar').hidden, $(l, 'selCount').textContent, $(l, 'selCopy').disabled, $(l, 'selCancel').disabled === true], [false, '', true, false], '0 件で帯か［やめる］が出ない・［リンクを写す］が押せる');
+  await press(l, uRow(l, 'pg7'));
+  assert.deepStrictEqual([$(l, 'selBar').hidden, $(l, 'selCount').textContent, $(l, 'selCopy').disabled], [false, '1 件を選んでいます', false]);
+  await press(l, uRow(l, 'pg7'));
+  assert.deepStrictEqual([$(l, 'selBar').hidden, $(l, 'selCopy').disabled], [false, true], '選びを外して 0 件にすると帯が消えた');
+  // マウスで（0 件のまま）［やめる］で終える
+  await press(l, $(l, 'selCancel'));
+  assert.ok(uRows(l).every((r) => !r.querySelector('.pchk')) && $(l, 'selBar').hidden, '0 件のときに［やめる］で選ぶ形が終わらない');
+  // 前にフォーカスした行が無ければ、見えているいちばん上の行へ
+  const b = await bootUi();
+  await press(b, $(b, 'privMore'));
+  await press(b, $(b, 'listSelect'));
+  assert.ok(b.document.activeElement === uRow(b, 'pg7'), '前の行が無いときにいちばん上の行へフォーカスしない');
+  assert.deepStrictEqual([...l.errors, ...b.errors].map(fmt), []);
+});
+
+test('PS-2 直し・F162: 選ぶ形の間に並べ替え・表示を変えると、見えなくなった行の選びを外す（数と写す行が合う）。写す並びは見えている並び（最終更新）', T, async () => {
+  const l = await bootUi({ returns: { linkBase: () => `${'https://natsu-help.natsu-code.workers.dev'}/open#p=`, copy: () => ({ ok: true }) } });
+  await pickMenu(l, 'privSort', '最終更新');
+  await press(l, $(l, 'privMore'));
+  await press(l, $(l, 'listSelect'));
+  await press(l, uRow(l, EDITED[0]));
+  await press(l, uRow(l, EDITED[6]), { shiftKey: true });
+  assert.strictEqual($(l, 'selCount').textContent, '7 件を選んでいます');
+  await press(l, $(l, 'selCopy'));
+  const order = l.called('copy')[0].args[0].split('\n').map((s) => s.slice(s.lastIndexOf('=') + 1));
+  assert.deepStrictEqual(order, EDITED, '写す並びが見えている並び（最終更新）でない');
+  await pickMenu(l, 'privShow', '5');
+  assert.strictEqual($(l, 'selCount').textContent, '5 件を選んでいます', '表示の数の外になった行の選びが残った');
+  await press(l, $(l, 'selCopy'));
+  assert.strictEqual(l.called('copy')[1].args[0].split('\n').length, 5);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-2 直し・F160: 見出しの［···］のメニューの細かい決まり（外を押すと閉じる・行き先が無ければ［···］へ・行のメニューを開いていれば閉じる・Space で押す・変換中の Enter は先に抜ける）と、覚えた形が届く前に変えたら上書きしない', T, async () => {
+  const l = await bootUi();
+  // 行のメニューを開いたまま［···］を押すと、行のメニューは閉じる
+  uRow(l, 'pg5').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain();
+  assert.ok(rowMenu(l), '前提: 行のメニュー');
+  await press(l, $(l, 'privMore'));
+  assert.ok(rowMenu(l) === null, '見出しのメニューを開いても行のメニューが残る');
+  // 変換中の Enter では下のメニューを開かない・Space では開く
+  l.key({ key: 'Enter', isComposing: true }, $(l, 'privMenu')); await l.drain();
+  assert.strictEqual($(l, 'privSort').getAttribute('aria-expanded'), 'false', '変換中の Enter で下のメニューを開いた');
+  l.key({ key: ' ' }, $(l, 'privMenu')); await l.drain();
+  assert.strictEqual($(l, 'privSort').getAttribute('aria-expanded'), 'true', 'Space で下のメニューを開かない');
+  l.key({ key: 'Escape' }, $(l, 'privMenu')); await l.drain();
+  // 項目の Space で押す（［ページを選ぶ］）
+  l.key({ key: 'End' }, $(l, 'privMenu'));
+  l.key({ key: ' ' }, $(l, 'privMenu')); await l.drain();
+  assert.ok(uRows(l).every((r) => r.querySelector('.pchk')), 'Space で［ページを選ぶ］を押せない');
+  await press(l, $(l, 'selCancel'));
+  // 外を押す: フォーカスがほかの行へ移ればそこに残して閉じる・行き先が無ければ閉じて［···］へ
+  await press(l, $(l, 'privMore'));
+  uRow(l, 'pg3').focus();
+  $(l, 'privMenu').dispatchEvent({ type: 'focusout' });
+  await l.clock.advance(5); await l.drain();
+  assert.ok($(l, 'privMenu').hidden && l.document.activeElement === uRow(l, 'pg3'), '外を押して閉じない・押した行のフォーカスを奪った');
+  await press(l, $(l, 'privMore'));
+  l.document.activeElement.blur();
+  $(l, 'privMenu').dispatchEvent({ type: 'focusout' });
+  await l.clock.advance(5); await l.drain();
+  assert.ok($(l, 'privMenu').hidden && l.document.activeElement === $(l, 'privMore'), '行き先の無い所を押して閉じたのに［···］へ戻らない');
+  // 覚えた形が届く前に見出しを押していたら、届いた形で上書きしない
+  let give = null;
+  const late = await bootUi({ returns: { uiState: () => new Promise((r) => { give = r; }) } });
+  await press(late, $(late, 'privHead'));
+  give({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' }, sections: { private: { open: true, sort: 'edited', show: 0 } } });
+  await late.drain();
+  assert.strictEqual($(late, 'privHead').getAttribute('aria-expanded'), 'false', '届く前に畳んだのに、届いた覚え書きで開いた');
+  assert.deepStrictEqual(uIds(late), MANUAL, '届く前に変えたのに、届いた並べ替えで上書きした');
+  assert.deepStrictEqual([...l.errors, ...late.errors].map(fmt), []);
+});
+
+test('PS-2 直し: 「最終更新」の間は、兄弟の前後へ落とす印（線）を出さない（中へ落とす枠は出す）', T, async () => {
+  const l = await bootUi();
+  await pickMenu(l, 'privSort', '最終更新');
+  for (const r of uRows(l)) r._rect = { top: 0, height: 30 };
+  uRow(l, 'pg4').dispatchEvent({ type: 'dragstart', target: uRow(l, 'pg4'), dataTransfer: { effectAllowed: '', setData() {} } });
+  const over = (id, y) => uRow(l, id).dispatchEvent({ type: 'dragover', clientY: y, dataTransfer: { types: ['application/x-natsu-page'] }, preventDefault() {} });
+  over('pg5', 2);
+  assert.ok(!uRow(l, 'pg5').classList.contains('dropbefore') && !uRow(l, 'pg5').classList.contains('dropafter'), '最終更新の間に前後の線を出した');
+  over('pg5', 15);
+  assert.ok(uRow(l, 'pg5').classList.contains('dropin'), '中へ落とす枠が出ない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-2 直し: sectionRows の「最終更新」は 5,000 ページでも速い（日時を木ごとに1回だけ読む。一覧の読み直しの4回で 40 ミリ秒以内・3 回の中央値）', { timeout: 30000 }, () => {
+  const rows = [];
+  for (let i = 0; i < 5000; i++) rows.push({ id: `q${i.toString(36)}`, parentId: null, ord: 'i', createdAt: new Date(Date.UTC(2026, 0, 1) + i * 60000).toISOString(), updatedAt: new Date(Date.UTC(2026, 5, 1) - ((i * 7919) % 100000) * 60000).toISOString() });
+  const times = [];
+  for (let k = 0; k < 3; k++) {
+    const tree = PT.pageTree(rows);   // 一覧を読み直すたびに木は組み直す
+    const t0 = process.hrtime.bigint();
+    for (let j = 0; j < 4; j++) SS.sectionRows(tree, new Set(), { sort: 'edited', show: j % 2 ? 5 : 0 });
+    times.push(Number(process.hrtime.bigint() - t0) / 1e6);
+  }
+  times.sort((a, b) => a - b);
+  assert.ok(times[1] <= 40, `中央値 ${times[1].toFixed(1)} ms`);
+  const r = SS.sectionRows(PT.pageTree(rows), new Set(), { sort: 'edited', show: 5 });
+  assert.deepStrictEqual([r.rows.length, r.hidden], [5, 4995]);
+});

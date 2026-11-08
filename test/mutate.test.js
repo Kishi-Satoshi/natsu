@@ -1393,7 +1393,9 @@ const IDS_151 = [
   'ps-ws-norm', 'ps-ws-unknown',   // PS-1
   'ps-ws-item',   // ND-1・PS-1 直し（R36）
   'ps-head-text', 'ps-head-fold', 'ps-head-aria', 'ps-head-hide', 'ps-fold-save', 'ps-fold-restore', 'ps-sort-save', 'ps-add-unfold', 'ps-add-top', 'ps-open-keep',
-  'ps-fold-selend', 'ps-bottom-pin', 'ps-menu-select', 'ps-menu-esc', 'ps-tree-label',   // PS-2
+  'ps-fold-selend', 'ps-bottom-pin', 'ps-menu-select',   // PS-2
+  'ps-sel-bar', 'ps-sel-focus', 'ps-sel-keep',   // PS-2 直し（R42）
+  'ps-menu-esc', 'ps-tree-label',   // PS-2
   'ps-sort-edited', 'ps-sort-level',   // PS-1
   'ps-sort-drag',   // PS-2
   'ps-show-limit', 'ps-show-kids',   // PS-1
@@ -1453,7 +1455,7 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');
   const rows = planRows151();
-  assert.strictEqual(rows.length, 77, '計画の 0.15.1 の表（nd- 31・ps- 34・lb- 12）が読めない');   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
+  assert.strictEqual(rows.length, 80, '計画の 0.15.1 の表（nd- 31・ps- 37・lb- 12）が読めない');   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');

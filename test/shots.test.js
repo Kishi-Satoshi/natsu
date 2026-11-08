@@ -1180,7 +1180,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.1 PS-3（計画の「取り直す画面」・D124）: 行の［···］（乗せたときだけ）・行のメニューの6つと近道と最終更新の行・名前を変える欄・Ctrl+Shift+R・近道の表の行。
   // 変わる画面は RETAKE_151 のサイドバーの出る app の画面と、足した side-row-menu-light・side-row-rename-light・設定の近道の表（settings-shortcuts-light）。
   // 値を今の app.html に合わせた（前の値は 4df8fe28…）
-  assert.strictEqual(sha, '8e15124d0505caa859d3e9d0546eea14da7af9ba5e9052cdd4ce0961382e4820',
+  // 0.15.1 PS-2 直し（計画の R42）: 選ぶ形の間はいつも頭の枠と［やめる］（0 件の［リンクを写す］は押せない）・［ページを選ぶ］の後のフォーカス・
+  // 見えなくなった行の選びを外す・「最終更新」の間は前後の線を出さない・sideSection の写し（最終更新の日時を木ごとに1回読む）。選ぶ形の 0 件の画面は撮っていない
+  //（list-select-* は2件を選んだ形）ので、変わる画面は無い見込み。値を今の app.html に合わせた（前の値は 8e15124d…）
+  assert.strictEqual(sha, '6f780a0ec46ae804c824add0dab2395fa47372d5050ff5595c21c042cde20e73',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

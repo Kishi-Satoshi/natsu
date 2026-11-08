@@ -3237,6 +3237,14 @@
       const t = r && typeof r.updatedAt === 'string' ? Date.parse(r.updatedAt) : NaN;
       return Number.isFinite(t) ? t : -Infinity;
     }
+    // 0.15.1 PS-2 直し（R42）: 最終更新の日時は木ごとに1回だけ読む（並べ替えの比べのたびに日時の字を読まない。木は一覧を読み直すたびに組み直すので古くならない）
+    const EDITED = new WeakMap();
+    function editedOf(tree) {
+      if (!tree || typeof tree !== 'object') return (id) => editedAt(tree, id);
+      let m = EDITED.get(tree);
+      if (!m) { m = new Map(); EDITED.set(tree, m); }
+      return (id) => { if (!m.has(id)) m.set(id, editedAt(tree, id)); return m.get(id); };
+    }
     // 兄弟の中だけで並べ替える（木の形は変えない）。同じなら元の（手動の）並び
     function orderBy(ids, cmp) {
       return ids.map((id, i) => ({ id, i })).sort((a, b) => cmp(a.id, b.id) || a.i - b.i).map((x) => x.id);
@@ -3247,7 +3255,8 @@
     function sectionRows(tree, open, opts = {}) {
       const isOpen = (id) => Boolean(open && typeof open.has === 'function' && open.has(id));
       const edited = opts && opts.sort === 'edited';
-      const order = (ids) => (edited ? orderBy(ids, (a, b) => editedAt(tree, b) - editedAt(tree, a)) : ids);
+      const at = editedOf(tree);
+      const order = (ids) => (edited ? orderBy(ids, (a, b) => at(b) - at(a)) : ids);
       const limit = opts && SHOW_STEPS.includes(opts.show) ? opts.show : 0;
       const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
       const shown = limit ? roots.slice(0, limit) : roots;
@@ -3322,7 +3331,8 @@
         const t = (id) => { if (!key.has(id)) key.set(id, String(titleOf(id) ?? '')); return key.get(id); };
         cmp = (a, b) => sign * COLLATOR.compare(t(a), t(b));
       } else if (o.col === 'edited') {
-        cmp = (a, b) => sign * (editedAt(tree, a) - editedAt(tree, b));
+        const at = editedOf(tree);
+        cmp = (a, b) => sign * (at(a) - at(b));
       }
       const order = (ids) => (cmp ? orderBy(ids, cmp) : ids);
       const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
@@ -4043,7 +4053,8 @@
     return treeOf;
   }
   // 見えている行（閉じた行の子は出さない: F115）。0.15.1 PS-2（決めたこと 23）: 並べ替え（手動・最終更新）と表示の数（いちばん上の段だけ数える）を当てる
-  const treeRows = () => sideSectionView.sectionRows(treeNow(), treeOpen, privSt).rows;
+  const treeView = () => sideSectionView.sectionRows(treeNow(), treeOpen, privSt);   // 0.15.1 PS-2 直し（R42）: 描くときは行と出していない数を1回で
+  const treeRows = () => treeView().rows;
   const treeRowEl = (id) => [...$('plist').children].find((e) => e.dataset && e.dataset.pid === id) || null;
   // PH-3 直し（R28 (2)）: 覚えるのは今子のある行だけで、新しく開いた順の新しい 500 個（Set は足した順なので後ろが新しい。前は先の 500 個で、501 個目から覚えなかった）
   function saveTree() {
@@ -4123,7 +4134,8 @@
     const hadFocus = fa && fa.parentNode === box && fa.dataset && fa.dataset.pid ? fa.dataset.pid : '';
     if (renameEd && renameEd.input) { renameEd.value = renameEd.input.value; renameEd.hadFocus = document.activeElement === renameEd.input; renameEd.remount = true; }   // 0.15.1 PS-3
     box.textContent = '';
-    paintPriv(pages.length ? sideSectionView.sectionRows(treeNow(), null, privSt).hidden : 0);
+    const view = pages.length ? treeView() : { rows: [], hidden: 0 };
+    paintPriv(view.hidden);
     if (pages.length === 0) {
       const d = document.createElement('div');
       d.className = 'empty';
@@ -4133,7 +4145,7 @@
     for (const p of pages) if (p && p.id && typeof p.title === 'string') tabTitles.set(p.id, p.title);
     renderTabs();   // タブの名前は題名を追う
     const byId = new Map(pages.filter((p) => p && typeof p.id === 'string').map((p) => [p.id, p]));
-    const rows = treeRows();
+    const rows = view.rows;
     const ids = rows.map((r) => r.id);
     const want = shownFor(hadFocus, ids);
     const reach = want || (ids.includes(curId) ? curId : '') || shownFor(treeFocus, ids) || ids[0];   // Tab で届くのは1つの行（決めたこと 20）
@@ -4389,6 +4401,7 @@
       clearTreeDrop();
       if (!s) return;
       if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      if (privSt.sort === 'edited' && s.afterId !== undefined) return;   // 0.15.1 PS-2 直し（R42）: 「最終更新」の間は前後の線を出さない（落とすと一言だけ）
       el.classList.add(s.afterId === undefined ? 'dropin' : s.afterId === el.dataset.pid ? 'dropafter' : 'dropbefore');
     };
     el.ondrop = (ev) => {
@@ -4692,11 +4705,13 @@
   // 0.15.1 PS-2（決めたこと 23）: 並べ替えと表示の数を当てる（表示の数の外の行は選べない・写す並びは見えている並び）
   const listOrder = () => sideSectionView.sectionRows(treeNow(), { has: () => true }, privSt).rows.map((r) => r.id);
   const listShown = () => treeRows().map((r) => r.id);
-  // 選びの見た目（頭の枠の数）。行は renderList が描く。0.15.1 PS-2: ［選ぶ］は［···］の［ページを選ぶ］（menuitem）に移ったので押した形は持たない
+  // 選びの見た目（頭の枠の数）。行は renderList が描く。0.15.1 PS-2: ［選ぶ］は［···］の［ページを選ぶ］（menuitem）に移ったので押した形は持たない。
+  // 0.15.1 PS-2 直し（R42・持ち主の答え 2026-11-08）: 選ぶ形の間はいつも頭の枠と［やめる］を出す（0 件でもマウスで終えられる）。0 件の［リンクを写す］は押せない
   function syncListSel() {
     const n = listSel.ids.length;
-    $('selBar').hidden = !(listSel.on && n > 0);
+    $('selBar').hidden = !listSel.on;
     $('selCount').textContent = n > 0 ? `${n} 件を選んでいます` : '';
+    $('selCopy').disabled = n === 0;
   }
   function setListSel(next) {
     listSel = next;
@@ -4719,6 +4734,8 @@
     const folding = privSt.open && !next.open;
     privSt = next;
     if (folding && listSel.on) { listSel = selStep(listSel, { type: 'toggleMode' }, listOrder()); syncListSel(); }   // 隠れた行のリンクを写さない（PR5）
+    // 0.15.1 PS-2 直し（R42）: 選ぶ形の間に並べ替え・表示を変えたら、見えなくなった行の選びを外す（数と写す行を合わせる）
+    else if (listSel.on) { listSel = selStep(listSel, { type: 'keep', ids: listOrder() }, listOrder()); syncListSel(); }
     renderList();
     saveUi({ sections: { ...privLater, private: privState() } });
   }
@@ -4810,6 +4827,10 @@
     closePrivMenu(false);
     if (!privSt.open) setPriv({ open: true });
     if (!listSel.on) setListSel(selStep(listSel, { type: 'toggleMode' }, listOrder()));
+    // 0.15.1 PS-2 直し（R42）: 隠れたメニューの項目にフォーカスを残さない（前にフォーカスした木の行か、見えているいちばん上の行へ）
+    const shown = listShown();
+    const to = shown.includes(treeFocus) ? treeFocus : shown[0];
+    if (to) focusTreeRow(to);
   };
   $('privMenu').onkeydown = (ev) => {
     if (imeEnter(ev)) return;

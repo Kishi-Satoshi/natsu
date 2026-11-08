@@ -103,7 +103,8 @@ test('D70: ［選ぶ］で行の 🎙️ がチェックボックス（role=chec
   await startSel(l);
   assert.strictEqual(selOn(l), true);
   assert.ok(rows(l).every((r) => boxOf(r) && boxOf(r).getAttribute('role') === 'checkbox' && boxOf(r).getAttribute('aria-checked') === 'false' && !r.querySelector('.pi')), 'チェックボックスに替わらない');
-  assert.strictEqual(l.byId.get('selBar').hidden, true, '0 件のときに頭の枠を出した');
+  // 0.15.1 PS-2 直し（計画 docs/plans/2026-11-04-151.md の R42・持ち主の答え 2026-11-08）で意図して変えた: 選ぶ形の間はいつも頭の枠と［やめる］を出す（0 件の［リンクを写す］は押せない）
+  assert.deepStrictEqual([l.byId.get('selBar').hidden, l.byId.get('selCount').textContent, l.byId.get('selCopy').disabled], [false, '', true], '0 件のときに頭の枠と［やめる］が出ない');
   await press(l, rowOf(l, 'pa1'));
   await press(l, rowOf(l, 'pc3'));
   assert.deepStrictEqual(l.called('pageGet'), [], '選ぶ形の間に押した行のページを開いた');

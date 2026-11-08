@@ -76,6 +76,14 @@ function editedAt(tree, id) {
   const t = r && typeof r.updatedAt === 'string' ? Date.parse(r.updatedAt) : NaN;
   return Number.isFinite(t) ? t : -Infinity;
 }
+// 0.15.1 PS-2 直し（R42）: 最終更新の日時は木ごとに1回だけ読む（並べ替えの比べのたびに日時の字を読まない。木は一覧を読み直すたびに組み直すので古くならない）
+const EDITED = new WeakMap();
+function editedOf(tree) {
+  if (!tree || typeof tree !== 'object') return (id) => editedAt(tree, id);
+  let m = EDITED.get(tree);
+  if (!m) { m = new Map(); EDITED.set(tree, m); }
+  return (id) => { if (!m.has(id)) m.set(id, editedAt(tree, id)); return m.get(id); };
+}
 // 兄弟の中だけで並べ替える（木の形は変えない）。同じなら元の（手動の）並び
 function orderBy(ids, cmp) {
   return ids.map((id, i) => ({ id, i })).sort((a, b) => cmp(a.id, b.id) || a.i - b.i).map((x) => x.id);
@@ -86,7 +94,8 @@ function orderBy(ids, cmp) {
 function sectionRows(tree, open, opts = {}) {
   const isOpen = (id) => Boolean(open && typeof open.has === 'function' && open.has(id));
   const edited = opts && opts.sort === 'edited';
-  const order = (ids) => (edited ? orderBy(ids, (a, b) => editedAt(tree, b) - editedAt(tree, a)) : ids);
+  const at = editedOf(tree);
+  const order = (ids) => (edited ? orderBy(ids, (a, b) => at(b) - at(a)) : ids);
   const limit = opts && SHOW_STEPS.includes(opts.show) ? opts.show : 0;
   const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
   const shown = limit ? roots.slice(0, limit) : roots;
@@ -161,7 +170,8 @@ function libraryRows(tree, opts = {}) {
     const t = (id) => { if (!key.has(id)) key.set(id, String(titleOf(id) ?? '')); return key.get(id); };
     cmp = (a, b) => sign * COLLATOR.compare(t(a), t(b));
   } else if (o.col === 'edited') {
-    cmp = (a, b) => sign * (editedAt(tree, a) - editedAt(tree, b));
+    const at = editedOf(tree);
+    cmp = (a, b) => sign * (at(a) - at(b));
   }
   const order = (ids) => (cmp ? orderBy(ids, cmp) : ids);
   const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
