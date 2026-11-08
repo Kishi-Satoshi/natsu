@@ -520,7 +520,7 @@ test('DS-1 直し・F6: 表に足した行（R9 の値のある件数・R7 の y
   const sg = V.applyView([row('s1', 'a', 'x', { c9: 'o3' }), row('s2', 'b', 'y', {})], { ...base, group: { col: 'c9', by: 'option' } }, COLS, { now: NOW });
   assert.deepStrictEqual(sg.groups.map((g) => [g.key, g.count]), [['o1', 0], ['o2', 0], ['o3', 1], ['', 1]], 'ステータスを選択肢ごと');
   throwsBad(() => M.cellOf({ id: 'r', name: 'つなぐ', type: 'rel', db: 'pdb' }, ['rA', 'rA']), 'リレーションの重なり');
-  throwsBad(() => M.cellOf({ id: 'e', name: 'メール', type: 'email' }, `a​${AT}example.com`), 'メールの見えない文字');
+  throwsBad(() => M.cellOf({ id: 'e', name: 'メール', type: 'email' }, `a\u200b${AT}example.com`), 'メールの見えない文字');
   assert.strictEqual(M.foldCells([TITLE, { ...TXT, gone: true }], { c4: '消した列の文字' }), '', '消した列は検索の欄に入れない');
   const st = M.addOpt(STA, '保留');
   assert.ok(st.col.groups.todo.includes(st.id) && !st.col.groups.done.includes(st.id), '新しいステータスの選択肢は未着手');
@@ -562,10 +562,20 @@ test('DS-1 直し・F1〜F5・F7〜F9・F11・F13: グループの長い鍵・�
   assert.deepStrictEqual(M.cellOf(DAT, { start: '1000-01-01' }), { start: '1000-01-01' });
   assert.strictEqual(M.convertCell(TXT, DAT, '0050/3/3').value, null);
   // F7: 見えない文字・向きの文字・空に見える文字は名前と住所に入れない（絵文字の合わせの文字は名前に入れてよい）
-  for (const bad of ['W­eb', 'ㅤ', 'a؜b', 'a᠎b', 'a͏b', '⠀', 'a b']) assert.ok(!M.optNameOk([{ id: 'o1', name: 'Web', color: 'default' }], bad), `名前 ${JSON.stringify(bad)}`);
-  for (const good of ['❤️', '👩‍💻', '🔥 急ぎ']) assert.ok(M.optNameOk([], good), `名前 ${good}`);
-  throwsBad(() => M.cellOf(URL1, 'https://exa­mple.com'), '住所の見えない文字');
-  throwsBad(() => M.cellOf(PER, ['佐​藤']), '人の名前の見えない文字');
+  for (const bad of ['W\u00adeb', '\u3164', 'a\u061cb', 'a\u180eb', 'a\u034fb', '\u2800', 'a\u2028b']) assert.ok(!M.optNameOk([{ id: 'o1', name: 'Web', color: 'default' }], bad), `名前 ${JSON.stringify(bad)}`);
+  for (const good of ['❤\ufe0f', '👩\u200d💻', '🔥 急ぎ']) assert.ok(M.optNameOk([], good), `名前 ${good}`);
+  // DS-2 直し（rv40 F3・F4・R43）: 絵文字の合わせの文字の境目（絵文字でない文字の後の U+FE0F・二重の U+FE0F・後ろに絵文字の無い U+200D）と、
+  // 既定で見えない文字・対の無いサロゲート・私用・割り当ての無い文字・結合の文字だけの名前は断る。絵文字の違いだけの名前は重なりと見る
+  for (const bad of ['\u{1F600}\u200d', '\u{1F600}\u200da', 'a\ufe0f', '高\ufe0f', '\u{1F600}\ufe0f\ufe0f', '高\u{E0100}', 'a\u180bb', 'a\u17b4b', '\u0378', '\ue000', 'a\ud800', '\u0301']) {
+    assert.ok(!M.optNameOk([], bad), `名前 ${JSON.stringify(bad)}`);
+  }
+  throwsBad(() => M.cellOf(PER, ['山\u{E0100}']), '人の名前の異体字の選び');
+  for (const [a, b] of [['\u{1F600}', '\u{1F600}\ufe0f'], ['\u{1F600}\u{1F600}', '\u{1F600}\u200d\u{1F600}'], ['\u00a9', '\u00a9\ufe0f']]) {
+    assert.ok(M.optNameOk([], a) && M.optNameOk([], b), `名前 ${JSON.stringify([a, b])}`);
+    assert.ok(!M.optNameOk([{ id: 'o1', name: a, color: 'default' }], b), `重なり ${JSON.stringify([a, b])}`);
+  }
+  throwsBad(() => M.cellOf(URL1, 'https://exa\u00admple.com'), '住所の見えない文字');
+  throwsBad(() => M.cellOf(PER, ['佐\u200b藤']), '人の名前の見えない文字');
   // F8: 消えた選択肢の ID を含む複数選択は、分かる名前だけを読み替える
   assert.strictEqual(M.convertCell(MUL, TXT, ['o1', 'o9']).value, '会議');
   // F9: 指数の形の数も読める（NaTsu が数を文字にした形）

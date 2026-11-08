@@ -18,7 +18,10 @@ const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;      // 今の ID（p…・b…・s<n>・
 const TX_RE = /^[A-Za-z0-9:_.-]{8,120}$/;
 // 件数・1つの頼みの大きさ・文字の長さ。segments は計画の 500 から 5000 に変えた（区間の長さは最短 20 秒なので、500 では
 // 2 時間 46 分より長い会議の締め・復旧が DB に入らない。大きさは 1MB の上限が別に押さえる）
-const LIMITS = { blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000, title: 500 };
+const LIMITS = { blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000, title: 500,
+  // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の決めたこと 7・52）: 1つのデータベースの行・列・ビュー・列とビューの設定（データベースのページの attrs）の大きさ・
+  // 1回の貼り付けのセル。選択肢（200）・リレーションの行（100）・テキストのセル（10,000 字）は src/dbModel.js の MAX
+  dbRows: 10000, dbCols: 100, dbViews: 20, dbAttrs: 256 * 1024, pasteCells: 2000 };
 const RESERVED_BLOCK = ['id', 'type', 'text', 'rich', 'children'];
 const RESERVED_PAGE = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];
@@ -197,6 +200,24 @@ function checkSegPatch(p) {
   return out;
 }
 
+// 0.16.0 DS-3（決めたこと 7・10・52）: データベースの命令の引数の形。セルの値の照らし（列の種類ごと）は命令の中の dbModel.cellOf の1か所で、
+// ここは JSON の形と大きさだけを見る（文字・数・真偽・null・文字の並び・日付の形の物）
+const CELL_ARRAY_MAX = 200;
+function cellShapeOk(v) {
+  if (v === null || typeof v === 'boolean') return true;
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v === 'string') return v.length <= LIMITS.text;
+  if (Array.isArray(v)) return v.length <= CELL_ARRAY_MAX && v.every((x) => typeof x === 'string' && x.length <= SHORT);
+  return isObj(v) && Object.keys(v).length <= 4 && Object.values(v).every((x) => typeof x === 'string' && x.length <= 10);
+}
+const COL_TYPES = ['text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no'];
+// 何行何列かの貼り付け（文字の並びの並び。セルは 2,000 まで: 決めたこと 52）
+function checkGrid(v) {
+  if (!Array.isArray(v) || !v.length || !v.every((r) => Array.isArray(r) && r.length > 0 && r.every((x) => typeof x === 'string' && x.length <= LIMITS.text))) throw bad('grid');
+  if (v.reduce((n, r) => n + r.length, 0) > LIMITS.pasteCells) throw bad('grid cells');
+  return v.map((r) => [...r]);
+}
+
 // 型の表: 値を照らして、保存してよい写しを返す（だめなら投げる）
 const TYPES = Object.freeze(Object.assign(Object.create(null), {
   id: (v) => { if (typeof v !== 'string' || !ID_RE.test(v)) throw bad('id'); return v; },
@@ -240,6 +261,22 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の決めたこと 35・39・F119）: ページのアイコン（辞書の絵文字1つか、外す ''）と見た目（決まった形に整えた写し。外れれば投げる）
   pageIcon: (v) => { if (v !== '' && !emojiDict.isPageIcon(v)) throw bad('icon'); return v; },
   pageLook: (v) => pageLookLib.normalizeLook(v),
+  // 0.16.0 DS-3: データベースの命令（セル・セルの組・列の種類・ビューの形・見せ方・選択肢・セルの場所・貼り付け）
+  cellArg: (v) => { if (!cellShapeOk(v)) throw bad('cell'); return structuredClone(v); },
+  cellsArg: (v) => {
+    if (!isObj(v) || Object.keys(v).length > LIMITS.dbCols || !Object.entries(v).every(([k, x]) => ID_RE.test(k) && cellShapeOk(x))) throw bad('cells');
+    return structuredClone(v);
+  },
+  colType: (v) => { if (!COL_TYPES.includes(v)) throw bad('colType'); return v; },
+  layout: (v) => { if (v !== 'table' && v !== 'list') throw bad('layout'); return v; },
+  viewPatch: (v) => { if (!isObj(v) || Object.hasOwn(v, 'id')) throw bad('viewPatch'); return structuredClone(v); },
+  optsArg: (v) => { if (!Array.isArray(v) || !v.every(isObj)) throw bad('opts'); return structuredClone(v); },
+  groupsArg: (v) => { if (!isObj(v)) throw bad('groups'); return structuredClone(v); },
+  cellRef: (v) => {
+    if (!isObj(v) || Object.keys(v).length !== 2 || typeof v.row !== 'string' || !ID_RE.test(v.row) || typeof v.col !== 'string' || !ID_RE.test(v.col)) throw bad('at');
+    return { row: v.row, col: v.col };
+  },
+  pasteGrid: checkGrid,
 }));
 
 function checkArgs(spec, args) {

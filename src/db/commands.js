@@ -53,6 +53,11 @@ const blockEdit = require('../blockEdit');
 // 0.13.1（計画 docs/plans/2026-10-27-131.md の決めたこと 3・4・7〜11）: 要約のブロックは木（children）。命令は行を locate で探し、置き場は spotOf（NR6）
 const BT = require('../blockTree');
 const { diffPage, diffSegments, applyOps, invertOps, opsMatch, pageRow, isDocType } = require('./ops');
+// 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の決めたこと 1〜32）: データベースの行・列の種類とセル（dbModel）・ビュー（dbView）・並びの鍵
+const { rowBlock } = require('./ops');
+const DM = require('../dbModel');
+const DV = require('../dbView');
+const { keyBetween } = require('./keys');
 // 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の決めたこと 1〜17・HR6）: ページの木は parent_id だけ。歩くのは JS（SQL の再帰を使わない: 決めたこと 6）
 const PT = require('../pageTree');
 // 0.15.0 PR-1（計画の HR14）: 白紙のページの子の並びの鍵は、本文の子ページの行の順から作る（等しい間の鍵）
@@ -86,6 +91,13 @@ const HOT_QUERIES = Object.freeze({
   pageRows: "select id, parent_id, ord, text, created_at, trashed_at, json_extract(attrs, '$.meeting.phase') as phase, json_extract(attrs, '$.kind') as kind, json_extract(attrs, '$.icon') as icon from blocks where type = 'page'",
   pageRow: 'select id, type, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
   typeOf: 'select type from blocks where id = ?',   // 0.16.0 DS-2: 行の型（データベースの行か）
+  // 0.16.0 DS-3（決めたこと 30）: データベースの行（生きている行・全部の行・並びの鍵・数・末尾の鍵・1つの行）
+  dbRows: "select id, ord, text, attrs, rev, created_at, updated_at from blocks where type = 'row' and parent_id = ? and trashed_at is null",
+  dbAllRows: "select id, attrs from blocks where type = 'row' and parent_id = ?",
+  dbOrds: "select id, ord from blocks where type = 'row' and parent_id = ?",
+  dbRowCount: "select count(*) as c from blocks where type = 'row' and parent_id = ? and trashed_at is null",
+  dbLastOrd: "select max(ord) as m from blocks where type = 'row' and parent_id = ?",
+  dbRow: 'select id, type, parent_id, ord, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
   pageBlocks: 'select id, type, text, rich, attrs, ord, parent_id from blocks where page_id = ? and id <> ? order by ord',
   // 0.15.0 PR-1（HR14）: 白紙のページの本文の並び（行の木の形と、子ページの行の指すページだけ。文・飾り・ほかの欄は読まない）
   bodyRows: "select id, parent_id, ord, type, json_extract(attrs, '$.page') as sub from blocks where page_id = ? and id <> ? order by ord",
@@ -692,6 +704,8 @@ function editRevert(db, a, ctx) {
     return r;
   });
   rows.sort((x, y) => x.seq - y.seq);
+  // 0.16.0 DS-3（決めたこと 47・48）: データベースのページの歩みは、表の操作だけを戻す（要約・メモの欄の決まりは通らない）
+  if (dbOf(db, a.pageId)) return rows.length ? dbRevert(db, a, ctx, rows.flatMap((r) => JSON.parse(r.ops || '[]'))) : { ops: [], pageIds: [], result: null };
   // 0.14.0 MB-2（R76）: 1回に戻すのは1つの欄の歩みだけ（メモの歩みと要約の歩みを混ぜたら断る。列は欄ごと: BQ22 (a)）
   const panes = new Set(rows.map((r) => paneOfStep(JSON.parse(r.ops || '[]'), a.pageId)).filter(Boolean));
   if (panes.size > 1) throw refuse('bad-args');
@@ -898,6 +912,7 @@ function pageCreate(db, a, ctx) {
     const host = rows.find((r) => r.id === parentId);
     if (!host || host.trashedAt !== null) throw refuse('bad-args');   // 無い・ゴミ箱のページの中には作らない
     if (isLive(host.attrs)) throw refuse('bad-args');   // 録音中の写しの中には作らない（決めたこと 9）
+    if (isDbPage(host.attrs)) throw refuse('bad-args');   // 0.16.0 DS-3（決めたこと 42）: データベースの中にページを作らない
   }
   const id = newPageId(db, ctx.now);
   const at = ctx.now();
@@ -926,6 +941,7 @@ function pageMove(db, a, ctx) {
     if (!dest) throw refuse('bad-args');
     if (dest.trashedAt !== null) throw refuse('bad-args');   // ゴミ箱のページの下へは動かさない
     if (isLive(dest.attrs)) throw refuse('bad-args');   // 録音中の写しの下へは動かさない
+    if (isDbPage(dest.attrs)) throw refuse('bad-args');   // 0.16.0 DS-3（決めたこと 42）: データベースの中へページを入れない（行と混ぜない）
   }
   if (!PT.canMoveUnder(tree, a.id, to)) throw refuse('bad-args');   // 自分と子孫の下へは動かさない（輪: 決めたこと 5）
   if (to !== null && rawChainHas(tree.byId, to, a.id)) throw refuse('bad-args');   // PH-2 直し（R13）: 壊れた輪の上の親をたどって自分に戻る所へも動かさない
@@ -1298,6 +1314,482 @@ function turnBlock(l, a) {
   return true;
 }
 
+// ================================================================ 0.16.0 DS-3: データベース・行・列・ビューの命令（計画 docs/plans/2026-11-04-160.md の決めたこと 1〜32・47・48・52・R29〜R40）
+// データベースはページの行（kind 'database'。列 cols・ビュー views・ID の列の次の番号 nextNo は attrs）、行は型 row（ops.rowBlock: 決めたこと 1・2）。
+// どの命令も1つのトランザクション＝oplog の1行（core.call）で、oplog の page_id はデータベース（pageOf: args.db。元に戻すの列はデータベースの歩み: 決めたこと 47）。
+// セルの値の照らしは dbModel.cellOf、ビューの照らしは dbView.normalizeView の1か所（決めたこと 10・15）。行を読むのは命令の中の1回（決めたこと 30）
+const isDbPage = (attrs) => isObj(attrs) && attrs.kind === 'database';
+const dbOfArgs = (a) => a.db;   // oplog の page_id（元に戻すの列の鍵: データベース）
+const DB_VIEW_MAX = 200;   // db.view の1回に返す行（決めたこと 30）
+const TITLE_COL = Object.freeze({ id: 'title', name: '名前', type: 'title' });   // 新しいデータベースの題名の列（画面の文「名前」）
+const PASTE_TEXT = Object.freeze({ id: 'paste', name: 'paste', type: 'text' });   // 貼った文字（テキストの列として読み替える: 決めたこと 52）
+const foldName = DM.foldName;   // 名前の重なり（dbModel と同じ寄せ方: J-20）
+const whoOf = (ctx) => (DM.WHO.includes(ctx.actor) ? ctx.actor : 'system');
+// 生きているデータベース（無い・ゴミ箱・データベースでないページは null）
+function dbOf(db, id) {
+  const r = db.prepare(HOT_QUERIES.pageRow).get(id);
+  if (!r || r.type !== 'page' || (r.trashed_at !== null && r.trashed_at !== undefined)) return null;
+  const attrs = JSON.parse(r.attrs || '{}');
+  if (!isDbPage(attrs)) return null;
+  return { id, rev: r.rev, title: r.text, attrs, cols: Array.isArray(attrs.cols) ? attrs.cols.filter(isObj) : [], views: Array.isArray(attrs.views) ? attrs.views.filter(isObj) : [] };
+}
+function mustDb(db, id) { const d = dbOf(db, id); if (!d) throw refuse('bad-args'); return d; }
+const colIn = (cols, id) => cols.find((c) => c.id === id);
+function liveCol(d, id) { const c = colIn(d.cols, id); if (!c || c.gone) throw refuse('bad-args'); return c; }
+// 行の写し（dbView・画面の形: dbModel の頭の注）
+function rowView(r) {
+  const attrs = JSON.parse(r.attrs || '{}');
+  const out = { id: r.id, ord: r.ord, title: r.text, cells: isObj(attrs.cells) ? attrs.cells : {}, createdAt: r.created_at, updatedAt: r.updated_at, by: isObj(attrs.by) ? attrs.by : {} };
+  if (Number.isSafeInteger(attrs.no)) out.no = attrs.no;
+  if (typeof attrs.icon === 'string' && attrs.icon) out.icon = attrs.icon;
+  return out;
+}
+// そのデータベースの生きている行（書く命令はこの形に attrs と rev を足して使う）
+function liveRow(db, d, id) {
+  const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+  if (!r || r.type !== 'row' || r.parent_id !== d.id || (r.trashed_at !== null && r.trashed_at !== undefined)) throw refuse('bad-args');
+  return { ...rowView(r), raw: r, attrs: JSON.parse(r.attrs || '{}') };
+}
+// 新しい行の ID（決めたこと 2: r＋時刻の36進＋5字。ページの ID と同じ作り方）
+function newRowId(db, now, rand = randU32) {
+  for (;;) {
+    const id = `r${now().getTime().toString(36)}${rand().toString(36).padStart(7, '0').slice(-5)}`;
+    if (!db.prepare(HOT_QUERIES.pageRow).get(id)) return id;
+  }
+}
+// 末尾に足す並びの鍵（R31: keyBetween(最後, null) は足すたびに1字ずつ長くなる（1万行で 2,000 字）ので、4 桁の 36 進の数として1つ進める）
+const KEY_DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz';
+function appendKey(last) {
+  if (!last) return 'i';
+  const w = Math.max(last.length, 4);
+  const d = last.padEnd(w, '0').split('').map((ch) => KEY_DIGITS.indexOf(ch));
+  let i = w - 1;
+  while (i >= 0 && d[i] === KEY_DIGITS.length - 1) { d[i] = 0; i -= 1; }
+  if (i < 0) return keyBetween(last, null);
+  d[i] += 1;
+  return d.map((x) => KEY_DIGITS[x]).join('').replace(/0+$/, '');
+}
+// 行の並びの鍵: afterId が無ければ末尾・'' は頭・行の ID ならそのすぐ後ろ（ゴミ箱の行の鍵とも重ねない）。me は動かす行（並びから除く）
+function rowOrd(db, dbId, afterId, me) {
+  if (afterId === undefined) return appendKey(db.prepare(HOT_QUERIES.dbLastOrd).get(dbId).m);
+  const all = db.prepare(HOT_QUERIES.dbOrds).all(dbId).filter((r) => r.id !== me).map((r) => r.ord).sort(cmpStr);
+  if (afterId === '') return keyBetween(null, all.length ? all[0] : null);
+  const a = db.prepare(HOT_QUERIES.dbRow).get(afterId);
+  if (!a || a.type !== 'row' || a.parent_id !== dbId || afterId === me) throw refuse('bad-args');
+  const next = all.find((o) => cmpStr(o, a.ord) > 0);
+  return keyBetween(a.ord, next === undefined ? null : next);
+}
+// セルの値を照らす（列の種類ごと: dbModel.cellOf。題名は文字。形が違えば bad-args）。リレーションは DR-1 の rel.link で書く（R33）
+function cellFor(col, v) {
+  if (col.type === 'title') {
+    if (v === null) return '';
+    if (typeof v !== 'string' || v.length > DM.MAX.title) throw refuse('bad-args');
+    return v;
+  }
+  if (col.type === 'rel') throw refuse('bad-args');
+  try { return DM.cellOf(col, v); } catch (_) { throw refuse('bad-args'); }
+}
+// 1つの行の1つのセルを書く操作（同じ値なら無し）。題名は text・ほかは cell:<列の ID> の set（前の値つき: 決めたこと 5）
+function cellOps(r, col, v) {
+  if (col.type === 'title') return r.title === v ? [] : [{ op: 'text', id: r.id, value: v, old: r.title }];
+  const was = Object.hasOwn(r.cells, col.id) ? r.cells[col.id] : undefined;
+  const next = v === null ? undefined : v;
+  return isDeepStrictEqual(was, next) ? [] : [{ op: 'set', id: r.id, key: `cell:${col.id}`, value: next, old: was }];
+}
+// 行を書いた印（最終更新日時と最終更新者: 決めたこと 10・29。行の updatedAt は列）
+function touchOps(r, ctx) {
+  const who = whoOf(ctx);
+  const by = isObj(r.attrs.by) ? r.attrs.by : {};
+  const out = [{ op: 'set', id: r.id, key: 'updatedAt', value: ctx.now().toISOString(), old: r.raw.updated_at || '' }];
+  if (by.u !== who) out.push({ op: 'set', id: r.id, key: 'by', value: { ...by, u: who }, old: r.attrs.by });
+  return out;
+}
+// データベースのページの欄を書く操作（cols・views。列とビューの設定の大きさは 256KB まで: 決めたこと 7）
+function dbSet(d, key, value) {
+  if (Buffer.byteLength(JSON.stringify({ ...d.attrs, [key]: value }), 'utf8') > LIMITS.dbAttrs) throw refuse('too-big');
+  return { op: 'set', id: d.id, key, value, old: d.attrs[key] };
+}
+const dbDone = (db, d, ops, result, rows = []) => { applyOps(db, ops); return { ops, pageIds: ops.length ? [d.id, ...rows] : [], result }; };
+const viewOf = (d, id) => d.views.find((v) => v.id === id);
+const normView = (d, v) => DV.normalizeView(v, d.cols).view;
+// 表の印 sig（決めたこと 30: データベースのページの rev と、行の数と、行の rev から作る。同じ中身なら同じ印で、画面は描き直さない）
+function sigOf(d, rows) {
+  const h = crypto.createHash('sha1');
+  for (const r of rows) h.update(`${r.id}:${r.rev}\n`);
+  return `${d.rev}.${rows.length}.${h.digest('hex').slice(0, 16)}`;
+}
+
+// データベースを作る（決めたこと 1・43。親は一覧に出るページで、データベースでない。白紙のページの中なら本文の最後に子ページの行: page.create と同じ）→ { page, id }
+function dbCreate(db, a, ctx) {
+  const rows = pageRowsOf(db);
+  const parentId = a.parentId || null;
+  const host = parentId === null ? null : rows.find((r) => r.id === parentId);
+  if (parentId !== null && (!host || host.trashedAt !== null || isLive(host.attrs) || isDbPage(host.attrs))) throw refuse('bad-args');   // 録音中の写し・ゴミ箱・無い・データベースの中には作らない
+  const id = newPageId(db, ctx.now);
+  const at = ctx.now();
+  const ord = parentId === null ? PT.TOP_ORD : PT.siblingKey(PT.pageTree(rows), new Map(rows.map((r) => [r.id, r.ord])), parentId, undefined);
+  const cols = [{ ...TITLE_COL }];
+  const page = { id, title: '', kind: 'database', date: localDate(at), memo: '', blocks: [], cols, views: [DV.defaultView('v1', 'table', cols)], nextNo: 1,
+    createdAt: at.toISOString(), updatedAt: at.toISOString() };
+  const ops = [{ op: 'add', id, row: { ...pageRow(page, { ord }), parent_id: parentId } }];
+  const body = host && isBlankPage(host.attrs) ? bodyOps(db, parentId, ctx, (p) => placeSubRow(p, newSubRow(db, ctx, id))) : null;
+  if (body) ops.push(...body);
+  applyOps(db, ops);
+  return { ops, pageIds: body ? [id, parentId] : [id], result: { page: readPage(db, id), id } };
+}
+// データベースの形（列・照らしたビュー・今の行の数。行の数は削除の確かめの文が使う: 決めたこと 44・R36）→ null（無い・ゴミ箱）
+function dbGetOf(db, id) {
+  const d = dbOf(db, id);
+  if (!d) return null;
+  const out = { id, title: d.title, cols: d.cols, views: d.views.map((v) => normView(d, v)), rowCount: db.prepare(HOT_QUERIES.dbRowCount).get(id).c };
+  if (typeof d.attrs.icon === 'string' && d.attrs.icon) out.icon = d.attrs.icon;
+  if (isObj(d.attrs.sub)) out.sub = d.attrs.sub;
+  return out;
+}
+// 表を読む（決めたこと 30・R20）: 行を1回読み、dbView.applyView で絞り込み・並べ替え・グループ・集計をし、並べる行（shown）の from から count だけ返す
+function dbViewRead(db, a, ctx) {
+  if (!Number.isSafeInteger(a.from) || a.from < 0 || !Number.isSafeInteger(a.count) || a.count < 1 || a.count > DB_VIEW_MAX) throw refuse('bad-args');
+  const d = dbOf(db, a.id);
+  if (!d) return { result: null };
+  const raw = viewOf(d, a.viewId);
+  if (!raw) throw refuse('bad-args');
+  const v = normView(d, raw);
+  const stored = db.prepare(HOT_QUERIES.dbRows).all(d.id);
+  const list = stored.map(rowView);
+  const out = DV.applyView(list, v, d.cols, { now: ctx.now().getTime(), q: a.q });
+  const shown = new Set(v.props.filter((p) => p.show).map((p) => p.col));
+  const byId = new Map(list.map((r) => [r.id, r]));
+  const rows = out.order.slice(a.from, a.from + a.count).map((o) => {
+    const r = byId.get(o.id);
+    const cells = {};
+    for (const [k, x] of Object.entries(r.cells)) if (shown.has(k)) cells[k] = x;
+    const one = { ...r, cells, depth: o.depth, hasKids: o.hasKids };
+    if (o.g !== undefined) one.g = o.g;
+    return one;
+  });
+  return { result: { total: out.total, shown: out.shown, rows, groups: out.groups, agg: out.agg, sig: sigOf(d, stored) } };
+}
+
+// 行を足す（決めたこと 24・29: ID の列の番号は nextNo から振って詰めない・作成者は命令の actor・行は 10,000 まで）→ { id, row }
+function rowAdd(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  if (db.prepare(HOT_QUERIES.dbRowCount).get(d.id).c >= LIMITS.dbRows) throw refuse('too-big');
+  const cells = {};
+  for (const [k, v] of Object.entries(a.cells || {})) {
+    const col = liveCol(d, k);
+    if (col.type === 'title') throw refuse('bad-args');   // 題名は title の引数で
+    const x = cellFor(col, v);
+    if (x !== null) cells[k] = x;
+  }
+  const id = newRowId(db, ctx.now);
+  const ord = rowOrd(db, d.id, a.afterId);
+  const no = Number.isSafeInteger(d.attrs.nextNo) && d.attrs.nextNo > 0 ? d.attrs.nextNo : 1;
+  const who = whoOf(ctx);
+  const row = rowBlock({ id, db: d.id, ord, title: a.title || '', cells, by: { c: who, u: who }, no, at: ctx.now().toISOString() });
+  const ops = [{ op: 'add', id, row }, { op: 'set', id: d.id, key: 'nextNo', value: no + 1, old: d.attrs.nextNo }];
+  applyOps(db, ops);
+  return { ops, pageIds: [d.id, id], result: { id, row: rowView(db.prepare(HOT_QUERIES.dbRow).get(id)) } };
+}
+// 1つ・選んだ行（決めたこと 25・27）のセルを書く
+function setCells(db, a, ctx, ids) {
+  const d = mustDb(db, a.db);
+  const col = liveCol(d, a.col);
+  const v = cellFor(col, a.value);
+  const rows = [...new Set(ids)].map((id) => liveRow(db, d, id));
+  const ops = [];
+  const changed = [];
+  for (const r of rows) {
+    const one = cellOps(r, col, v);
+    if (!one.length) continue;
+    ops.push(...one, ...touchOps(r, ctx));
+    changed.push(r.id);
+  }
+  applyOps(db, ops);
+  return { ops, pageIds: ops.length ? [d.id, ...changed] : [], changed };
+}
+// 行を動かす（並べ替えの無いビューの手の並び: 決めたこと 27）
+function rowMove(db, a) {
+  const d = mustDb(db, a.db);
+  const r = liveRow(db, d, a.id);
+  if (a.afterId === a.id) return { ops: [], pageIds: [], result: { row: rowView(r.raw) } };
+  const ord = rowOrd(db, d.id, a.afterId, a.id);
+  return dbDone(db, d, [{ op: 'move', id: r.id, ord, old: r.ord }], { row: { ...rowView(r.raw), ord } }, [r.id]);
+}
+// 行をゴミ箱へ（決めたこと 28。確かめは画面が出さない）→ { trashed }
+function rowsTrash(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  const at = ctx.now().toISOString();
+  const ops = [...new Set(a.ids)].map((id) => liveRow(db, d, id)).map((r) => ({ op: 'trash', id: r.id, at, old: r.raw.trashed_at ?? null }));
+  return dbDone(db, d, ops, { trashed: ops.length }, ops.map((o) => o.id));
+}
+// 何行何列かの貼り付け（DQ7 (a)・決めたこと 52・R35）: ビューの見えている並びで、選んだセルから右下へ。足りない行は足し（絞り込みの値を入れる）、
+// 右にはみ出した列・書けない列・リレーションは飛ばして skipped に、種類に読めない値は空にして unread に数える。全部が1つの命令（Ctrl+Z の1回）
+function rowsPaste(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  const raw = viewOf(d, a.viewId);
+  if (!raw) throw refuse('bad-args');
+  const v = normView(d, raw);
+  const stored = db.prepare(HOT_QUERIES.dbRows).all(d.id);
+  const list = stored.map(rowView);
+  const order = [...new Set(DV.applyView(list, v, d.cols, { now: ctx.now().getTime() }).order.map((o) => o.id))];
+  const start = order.indexOf(a.at.row);
+  const vcols = v.props.filter((p) => p.show).map((p) => colIn(d.cols, p.col)).filter((c) => c && !c.gone);
+  const c0 = vcols.findIndex((c) => c.id === a.at.col);
+  if (start < 0 || c0 < 0) throw refuse('bad-args');
+  const rowsFor = order.slice(start, start + a.grid.length);
+  while (rowsFor.length < a.grid.length) rowsFor.push(null);   // 足りない行は足す
+  const adding = rowsFor.filter((x) => x === null).length;
+  if (stored.length + adding > LIMITS.dbRows) throw refuse('too-big');
+  const colsNow = new Map(d.cols.map((c) => [c.id, c]));
+  const defaults = DV.filterDefaults(v, d.cols);
+  const st = { filled: 0, added: 0, skipped: 0, unread: 0 };
+  const rowOps = [];
+  const addOps = [];
+  let last = db.prepare(HOT_QUERIES.dbLastOrd).get(d.id).m;
+  let no = Number.isSafeInteger(d.attrs.nextNo) && d.attrs.nextNo > 0 ? d.attrs.nextNo : 1;
+  const who = whoOf(ctx);
+  const at = ctx.now().toISOString();
+  rowsFor.forEach((id, i) => {
+    const r = id === null ? null : liveRow(db, d, id);
+    const fresh = r ? null : { title: '', cells: { ...defaults } };
+    const mine = [];
+    a.grid[i].forEach((s, j) => {
+      const col = vcols[c0 + j];
+      if (!col || col.type === 'rel' || !DM.COLS[col.type].writable) { st.skipped += 1; return; }
+      st.filled += 1;
+      let val;
+      if (col.type === 'title') val = s.length <= DM.MAX.title ? s : (st.unread += 1, '');
+      else if (s.trim() === '') val = null;
+      else {
+        const got = DM.convertCell(PASTE_TEXT, colsNow.get(col.id), s.trim());
+        colsNow.set(col.id, got.col);
+        val = got.value;
+        if (val === null) st.unread += 1;
+      }
+      if (fresh) { if (col.type === 'title') fresh.title = val; else if (val === null) delete fresh.cells[col.id]; else fresh.cells[col.id] = val; }
+      else mine.push(...cellOps(r, col, val));
+    });
+    if (fresh) {
+      last = appendKey(last);
+      const nid = newRowId(db, ctx.now);
+      addOps.push({ op: 'add', id: nid, row: rowBlock({ id: nid, db: d.id, ord: last, title: fresh.title, cells: fresh.cells, by: { c: who, u: who }, no, at }) });
+      no += 1;
+      st.added += 1;
+    } else if (mine.length) rowOps.push(...mine, ...touchOps(r, ctx));
+  });
+  const newCols = d.cols.map((c) => colsNow.get(c.id) || c);
+  const ops = [];
+  if (!isDeepStrictEqual(newCols, d.cols)) ops.push(dbSet(d, 'cols', newCols));   // 読み替えで足した選択肢
+  ops.push(...addOps, ...rowOps);
+  if (st.added) ops.push({ op: 'set', id: d.id, key: 'nextNo', value: no, old: d.attrs.nextNo });
+  return dbDone(db, d, ops, st);
+}
+
+// ---- 列（決めたこと 13・R32〜R34）
+// 列を足す（名前が重なれば「名前 2」: dbModel.newCol。after は列の並びの置き場: '' は頭・無ければ末尾。列は消した列も入れて 100 まで）→ { col }
+function colAdd(db, a) {
+  const d = mustDb(db, a.db);
+  if (a.type === 'rel') throw refuse('bad-args');   // リレーションの列は DR-1（つなぐ先を選んで足す）
+  if (d.cols.length >= LIMITS.dbCols) throw refuse('bad-args');
+  let col;
+  try { col = DM.newCol(a.type, a.name, d.cols); } catch (_) { throw refuse('bad-args'); }
+  const cols = [...d.cols];
+  const i = a.after === undefined ? cols.length : a.after === '' ? 0 : cols.findIndex((c) => c.id === a.after) + 1;
+  if (i < 0 || (a.after && i === 0)) throw refuse('bad-args');
+  cols.splice(i, 0, col);
+  return dbDone(db, d, [dbSet(d, 'cols', cols)], { col });
+}
+// 列を置き換えた並び（照らしてから）
+function colsWith(d, col) {
+  if (!DM.colOk(col)) throw refuse('bad-args');
+  return d.cols.map((c) => (c.id === col.id ? col : c));
+}
+function colRename(db, a) {
+  const d = mustDb(db, a.db);
+  const col = liveCol(d, a.col);
+  if (col.name === a.name) return { ops: [], pageIds: [], result: { col } };
+  if (d.cols.some((c) => c.id !== col.id && foldName(c.name) === foldName(a.name))) throw refuse('bad-args');   // 名前の重なり（大文字小文字・全角半角を寄せて）
+  const next = { ...col, name: a.name };
+  return dbDone(db, d, [dbSet(d, 'cols', colsWith(d, next))], { col: next });
+}
+// そのデータベースの全部の行（ゴミ箱の行も。列の種類を変える・選択肢を消す・完全に消すは、戻したときに形の違うセルを残さない）
+const allRows = (db, d) => db.prepare(HOT_QUERIES.dbAllRows).all(d.id).map((r) => ({ id: r.id, cells: (JSON.parse(r.attrs || '{}').cells) || {} }));
+// 種類を変える（決めたこと 13: セルを新しい種類に読み替えて同じ命令で書き直す。前の値は oplog にあり、Ctrl+Z で戻る）→ { col, emptied }
+function colSetType(db, a) {
+  const d = mustDb(db, a.db);
+  const from = liveCol(d, a.col);
+  if (from.type === a.type) return { ops: [], pageIds: [], result: { col: from, emptied: 0 } };
+  if (from.type === 'title' || from.type === 'rel' || a.type === 'rel' || !DM.COLS[from.type].writable || !DM.COLS[a.type].writable) throw refuse('bad-args');
+  const OPT = ['select', 'multi', 'status'];
+  let to = { id: from.id, name: from.name, type: a.type, ...DM.COLS[a.type].defaults() };
+  // 選択肢の種類どうしは、選択肢を同じ ID のまま写す（ステータスへは全部を「未着手」のまとまりに: R32）
+  if (OPT.includes(from.type) && OPT.includes(a.type) && Array.isArray(from.opts) && from.opts.length) {
+    to.opts = from.opts.map((o) => ({ ...o }));
+    if (a.type === 'status') to.groups = from.type === 'status' ? structuredClone(from.groups) : { todo: to.opts.map((o) => o.id), doing: [], done: [] };
+  }
+  const cellSets = [];
+  let emptied = 0;
+  for (const r of allRows(db, d)) {
+    if (!Object.hasOwn(r.cells, from.id)) continue;
+    const was = r.cells[from.id];
+    let got;
+    try { got = DM.convertCell(from, to, was); } catch (_) { throw refuse('bad-args'); }
+    to = got.col;
+    if (got.value === null) emptied += 1;
+    cellSets.push({ op: 'set', id: r.id, key: `cell:${from.id}`, value: got.value ?? undefined, old: was });
+  }
+  return dbDone(db, d, [dbSet(d, 'cols', colsWith(d, to)), ...cellSets], { col: to, emptied });
+}
+function colMove(db, a) {
+  const d = mustDb(db, a.db);
+  const col = colIn(d.cols, a.col);
+  if (!col) throw refuse('bad-args');
+  const rest = d.cols.filter((c) => c.id !== col.id);
+  const i = a.after === '' ? 0 : rest.findIndex((c) => c.id === a.after) + 1;
+  if (a.after === a.col) return { ops: [], pageIds: [], result: { col } };
+  if (i === 0 && a.after !== '') throw refuse('bad-args');
+  rest.splice(i, 0, col);
+  if (isDeepStrictEqual(rest.map((c) => c.id), d.cols.map((c) => c.id))) return { ops: [], pageIds: [], result: { col } };
+  return dbDone(db, d, [dbSet(d, 'cols', rest)], { col });
+}
+// 消す（gone を付けてビューから外す。セルは残す: R-24）・戻す・完全に消す（消した列だけ。セルも消す。Ctrl+Z の歩みにしない）
+function colRemove(db, a) {
+  const d = mustDb(db, a.db);
+  const col = colIn(d.cols, a.col);
+  if (!col || col.type === 'title') throw refuse('bad-args');   // 題名の列は消せない（J-18）
+  if (col.gone) return { ops: [], pageIds: [], result: { col } };
+  const next = { ...col, gone: true };
+  return dbDone(db, d, [dbSet(d, 'cols', d.cols.map((c) => (c.id === col.id ? next : c)))], { col: next });
+}
+function colRestore(db, a) {
+  const d = mustDb(db, a.db);
+  const col = colIn(d.cols, a.col);
+  if (!col) throw refuse('bad-args');
+  if (!col.gone) return { ops: [], pageIds: [], result: { col } };
+  const next = { ...col };
+  delete next.gone;
+  return dbDone(db, d, [dbSet(d, 'cols', colsWith(d, next))], { col: next });
+}
+function colPurge(db, a) {
+  const d = mustDb(db, a.db);
+  const col = colIn(d.cols, a.col);
+  if (!col || !col.gone) throw refuse('bad-args');
+  const cells = allRows(db, d).filter((r) => Object.hasOwn(r.cells, col.id)).map((r) => ({ op: 'set', id: r.id, key: `cell:${col.id}`, value: undefined, old: r.cells[col.id] }));
+  return dbDone(db, d, [dbSet(d, 'cols', d.cols.filter((c) => c.id !== col.id)), ...cells], { purged: col.id });
+}
+// 選択肢を置き換える（名前・色・並び・足す・消す。消した選択肢はセルからも外す: R34）→ { col }
+function colSetOpts(db, a) {
+  const d = mustDb(db, a.db);
+  const col = liveCol(d, a.col);
+  if (!['select', 'multi', 'status'].includes(col.type)) throw refuse('bad-args');
+  const opts = a.opts.map((o) => ({ ...o }));
+  const names = opts.map((o) => foldName(o.name));
+  if (new Set(names).size !== names.length) throw refuse('bad-args');   // 大文字小文字・全角半角を寄せて重ならない（J-20）
+  if (opts.some((o, i) => !DM.optNameOk(opts.filter((_, k) => k !== i), o.name))) throw refuse('bad-args');
+  const next = { ...col, opts };
+  if (col.type === 'status') {
+    const ids = new Set(opts.map((o) => o.id));
+    const g = a.groups || col.groups || {};
+    next.groups = {};
+    for (const k of DM.STATUS_GROUPS) next.groups[k] = (Array.isArray(g[k]) ? g[k] : []).filter((id) => ids.has(id));
+    for (const o of opts) if (!DM.STATUS_GROUPS.some((k) => next.groups[k].includes(o.id))) next.groups.todo.push(o.id);   // 新しい選択肢は「未着手」
+  } else if (a.groups !== undefined) throw refuse('bad-args');
+  const cols = colsWith(d, next);
+  const keep = new Set(opts.map((o) => o.id));
+  const cells = [];
+  for (const r of allRows(db, d)) {
+    if (!Object.hasOwn(r.cells, col.id)) continue;
+    const was = r.cells[col.id];
+    const now = Array.isArray(was) ? was.filter((id) => keep.has(id)) : keep.has(was) ? was : undefined;
+    const value = Array.isArray(now) && !now.length ? undefined : now;
+    if (!isDeepStrictEqual(value, was)) cells.push({ op: 'set', id: r.id, key: `cell:${col.id}`, value, old: was });
+  }
+  return dbDone(db, d, [dbSet(d, 'cols', cols), ...cells], { col: next });
+}
+// 数値の見せ方（fmt）と ID の接頭辞（prefix。'' は外す）（R33）→ { col }
+function colSetFmt(db, a) {
+  const d = mustDb(db, a.db);
+  const col = liveCol(d, a.col);
+  const next = { ...col };
+  if (col.type === 'number' && a.fmt !== undefined && a.prefix === undefined) next.fmt = a.fmt;
+  else if (col.type === 'no' && a.prefix !== undefined && a.fmt === undefined) { if (a.prefix) next.prefix = a.prefix; else delete next.prefix; }
+  else throw refuse('bad-args');
+  if (isDeepStrictEqual(next, col)) return { ops: [], pageIds: [], result: { col } };
+  return dbDone(db, d, [dbSet(d, 'cols', colsWith(d, next))], { col: next });
+}
+
+// ---- ビュー（決めたこと 15・16。どれも元に戻すの歩みにしない: 決めたこと 47）
+function viewsSet(db, d, views, result) { return dbDone(db, d, [dbSet(d, 'views', views)], result); }
+// 照らした写し（patch か新しいビューの、壊れた項目があれば bad-args: 画面の誤りを黙って直さない。前からある壊れた項目は直して残す）
+function checkedView(d, v, keys) {
+  const { view, repaired } = DV.normalizeView(v, d.cols);
+  if (repaired.some((k) => keys.includes(k))) throw refuse('bad-args');
+  return view;
+}
+function viewAdd(db, a) {
+  const d = mustDb(db, a.db);
+  if (d.views.length >= LIMITS.dbViews) throw refuse('bad-args');
+  const ids = d.views.map((v) => v.id);
+  let n = 1;
+  while (ids.includes(`v${n}`)) n += 1;
+  let v;
+  if (a.from !== undefined) {
+    const src = viewOf(d, a.from);
+    if (!src || a.layout !== undefined) throw refuse('bad-args');
+    v = { ...normView(d, src), id: `v${n}`, ...(a.name !== undefined ? { name: a.name } : {}) };
+  } else v = DV.defaultView(`v${n}`, a.layout || 'table', d.cols, a.name);
+  const view = checkedView(d, v, ['name', 'layout']);
+  return viewsSet(db, d, [...d.views, view], { view });
+}
+function viewUpdate(db, a) {
+  const d = mustDb(db, a.db);
+  const was = viewOf(d, a.viewId);
+  if (!was) throw refuse('bad-args');
+  const view = checkedView(d, { ...normView(d, was), ...a.patch, id: was.id }, Object.keys(a.patch));
+  if (isDeepStrictEqual(view, was)) return { ops: [], pageIds: [], result: { view } };
+  return viewsSet(db, d, d.views.map((v) => (v.id === was.id ? view : v)), { view });
+}
+function viewRemove(db, a) {
+  const d = mustDb(db, a.db);
+  if (!viewOf(d, a.viewId) || d.views.length <= 1) throw refuse('bad-args');   // 最後の1つは消せない（V-T03）
+  return viewsSet(db, d, d.views.filter((v) => v.id !== a.viewId), { removed: a.viewId });
+}
+function viewMove(db, a) {
+  const d = mustDb(db, a.db);
+  const me = viewOf(d, a.viewId);
+  if (!me) throw refuse('bad-args');
+  const rest = d.views.filter((v) => v.id !== a.viewId);
+  const i = a.after === '' ? 0 : rest.findIndex((v) => v.id === a.after) + 1;
+  if (a.after === a.viewId) return { ops: [], pageIds: [], result: { view: me } };
+  if (i === 0 && a.after !== '') throw refuse('bad-args');
+  rest.splice(i, 0, me);
+  if (isDeepStrictEqual(rest.map((v) => v.id), d.views.map((v) => v.id))) return { ops: [], pageIds: [], result: { view: me } };
+  return viewsSet(db, d, rest, { view: me });
+}
+
+// ---- 元に戻す（決めたこと 47・48・R31）: データベースの歩み。行の足し引き・セル・列を戻し、戻して書き直した行の最終更新日時と更新者は今の時刻と自分
+function dbRevert(db, a, ctx, fwd) {
+  let back;
+  let same;
+  try {
+    back = invertOps(fwd, { dbId: a.pageId });
+    same = opsMatch(db, fwd, { dbId: a.pageId });
+  } catch (_) { throw refuse('bad-args'); }
+  if (!same) throw refuse('stale');   // 後で変わったセル・行（決めたこと 48）
+  // 戻すと消える行（足した行）に本文があれば戻さない（本文を親の無い行にしない）
+  const body = db.prepare('select count(*) as c from blocks where page_id = ? and id <> ?');
+  if (back.some((o) => o.op === 'trash' && isObj(o.old) && body.get(o.id, o.id).c > 0)) throw refuse('stale');
+  applyOps(db, back);
+  const touched = [...new Set(back.filter((o) => o.op === 'text' || (o.op === 'set' && o.key.startsWith('cell:'))).map((o) => o.id))];
+  const meta = [];
+  for (const id of touched) {
+    const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+    if (r && r.type === 'row') meta.push(...touchOps({ id, raw: r, attrs: JSON.parse(r.attrs || '{}') }, ctx));
+  }
+  applyOps(db, meta);
+  return { ops: [...back, ...meta], pageIds: [a.pageId, ...touched], result: { page: readPage(db, a.pageId) } };
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -1348,6 +1840,8 @@ const DEFS = {
   // 削除はゴミ箱へ（Q2。元の JSON から取り込みで戻らないように、行は消さない）。答えは一覧
   'page.delete': { roles: ['app', 'main'], write: true, args: { id: 'id' },
     run: (db, a, ctx) => {
+      // DS-2 直し（rv40 F2・R42）: データベースの行はページの木に無いので、ページとしては消さない（行は rows.trash でゴミ箱へ: 決めたこと 28）
+      if ((db.prepare(HOT_QUERIES.typeOf).get(a.id) || {}).type === 'row') throw refuse('bad-args');
       const was = loadPage(db, a.id);
       if (!was) return { ops: [], pageIds: [], result: listPages(db) };
       // 0.15.0 PH-2（決めたこと 30・F113）: ゴミ箱に入っていない子孫も、同じ時刻で1つの命令に積む（もうゴミ箱にある子孫の時刻は書き換えない）
@@ -1807,6 +2301,46 @@ const DEFS = {
     run: segmentFail, dupResult: resegments },
   'segment.remove': { roles: ['main'], write: true, args: { pageId: 'id', segId: 'id' },
     run: segmentRemove, dupResult: resegments },
+
+  // ---- 0.16.0 DS-3: データベース・行・列・ビュー（どれも役 app だけ。oplog の page_id はデータベース: 元に戻すの列はデータベースの歩み）
+  'db.create': { roles: ['app'], write: true, args: { parentId: 'id?' }, pageOf: () => null,
+    run: dbCreate,
+    dupResult: (db, _a, row) => {
+      const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type === 'page');
+      return add ? { page: readPage(db, add.id), id: add.id } : null;
+    } },
+  'db.get': { roles: ['app'], write: false, args: { id: 'id' }, run: (db, a) => ({ result: dbGetOf(db, a.id) }) },
+  'db.view': { roles: ['app'], write: false, args: { id: 'id', viewId: 'id', from: 'int', count: 'int', q: 'short?' }, run: dbViewRead },
+  'row.add': { roles: ['app'], write: true, args: { db: 'id', afterId: 'idOrEmpty?', cells: 'cellsArg?', title: 'title?' }, pageOf: dbOfArgs,
+    run: rowAdd,
+    dupResult: (db, _a, row) => {
+      const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type === 'row');
+      const r = add ? db.prepare(HOT_QUERIES.dbRow).get(add.id) : null;
+      return r ? { id: r.id, row: rowView(r) } : null;
+    } },
+  'row.setCell': { roles: ['app'], write: true, args: { db: 'id', id: 'id', col: 'id', value: 'cellArg' }, pageOf: dbOfArgs,
+    run: (db, a, ctx) => { const out = setCells(db, a, ctx, [a.id]); return { ...out, result: { row: rowView(db.prepare(HOT_QUERIES.dbRow).get(a.id)) } }; },
+    dupResult: (db, a) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); return r ? { row: rowView(r) } : null; } },
+  'rows.setCell': { roles: ['app'], write: true, args: { db: 'id', ids: 'ids', col: 'id', value: 'cellArg' }, pageOf: dbOfArgs,
+    run: (db, a, ctx) => { const out = setCells(db, a, ctx, a.ids); return { ...out, result: { changed: out.changed.length } }; },
+    dupResult: () => null },
+  'row.move': { roles: ['app'], write: true, args: { db: 'id', id: 'id', afterId: 'idOrEmpty' }, pageOf: dbOfArgs, run: rowMove, dupResult: () => null },
+  'rows.trash': { roles: ['app'], write: true, args: { db: 'id', ids: 'ids' }, pageOf: dbOfArgs, run: rowsTrash,
+    dupResult: (_db, _a, row) => ({ trashed: JSON.parse(row.ops || '[]').length }) },
+  'rows.paste': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', at: 'cellRef', grid: 'pasteGrid' }, pageOf: dbOfArgs, run: rowsPaste, dupResult: () => null },
+  'col.add': { roles: ['app'], write: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?' }, pageOf: dbOfArgs, run: colAdd, dupResult: () => null },
+  'col.rename': { roles: ['app'], write: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: () => null },
+  'col.setType': { roles: ['app'], write: true, args: { db: 'id', col: 'id', type: 'colType' }, pageOf: dbOfArgs, run: colSetType, dupResult: () => null },
+  'col.move': { roles: ['app'], write: true, args: { db: 'id', col: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: colMove, dupResult: () => null },
+  'col.remove': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRemove, dupResult: () => null },
+  'col.restore': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRestore, dupResult: () => null },
+  'col.purge': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colPurge, dupResult: () => null },
+  'col.setOpts': { roles: ['app'], write: true, args: { db: 'id', col: 'id', opts: 'optsArg', groups: 'groupsArg?' }, pageOf: dbOfArgs, run: colSetOpts, dupResult: () => null },
+  'col.setFmt': { roles: ['app'], write: true, args: { db: 'id', col: 'id', fmt: 'short?', prefix: 'short?' }, pageOf: dbOfArgs, run: colSetFmt, dupResult: () => null },
+  'view.add': { roles: ['app'], write: true, args: { db: 'id', layout: 'layout?', name: 'short?', from: 'id?' }, pageOf: dbOfArgs, run: viewAdd, dupResult: () => null },
+  'view.update': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', patch: 'viewPatch' }, pageOf: dbOfArgs, run: viewUpdate, dupResult: () => null },
+  'view.remove': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id' }, pageOf: dbOfArgs, run: viewRemove, dupResult: () => null },
+  'view.move': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: viewMove, dupResult: () => null },
 };
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),

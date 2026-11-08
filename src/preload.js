@@ -17,20 +17,28 @@ const { contextBridge, ipcRenderer } = require('electron');
 const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'page.setTitle', 'page.setMemo', 'page.setType', 'page.delete', 'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'segment.update',
   'block.split', 'block.merge', 'block.turnInto', 'block.duplicate', 'block.indent', 'block.setOpen', 'block.setOpenAll', 'edit.revert', 'blocks.setColor',
   'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'page.setMemoDoc',
-  'page.create', 'page.move', 'page.restore', 'pages.trash', 'page.setIcon', 'page.setLook']);
+  'page.create', 'page.move', 'page.restore', 'pages.trash', 'page.setIcon', 'page.setLook',
+  // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の決めたこと 1〜32）: データベース・行・列・ビューの命令（57）
+  'db.create', 'db.get', 'db.view', 'row.add', 'row.setCell', 'rows.setCell', 'row.move', 'rows.trash', 'rows.paste',
+  'col.add', 'col.rename', 'col.setType', 'col.move', 'col.remove', 'col.restore', 'col.purge', 'col.setOpts', 'col.setFmt',
+  'view.add', 'view.update', 'view.remove', 'view.move']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
   'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'block.split', 'block.merge', 'block.turnInto', 'block.duplicate',
   'block.indent', 'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'blocks.setColor', 'page.setMemoDoc', 'edit.revert',
+  // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の決めたこと 47）: データベースの表の操作（src/undoBook.js と同じ）
+  'row.add', 'row.setCell', 'rows.setCell', 'rows.paste', 'row.move', 'rows.trash',
+  'col.add', 'col.rename', 'col.setType', 'col.move', 'col.remove', 'col.restore', 'col.setOpts', 'col.setFmt',
 ]);
 const editSteps = [];
 function editStep(req) {
   const a = req.args || {};
-  const step = { cmd: req.cmd, pageId: typeof a.pageId === 'string' ? a.pageId : a.id, step: req.tx };
+  // 0.16.0 DS-3（決めたこと 47）: データベースの表の命令は、行の ID でなくデータベース（args.db）の歩み
+  const step = { cmd: req.cmd, pageId: typeof a.db === 'string' ? a.db : typeof a.pageId === 'string' ? a.pageId : a.id, step: req.tx };
   for (const cb of editSteps) { try { cb(step); } catch (_) { /* 画面の受け口の誤りで答えを止めない */ } }
 }
-const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash']);
+const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash', 'db.get', 'db.view']);
 const DB_WAIT_MS = 30000;
 let dbPort = null;
 let dbSeq = 0;
@@ -223,6 +231,30 @@ contextBridge.exposeInMainWorld('koeApp', {
   pagesTrash: () => dbCall('pages.trash', {}),
   // 0.15.0 PL-2（決めたこと 35・39）: ページのアイコン（'' は外して既定に戻す）と見た目（{ wide?, small?, font? }）。どちらも元に戻すの歩みにしない。
   // PL-2 直し（R75・rv33 M4）: 文字でない値も '' に替えずにそのまま送り、DB が bad-args で断る（画面の誤りでアイコンが黙って外れない）
+  // 0.16.0 DS-3（決めたこと 1〜32・47）: データベース（作る・形・表の見える分）・行・列・ビュー。表の命令は元に戻すの歩み（onEditStep の pageId はデータベース）、
+  // ビューの命令と［完全に消す］は歩みにしない。どれも引数をそのまま送り、DB が照らす（無い引数は送らない）
+  dbCreate: (parentId) => dbCall('db.create', parentId ? { parentId } : {}),
+  dbGet: (id) => dbCall('db.get', { id }),
+  dbView: (id, viewId, from, count, q) => dbCall('db.view', { id, viewId, from, count, ...(q ? { q } : {}) }),
+  rowAdd: (db, { afterId, cells, title } = {}) => dbCall('row.add', { db, ...(afterId === undefined ? {} : { afterId }), ...(cells ? { cells } : {}), ...(title ? { title } : {}) }),
+  rowSetCell: (db, id, col, value) => dbCall('row.setCell', { db, id, col, value }),
+  rowsSetCell: (db, ids, col, value) => dbCall('rows.setCell', { db, ids, col, value }),
+  rowMove: (db, id, afterId) => dbCall('row.move', { db, id, afterId }),
+  rowsTrash: (db, ids) => dbCall('rows.trash', { db, ids }),
+  rowsPaste: (db, viewId, at, grid) => dbCall('rows.paste', { db, viewId, at, grid }),
+  colAdd: (db, type, name, after) => dbCall('col.add', { db, type, ...(name ? { name } : {}), ...(after === undefined ? {} : { after }) }),
+  colRename: (db, col, name) => dbCall('col.rename', { db, col, name }),
+  colSetType: (db, col, type) => dbCall('col.setType', { db, col, type }),
+  colMove: (db, col, after) => dbCall('col.move', { db, col, after }),
+  colRemove: (db, col) => dbCall('col.remove', { db, col }),
+  colRestore: (db, col) => dbCall('col.restore', { db, col }),
+  colPurge: (db, col) => dbCall('col.purge', { db, col }),
+  colSetOpts: (db, col, opts, groups) => dbCall('col.setOpts', { db, col, opts, ...(groups ? { groups } : {}) }),
+  colSetFmt: (db, col, { fmt, prefix } = {}) => dbCall('col.setFmt', { db, col, ...(fmt === undefined ? {} : { fmt }), ...(prefix === undefined ? {} : { prefix }) }),
+  viewAdd: (db, { layout, name, from } = {}) => dbCall('view.add', { db, ...(layout ? { layout } : {}), ...(name ? { name } : {}), ...(from ? { from } : {}) }),
+  viewUpdate: (db, viewId, patch) => dbCall('view.update', { db, viewId, patch }),
+  viewRemove: (db, viewId) => dbCall('view.remove', { db, viewId }),
+  viewMove: (db, viewId, after) => dbCall('view.move', { db, viewId, after }),
   pageSetIcon: (id, icon) => dbCall('page.setIcon', { id, icon }),
   pageSetLook: (id, look) => dbCall('page.setLook', { id, look }),
   pageSetTitle: (id, title) => dbCall('page.setTitle', { id, title }),

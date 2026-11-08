@@ -235,15 +235,22 @@ function diffSegments(oldSegs, newSegs, pageId) {
 const ROW_COLS = 'id, type, page_id, parent_id, ord, text, rich, attrs, fold, rev, created_at, updated_at, trashed_at';
 
 // 0.16.0 DS-2: データベースの行の列（親のデータベースのページの attrs.cols。無ければ空）
-function colsOfDb(db, dbId) {
+// cache（Map。1回の applyOps の中だけ）があれば同じデータベースの列を読み直さない（DS-3: 1万行の検索の欄を作り直すとき。列を書いたら捨てる）
+function colsOfDb(db, dbId, cache) {
+  if (cache && cache.has(dbId)) return cache.get(dbId);
+  const out = colsRead(db, dbId);
+  if (cache) cache.set(dbId, out);
+  return out;
+}
+function colsRead(db, dbId) {
   const r = typeof dbId === 'string' ? db.prepare('select attrs from blocks where id = ? and type = ?').get(dbId, 'page') : null;
   const attrs = r ? JSON.parse(r.attrs || '{}') : {};
   return Array.isArray(attrs.cols) ? attrs.cols : [];
 }
 
-function insertRow(db, row) {
+function insertRow(db, row, cache) {
   const attrs = isObj(row.attrs) ? row.attrs : {};
-  const cols = row.type === 'row' ? colsOfDb(db, row.parent_id) : null;
+  const cols = row.type === 'row' ? colsOfDb(db, row.parent_id, cache) : null;
   db.prepare(`insert into blocks(${ROW_COLS}) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     row.id, row.type, row.page_id, row.parent_id ?? null, row.ord, str(row.text),
     Array.isArray(row.rich) ? JSON.stringify(row.rich) : null, JSON.stringify(attrs), foldOfRow(row.type, str(row.text), attrs, cols),
@@ -264,6 +271,15 @@ function upsertSeg(db, seg, pageId, n) {
     .run(r.page_id, r.id, r.n, r.at_ms, r.duration_ms, r.text, r.fold, r.failed, r.extra);
 }
 
+// 0.16.0 DS-3（決めたこと 5）: データベースの行のセルの操作の鍵 cell:<列の ID>（ほかの人のほかの列の変更とぶつからない形: D6）
+const CELL_KEY = 'cell:';
+const cellColOf = (key) => (typeof key === 'string' && key.startsWith(CELL_KEY) && key.length > CELL_KEY.length ? key.slice(CELL_KEY.length) : null);
+function setCellIn(attrs, colId, value) {
+  const cells = isObj(attrs.cells) ? { ...attrs.cells } : {};
+  if (value === undefined || value === null) delete cells[colId]; else cells[colId] = value;   // 空のセルは欄ごと消す（決めたこと 10）
+  attrs.cells = cells;
+}
+
 function setField(db, row, key, value, st) {
   if (isDocType(row.type) && (key === 'createdAt' || key === 'updatedAt')) {
     const col = key === 'createdAt' ? 'created_at' : 'updated_at';
@@ -275,9 +291,12 @@ function setField(db, row, key, value, st) {
     return;
   }
   const attrs = JSON.parse(row.attrs || '{}');
-  if (value === undefined) delete attrs[key]; else attrs[key] = value;
+  const cellKey = row.type === 'row' ? cellColOf(key) : null;
+  if (cellKey !== null) setCellIn(attrs, cellKey, value);   // 0.16.0 DS-3（決めたこと 5）: セルは列ごとの set（cell:<列の ID>）。cells の中の1つだけを書く
+  else if (value === undefined) delete attrs[key]; else attrs[key] = value;
   db.prepare('update blocks set attrs = ? where id = ?').run(JSON.stringify(attrs), row.id);
   if (row.type === 'page' && key === 'memo') st.refold.add(row.id);
+  if (row.type === 'page' && key === 'cols') { st.refoldDb.add(row.id); st.cols.delete(row.id); }   // 0.16.0 DS-3（R14）: 列（名前・選択肢・消した印・種類）が変われば、行の検索の欄を全部作り直す
   if (row.type === 'row') st.refold.add(row.id);   // 0.16.0 DS-2: データベースの行はセルが検索の欄に入る（決めたこと 6）
 }
 
@@ -285,7 +304,7 @@ function applyOne(db, o, back, st) {
   if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('applyOps: 操作の形が正しくない');
   switch (o.op) {
     case 'add': {
-      if (!back) { insertRow(db, o.row); st.touched.add(o.row.page_id); if (isDocType(o.row.type)) st.fresh.add(o.row.id); return; }
+      if (!back) { insertRow(db, o.row, st.cols); st.touched.add(o.row.page_id); if (isDocType(o.row.type)) st.fresh.add(o.row.id); return; }
       const r = rowOf(db, o.id);
       db.prepare('delete from blocks where id = ?').run(o.id);
       st.touched.add(r.page_id); if (isDocType(r.type)) st.fresh.add(r.id);
@@ -295,7 +314,7 @@ function applyOne(db, o, back, st) {
     case 'restore': {
       if (o.op === 'trash' && isObj(o.old)) {   // ブロックの行を消す
         if (!back) { const r = rowOf(db, o.id); db.prepare('delete from blocks where id = ?').run(o.id); st.touched.add(r.page_id); }
-        else { insertRow(db, o.old); st.touched.add(o.old.page_id); }
+        else { insertRow(db, o.old, st.cols); st.touched.add(o.old.page_id); }
         return;
       }
       const r = rowOf(db, o.id);
@@ -355,12 +374,13 @@ function applyOps(db, ops, dir = 'forward') {
   if (!Array.isArray(ops)) throw new Error('applyOps: 操作の列が無い');
   if (dir !== 'forward' && dir !== 'backward') throw new Error('applyOps: 向きが正しくない');
   const back = dir === 'backward';
-  const st = { touched: new Set(), fresh: new Set(), refold: new Set() };
+  const st = { touched: new Set(), fresh: new Set(), refold: new Set(), refoldDb: new Set(), cols: new Map() };
   for (const o of back ? [...ops].reverse() : ops) applyOne(db, o, back, st);
+  for (const dbId of st.refoldDb) for (const r of db.prepare("select id from blocks where type = 'row' and parent_id = ?").all(dbId)) st.refold.add(r.id);
   for (const id of st.refold) {
     const r = db.prepare('select type, parent_id, text, attrs, fold from blocks where id = ?').get(id);
     if (!r) continue;
-    const fold = foldOfRow(r.type, r.text, JSON.parse(r.attrs || '{}'), r.type === 'row' ? colsOfDb(db, r.parent_id) : null);
+    const fold = foldOfRow(r.type, r.text, JSON.parse(r.attrs || '{}'), r.type === 'row' ? colsOfDb(db, r.parent_id, st.cols) : null);
     if (fold !== r.fold) db.prepare('update blocks set fold = ? where id = ?').run(fold, id);
   }
   for (const pid of st.touched) if (!st.fresh.has(pid)) db.prepare("update blocks set rev = rev + 1 where id = ? and type in ('page', 'row')").run(pid);
@@ -376,14 +396,16 @@ const REVERT_PAGE_KEYS = Object.freeze(['memo', 'memoDoc']);
 // 0.15.0 PR-1（決めたこと 50）: 戻すページ（pageId を渡したときだけ）でない、ほかのページの行の操作か
 const childPage = (o, pageId) => typeof pageId === 'string' && o.id !== pageId;
 const NO_REVERT_BLOCK = Object.freeze(['citeSkip', ...VIEW_KEYS]);
-function invertOps(ops, { pageId } = {}) {
+function invertOps(ops, { pageId, dbId } = {}) {
   if (!Array.isArray(ops)) throw new Error('invertOps: 操作の列が無い');
+  if (typeof dbId === 'string') return invertDbOps(ops, dbId);   // 0.16.0 DS-3（決めたこと 48）: データベースの歩み
   const out = [];
   for (const o of [...ops].reverse()) {
     if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('invertOps: 操作の形が正しくない');
     switch (o.op) {
       case 'add':
-        if (!isObj(o.row) || o.row.type === 'page') throw new Error('invertOps: ページの行は戻さない');
+        // DS-2 直し（rv40 F1・R41）: データベースの行（row）の add も、dbId を渡さない呼び出しでは戻さない（戻すと本文の行を親の無い行にする: 決めたこと 48）
+        if (!isObj(o.row) || isDocType(o.row.type)) throw new Error('invertOps: ページの行は戻さない');
         out.push({ op: 'trash', id: o.id, old: o.row });
         break;
       case 'trash':
@@ -428,8 +450,9 @@ const skipKey = (isPage, key) => (isPage ? NO_MATCH_PAGE.includes(key) : NO_MATC
 const PAGE_COLS = { createdAt: 'created_at', updatedAt: 'updated_at' };
 // 0.15.0 PR-1（決めたこと 50）: 3つ目の引数 { pageId } があれば、そのページでないページの行の trash・restore（子のページ）の trashed_at が
 // 歩みの後の値と同じかも見る（後からゴミ箱から戻した・消し直した子のページを古い歩みで変えない）。無ければ今どおり投げる
-function opsMatch(db, ops, { pageId } = {}) {
+function opsMatch(db, ops, { pageId, dbId } = {}) {
   if (!Array.isArray(ops)) throw new Error('opsMatch: 操作の列が無い');
+  if (typeof dbId === 'string') return dbOpsMatch(db, ops, dbId);   // 0.16.0 DS-3（決めたこと 48）: データベースの歩み
   const want = new Map();   // id → { gone } か { cols, attrs（add の行の全部の欄）か null, sets: Map }
   const at = (id) => {
     let w = want.get(id);
@@ -440,7 +463,7 @@ function opsMatch(db, ops, { pageId } = {}) {
     if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('opsMatch: 操作の形が正しくない');
     switch (o.op) {
       case 'add': {
-        if (!isObj(o.row) || o.row.type === 'page') throw new Error('opsMatch: ページの行は照らさない');
+        if (!isObj(o.row) || isDocType(o.row.type)) throw new Error('opsMatch: ページの行は照らさない');
         const r = o.row;
         want.set(o.id, { gone: false, cols: { type: r.type, page_id: r.page_id, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), rich: Array.isArray(r.rich) ? r.rich : null },
           attrs: { ...(isObj(r.attrs) ? r.attrs : {}) }, sets: new Map() });
@@ -478,7 +501,7 @@ function opsMatch(db, ops, { pageId } = {}) {
     // 0.14.0 MB-2 直し（R166）: 比べない欄（短い行の印 citeSkip・見た目だけの欄）だけを書いた行は、無くてもよい（戻すときに当てない欄なので、
     // 後から消えた・作り直された関係の無い要約の行のせいでメモの歩みを stale にしない: BQ22 (a)）
     if (!r) { if (!w.attrs && !Object.keys(w.cols).length && [...w.sets.keys()].every((k) => skipKey(false, k))) continue; return false; }
-    const isPage = r.type === 'page';
+    const isPage = isDocType(r.type);   // DS-2 直し（rv40 F1・R41）: 行の作成日時・最終更新日時もページと同じ列（setField）。行の本文の歩みを戻せる
     const now = { type: r.type, page_id: r.page_id, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), rich: r.rich ? JSON.parse(r.rich) : null, trashed_at: r.trashed_at ?? null };
     for (const [k, v] of Object.entries(w.cols)) if (!isDeepStrictEqual(now[k], v)) return false;
     const attrs = JSON.parse(r.attrs || '{}');
@@ -495,6 +518,110 @@ function opsMatch(db, ops, { pageId } = {}) {
       const keys = new Set([...Object.keys(expect), ...Object.keys(attrs)]);
       for (const k of keys) if (!skipKey(isPage, k) && !isDeepStrictEqual(attrs[k], expect[k])) return false;
     }
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------- 0.16.0 DS-3: データベースの歩みを戻す（計画 docs/plans/2026-11-04-160.md の決めたこと 47・48・R31）
+// invertOps・opsMatch に { dbId } を渡したときだけ通る（渡さない呼び出しは上の 0.14.0・0.15.0 の決まりのまま）。データベースの命令の操作は、
+// データベースの行（row）の add・ブロックとしての trash（足したのを戻す）・trash ⇄ restore（行のゴミ箱）・move・text（題名）・set（cell:<列>）と、
+// データベースのページの set（cols）だけ。ID の列の次の番号 nextNo（消しても詰めない: 決めたこと 29）・ビュー（見た目の設定: 決めたこと 47）・
+// 行の最終更新日時と更新者（戻すのも書き込みなので、edit.revert が今の時刻と自分で書き直す）は戻さず、照らさない
+const DB_NO_REVERT = Object.freeze(['nextNo', 'views', 'updatedAt', 'by']);
+const isDbRow = (r, dbId) => isObj(r) && r.type === 'row' && r.parent_id === dbId;
+function invertDbOps(ops, dbId) {
+  const out = [];
+  for (const o of [...ops].reverse()) {
+    if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('invertOps: 操作の形が正しくない');
+    switch (o.op) {
+      case 'add':
+        if (!isDbRow(o.row, dbId)) throw new Error('invertOps: データベースの行でない');
+        out.push({ op: 'trash', id: o.id, old: o.row });
+        break;
+      case 'trash':
+        if (isObj(o.old)) {
+          if (!isDbRow(o.old, dbId)) throw new Error('invertOps: データベースの行でない');
+          out.push({ op: 'add', id: o.id, row: o.old });   // 足した行を戻した歩み → やり直し
+          break;
+        }
+        if (o.id === dbId || typeof o.at !== 'string') throw new Error('invertOps: データベースのページは戻さない');
+        out.push({ op: 'restore', id: o.id, at: o.old ?? null, old: o.at });   // 行をゴミ箱へ入れた歩み → 戻す
+        break;
+      case 'restore':
+        if (o.id === dbId || typeof o.old !== 'string') throw new Error('invertOps: データベースのページは戻さない');
+        out.push({ op: 'trash', id: o.id, at: o.old, old: o.at ?? null });
+        break;
+      case 'move':
+        out.push({ op: 'move', id: o.id, old: o.ord, ord: o.old, ...(Object.hasOwn(o, 'parent') ? { parent: o.oldParent ?? null, oldParent: o.parent ?? null } : {}) });
+        break;
+      case 'set':
+        if (DB_NO_REVERT.includes(o.key)) break;
+        out.push({ op: 'set', id: o.id, key: o.key, value: o.old, old: o.value });
+        break;
+      case 'text':
+        out.push({ op: 'text', id: o.id, value: o.old, old: o.value });
+        break;
+      default:
+        throw new Error('invertOps: 戻せない操作');
+    }
+  }
+  return out;
+}
+// 各操作の「後の値」が今の表と同じか（行のセルは cells の中の1つずつ、足した行は題名・並び・セル・番号の全部、行のゴミ箱は trashed_at）
+function dbOpsMatch(db, ops, dbId) {
+  const want = new Map();   // id → { gone } か { cols, cells（足した行なら全部の写し）か null, cell: Map, sets: Map }
+  const at = (id) => {
+    let w = want.get(id);
+    if (!w || w.gone) { w = { gone: false, cols: {}, cells: null, cell: new Map(), sets: new Map() }; want.set(id, w); }
+    return w;
+  };
+  for (const o of ops) {
+    if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('opsMatch: 操作の形が正しくない');
+    switch (o.op) {
+      case 'add': {
+        if (!isDbRow(o.row, dbId)) throw new Error('opsMatch: データベースの行でない');
+        const r = o.row;
+        const attrs = isObj(r.attrs) ? r.attrs : {};
+        want.set(o.id, { gone: false, cols: { type: r.type, parent_id: r.parent_id, ord: r.ord, text: str(r.text), trashed_at: r.trashed_at ?? null },
+          cells: { ...(isObj(attrs.cells) ? attrs.cells : {}) }, cell: new Map(), sets: new Map([['no', attrs.no]]) });
+        break;
+      }
+      case 'trash':
+        if (isObj(o.old)) { want.set(o.id, { gone: true }); break; }
+        if (o.id === dbId) throw new Error('opsMatch: データベースのページは照らさない');
+        at(o.id).cols.trashed_at = o.at ?? null;
+        break;
+      case 'restore':
+        if (o.id === dbId) throw new Error('opsMatch: データベースのページは照らさない');
+        at(o.id).cols.trashed_at = null;
+        break;
+      case 'move': { const w = at(o.id); w.cols.ord = o.ord; if (Object.hasOwn(o, 'parent')) w.cols.parent_id = o.parent ?? null; break; }
+      case 'text': at(o.id).cols.text = str(o.value); break;
+      case 'set': {
+        if (DB_NO_REVERT.includes(o.key)) break;
+        const w = at(o.id);
+        const c = cellColOf(o.key);
+        if (c !== null && w.cells) { if (o.value === undefined || o.value === null) delete w.cells[c]; else w.cells[c] = o.value; }
+        else if (c !== null) w.cell.set(c, o.value ?? undefined);
+        else w.sets.set(o.key, o.value);
+        break;
+      }
+      default:
+        throw new Error('opsMatch: 照らせない操作');
+    }
+  }
+  const read = db.prepare('select type, parent_id, ord, text, attrs, trashed_at from blocks where id = ?');
+  for (const [id, w] of want) {
+    const r = read.get(id);
+    if (w.gone) { if (r) return false; continue; }
+    if (!r) return false;
+    const now = { type: r.type, parent_id: r.parent_id ?? null, ord: r.ord, text: str(r.text), trashed_at: r.trashed_at ?? null };
+    for (const [k, v] of Object.entries(w.cols)) if (!isDeepStrictEqual(now[k], v)) return false;
+    const attrs = JSON.parse(r.attrs || '{}');
+    const cells = isObj(attrs.cells) ? attrs.cells : {};
+    if (w.cells && !isDeepStrictEqual(cells, w.cells)) return false;
+    for (const [c, v] of w.cell) if (!isDeepStrictEqual(cells[c], v)) return false;
+    for (const [k, v] of w.sets) if (!isDeepStrictEqual(attrs[k], v)) return false;
   }
   return true;
 }

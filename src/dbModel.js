@@ -33,7 +33,9 @@ const OPT_COMMA_RE = /[,，]/;                                       // 選択�
 const NAME_SPLIT_RE = /[、,，]/;                                    // 文字 → 複数選択・ユーザーの区切り（R7）
 // 名前と住所に入れない文字: 制御の文字・書式の文字（幅の無い文字・向きの制御の文字・ソフトハイフンなど \p{Cf}）・行と段落の区切り・
 // 見えない文字と空に見える文字（結合の書記素の結び・ハングルの空き・点字の空き・異体字の選び）（F145: 答えと画面の形を偽らせない。DS-1 直し F7）
-const UNSAFE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u034f\u115f\u1160\u180e\u2800\u3164\uffa0\ufe00-\ufe0f]/u;
+// DS-2 直し（rv40 F3・R43）: 既定で見えない文字（\p{Default_Ignorable_Code_Point}: 異体字の選び U+E0100〜・モンゴル文字とクメール文字の見えない文字ほか）・
+// 対の無いサロゲート・私用の文字・割り当ての無い文字も入れない
+const UNSAFE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\p{Cs}\p{Co}\p{Cn}\u034f\u115f\u1160\u180e\u2800\u3164\uffa0\ufe00-\ufe0f]/u;
 // 名前（列・選択肢・人）では、絵文字の後の異体字の選び（U+FE0F）と、絵文字どうしをつなぐ U+200D だけは通す（❤️・👩‍💻）
 const EMOJI_JOIN_RE = /(\p{Extended_Pictographic})\ufe0f|(\p{Extended_Pictographic}\ufe0f?)\u200d(?=\p{Extended_Pictographic})/gu;
 const nameUnsafe = (s) => UNSAFE_RE.test(s.replace(EMOJI_JOIN_RE, (m, a, b) => a || b));
@@ -44,8 +46,9 @@ const missing = (v) => v === null || v === undefined;
 const isBlank = (v) => missing(v) || v === '' || v === false || (Array.isArray(v) && v.length === 0);
 const has = (o, k) => isObj(o) && Object.hasOwn(o, k);
 // 名前の寄せ方（大文字小文字と全角半角: J-20）
-const foldName = (s) => String(s).normalize('NFKC').toLowerCase();
-const nameOk = (s, max) => typeof s === 'string' && s.length >= 1 && s.length <= max && s === s.trim() && !nameUnsafe(s);
+// DS-2 直し（rv40 F3・R43）: 絵文字の後の U+FE0F と絵文字をつなぐ U+200D は寄せて外す（「😀」と「😀️」・「😀😀」と「😀‍😀」を同じ名前と見る）
+const foldName = (s) => String(s).normalize('NFKC').toLowerCase().replace(/[\ufe0f\u200d]/g, '');
+const nameOk = (s, max) => typeof s === 'string' && s.length >= 1 && s.length <= max && s === s.trim() && !nameUnsafe(s) && !/^\p{M}/u.test(s);   // 結合の文字で始まる名前（R43）も断る
 const optOf = (col, id) => (Array.isArray(col.opts) ? col.opts.find((o) => isObj(o) && o.id === id) : undefined);
 // 頭の文字と数の ID（o<数>・c<数>）の、今ある一番大きい数の次（R2）
 function nextId(head, ids) {
@@ -472,6 +475,6 @@ function cellValue(row, col) {
 }
 
 module.exports = {
-  TYPES, COLS, OPT_COLORS, NUM_FMTS, WHO, STATUS_GROUPS, MAX,
+  TYPES, COLS, OPT_COLORS, NUM_FMTS, WHO, STATUS_GROUPS, MAX, foldName,
   colOk, cellOf, optNameOk, addOpt, newCol, convertCell, fmtCell, foldCells, cellValue,
 };

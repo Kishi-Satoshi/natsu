@@ -445,6 +445,32 @@ function applyView(rows, view, cols, opts = {}) {
   return { order, groups, agg, total: list.length, shown: order.length };
 }
 
+// ---------------------------------------------------------------- 新しい行の値（0.16.0 DS-3。決めたこと 24・52）
+// 絞り込みのあるビューで行を足す（［＋ 新しい行］・貼り付けで足りない行）とき、足した行がすぐ見えなくならないように、絞り込みの一番外の
+// グループが「かつ」（か条件が1つだけ）なら、その中の条件の「等しい」「どれか」「どれかを含む」「全部を含む」「はい」の値を入れる → { <列の ID>: 値 }。
+// 「または」・入れ子のグループ・ほかの条件・書けない列は見ない（どの値が見える行になるか1つに決まらない）
+function filterDefaults(view, cols) {
+  const f = isObj(view) ? view.filter : null;
+  if (!isObj(f) || !Array.isArray(f.items) || (f.op !== 'and' && f.items.length !== 1)) return {};
+  const byId = colMap(cols);
+  const out = {};
+  for (const it of f.items) {
+    const col = isObj(it) && !Array.isArray(it.items) ? byId.get(it.col) : null;
+    if (!col || col.type === 'title' || Object.hasOwn(out, col.id)) continue;
+    let v;
+    if (it.cmp === 'is' && ['text', 'url', 'email', 'phone'].includes(col.type)) v = it.value;
+    else if (it.cmp === 'is' && col.type === 'person') v = [it.value];
+    else if (it.cmp === 'eq' && col.type === 'number') v = it.value;
+    else if (it.cmp === 'any' && (col.type === 'select' || col.type === 'status') && Array.isArray(it.value)) v = it.value[0];
+    else if (it.cmp === 'anyOf' && col.type === 'multi' && Array.isArray(it.value)) v = it.value.slice(0, 1);
+    else if (it.cmp === 'allOf' && col.type === 'multi') v = it.value;
+    else if (it.cmp === 'yes' && col.type === 'check') v = true;
+    else continue;
+    try { const x = DM.cellOf(col, v); if (x !== null) out[col.id] = x; } catch (_) { /* 列に合わない値は入れない */ }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- 見える行の切り出し（決めたこと 32）
 // heights（Map か配列: 行の番号 → 読んだ高さ）・defaultHeight（まだ読んでいない行）・total（行の数）
 // → { from, count, before（from より上の行の高さの和）, after（from + count から下の和） }
@@ -467,4 +493,4 @@ function windowOf({ scrollTop = 0, viewHeight = 0, heights, defaultHeight = 32, 
   return { from, count: end - from, before: tops[from], after: tops[n] - tops[end] };
 }
 
-module.exports = { FILTER_OPS, FILTER_DEPTH, GROUP_TYPES, AGG_KINDS, defaultView, normalizeView, matchFilter, compareCells, aggregate, applyView, windowOf };
+module.exports = { FILTER_OPS, FILTER_DEPTH, GROUP_TYPES, AGG_KINDS, defaultView, normalizeView, matchFilter, compareCells, aggregate, applyView, filterDefaults, windowOf };

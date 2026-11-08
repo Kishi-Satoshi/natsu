@@ -1400,9 +1400,10 @@ test('MB-2・F106: json-backend の page.setMemoDoc・page.setMemo の断りは 
 
 // 0.15.0 PH-2（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」・R7）で意図して直した: ページの木の4つを足して 33（照らしは同じ）
 // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の Task PL-2）で意図して直した: page.setIcon・page.setLook を足して 35
-test('MB-2: preload の APP_COMMANDS（35）は役 app の命令と同じ集まり。koeApp.pageSetMemoDoc は dbCall の1回で tx が付き、ok で changed なら onEditStep に { cmd, pageId: id, step }', T, async () => {
+// 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」）で意図して直した: データベース・行・列・ビューの 22 の命令を足して 57（照らしは同じ）
+test('MB-2: preload の APP_COMMANDS（57）は役 app の命令と同じ集まり。koeApp.pageSetMemoDoc は dbCall の1回で tx が付き、ok で changed なら onEditStep に { cmd, pageId: id, step }', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 35);
+  assert.strictEqual(names.length, 57);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   assert.deepStrictEqual(core.COMMANDS['page.setMemoDoc'].roles, ['app']);
   const { k, givePort } = loadPreload();

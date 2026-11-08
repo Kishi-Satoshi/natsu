@@ -1,6 +1,6 @@
 'use strict';
 // 元に戻す・やり直すの列（0.14.0 Task EB-1。計画 docs/plans/2026-10-26-140.md の決めたこと 1〜13・BQ1 (a)・BQ22 (a)）。純粋（何も読まない）。
-// 列は窓のメモリにだけ置き（NaTsu を終える・画面を読み直すと消える）、鍵はページと欄（'note' は要約・'memo' はメモ）の組。
+// 列は窓のメモリにだけ置き（NaTsu を終える・画面を読み直すと消える）、鍵はページと欄（'note' は要約・'memo' はメモ・0.16.0 の 'db' はデータベースの表）の組。
 // 歩み（entry）は { steps: [DB の命令の tx], literal? }。1歩 = 画面の1つの動作で送った命令の tx（stepGroup でまとめた分）。
 // literal は窓のメモリだけの戻し（録音中と録音の前のメモの { before, after }）。どの関数も book を変えずに新しい book を返す。
 // 画面（app.html）は使う関数を写す（0.13.0 の blockEdit と同じ形）。
@@ -9,6 +9,10 @@
 const UNDO_CMDS = new Set([
   'block.update', 'block.insert', 'block.remove', 'block.move', 'block.setAction', 'block.split', 'block.merge', 'block.turnInto', 'block.duplicate',
   'block.indent', 'block.paste', 'blocks.remove', 'blocks.move', 'blocks.duplicate', 'blocks.turnInto', 'blocks.setColor', 'page.setMemoDoc', 'edit.revert',
+  // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の決めたこと 47）: データベースの表の操作（列の鍵は bookKey(<データベースの ID>, 'db')）。
+  // ビューの設定（view.*）と［完全に消す］（col.purge）は見た目の設定・戻せない操作なので入れない
+  'row.add', 'row.setCell', 'rows.setCell', 'rows.paste', 'row.move', 'rows.trash',
+  'col.add', 'col.rename', 'col.setType', 'col.move', 'col.remove', 'col.restore', 'col.setOpts', 'col.setFmt',
 ]);
 const UNDO_MAX = 100;          // 1つの列の歩みの数（古いものから捨てる）
 const TYPE_PAUSE_MS = 2000;    // 打つ手がこれだけ止まったら保存する（1回の保存が1歩。決めたこと 8）

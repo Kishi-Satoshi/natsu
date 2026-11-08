@@ -1377,11 +1377,13 @@ test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の�
 // 直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足す（DS-1 から。1つの版: DQ1）。1つのタスクの行は表の中で続いていないので、作りながらは
 // 「表の行の順に並んだ一部」を見て、表の全部とちょうど同じかは Task G で見る（計画の Ruling R1）。頭は前の版の照らしに当たらない
 const IDS_160 = [
-  // 0.16.0 DS-1（表の行の順に）
-  'tb-cell-number', 'tb-cell-select', 'tb-cell-url', 'tb-cell-len', 'tb-cell-date', 'tb-cell-readonly', 'tb-convert-num', 'tb-opt-dup',
-  'tb-sort-empty', 'tb-sort-select', 'tb-sort-ord', 'tb-filter-andor', 'tb-filter-depth', 'tb-filter-date', 'tb-agg-filtered', 'tb-group-empty', 'tb-view-norm',
-  // 0.16.0 DS-2（表の行の順に）
-  'tb-row-type', 'tb-listed-rows', 'tb-isdoc', 'tb-row-read', 'tb-row-rev', 'tb-row-fold',
+  // 0.16.0 DS-1・DS-2・DS-3 で作った行（表の行の順に。R1: 1つのタスクの行は表の中で続いていない）
+  'tb-cell-number', 'tb-cell-select', 'tb-cell-url', 'tb-cell-len', 'tb-cell-date', 'tb-cell-readonly', 'tb-convert-num', 'tb-convert-undo',
+  'tb-opt-dup', 'tb-col-gone-keep', 'tb-col-title', 'tb-col-max', 'tb-sort-empty', 'tb-sort-select', 'tb-sort-ord', 'tb-filter-andor',
+  'tb-filter-depth', 'tb-filter-date', 'tb-agg-filtered', 'tb-group-empty', 'tb-view-norm', 'tb-view-count', 'tb-view-sig', 'tb-row-type',
+  'tb-listed-rows', 'tb-isdoc', 'tb-row-read', 'tb-row-rev', 'tb-row-fold', 'tb-row-max', 'tb-row-no', 'tb-cell-op',
+  'tb-undo-row-trash', 'tb-undo-stale', 'tb-view-undo', 'tb-move-into-db', 'tb-db-live-parent', 'tb-db-delete-count', 'tb-paste-rows', 'tb-paste-convert',
+  'tb-paste-max',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
