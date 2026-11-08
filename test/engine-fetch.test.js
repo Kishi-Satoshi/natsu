@@ -342,12 +342,18 @@ test('止まった流れ（見出しと少しのバイトのあと黙る）は s
   try { await fetchFile(pinOf(s.originUrl), opts(tmp(), { stallMs: 200 })); assert.deepStrictEqual(s.cdnRanges(), [null, 'bytes=50000-']); }
   finally { await s.close(); }
 });
+// 0.16.0 の CI 直し（run 42432613597 の electron-smoke で「2 回目の待ちが倍になっていない 189ms」）: 待ちは、要求を出した時刻（取り込む側）の間で計る。
+// 前は偽のサーバーに要求が着いた時刻の間で計っていたので、要求ごとにつなぐまでの時間（混んだ Windows の機械で数十ミリ秒ゆれる）が入り、
+// 2 回目の要求が 3 回目より 11 ミリ秒遅く着くと、待ち（200ms）が短く見えた。着いた数（3）はサーバーで見る
 test('見出しが来ない: header-timeout を数え、待ちを倍にする（100ms → 200ms）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ noHeaders: true }, { noHeaders: true }, { noHeaders: true }] });
   try {
-    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100, maxFails: 2 })), { code: 'header-timeout' });
-    const at = s.requests().filter((x) => x.name === 'cdn').map((x) => x.at);
-    assert.strictEqual(at.length, 3);
+    const sent = [];
+    const request = (o) => { sent.push(Date.now()); return fakeRequest(o); };
+    await assert.rejects(fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100, maxFails: 2, request })), { code: 'header-timeout' });
+    assert.strictEqual(s.requests().filter((x) => x.name === 'cdn').length, 3);
+    const at = sent.slice(-3);
+    assert.strictEqual(sent.length, 3, `要求を出した数 ${sent.length}`);
     assert.ok(at[1] - at[0] >= 90, `1 回目の待ち ${at[1] - at[0]}ms`);
     assert.ok(at[2] - at[1] >= 190, `2 回目の待ちが倍になっていない ${at[2] - at[1]}ms`);
   } finally { await s.close(); }
