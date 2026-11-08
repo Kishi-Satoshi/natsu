@@ -21,7 +21,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の決めたこと 1〜32）: データベース・行・列・ビューの命令（57）
   'db.create', 'db.get', 'db.view', 'row.add', 'row.setCell', 'rows.setCell', 'row.move', 'rows.trash', 'rows.paste',
   'col.add', 'col.rename', 'col.setType', 'col.move', 'col.remove', 'col.restore', 'col.purge', 'col.setOpts', 'col.setFmt',
-  'view.add', 'view.update', 'view.remove', 'view.move']);
+  'view.add', 'view.update', 'view.remove', 'view.move',
+  // 0.16.0 DV-2（R63）: 種類を変える前に、読めずに空になるセルの数を見る読む命令（58）
+  'col.typeCheck']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -38,7 +40,7 @@ function editStep(req) {
   const step = { cmd: req.cmd, pageId: typeof a.db === 'string' ? a.db : typeof a.pageId === 'string' ? a.pageId : a.id, step: req.tx };
   for (const cb of editSteps) { try { cb(step); } catch (_) { /* 画面の受け口の誤りで答えを止めない */ } }
 }
-const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash', 'db.get', 'db.view']);
+const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash', 'db.get', 'db.view', 'col.typeCheck']);
 const DB_WAIT_MS = 30000;
 let dbPort = null;
 let dbSeq = 0;
@@ -245,6 +247,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   colAdd: (db, type, name, after) => dbCall('col.add', { db, type, ...(name ? { name } : {}), ...(after === undefined ? {} : { after }) }),
   colRename: (db, col, name) => dbCall('col.rename', { db, col, name }),
   colSetType: (db, col, type) => dbCall('col.setType', { db, col, type }),
+  colTypeCheck: (db, col, type) => dbCall('col.typeCheck', { db, col, type }),
   colMove: (db, col, after) => dbCall('col.move', { db, col, after }),
   colRemove: (db, col) => dbCall('col.remove', { db, col }),
   colRestore: (db, col) => dbCall('col.restore', { db, col }),

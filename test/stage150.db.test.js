@@ -379,9 +379,10 @@ function loadPreload() {
 
 // 0.15.0 PL-2 で意図して直した: page.setIcon・page.setLook を足して 35（ページの命令は UNDO_CMDS に無い: 決めたこと 15）
 // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」）で意図して直した: データベース・行・列・ビューの 22 の命令を足して 57（照らしは同じ）
-test('PH-2: preload の 57 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
+// 0.16.0 DV-2（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」・R63）で意図して直した: 種類を変える前に数を見る読む命令 col.typeCheck を足して 58（照らしは同じ）
+test('PH-2: preload の 58 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 57);
+  assert.strictEqual(names.length, 58);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   for (const cmd of ['page.create', 'page.move', 'page.restore', 'pages.trash']) assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd);
   assert.strictEqual(core.COMMANDS['pages.trash'].write, false);

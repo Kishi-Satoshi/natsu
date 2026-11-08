@@ -1036,3 +1036,26 @@ test('PERF・DS-3 直し・I3（rv42）: 1万行で、列の名前・並び・�
   assert.strictEqual(dbGet(db, d).cols.find((c) => c.id === sel).type, 'select');
   tc.diagnostic(`1万行の列の命令（ミリ秒）: ${JSON.stringify(times)}`);
 }));
+
+// ---------------------------------------------------------------- DV-2（決めたこと 13・TR6・R63）
+test('DV-2・R63: col.typeCheck（読む命令）は種類を変えると読めずに空になるセルの数（ゴミ箱の行も）を返し、何も書かない。col.setType の emptied と同じ・変えられない種類は bad-args', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const a = colAdd(db, d, 'text', 'メモ');
+  rowAddA(db, d, { cells: { [a]: '12' } });
+  rowAddA(db, d, { cells: { [a]: '約 3' } });
+  const gone = rowAddA(db, d, { cells: { [a]: 'よみ' } });
+  rowAddA(db, d, {});
+  ok(call(db, 'rows.trash', { db: d, ids: [gone] }), 'rows.trash');
+  const seq = () => db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
+  const before = seq();
+  const peek = ok(call(db, 'col.typeCheck', { db: d, col: a, type: 'number' }), 'col.typeCheck');
+  assert.deepStrictEqual(peek, { emptied: 2 });
+  assert.strictEqual(seq(), before, '読む命令が oplog に書いた');
+  assert.strictEqual(core.COMMANDS['col.typeCheck'].write, false);
+  assert.deepStrictEqual(ok(call(db, 'col.typeCheck', { db: d, col: a, type: 'text' }), 'same'), { emptied: 0 });
+  assert.deepStrictEqual(ok(call(db, 'col.typeCheck', { db: d, col: a, type: 'select' }), 'select'), { emptied: 0 });
+  assert.strictEqual(cellsOf(db, gone)[a], 'よみ');
+  assert.strictEqual(dbGet(db, d).cols.find((c) => c.id === a).type, 'text', '読む命令で種類が変わった');
+  for (const [col, type] of [[a, 'rel'], [a, 'ctime'], ['title', 'text'], ['c99', 'text']]) assert.strictEqual(code(call(db, 'col.typeCheck', { db: d, col, type })), 'bad-args', `${col} → ${type}`);
+  assert.strictEqual(ok(call(db, 'col.setType', { db: d, col: a, type: 'number' }), 'col.setType').emptied, peek.emptied, 'col.setType の emptied と違う');
+}));

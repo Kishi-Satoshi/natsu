@@ -370,6 +370,37 @@
   .dbfoot { border-bottom: 0; color: var(--muted); font-size: 12px; }
   .dbfoot[hidden] { display: none; }
   .dbagg { border-right: 0; text-align: right; }
+  /* 0.16.0 DV-2（決めたこと 13・25）: 列の見出しのボタン・右端の［＋］・ビューの設定・セルの書き手（選びの窓・暦）。選択肢の色は行の背景の色と同じ */
+  #pDb { position: relative; }
+  .dbcolh { padding: 0; }
+  .dbcolbtn, .dbcoladd, .dbsetbtn { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+  .dbcolbtn { display: block; width: 100%; height: 100%; min-height: 32px; padding: 6px 8px; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .dbcolbtn:hover, .dbcoladd:hover, .dbsetbtn:hover { background: var(--hover); }
+  .dbcolbtn:focus-visible, .dbcoladd:focus-visible, .dbsetbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .dbcolplus { flex: none; display: flex; align-items: stretch; }
+  .dbcoladd { width: 36px; color: var(--muted); }
+  .dbsetbtn { margin-left: auto; color: var(--muted); padding: 4px 8px; border-radius: 6px; }
+  .dblink { text-decoration: underline; cursor: pointer; }
+  .dbmenuhead { padding: 4px 8px; color: var(--muted); font-size: 12px; }
+  .dbmenuinput { padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  .dbgone { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+  .dbgonename { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dbpick { position: absolute; z-index: 20; min-width: 220px; max-width: 320px; padding: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
+  .dbpickq { padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  .dbpicklist { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
+  .dbpickhead { padding: 4px 4px 0; color: var(--muted); font-size: 12px; }
+  .dbopt { border: 0; background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; padding: 3px 6px; border-radius: 4px; cursor: pointer; }
+  .dbopt:hover, .dbopt:focus-visible { background: var(--hover); outline: none; }
+  .dbopt[aria-selected="true"] { font-weight: 600; }
+  .dbopt[aria-selected="true"]::before { content: '✓ '; }
+  .dbnew .dbnewname { margin-left: 6px; font-weight: 600; }
+  .dbopt[data-color="gray"] { background: var(--mkbg-gray); } .dbopt[data-color="brown"] { background: var(--mkbg-brown); } .dbopt[data-color="orange"] { background: var(--mkbg-orange); }
+  .dbopt[data-color="yellow"] { background: var(--mkbg-yellow); } .dbopt[data-color="green"] { background: var(--mkbg-green); } .dbopt[data-color="blue"] { background: var(--mkbg-blue); }
+  .dbopt[data-color="purple"] { background: var(--mkbg-purple); } .dbopt[data-color="pink"] { background: var(--mkbg-pink); } .dbopt[data-color="red"] { background: var(--mkbg-red); }
+  .dbdaterow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .dbdaterow [hidden] { display: none; }
+  .dbdatein { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+  .dbdatecheck { display: flex; align-items: center; gap: 4px; font-size: 13px; }
   .dbadd { border: 0; background: none; color: var(--muted); font: inherit; font-size: 14px; padding: 6px 8px; cursor: pointer; border-radius: 6px; }
   .dbadd:hover { background: var(--hover); }
   .dbadd:focus-visible { outline: 2px solid var(--accent); }
@@ -9520,7 +9551,7 @@
   const DB_PAD = 50;          // 見える行の上下に置く行（決めたこと 32）
   const DB_READ_MAX = 200;    // db.view の1回の行（src/db/commands.js の DB_VIEW_MAX と同じ）
   const DB_SEL_MAX = 2000;    // 選んだ行の命令の上限（src/db/validate.js の LIMITS.blocks と同じ: R47）
-  const DB_EDIT_TYPES = ['title', 'text', 'url', 'email', 'phone'];   // DV-1 で書き手のある種類（ほかの種類の書き手は DV-2）
+  const DB_EDIT_TYPES = ['title', 'text', 'url', 'email', 'phone', 'number'];   // 1行の文字の欄で書く種類（0.16.0 DV-2: 数値も。選択肢・ユーザー・日付・チェックの書き手は下の DV-2 の節）
   const DB_STEP_RE = /^(?:rows?|col|rel|db)\./;   // データベースの歩みの命令（ビューの命令は歩みにしない: 決めたこと 47）
   const DB_ROWS_FULL = '1つのデータベースの行は 10,000 までです。';
   const DB_AGG_LABEL = { count: '全件', values: '値のある件数', unique: '異なる値の数', empty: '空の数', filled: '空でない数', emptyPct: '空の割合', filledPct: '空でない割合',
@@ -9643,6 +9674,11 @@
       b.onclick = () => dbPickView(v.id);
       tabs.appendChild(b);
     }
+    const gear = document.createElement('button');   // 0.16.0 DV-2: ビューの設定（［消した列］。DV-3 が並べ替え・絞り込みなどを足す）
+    gear.type = 'button'; gear.className = 'dbsetbtn'; gear.textContent = '⚙';
+    gear.setAttribute('aria-label', DB_VIEW_SET); gear.title = DB_VIEW_SET; gear.setAttribute('aria-haspopup', 'menu');
+    gear.onclick = () => dbSettingsMenu(gear);
+    tabs.appendChild(gear);
     box.appendChild(tabs);
     const bar = document.createElement('div');
     bar.className = 'dbselbar'; bar.hidden = true;
@@ -9671,9 +9707,21 @@
       h.className = 'dbcolh'; h.setAttribute('role', 'columnheader');
       h.dataset.col = c.col.id;
       h.style.width = `${c.width}px`;
-      h.textContent = c.col.name;
+      const hb = document.createElement('button');   // 0.16.0 DV-2: 見出しを押すと列のメニュー（決めたこと 13）
+      hb.type = 'button'; hb.className = 'dbcolbtn'; hb.setAttribute('aria-haspopup', 'menu');
+      hb.textContent = c.col.name;
+      hb.onclick = () => dbColMenu(c.col.id, hb);
+      h.appendChild(hb);
       head.appendChild(h);
     }
+    const plus = document.createElement('div');   // 0.16.0 DV-2: 右端の［＋］で列を足す（決めたこと 13・V-T16）
+    plus.className = 'dbcolplus'; plus.setAttribute('role', 'columnheader');
+    const pb = document.createElement('button');
+    pb.type = 'button'; pb.className = 'dbcoladd'; pb.textContent = '＋';
+    pb.setAttribute('aria-label', DB_COL_ADD); pb.title = DB_COL_ADD; pb.setAttribute('aria-haspopup', 'menu');
+    pb.onclick = () => dbAddColMenu(pb);
+    plus.appendChild(pb);
+    head.appendChild(plus);
     grid.appendChild(head);
     const top = document.createElement('div'); top.className = 'dbpad'; top.setAttribute('aria-hidden', 'true');
     const body = document.createElement('div'); body.className = 'dbbody'; body.setAttribute('role', 'rowgroup');
@@ -9691,6 +9739,7 @@
     box.appendChild(add);
     st.parts = { tabs, bar, sc, grid, head, all, top, body, bottom, foot };
     dbPaintBar();
+    if (st.editing && st.editing.pick) box.appendChild(st.editing.pick);   // 0.16.0 DV-2: 列が変わって描き直しても、開いている選びの窓は残す
   }
   // 見える窓の行を描く（見えている行と上下 50 行だけ: 決めたこと 32）。編集中は描き直さない（終えてから）
   function dbPaintRows() {
@@ -9757,7 +9806,7 @@
       cell.setAttribute('aria-selected', on ? 'true' : 'false');
       if (!dbWritable(c.col)) cell.setAttribute('aria-readonly', 'true');
       cell.tabIndex = on ? 0 : -1;
-      cell.textContent = dbModelView.fmtCell(c.col, dbModelView.cellValue(row, c.col), { rowsById: st.known });
+      dbCellFill(st, cell, c.col, row);
       cell.onclick = () => dbCellClick(row.id, c.col.id);
       cell.onkeydown = (ev) => dbCellKey(ev, row.id, c.col.id);
       el.appendChild(cell);
@@ -9866,7 +9915,7 @@
     dbEditEnd(true);
     dbSelect(rowId, colId);
     const col = st.info.cols.find((c) => c.id === colId);
-    if (dbEditable(col)) dbEditStart(rowId, colId);   // セルを押すと書き手（決めたこと 25。書けない種類は選ぶだけ）
+    dbOpenWriter(rowId, colId);   // セルを押すと書き手（決めたこと 25。書けない種類は選ぶだけ。0.16.0 DV-2: 種類ごとの書き手・チェックは切り替え）
   }
   // 選んだセルのキー（決めたこと 51）
   function dbCellKey(ev, rowId, colId) {
@@ -9878,6 +9927,8 @@
     if (ctrl && !ev.shiftKey && !ev.altKey && (ev.code === 'KeyD' || String(k).toLowerCase() === 'd')) { ev.preventDefault(); ev.stopPropagation(); return; }   // 表の中の Ctrl+D は何もしない（決めたこと 52）
     const dir = undoKey(ev);
     if (dir) { ev.preventDefault(); ev.stopPropagation(); dbUndo(dir); return; }
+    const clip = clipKey(ev);   // 0.16.0 DV-2（決めたこと 52）: 選んだセルの Ctrl+C は値を写し、Ctrl+V は貼る（文字だけ。何行何列かは右下へ）
+    if (clip === 'copy' || clip === 'paste' || clip === 'plain') { ev.preventDefault(); ev.stopPropagation(); if (clip === 'copy') dbCopyCell(rowId, colId); else dbPaste(rowId, colId); return; }
     const cols = dbColsOf(st).map((c) => c.col.id);
     const ci = cols.indexOf(colId);
     const ri = dbIndexOf(st, rowId);
@@ -9896,7 +9947,7 @@
     if (k === 'End') return ctrl ? go(st.shown - 1, cols.length - 1) : go(ri, cols.length - 1);
     if (k === 'Escape') { ev.preventDefault(); dbSelect(null); return; }
     const col = st.info.cols.find((c) => c.id === colId);
-    if (k === 'Enter' && !ctrl) { ev.preventDefault(); if (dbEditable(col)) dbEditStart(rowId, colId); return; }
+    if (k === 'Enter' && !ctrl) { ev.preventDefault(); dbOpenWriter(rowId, colId); return; }
     if ((k === 'Delete' || k === 'Backspace') && !ctrl) {
       ev.preventDefault();
       if (!dbWritable(col)) return;   // 書けないセルは何もしない
@@ -9955,16 +10006,19 @@
     const ed = st && st.editing;
     if (!ed) return;
     st.editing = null;
+    if (ed.pick) { dbPickEnd(st, ed, then); return; }   // 0.16.0 DV-2: 選びの窓・暦（選ぶたびに書いた。閉じるだけ）
     const value = String(ed.inp.value).replace(/[\r\n\t]+/g, ' ');
     const cols = dbColsOf(st).map((c) => c.col.id);
     const last = dbIndexOf(st, ed.row) === st.shown - 1;
-    if (save && value !== ed.was) await dbWrite(() => window.koeApp.rowSetCell(st.id, ed.row, ed.col, value === '' ? null : value));
+    const typed = dbTyped(st, ed.col, value);   // 0.16.0 DV-2: 数値は読める数だけ（読めなければ断って一言: 決めたこと 25）
+    if (save && value !== ed.was && typed.bad) toast(DB_UNREAD);   // 書かずに、前の値のまま
+    if (save && value !== ed.was && !typed.bad) await dbWrite(() => window.koeApp.rowSetCell(st.id, ed.row, ed.col, typed.value));
     else if (st.dirty) { st.dirty = false; dbPaintRows(); }
     else {
       const cell = dbCellEl(ed.row, ed.col);
       const row = st.known.get(ed.row);
       const col = st.info.cols.find((c) => c.id === ed.col);
-      if (cell && row && col) cell.textContent = dbModelView.fmtCell(col, dbModelView.cellValue(row, col), { rowsById: st.known });
+      if (cell && row && col) dbCellFill(st, cell, col, row);
     }
     if (dbSt !== st) return;
     st.dirty = false;
@@ -10060,7 +10114,7 @@
     m.className = 'dbmenu'; m.setAttribute('role', 'menu');
     const items = [];
     for (const c of st.info.cols) {
-      if (c.gone || c.type === 'title' || !dbEditable(c)) continue;
+      if (c.gone || c.type === 'title' || !dbWritable(c)) continue;   // 0.16.0 DV-2: 書けるどの種類も（リレーションは DR-1）
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.tabIndex = -1;
       b.textContent = c.name;
@@ -10082,6 +10136,7 @@
     const m = st && st.menu;
     if (!m) return;
     m.textContent = '';
+    if (!dbEditable(col)) { dbSetValueWriter(st, m, col); return; }   // 0.16.0 DV-2: 選択肢・ユーザー・日付・チェックは種類ごとの書き手
     const inp = document.createElement('input');
     inp.type = 'text'; inp.className = 'dbedit';
     inp.setAttribute('aria-label', col.name);
@@ -10092,8 +10147,10 @@
       ev.preventDefault();
       const ids = [...st.checked];
       const v = String(inp.value).replace(/[\r\n\t]+/g, ' ');
+      const typed = dbTyped(st, col.id, v);
+      if (typed.bad) { toast(DB_UNREAD); return; }   // 0.16.0 DV-2: 数として読めない
       dbMenuClose();
-      if (ids.length && ids.length <= DB_SEL_MAX) await dbWrite(() => window.koeApp.rowsSetCell(st.id, ids, col.id, v === '' ? null : v));
+      if (ids.length && ids.length <= DB_SEL_MAX) await dbWrite(() => window.koeApp.rowsSetCell(st.id, ids, col.id, typed.value));
     };
     m.appendChild(inp);
     inp.focus();
@@ -10163,6 +10220,497 @@
     } else if (run.tx) undoBk = bookDone(undoBk, key, dir, run.tx);
     pruneMarks();
     if (dbSt === st) await dbLoad(true);
+  }
+  // ================= 0.16.0 DV-2: 列のメニューとセルの書き手 =================
+  // 計画 docs/plans/2026-11-04-160.md の決めたこと 10〜14・25・52・R63〜。列の見出しを押すと列のメニュー、右端の［＋］で列を足す。
+  // セルは種類ごとの書き手（1行の文字・数値・選択肢の選び・ユーザーの名前・暦・チェックの切り替え）。他人の文字（列・選択肢・人の名前）は textContent だけ。
+  // 列とセルの命令の答えは DB の列（選択肢の ID は DB が振り直すことがある: R56）を使い、画面が送った ID を当てにしない
+  const DB_COL_ADD = '列を足す';
+  const DB_VIEW_SET = 'ビューの設定';
+  const DB_COLS_MAX = 100;   // 1つのデータベースの列（消した列も数える: R37。src/db/validate.js の LIMITS.dbCols と同じ）
+  const DB_COLS_FULL = '列は 100 までです。';
+  const DB_UNREAD = 'この列の値として読めませんでした。';
+  const DB_PASTE_MAX = 2000;   // 1回の貼り付けのセル（src/db/validate.js の pasteGrid と同じ）
+  const DB_PASTE_FULL = '1回に貼れるのは 2,000 個の値までです。';
+  const DB_TYPE_ASK = (n) => `種類を変えると、${n} 個の値が読めずに空になります。よろしいですか？（Ctrl+Z で戻せます）`;
+  const DB_PURGE_ASK = 'この列と、すべての行のこの列の値を完全に消します。元に戻せません。よろしいですか？';
+  const DB_PASTED = (r) => `${r.added} 行を足し、${r.unread} 個の値は読めなかったので空にしました${r.skipped ? `（貼れない列の ${r.skipped} 個の値は貼りませんでした）` : ''}`;
+  const DB_TYPE_LIST = ['text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone'];   // 足せる・変えられる種類（リレーションは DR-1）
+  const DB_FMT_LABEL = Object.freeze({ plain: '数', comma: '3桁区切り', percent: '%', yen: '円', dollar: 'ドル' });
+  const DB_STATUS_HEAD = Object.freeze({ todo: '未着手', doing: '進行中', done: '完了' });
+  const DB_PICK_TYPES = ['select', 'multi', 'status', 'person'];
+  const DB_TEXT_COL = Object.freeze({ id: 'c0', name: '文字', type: 'text' });   // 打った文字を列の種類に読み替えるときの、もとの列（rows.paste と同じ読み替え）
+  const DB_HTTP_RE = /^https?:\/\//i;   // URL のセルで開くのは http(s) だけ（SEC2。main も照らし直す）
+  const dbColOf = (st, colId) => (st && st.info ? st.info.cols.find((c) => c.id === colId) || null : null);
+  // 1行の文字の欄の値 → { value（送る値）, bad（数として読めない） }
+  function dbTyped(st, colId, text) {
+    const col = dbColOf(st, colId);
+    if (text === '') return { value: null, bad: false };
+    if (!col || col.type !== 'number') return { value: text, bad: false };
+    const n = dbModelView.convertCell(DB_TEXT_COL, col, text).value;
+    return n === null ? { value: null, bad: true } : { value: n, bad: false };
+  }
+  // セルの中身（URL・メール・電話は値の文字を押すと開く・写す: 決めたこと 25・SEC2）
+  function dbCellFill(st, cell, col, row) {
+    const v = dbModelView.cellValue(row, col);
+    const text = dbModelView.fmtCell(col, v, { rowsById: st.known });
+    cell.textContent = '';
+    if (v === null || !['url', 'email', 'phone'].includes(col.type)) { cell.textContent = text; return; }
+    const a = document.createElement('span');
+    a.className = 'dblink'; a.textContent = text;
+    a.onclick = (ev) => { ev.stopPropagation(); dbOpenValue(col, String(v)); };
+    cell.appendChild(a);
+  }
+  async function dbOpenValue(col, v) {
+    if (col.type === 'url') { if (!DB_HTTP_RE.test(v)) return; await window.koeApp.openLink(v); return; }
+    if (col.type === 'email') { await window.koeApp.openLink(`mailto:${v}`); return; }
+    await window.koeApp.copy(v); toast('コピーしました');   // 電話は写す
+  }
+  // ---- メニュー（列のメニュー・種類・見せ方・色・集計・ビューの設定）。項目は { label, fn, off?, on?(チェックの印) }
+  function dbMenuAt(anchor, items, cls) {
+    const st = dbSt;
+    dbMenuClose();
+    const m = document.createElement('div');
+    m.className = `dbmenu ${cls || ''}`.trim(); m.setAttribute('role', 'menu');
+    dbMenuPlace(m, anchor);
+    const btns = [];
+    for (const it of items) {
+      if (it.head) { const h = document.createElement('div'); h.className = 'dbmenuhead'; h.textContent = it.head; m.appendChild(h); continue; }
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'mitem'; b.tabIndex = -1;
+      b.setAttribute('role', it.on === undefined ? 'menuitem' : 'menuitemradio');
+      if (it.on !== undefined) b.setAttribute('aria-checked', it.on ? 'true' : 'false');
+      b.textContent = it.label;
+      b.disabled = Boolean(it.off);
+      b.onclick = () => it.fn();
+      m.appendChild(b);
+      if (!b.disabled) btns.push(b);
+    }
+    m.onkeydown = (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbMenuClose(); if (anchor && anchor.isConnected !== false) anchor.focus(); return; }
+      const i = btns.indexOf(document.activeElement);
+      if (ev.key === 'ArrowDown' && btns.length) { ev.preventDefault(); btns[(i + 1) % btns.length].focus(); }
+      if (ev.key === 'ArrowUp' && btns.length) { ev.preventDefault(); btns[(i + btns.length - 1) % btns.length].focus(); }
+    };
+    $('pDb').appendChild(m);
+    st.menu = m;
+    if (btns.length) btns[0].focus();
+    return m;
+  }
+  // 押した部品の下に置く（#pDb の中の位置）
+  function dbMenuPlace(el, anchor) {
+    const box = $('pDb');
+    if (!anchor || !box) return;
+    const r = anchor.getBoundingClientRect(); const b = box.getBoundingClientRect();
+    el.style.top = `${Math.max(0, r.bottom - b.top)}px`; el.style.left = `${Math.max(0, r.left - b.left)}px`;
+  }
+  // メニューの中の1行の欄（名前・選択肢・接頭辞）。Enter で決める（変換確定の Enter は抜ける）・Esc でやめる
+  function dbMenuInput(anchor, label, value, onEnter) {
+    const m = dbMenuAt(anchor, [], 'dbcolmenu');
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'dbedit dbmenuinput';
+    inp.value = value; inp.setAttribute('aria-label', label);
+    inp.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbMenuClose(); if (anchor) anchor.focus(); return; }
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault(); ev.stopPropagation();
+      const v = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
+      dbMenuClose();
+      onEnter(v);
+    };
+    m.appendChild(inp);
+    inp.focus();
+    return inp;
+  }
+  const dbColsFull = (st) => { if (st.info.cols.length < DB_COLS_MAX) return false; toast(DB_COLS_FULL); return true; };
+  // 列の見出しのメニュー（決めたこと 13・画面の文。できない項目は灰色）
+  function dbColMenu(colId, anchor) {
+    const st = dbSt;
+    const col = dbColOf(st, colId);
+    if (!col) return;
+    if (st.menu && st.menu.dataset.col === colId) { dbMenuClose(); return; }
+    dbEditEnd(true);
+    const title = col.type === 'title';
+    const typeOk = DB_TYPE_LIST.includes(col.type);
+    const p = (dbViewOf(st).props || []).find((x) => x.col === colId) || {};
+    const items = [
+      { label: '名前を変える', fn: () => dbMenuInput(anchor, col.name, col.name, (v) => { if (v && v !== col.name) dbWrite(() => window.koeApp.colRename(st.id, col.id, v)); }) },
+      { label: '種類 ▸', fn: () => dbTypeMenu(col, anchor), off: !typeOk },
+    ];
+    if (col.type === 'number') items.push({ label: '見せ方 ▸', fn: () => dbFmtMenu(col, anchor) });
+    if (['select', 'multi', 'status'].includes(col.type)) {
+      items.push({ label: '選択肢を足す', fn: () => dbMenuInput(anchor, '選択肢を足す', '', (v) => { if (v) dbAddOpt(col, v); }) });
+      items.push({ label: '色 ▸', fn: () => dbColorMenu(col, anchor), off: !(col.opts || []).length });
+    }
+    if (col.type === 'no') items.push({ label: '接頭辞', fn: () => dbMenuInput(anchor, '接頭辞', col.prefix || '', (v) => { if (v !== (col.prefix || '')) dbWrite(() => window.koeApp.colSetFmt(st.id, col.id, { prefix: v })); }) });
+    items.push(
+      { label: '左に入れる', fn: () => dbInsertCol(col, 'left') },
+      { label: '右に入れる', fn: () => dbInsertCol(col, 'right') },
+      { label: '折り返す', on: p.wrap === true, fn: () => dbPropPatch(col.id, { wrap: p.wrap !== true }) },
+      { label: '集計 ▸', fn: () => dbAggMenu(col, anchor) },
+      { label: '隠す', fn: () => dbPropPatch(col.id, { show: false }), off: title },
+      { label: '削除', fn: () => { dbMenuClose(); dbWrite(() => window.koeApp.colRemove(st.id, col.id)); }, off: title },
+    );
+    const m = dbMenuAt(anchor, items, 'dbcolmenu');
+    m.dataset.col = colId;
+  }
+  function dbTypeMenu(col, anchor) {
+    dbMenuAt(anchor, DB_TYPE_LIST.map((t) => ({ label: dbModelView.COLS[t].label, on: col.type === t, fn: () => dbSetType(col, t) })), 'dbcolmenu');
+  }
+  // 種類を変える: 読めずに空になる値があれば、その数を確かめてから（決めたこと 13・TR6・R63）。Ctrl+Z で戻る
+  async function dbSetType(col, type) {
+    const st = dbSt;
+    dbMenuClose();
+    if (col.type === type) return;
+    let n = 0;
+    try { n = (await window.koeApp.colTypeCheck(st.id, col.id, type)).emptied; }
+    catch (e) { toast(`変更を保存できませんでした: ${String((e && (e.code || e.message)) || 'internal')}`); return; }
+    if (dbSt !== st) return;
+    if (n > 0 && !window.confirm(DB_TYPE_ASK(n))) return;
+    await dbWrite(() => window.koeApp.colSetType(st.id, col.id, type));
+  }
+  function dbFmtMenu(col, anchor) {
+    const st = dbSt;
+    const now = col.fmt || 'plain';
+    dbMenuAt(anchor, Object.keys(DB_FMT_LABEL).map((f) => ({ label: DB_FMT_LABEL[f], on: now === f, fn: () => { dbMenuClose(); if (f !== now) dbWrite(() => window.koeApp.colSetFmt(st.id, col.id, { fmt: f })); } })), 'dbcolmenu');
+  }
+  // 選択肢を足す（DB が ID を振り直すことがある: 答えの列を返す）
+  async function dbAddOpt(col, name) {
+    const st = dbSt;
+    let out;
+    try { out = dbModelView.addOpt(col, name); } catch (_) { toast('変更を保存できませんでした: bad-args'); return null; }
+    const r = await dbWrite(() => window.koeApp.colSetOpts(st.id, col.id, out.col.opts, col.type === 'status' ? out.col.groups : undefined));
+    return r && r.col ? r.col : null;
+  }
+  // 選択肢の色（選択肢を選んでから色）
+  function dbColorMenu(col, anchor) {
+    const st = dbSt;
+    dbMenuAt(anchor, (col.opts || []).map((o) => ({ label: o.name, fn: () => dbMenuAt(anchor, dbModelView.OPT_COLORS.map((c) => ({
+      label: c === 'default' ? '既定' : COLOR_LABELS[c], on: o.color === c,
+      fn: () => { dbMenuClose(); if (c !== o.color) dbWrite(() => window.koeApp.colSetOpts(st.id, col.id, col.opts.map((x) => (x.id === o.id ? { ...x, color: c } : x)))); },
+    })), 'dbcolmenu') })), 'dbcolmenu');
+  }
+  // ビューの列の表示・折り返し（viewUpdate の1回。元に戻すの歩みにしない: 決めたこと 47）
+  function dbPropPatch(colId, change) {
+    const st = dbSt;
+    dbMenuClose();
+    const v = dbViewOf(st);
+    const props = v.props.map((p) => (p.col === colId ? { ...p, ...change } : p));
+    return dbWrite(() => window.koeApp.viewUpdate(st.id, st.viewId, { props }));
+  }
+  function dbAggMenu(col, anchor) {
+    const st = dbSt;
+    const v = dbViewOf(st);
+    const now = (v.agg || {})[col.id] || '';
+    dbMenuAt(anchor, dbViewView.AGG_KINDS(col).map((k) => ({ label: DB_AGG_LABEL[k], on: now === k, fn: () => {
+      dbMenuClose();
+      const agg = { ...(v.agg || {}) };
+      if (now === k) delete agg[col.id]; else agg[col.id] = k;   // 同じ集計をもう一度選ぶと外す
+      dbWrite(() => window.koeApp.viewUpdate(st.id, st.viewId, { agg }));
+    } })), 'dbcolmenu');
+  }
+  // ［左に入れる］［右に入れる］: テキストの列を足し（colAdd の1回）、今のビューの並びのその列の隣に置く（viewUpdate の1回）
+  async function dbInsertCol(col, side) {
+    const st = dbSt;
+    dbMenuClose();
+    if (dbColsFull(st)) return;
+    const cols = st.info.cols;
+    const i = cols.findIndex((c) => c.id === col.id);
+    const after = side === 'right' ? col.id : (i > 0 ? cols[i - 1].id : '');
+    const r = await dbWrite(() => window.koeApp.colAdd(st.id, 'text', undefined, after));
+    if (!r || !r.col || dbSt !== st) return;
+    const props = dbViewOf(st).props.filter((p) => p.col !== r.col.id);
+    const at = props.findIndex((p) => p.col === col.id) + (side === 'right' ? 1 : 0);
+    props.splice(Math.max(0, at), 0, { col: r.col.id, show: true, wrap: false });
+    await dbWrite(() => window.koeApp.viewUpdate(st.id, st.viewId, { props }));
+  }
+  // 右端の［＋］: 種類を選んで足し、名前の欄を開く
+  function dbAddColMenu(anchor) {
+    const st = dbSt;
+    if (st.menu && st.menu.dataset.add === '1') { dbMenuClose(); return; }
+    dbEditEnd(true);
+    if (dbColsFull(st)) return;
+    const m = dbMenuAt(anchor, DB_TYPE_LIST.map((t) => ({ label: dbModelView.COLS[t].label, fn: async () => {
+      dbMenuClose();
+      const r = await dbWrite(() => window.koeApp.colAdd(st.id, t));
+      if (!r || !r.col || dbSt !== st) return;
+      const h = [...st.parts.head.querySelectorAll('.dbcolbtn')].find((b) => b.parentNode.dataset.col === r.col.id);
+      dbMenuInput(h || anchor, r.col.name, r.col.name, (v) => { if (v && v !== r.col.name) dbWrite(() => window.koeApp.colRename(st.id, r.col.id, v)); });
+    } })), 'dbcolmenu');
+    m.dataset.add = '1';
+  }
+  // ビューの設定（DV-2 は［消した列］だけ: 戻す・完全に消す。R-24）
+  function dbSettingsMenu(anchor) {
+    const st = dbSt;
+    if (st.menu && st.menu.dataset.set === '1') { dbMenuClose(); return; }
+    dbEditEnd(true);
+    const gone = st.info.cols.filter((c) => c.gone);
+    const m = dbMenuAt(anchor, [{ head: DB_VIEW_SET }, { label: '消した列', fn: () => dbGoneMenu(anchor), off: !gone.length }], 'dbsetmenu');
+    m.dataset.set = '1';
+  }
+  function dbGoneMenu(anchor) {
+    const st = dbSt;
+    const m = dbMenuAt(anchor, [{ head: '消した列' }], 'dbsetmenu');
+    m.dataset.set = '1';
+    for (const c of st.info.cols.filter((x) => x.gone)) {
+      const line = document.createElement('div');
+      line.className = 'dbgone';
+      const name = document.createElement('span'); name.className = 'dbgonename'; name.textContent = c.name;
+      const back = document.createElement('button'); back.type = 'button'; back.className = 'ghost'; back.textContent = '戻す';
+      back.onclick = () => { dbMenuClose(); dbWrite(() => window.koeApp.colRestore(st.id, c.id)); };
+      const purge = document.createElement('button'); purge.type = 'button'; purge.className = 'ghost'; purge.textContent = '完全に消す';
+      purge.onclick = () => { if (!window.confirm(DB_PURGE_ASK)) return; dbMenuClose(); dbWrite(() => window.koeApp.colPurge(st.id, c.id)); };
+      line.append(name, back, purge);
+      m.appendChild(line);
+    }
+    const first = m.querySelector('button');
+    if (first) first.focus();
+  }
+  // ---- セルの書き手（決めたこと 25）: 種類で分ける。書けない種類（作成日時など・リレーション）は出さない
+  function dbOpenWriter(rowId, colId) {
+    const st = dbSt;
+    const col = dbColOf(st, colId);
+    const row = st && st.known.get(rowId);
+    if (!col || !row || !dbWritable(col)) return;
+    if (dbEditable(col)) { dbEditStart(rowId, colId); return; }
+    if (col.type === 'check') { dbWrite(() => window.koeApp.rowSetCell(st.id, rowId, colId, dbModelView.cellValue(row, col) === true ? null : true)); return; }
+    const cell = dbCellEl(rowId, colId);
+    if (!cell) return;
+    const pop = document.createElement('div');
+    pop.className = 'dbpick';
+    dbMenuPlace(pop, cell);
+    $('pDb').appendChild(pop);
+    const ed = { row: rowId, col: colId, pick: pop };
+    st.editing = ed;
+    const write = (v) => dbWrite(() => window.koeApp.rowSetCell(st.id, rowId, colId, v));
+    const close = (then) => { if (dbSt === st && st.editing === ed) dbEditEnd(false, then || 'stay'); };
+    dbWriterInto(st, pop, col, dbModelView.cellValue(row, col), write, close);
+  }
+  // 閉じる（選ぶたびに書いたので、ここでは書かない）。表を描き直し、セルを選ぶ
+  function dbPickEnd(st, ed, then) {
+    if (ed.pick.parentNode) ed.pick.parentNode.removeChild(ed.pick);
+    if (st.dirty) { st.dirty = false; dbPaintRows(); }
+    if (then) dbSelect(ed.row, ed.col);
+  }
+  // ［列の値を変える ▸］の、選択肢・ユーザー・日付・チェックの書き手（選んだ全部の行に rows.setCell の1回ずつ）
+  function dbSetValueWriter(st, m, col) {
+    const write = async (v) => {
+      const ids = [...st.checked];
+      if (!ids.length || ids.length > DB_SEL_MAX) return null;
+      return dbWrite(() => window.koeApp.rowsSetCell(st.id, ids, col.id, v));
+    };
+    if (col.type === 'check') {   // チェックの欄（押すとその値にする）
+      const c = document.createElement('input'); c.type = 'checkbox'; c.className = 'dbsetcheck'; c.setAttribute('aria-label', col.name);
+      c.onchange = () => { dbMenuClose(); write(c.checked ? true : null); };
+      m.appendChild(c); c.focus();
+      return;
+    }
+    dbWriterInto(st, m, col, null, write, () => dbMenuClose());
+  }
+  // 書き手を箱に描く（write(値) は書いて答えを返す・close(then) は閉じる）
+  function dbWriterInto(st, host, col, value, write, close) {
+    host.textContent = '';
+    if (col.type === 'date') { dbDateWriter(st, host, col, value, write, close); return; }
+    if (DB_PICK_TYPES.includes(col.type)) dbPickWriter(st, host, col, value, write, close);
+  }
+  // 選択・複数選択・ステータス・ユーザーの選び（探す・選ぶ・無い名前で Enter → 足す）
+  function dbPickWriter(st, host, col, value, write, close) {
+    const many = col.type === 'multi' || col.type === 'person';
+    let cur = col;
+    let val = value === null ? (many ? [] : null) : value;
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'dbedit dbpickq'; inp.setAttribute('aria-label', col.name);
+    const list = document.createElement('div');
+    list.className = 'dbpicklist'; list.setAttribute('role', 'listbox');
+    if (many) list.setAttribute('aria-multiselectable', 'true');
+    host.append(inp, list);
+    let people = [];
+    const names = () => {   // ユーザー: 今の値・このデータベースで使った名前（読んだ行）・議事録の ToDo の担当の名前（決めたこと 12・TR5・R66）
+      const out = [];
+      const add = (n) => { if (typeof n === 'string' && n && !out.includes(n)) out.push(n); };
+      for (const n of val) add(n);
+      for (const r of st.known.values()) { const v = r.cells && r.cells[col.id]; if (Array.isArray(v)) v.forEach(add); }
+      for (const p of people) add(p.name);
+      return out;
+    };
+    const items = () => (col.type === 'person' ? names().map((n) => ({ id: n, name: n })) : (cur.opts || []).map((o) => ({ id: o.id, name: o.name, color: o.color })));
+    const isOn = (id) => (many ? val.includes(id) : val === id);
+    const paint = () => {
+      list.textContent = '';
+      const q = fold(inp.value.trim());
+      const shown = items().filter((it) => !q || fold(it.name).includes(q));
+      const mk = (it) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'dbopt'; b.setAttribute('role', 'option');
+        b.setAttribute('aria-selected', isOn(it.id) ? 'true' : 'false');
+        if (it.color) b.dataset.color = it.color;
+        b.textContent = it.name;
+        b.onclick = () => pick(it.id);
+        b.onkeydown = (ev) => key(ev, b);
+        list.appendChild(b);
+      };
+      if (col.type === 'status') {
+        for (const g of dbModelView.STATUS_GROUPS) {
+          const ids = (cur.groups && cur.groups[g]) || [];
+          const part = shown.filter((it) => ids.includes(it.id));
+          if (!part.length) continue;
+          const h = document.createElement('div'); h.className = 'dbpickhead'; h.textContent = DB_STATUS_HEAD[g];
+          list.appendChild(h);
+          part.forEach(mk);
+        }
+      } else shown.forEach(mk);
+      const typed = inp.value.trim();
+      if (typed && col.type !== 'person' && !items().some((it) => dbModelView.foldName(it.name) === dbModelView.foldName(typed))) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'dbopt dbnew'; b.setAttribute('role', 'option'); b.setAttribute('aria-selected', 'false');
+        const a = document.createElement('span'); a.textContent = '選択肢を足す';
+        const n = document.createElement('span'); n.className = 'dbnewname'; n.textContent = typed;
+        b.append(a, n);
+        b.onclick = () => create(typed);
+        b.onkeydown = (ev) => key(ev, b);
+        list.appendChild(b);
+      }
+    };
+    const opts = () => [...list.querySelectorAll('.dbopt')];
+    const key = (ev, b) => {
+      const all = opts(); const i = all.indexOf(b);
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); ev.stopPropagation(); if (all[i + 1]) all[i + 1].focus(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); ev.stopPropagation(); if (i > 0) all[i - 1].focus(); else inp.focus(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close('stay'); }
+    };
+    async function pick(id) {
+      if (many) val = val.includes(id) ? val.filter((x) => x !== id) : [...val, id];
+      else val = val === id ? null : id;   // 選んでいる選択肢をもう一度選ぶと外す
+      const send = many && !val.length ? null : val;
+      if (!many) close('stay');
+      await write(send);
+      if (many && host.isConnected !== false) { paint(); inp.focus(); }
+    }
+    async function create(name) {
+      if (col.type === 'person') { inp.value = ''; if (!val.includes(name)) await pick(name); return; }
+      const got = await dbAddOpt(cur, name);   // 答えの列（R56）
+      if (!got) return;
+      cur = got;
+      const o = (got.opts || []).find((x) => dbModelView.foldName(x.name) === dbModelView.foldName(name));
+      inp.value = '';
+      if (o) await pick(o.id);
+    }
+    inp.oninput = () => paint();
+    inp.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close('stay'); return; }
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); ev.stopPropagation(); const f = opts()[0]; if (f) f.focus(); return; }
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault(); ev.stopPropagation();
+      const typed = inp.value.trim();
+      if (!typed) { close('stay'); return; }
+      const hit = items().find((it) => dbModelView.foldName(it.name) === dbModelView.foldName(typed));
+      if (hit) { inp.value = ''; pick(hit.id); } else create(typed);
+    };
+    paint();
+    inp.focus();
+    if (col.type === 'person' && typeof window.koeApp.pagesActionView === 'function') {
+      Promise.resolve(window.koeApp.pagesActionView({ q: '', assignee: '' })).then((r) => {
+        people = r && Array.isArray(r.people) ? r.people.filter((p) => p && typeof p.name === 'string') : [];
+        if (host.isConnected !== false) paint();
+      }).catch(() => {});
+    }
+  }
+  // 暦（決めたこと 14: 日付の欄・終わりの日・時刻の切り替え・今日。OS の日付の欄を使う: R65）。Enter で決める・Esc でやめる
+  function dbDateWriter(st, host, col, value, write, close) {
+    const v = value && typeof value === 'object' ? value : {};
+    const mk = (type, label, val) => { const i = document.createElement('input'); i.type = type; i.className = 'dbdatein'; i.setAttribute('aria-label', label); i.value = val || ''; return i; };
+    const start = mk('date', col.name, v.start);
+    const time = mk('time', '時刻', v.time);
+    const end = mk('date', '終わりの日', v.end);
+    const endTime = mk('time', '終わりの時刻', v.endTime);
+    const box = (label, on) => {
+      const l = document.createElement('label'); l.className = 'dbdatecheck';
+      const c = document.createElement('input'); c.type = 'checkbox'; c.checked = on;
+      const t = document.createElement('span'); t.textContent = label;
+      l.append(c, t);
+      return { l, c };
+    };
+    const hasEnd = box('終わりの日', Boolean(v.end));
+    const hasTime = box('時刻', Boolean(v.time));
+    const today = document.createElement('button');
+    today.type = 'button'; today.className = 'ghost'; today.textContent = '今日';
+    const sync = () => { end.hidden = !hasEnd.c.checked; time.hidden = !hasTime.c.checked; endTime.hidden = !(hasEnd.c.checked && hasTime.c.checked); };
+    hasEnd.c.onchange = sync; hasTime.c.onchange = sync;
+    today.onclick = () => { const d = new Date(); start.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; start.focus(); };
+    const row1 = document.createElement('div'); row1.className = 'dbdaterow'; row1.append(start, time, today);
+    const row2 = document.createElement('div'); row2.className = 'dbdaterow'; row2.append(end, endTime);
+    const row3 = document.createElement('div'); row3.className = 'dbdaterow'; row3.append(hasEnd.l, hasTime.l);
+    host.append(row1, row2, row3);
+    sync();
+    const value2 = () => {
+      if (!start.value) return null;
+      const out = { start: start.value };
+      if (hasTime.c.checked && time.value) out.time = time.value;
+      if (hasEnd.c.checked && end.value) out.end = end.value;
+      if (out.time && out.end !== undefined && hasTime.c.checked && endTime.value) out.endTime = endTime.value;
+      return out;
+    };
+    const onKey = async (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close('stay'); return; }
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault(); ev.stopPropagation();
+      const next = value2();
+      let ok = true;
+      if (next) { try { dbModelView.cellOf(col, next); } catch (_) { ok = false; } }
+      if (!ok) { toast(DB_UNREAD); return; }
+      close('stay');
+      if (JSON.stringify(next) !== JSON.stringify(value)) await write(next);
+    };
+    for (const i of [start, time, end, endTime, hasEnd.c, hasTime.c]) i.onkeydown = onKey;   // 欄ごとに受ける（暦の中のどの欄でも Enter で決める・Esc でやめる）
+    start.focus();
+  }
+  // ---- 写す・貼る（決めたこと 52・DQ7 (a)）
+  async function dbCopyCell(rowId, colId) {
+    const st = dbSt;
+    const row = st.known.get(rowId); const col = dbColOf(st, colId);
+    if (!row || !col) return;
+    await window.koeApp.copy(dbModelView.fmtCell(col, dbModelView.cellValue(row, col), { rowsById: st.known }));
+    toast('コピーしました');
+  }
+  // タブ区切り・改行区切りの文字 → 行と列（表計算の引用符 "…" の中の改行とタブ・"" を読む。終わりの改行は捨てる）
+  function dbGrid(text) {
+    const rows = [[]];
+    let cell = ''; let q = false; let start = true;
+    const t = String(text).replace(/\r\n?/g, '\n');
+    for (let i = 0; i < t.length; i += 1) {
+      const ch = t[i];
+      if (q) { if (ch === '"' && t[i + 1] === '"') { cell += '"'; i += 1; } else if (ch === '"') q = false; else cell += ch; continue; }
+      if (ch === '"' && start) { q = true; start = false; continue; }
+      if (ch === '\t') { rows[rows.length - 1].push(cell); cell = ''; start = true; continue; }
+      if (ch === '\n') { rows[rows.length - 1].push(cell); rows.push([]); cell = ''; start = true; continue; }
+      cell += ch; start = false;
+    }
+    rows[rows.length - 1].push(cell);
+    while (rows.length > 1 && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') rows.pop();
+    return rows.map((r) => r.map((x) => x.replace(/[\r\n\t]+/g, ' ')));
+  }
+  async function dbPaste(rowId, colId) {
+    const st = dbSt;
+    const c = await clipRead();
+    if (!c || dbSt !== st) return;
+    const text = typeof c.text === 'string' ? c.text : '';
+    if (!text) return;
+    const grid = dbGrid(text);
+    const n = grid.reduce((k, r) => k + r.length, 0);
+    if (n > DB_PASTE_MAX) { toast(DB_PASTE_FULL); return; }
+    const col = dbColOf(st, colId);
+    if (n === 1) {   // 1つの値はそのセルに文字として（その種類に読めなければ断って一言）
+      const s = grid[0][0].trim();
+      if (!col || !dbWritable(col)) return;
+      if (s && col.type !== 'title' && dbModelView.convertCell(DB_TEXT_COL, col, s).value === null) { toast(DB_UNREAD); return; }
+      await dbWrite(() => window.koeApp.rowsPaste(st.id, st.viewId, { row: rowId, col: colId }, grid));
+      return;
+    }
+    const r = await dbWrite(() => window.koeApp.rowsPaste(st.id, st.viewId, { row: rowId, col: colId }, grid));
+    if (r && (r.added || r.unread || r.skipped)) toast(DB_PASTED(r));
   }
   let pendingEdits = 0;   // 分割・結合・変換・足すの答えを待っている数（ED-5 の summaryBusy が読む）
   const editRows = (box = $('pNote')) => (box ? [...box.querySelectorAll('.blk')].filter((e) => e._txt && e.dataset.locked !== '1') : []);   // 鍵の無い行（区切り線も）。0.14.0 MB-4: 欄の箱ごと

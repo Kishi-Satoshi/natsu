@@ -80,15 +80,16 @@ async function openDb(o = {}) {
     for (let i = 0; i < o.many; i += 1) list.push({ op: 'add', id: `rz${i}`, row: ops.rowBlock({ id: `rz${i}`, db: id, ord: `z${String(i).padStart(5, '0')}`, title: `行 ${i}`, cells: { [c1]: `メモ ${i}` }, by: { c: 'me', u: 'me' }, no: 10 + i, at: new Date(clock).toISOString() }) });
     db.exec('BEGIN'); ops.applyOps(db, list); db.exec('COMMIT');
   }
-  if (o.before) o.before(call, { id, c1, c2, c3, c4 });
+  const more = o.before ? o.before(call, { id, c1, c2, c3, c4, rows }) || {} : {};
   let L = null;
   const steps = [];
   const K = realPreload(db, (s) => { steps.push(s); if (L) L.fire('onEditStep', s); });
-  const returns = { copy: () => true, linkBase: () => 'https://example.invalid/open#p=' };
+  const returns = { copy: () => true, linkBase: () => 'https://example.invalid/open#p=', openLink: () => true };
   for (const n of DB_APIS) returns[n] = (...a) => K[n](...a);
+  Object.assign(returns, o.returns || {});
   const l = await load(APP, { caret: true, returns });
   L = l;
-  Object.assign(l, { t, db, call, steps, id, c1, c2, c3, c4, rows, done: () => t.done() });
+  Object.assign(l, { t, db, call, steps, id, c1, c2, c3, c4, rows, ...more, done: () => t.done() });
   await l.drain();
   l.fire('onPageOpen', id);
   await l.drain(60);
@@ -341,7 +342,8 @@ test('DV-1: 行のチェックで選ぶ・全部を選ぶ・選んだ行の［�
     // ［列の値を変える ▸］→ 列 → 値 → Enter
     bar.querySelectorAll('button')[2].dispatchEvent({ type: 'click' }); await l.drain();
     const items = bar.querySelectorAll('.dbmenu .mitem');
-    assert.deepStrictEqual(items.map((b) => b.textContent), ['メモ'], '書ける列が並ばない（DV-1 は文字の列）');
+    // 0.16.0 DV-2（R48 の「数値・…の書き手は DV-2 で足す」）で意図して直した: 書けるどの種類の列も並ぶ（前は文字の列 'メモ' だけ）。書けない列（作成日時）は並ばない
+    assert.deepStrictEqual(items.map((b) => b.textContent), ['メモ', '金額', '済み'], '書ける列が並ばない');
     items[0].dispatchEvent({ type: 'click' }); await l.drain();
     const inp = bar.querySelector('.dbedit');
     assert.strictEqual(inp.getAttribute('aria-label'), 'メモ');
@@ -405,6 +407,433 @@ test('DV-1: 行の ⋮⋮ で上下に → rowMove・並べ替えのあるビュ
     assert.strictEqual($(l, 'toast').textContent, '並べ替えを外すと、手で並べられます');
     rowEl(r1).dispatchEvent({ type: 'drop', clientY: 30, dataTransfer: { types }, preventDefault() {} }); await l.drain();
     assert.strictEqual(l.called('rowMove').length, 2);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ================================================================ DV-2（決めたこと 10〜14・25・52・R63〜）: 列のメニューとセルの書き手
+const MAIL = ['someone', 'example.invalid'].join('@');
+// 見本: openDb の列に、選択・複数選択・ステータス・日付・ユーザー・URL・メール・電話・ID・作成者の列を足す（1行目に値）
+const withTypes = (call, d) => {
+  const add = (type, name) => call('col.add', { db: d.id, type, name }).col.id;
+  const c5 = add('select', '優先度');
+  const o5 = call('col.setOpts', { db: d.id, col: c5, opts: [{ id: 'o1', name: '高', color: 'red' }, { id: 'o2', name: '低', color: 'default' }] }).col.opts;
+  const c6 = add('multi', 'タグ');
+  const o6 = call('col.setOpts', { db: d.id, col: c6, opts: [{ id: 'o3', name: '見積', color: 'blue' }, { id: 'o4', name: '契約', color: 'green' }] }).col.opts;
+  const c7 = add('status', '状態');
+  const c8 = add('date', '期日'); const c9 = add('person', '担当'); const c10 = add('url', '資料'); const c11 = add('email', 'メール'); const c12 = add('phone', '電話');
+  const c13 = add('no', '番号'); const c14 = add('cby', '作った人');
+  call('row.setCell', { db: d.id, id: d.rows[0], col: c5, value: o5[0].id });
+  call('row.setCell', { db: d.id, id: d.rows[0], col: c8, value: { start: '2026-11-04' } });
+  call('row.setCell', { db: d.id, id: d.rows[0], col: c9, value: ['経理係'] });
+  call('row.setCell', { db: d.id, id: d.rows[0], col: c10, value: 'https://example.com/a' });
+  call('row.setCell', { db: d.id, id: d.rows[0], col: c11, value: MAIL });
+  call('row.setCell', { db: d.id, id: d.rows[0], col: c12, value: '03-0000-0000' });
+  return { c5, o5, c6, o6, c7, c8, c9, c10, c11, c12, c13, c14 };
+};
+const head = (l, col) => box(l).querySelectorAll('.dbcolh').find((h) => h.dataset.col === col).querySelector('.dbcolbtn');
+const menu = (l) => box(l).querySelector('.dbmenu');
+const items = (l) => (menu(l) ? menu(l).querySelectorAll('.mitem') : []);
+const item = (l, label) => items(l).find((b) => b.textContent === label);
+const clickEl = async (l, el, n = 80) => { el.dispatchEvent({ type: 'click' }); await l.drain(n); };
+const heads = (l) => box(l).querySelectorAll('.dbcolh').map((h) => h.textContent);
+const picker = (l) => box(l).querySelector('.dbpick');
+const opts = (l) => picker(l).querySelectorAll('.dbopt');
+const colIn = (l, id) => l.call('db.get', { id: l.id }).cols.find((c) => c.id === id);
+
+test('DV-2: 列のメニューの項目（決めたこと 13・画面の文）・［左に入れる］［右に入れる］・右端の［＋］→ colAdd・名前の変更（imeEnter）・折り返す・集計・隠す → viewUpdate の1回', T, async () => {
+  const l = await openDb({ before: withTypes });
+  try {
+    const BASE = ['名前を変える', '種類 ▸', '左に入れる', '右に入れる', '折り返す', '集計 ▸', '隠す', '削除'];
+    const shape = () => items(l).map((b) => [b.textContent, b.disabled]);
+    await clickEl(l, head(l, l.c1));
+    assert.strictEqual(menu(l).getAttribute('role'), 'menu');
+    assert.deepStrictEqual(shape(), BASE.map((x) => [x, false]));
+    assert.ok(active(l) === items(l)[0], 'メニューの頭にフォーカスが無い');
+    await press(l, menu(l), { key: 'Escape' });
+    assert.ok(menu(l) === null && active(l) === head(l, l.c1), 'Esc で閉じて見出しに戻らない');
+    // 題名の列: 種類・隠す・削除は灰色。数値は［見せ方 ▸］・選択は［選択肢を足す］［色 ▸］・ID は［接頭辞］
+    await clickEl(l, head(l, 'title'));
+    assert.deepStrictEqual(shape(), BASE.map((x) => [x, ['種類 ▸', '隠す', '削除'].includes(x)]));
+    await clickEl(l, head(l, l.c2));
+    assert.deepStrictEqual(items(l).map((b) => b.textContent).slice(0, 3), ['名前を変える', '種類 ▸', '見せ方 ▸']);
+    await clickEl(l, head(l, l.c5));
+    assert.deepStrictEqual(items(l).map((b) => b.textContent).slice(0, 4), ['名前を変える', '種類 ▸', '選択肢を足す', '色 ▸']);
+    await clickEl(l, head(l, l.c13));
+    assert.deepStrictEqual(items(l).map((b) => b.textContent).slice(0, 3), ['名前を変える', '種類 ▸', '接頭辞']);
+    assert.strictEqual(item(l, '種類 ▸').disabled, true, '書けない種類の列の種類を変えられる');
+    // 名前を変える（変換確定の Enter では決めない）
+    await clickEl(l, head(l, l.c1));
+    await clickEl(l, item(l, '名前を変える'));
+    const inp = menu(l).querySelector('input');
+    assert.ok(active(l) === inp && inp.value === 'メモ' && inp.getAttribute('aria-label') === 'メモ');
+    inp.value = '覚え書き';
+    await press(l, inp, { key: 'Enter', isComposing: true });
+    assert.deepStrictEqual(l.called('colRename'), [], '変換確定の Enter で名前を決めた');
+    await press(l, inp, { key: 'Enter' });
+    assert.deepStrictEqual(l.called('colRename').map((c) => c.args), [[l.id, l.c1, '覚え書き']]);
+    assert.strictEqual(heads(l)[1], '覚え書き');
+    // ［右に入れる］: 列を足す1回と、ビューの並びのその列の右へ（viewUpdate の1回）
+    await clickEl(l, head(l, l.c1));
+    await clickEl(l, item(l, '右に入れる'), 120);
+    assert.deepStrictEqual(l.called('colAdd').map((c) => c.args), [[l.id, 'text', undefined, l.c1]]);
+    assert.deepStrictEqual(heads(l).slice(0, 4), ['名前', '覚え書き', 'テキスト', '金額']);
+    await clickEl(l, head(l, l.c2));
+    await clickEl(l, item(l, '左に入れる'), 120);
+    assert.deepStrictEqual(heads(l).slice(0, 5), ['名前', '覚え書き', 'テキスト', 'テキスト 2', '金額']);
+    assert.strictEqual(l.called('viewUpdate').length, 2);
+    // 右端の［＋］→ 種類 → colAdd の1回 → 名前の欄
+    const plus = box(l).querySelector('.dbcoladd');
+    assert.deepStrictEqual([plus.textContent, plus.getAttribute('aria-label'), plus.title], ['＋', '列を足す', '列を足す']);
+    await clickEl(l, plus);
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['テキスト', '数値', '選択', '複数選択', 'ステータス', '日付', 'ユーザー', 'チェック', 'URL', 'メール', '電話']);
+    await clickEl(l, item(l, '日付'), 120);
+    assert.deepStrictEqual(l.called('colAdd').map((c) => c.args)[2], [l.id, 'date']);
+    assert.strictEqual(heads(l).slice(-1)[0], '日付', '足した列が右端に出ない');
+    const nm = menu(l).querySelector('input');
+    assert.ok(nm && active(l) === nm && nm.value === '日付', '足した列の名前の欄が開かない');
+    await press(l, nm, { key: 'Escape' });
+    // 折り返す・集計・隠す: どれも viewUpdate の1回（元に戻すの歩みにしない）
+    const vu = () => l.called('viewUpdate').length;
+    await clickEl(l, head(l, l.c2)); await clickEl(l, item(l, '折り返す'));
+    assert.strictEqual(vu(), 3);
+    assert.ok(cellOf(l, l.rows[0], l.c2).classList.contains('wrap'));
+    await clickEl(l, head(l, l.c2)); assert.strictEqual(item(l, '折り返す').getAttribute('aria-checked'), 'true');
+    await clickEl(l, item(l, '集計 ▸'));
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['全件', '値のある件数', '異なる値の数', '空の数', '空でない数', '空の割合', '空でない割合', '合計', '平均', '中央値', '最小', '最大', '範囲']);
+    await clickEl(l, item(l, '合計'));
+    assert.strictEqual(vu(), 4);
+    assert.ok(box(l).querySelectorAll('.dbagg').some((a) => a.textContent === '合計 600'), '下の集計が出ない');
+    await clickEl(l, head(l, l.c2)); await clickEl(l, item(l, '隠す'));
+    assert.strictEqual(vu(), 5);
+    assert.ok(!heads(l).includes('金額'), '隠した列が出る');
+    assert.ok(l.steps.every((s) => !/^view\./.test(s.cmd)), 'ビューの設定が歩みに積まれた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2・R63: 種類の変更の確かめ（読み替えで消える値の数）・断れば変えない・空になる値が無ければ確かめない・Ctrl+Z で戻る', T, async () => {
+  const l = await openDb({ before: withTypes });
+  try {
+    const asked = [];
+    let yes = false;
+    l.window.confirm = (m) => { asked.push(m); return yes; };
+    await clickEl(l, head(l, l.c1)); await clickEl(l, item(l, '種類 ▸'));
+    assert.strictEqual(item(l, 'テキスト').getAttribute('aria-checked'), 'true');
+    await clickEl(l, item(l, '数値'));
+    assert.deepStrictEqual(asked, ['種類を変えると、3 個の値が読めずに空になります。よろしいですか？（Ctrl+Z で戻せます）']);
+    assert.deepStrictEqual(l.called('colTypeCheck').map((c) => c.args), [[l.id, l.c1, 'number']]);
+    assert.deepStrictEqual(l.called('colSetType'), [], '断ったのに種類を変えた');
+    yes = true;
+    await clickEl(l, head(l, l.c1)); await clickEl(l, item(l, '種類 ▸')); await clickEl(l, item(l, '数値'), 120);
+    assert.deepStrictEqual(l.called('colSetType').map((c) => c.args), [[l.id, l.c1, 'number']]);
+    assert.strictEqual(colIn(l, l.c1).type, 'number');
+    assert.deepStrictEqual(texts(l).map((r) => r[1]), ['', '', '']);
+    await press(l, grid(l), { key: 'z', code: 'KeyZ', ctrlKey: true });
+    assert.strictEqual(colIn(l, l.c1).type, 'text', 'Ctrl+Z で種類が戻らない');
+    assert.deepStrictEqual(texts(l).map((r) => r[1]), ['メモ 0', 'メモ 1', 'メモ 2']);
+    // 空になる値の無い変え方（テキスト → 選択）は確かめない
+    asked.length = 0;
+    await clickEl(l, head(l, l.c1)); await clickEl(l, item(l, '種類 ▸')); await clickEl(l, item(l, '選択'), 120);
+    assert.deepStrictEqual(asked, []);
+    assert.strictEqual(colIn(l, l.c1).type, 'select');
+    assert.deepStrictEqual(colIn(l, l.c1).opts.map((o) => o.name), ['メモ 0', 'メモ 1', 'メモ 2']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2・F137: 書き手: 数値（読めない文字は断って一言）・チェックは押すと切り替え・選択（探す・選ぶ・新しい選択肢）・複数選択・ステータス（3つのまとまりの見出し）・書けない種類は書き手を出さない・選択肢の色', T, async () => {
+  const l = await openDb({ before: withTypes });
+  try {
+    const [r0, r1] = l.rows;
+    // 数値
+    await clickEl(l, cellOf(l, r1, l.c2), 60);
+    assert.strictEqual(editor(l).value, '200');
+    editor(l).value = '約 3';
+    await press(l, editor(l), { key: 'Enter' });
+    assert.strictEqual($(l, 'toast').textContent, 'この列の値として読めませんでした。');
+    assert.deepStrictEqual(l.called('rowSetCell'), [], '読めない数を送った');
+    assert.strictEqual(cellOf(l, r1, l.c2).textContent, '200');
+    await clickEl(l, cellOf(l, r1, l.c2), 60);
+    editor(l).value = '１，２００';
+    await press(l, editor(l), { key: 'Enter' });
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args), [[l.id, r1, l.c2, 1200]]);
+    // チェックは押すと切り替え（Enter でも）
+    await clickEl(l, cellOf(l, r1, l.c3));
+    assert.strictEqual(cellsIn(l, r1).cells[l.c3], true);
+    await press(l, active(l), { key: 'Enter' });
+    assert.strictEqual(cellsIn(l, r1).cells[l.c3], undefined);
+    // 書けない種類（作成日時・ID・作成者）は書き手を出さない
+    for (const c of [l.c4, l.c13, l.c14]) { await clickEl(l, cellOf(l, r1, c), 40); assert.ok(!picker(l) && !editor(l), `${c} に書き手が出た`); }
+    // 選択: 探して選ぶ
+    await clickEl(l, cellOf(l, r1, l.c5), 60);
+    assert.ok(picker(l), '選択の書き手が出ない');
+    const q = picker(l).querySelector('input');
+    assert.ok(active(l) === q && q.getAttribute('aria-label') === '優先度');
+    assert.deepStrictEqual(opts(l).map((b) => [b.textContent, b.getAttribute('aria-selected'), b.dataset.color]), [['高', 'false', 'red'], ['低', 'false', 'default']]);
+    q.value = 'ひく'; q.dispatchEvent({ type: 'input' });
+    assert.deepStrictEqual(opts(l).map((b) => b.textContent), ['選択肢を足すひく'], '探す語で絞らない');
+    q.value = '低'; q.dispatchEvent({ type: 'input' });
+    await press(l, q, { key: 'Enter', isComposing: true });
+    assert.ok(picker(l), '変換確定の Enter で決めた');
+    await press(l, q, { key: 'Enter' });
+    assert.strictEqual(picker(l), null);
+    assert.strictEqual(cellsIn(l, r1).cells[l.c5], l.o5[1].id);
+    assert.ok(active(l) === cellOf(l, r1, l.c5), '選んだ後にセルにフォーカスが無い');
+    // 新しい選択肢（col.setOpts の答えの ID で書く）
+    await clickEl(l, cellOf(l, r1, l.c5), 60);
+    picker(l).querySelector('input').value = '急ぎ'; picker(l).querySelector('input').dispatchEvent({ type: 'input' });
+    const nw = opts(l).find((b) => b.classList.contains('dbnew'));
+    assert.deepStrictEqual(nw.querySelectorAll('span').map((x) => x.textContent), ['選択肢を足す', '急ぎ']);
+    await clickEl(l, nw, 150);
+    const made = colIn(l, l.c5).opts.find((o) => o.name === '急ぎ');
+    assert.ok(made, '選択肢を足さない');
+    assert.strictEqual(cellsIn(l, r1).cells[l.c5], made.id);
+    assert.strictEqual(cellOf(l, r1, l.c5).textContent, '急ぎ');
+    // 複数選択: 2つ選ぶ（窓は開いたまま）・Esc で閉じる
+    await clickEl(l, cellOf(l, r1, l.c6), 60);
+    await clickEl(l, opts(l)[1]); await clickEl(l, opts(l)[0]);
+    assert.ok(picker(l), '複数選択の窓が閉じた');
+    assert.deepStrictEqual(cellsIn(l, r1).cells[l.c6], [l.o6[1].id, l.o6[0].id]);
+    assert.deepStrictEqual(opts(l).map((b) => b.getAttribute('aria-selected')), ['true', 'true']);
+    // 複数選択の窓で新しい選択肢を足しても（列が変わって表を描き直しても）窓は開いたまま
+    const mq = picker(l).querySelector('input');
+    mq.value = '納品'; mq.dispatchEvent({ type: 'input' });
+    await press(l, mq, { key: 'Enter' }); await l.drain(120);
+    assert.ok(picker(l), '新しい選択肢を足すと複数選択の窓が消えた');
+    const nouhin = colIn(l, l.c6).opts.find((o) => o.name === '納品');
+    assert.deepStrictEqual(cellsIn(l, r1).cells[l.c6], [l.o6[1].id, l.o6[0].id, nouhin.id]);
+    await clickEl(l, opts(l).find((b) => b.textContent === '納品'));
+    await press(l, picker(l).querySelector('input'), { key: 'Escape' });
+    assert.strictEqual(picker(l), null);
+    assert.strictEqual(cellOf(l, r1, l.c6).textContent, '契約, 見積');
+    // ステータス: 3つのまとまりの見出し
+    await clickEl(l, cellOf(l, r1, l.c7), 60);
+    assert.deepStrictEqual(picker(l).querySelector('.dbpicklist').childNodes.map((e) => e.textContent), ['未着手', '未着手', '進行中', '進行中', '完了', '完了']);
+    await clickEl(l, opts(l)[2]);
+    assert.strictEqual(cellOf(l, r1, l.c7).textContent, '完了');
+    // 選択肢の色（列のメニューの［色 ▸］→ 選択肢 → 色: col.setOpts の1回）
+    await clickEl(l, head(l, l.c5)); await clickEl(l, item(l, '色 ▸'));
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['高', '低', '急ぎ']);
+    await clickEl(l, item(l, '低'));
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['既定', '灰', '茶', '橙', '黄', '緑', '青', '紫', '桃', '赤']);
+    assert.strictEqual(item(l, '既定').getAttribute('aria-checked'), 'true');
+    await clickEl(l, item(l, '緑'), 120);
+    assert.strictEqual(colIn(l, l.c5).opts.find((o) => o.name === '低').color, 'green');
+    // ［選択肢を足す］（列のメニュー）
+    const before = l.called('colSetOpts').length;
+    await clickEl(l, head(l, l.c5)); await clickEl(l, item(l, '選択肢を足す'));
+    const oi = menu(l).querySelector('input');
+    assert.strictEqual(oi.getAttribute('aria-label'), '選択肢を足す');
+    oi.value = '中'; await press(l, oi, { key: 'Enter' });
+    assert.strictEqual(l.called('colSetOpts').length, before + 1);
+    assert.deepStrictEqual(colIn(l, l.c5).opts.map((o) => o.name), ['高', '低', '急ぎ', '中']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2: 暦（日付の欄・終わりの日・時刻・今日）と日付の形・Esc でやめる', T, async () => {
+  const l = await openDb({ before: withTypes });
+  try {
+    const r0 = l.rows[0];
+    assert.strictEqual(cellOf(l, r0, l.c8).textContent, '2026/11/04');
+    await clickEl(l, cellOf(l, r0, l.c8), 60);
+    const ins = () => picker(l).querySelectorAll('input');
+    const by = (label) => ins().find((i) => i.getAttribute('aria-label') === label);
+    assert.deepStrictEqual(ins().map((i) => [i.type, i.getAttribute('aria-label')]), [['date', '期日'], ['time', '時刻'], ['date', '終わりの日'], ['time', '終わりの時刻'], ['checkbox', null], ['checkbox', null]]);
+    assert.deepStrictEqual(picker(l).querySelectorAll('.dbdatecheck').map((x) => x.textContent), ['終わりの日', '時刻']);
+    assert.ok(active(l) === by('期日') && by('期日').value === '2026-11-04');
+    assert.ok(by('時刻').hidden && by('終わりの日').hidden, '時刻と終わりの日がはじめから出る');
+    const [endBox, timeBox] = picker(l).querySelectorAll('.dbdatecheck input');
+    endBox.checked = true; endBox.dispatchEvent({ type: 'change' });
+    timeBox.checked = true; timeBox.dispatchEvent({ type: 'change' });
+    assert.ok(!by('終わりの日').hidden && !by('時刻').hidden && !by('終わりの時刻').hidden);
+    by('時刻').value = '10:00'; by('終わりの日').value = '2026-11-05'; by('終わりの時刻').value = '09:00';
+    await press(l, by('終わりの時刻'), { key: 'Enter' });
+    assert.deepStrictEqual(cellsIn(l, r0).cells[l.c8], { start: '2026-11-04', time: '10:00', end: '2026-11-05', endTime: '09:00' });
+    assert.strictEqual(cellOf(l, r0, l.c8).textContent, '2026/11/04 10:00 → 2026/11/05 09:00');
+    // 終わりが始まりより前は断って一言（書かない）
+    await clickEl(l, cellOf(l, l.rows[1], l.c8), 60);
+    by('期日').value = '2026-11-09';
+    const [e2] = picker(l).querySelectorAll('.dbdatecheck input');
+    e2.checked = true; e2.dispatchEvent({ type: 'change' });
+    by('終わりの日').value = '2026-11-01';
+    const n = l.called('rowSetCell').length;
+    await press(l, by('期日'), { key: 'Enter' });
+    assert.strictEqual($(l, 'toast').textContent, 'この列の値として読めませんでした。');
+    assert.strictEqual(l.called('rowSetCell').length, n);
+    await press(l, by('期日'), { key: 'Escape' });
+    assert.strictEqual(picker(l), null);
+    // ［今日］
+    await clickEl(l, cellOf(l, l.rows[1], l.c8), 60);
+    const today = picker(l).querySelectorAll('button').find((b) => b.textContent === '今日');
+    await clickEl(l, today, 20);
+    const d = new l.window.Date();
+    assert.strictEqual(by('期日').value, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    const want = by('期日').value;
+    await press(l, by('期日'), { key: 'Enter' });
+    assert.deepStrictEqual(cellsIn(l, l.rows[1]).cells[l.c8], { start: want });
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2: ユーザーの書き手はそのデータベースの名前と ToDo の担当の名前を候補に出す・打った名前を足す・外す', T, async () => {
+  const l = await openDb({ before: withTypes, returns: { pagesActionView: () => ({ actions: [], people: [{ name: '総務係', count: 2 }, { name: '経理係', count: 1 }], total: 3 }) } });
+  try {
+    const r1 = l.rows[1];
+    await clickEl(l, cellOf(l, r1, l.c9), 80);
+    assert.ok(l.called('pagesActionView').length >= 1, 'ToDo の担当を読まない');
+    assert.deepStrictEqual(opts(l).map((b) => [b.textContent, b.getAttribute('aria-selected')]), [['経理係', 'false'], ['総務係', 'false']]);
+    await clickEl(l, opts(l)[1]);
+    assert.deepStrictEqual(cellsIn(l, r1).cells[l.c9], ['総務係']);
+    const q = picker(l).querySelector('input');
+    q.value = '新しい係'; q.dispatchEvent({ type: 'input' });
+    await press(l, q, { key: 'Enter' }); await l.drain(60);
+    assert.deepStrictEqual(cellsIn(l, r1).cells[l.c9], ['総務係', '新しい係']);
+    await clickEl(l, opts(l).find((b) => b.textContent === '総務係'));
+    assert.deepStrictEqual(cellsIn(l, r1).cells[l.c9], ['新しい係']);
+    await press(l, picker(l).querySelector('input'), { key: 'Escape' });
+    assert.strictEqual(cellOf(l, r1, l.c9).textContent, '新しい係');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2・F145: URL のセルの値を押すと http(s) だけ開く（javascript:・file: は開かない）・メールは mailto:・電話は写す・値の外を押すと書き手', T, async () => {
+  const l = await openDb({ before: withTypes });
+  try {
+    const r0 = l.rows[0];
+    const link = (c) => cellOf(l, r0, c).querySelector('.dblink');
+    assert.strictEqual(link(l.c10).textContent, 'https://example.com/a');
+    await clickEl(l, link(l.c10), 40);
+    await clickEl(l, link(l.c11), 40);
+    assert.deepStrictEqual(l.called('openLink').map((c) => c.args), [['https://example.com/a'], [`mailto:${MAIL}`]]);
+    assert.ok(!editor(l), '値を押して書き手が出た');
+    await clickEl(l, link(l.c12), 40);
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args), [['03-0000-0000']]);
+    assert.strictEqual($(l, 'toast').textContent, 'コピーしました');
+    // 照らしを通らずに入った値（壊れた DB）でも http(s) のほかは開かない
+    for (const bad of ['javascript:alert(1)', 'file:///c:/windows/x']) {
+      l.db.exec('BEGIN');
+      ops.applyOps(l.db, [{ op: 'set', id: r0, key: `cell:${l.c10}`, value: bad, old: undefined }]);
+      l.db.exec('COMMIT');
+      l.fire('onPagesUpdated'); await l.drain(60);
+      assert.strictEqual(link(l.c10).textContent, bad);
+      await clickEl(l, link(l.c10), 40);
+    }
+    assert.strictEqual(l.called('openLink').length, 2, 'http(s) のほかを開いた');
+    await clickEl(l, cellOf(l, r0, l.c11), 60);
+    assert.ok(editor(l) && editor(l).value === MAIL, '値の外を押しても書き手が出ない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2: 消した列は［ビューの設定］の［消した列］に出て［戻す］→ colRestore・［完全に消す］は確かめの後 colPurge・列は 100 まで', T, async () => {
+  const l = await openDb();
+  try {
+    const gear = box(l).querySelector('.dbsetbtn');
+    assert.deepStrictEqual([gear.getAttribute('aria-label'), gear.title], ['ビューの設定', 'ビューの設定']);
+    await clickEl(l, gear);
+    assert.strictEqual(menu(l).querySelector('.dbmenuhead').textContent, 'ビューの設定');
+    assert.strictEqual(item(l, '消した列').disabled, true, '消した列が無いのに押せる');
+    await clickEl(l, head(l, l.c1)); await clickEl(l, item(l, '削除'), 120);
+    assert.deepStrictEqual(l.called('colRemove').map((c) => c.args), [[l.id, l.c1]]);
+    assert.ok(!heads(l).includes('メモ'));
+    await clickEl(l, box(l).querySelector('.dbsetbtn')); await clickEl(l, item(l, '消した列'));
+    assert.deepStrictEqual(menu(l).querySelectorAll('.dbgone').map((x) => x.querySelectorAll('span, button').map((e) => e.textContent)), [['メモ', '戻す', '完全に消す']]);
+    assert.strictEqual(menu(l).querySelector('.dbmenuhead').textContent, '消した列');
+    await clickEl(l, menu(l).querySelectorAll('button').find((b) => b.textContent === '戻す'), 120);
+    assert.deepStrictEqual(l.called('colRestore').map((c) => c.args), [[l.id, l.c1]]);
+    assert.ok(heads(l).includes('メモ'), '戻した列が出ない');
+    assert.deepStrictEqual(texts(l).map((r) => r[heads(l).indexOf('メモ')]), ['メモ 0', 'メモ 1', 'メモ 2']);
+    // 完全に消す（確かめで断れば消さない）
+    await clickEl(l, head(l, l.c1)); await clickEl(l, item(l, '削除'), 120);
+    const asked = [];
+    let yes = false;
+    l.window.confirm = (m) => { asked.push(m); return yes; };
+    await clickEl(l, box(l).querySelector('.dbsetbtn')); await clickEl(l, item(l, '消した列'));
+    const purge = () => menu(l).querySelectorAll('button').find((b) => b.textContent === '完全に消す');
+    await clickEl(l, purge());
+    assert.deepStrictEqual(asked, ['この列と、すべての行のこの列の値を完全に消します。元に戻せません。よろしいですか？']);
+    assert.deepStrictEqual(l.called('colPurge'), []);
+    yes = true;
+    await clickEl(l, purge(), 120);
+    assert.deepStrictEqual(l.called('colPurge').map((c) => c.args), [[l.id, l.c1]]);
+    assert.ok(!colIn(l, l.c1), '完全に消えていない');
+    assert.ok(l.steps.every((s) => s.cmd !== 'col.purge'), '完全に消すが歩みに積まれた');
+    // 列は 100 まで（消した列も数える）
+    for (let i = l.call('db.get', { id: l.id }).cols.length; i < 100; i += 1) l.call('col.add', { db: l.id, type: 'check', name: `印 ${i}` });
+    l.fire('onPagesUpdated'); await l.drain(80);
+    await clickEl(l, box(l).querySelector('.dbcoladd'));
+    assert.strictEqual($(l, 'toast').textContent, '列は 100 までです。');
+    assert.strictEqual(menu(l), null);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2: 数値の見せ方 ▸（数・3桁区切り・%・円・ドル）・作成者「自分」・ID の接頭辞', T, async () => {
+  const l = await openDb({ before: (call, d) => { call('row.setCell', { db: d.id, id: d.rows[2], col: d.c2, value: 1234567 }); return withTypes(call, d); } });
+  try {
+    const r2 = l.rows[2];
+    await clickEl(l, head(l, l.c2)); await clickEl(l, item(l, '見せ方 ▸'));
+    assert.deepStrictEqual(items(l).map((b) => [b.textContent, b.getAttribute('aria-checked')]), [['数', 'true'], ['3桁区切り', 'false'], ['%', 'false'], ['円', 'false'], ['ドル', 'false']]);
+    await clickEl(l, item(l, '円'), 120);
+    assert.deepStrictEqual(l.called('colSetFmt').map((c) => c.args), [[l.id, l.c2, { fmt: 'yen' }]]);
+    assert.strictEqual(cellOf(l, r2, l.c2).textContent, '¥1,234,567');
+    assert.strictEqual(cellOf(l, r2, l.c14).textContent, '自分');
+    assert.strictEqual(cellOf(l, r2, l.c13).textContent, '3');
+    await clickEl(l, head(l, l.c13)); await clickEl(l, item(l, '接頭辞'));
+    const p = menu(l).querySelector('input');
+    assert.strictEqual(p.getAttribute('aria-label'), '接頭辞');
+    p.value = 'TASK'; await press(l, p, { key: 'Enter' });
+    assert.deepStrictEqual(l.called('colSetFmt').map((c) => c.args)[1], [l.id, l.c13, { prefix: 'TASK' }]);
+    assert.strictEqual(cellOf(l, r2, l.c13).textContent, 'TASK-3');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-2・F146: セルを選んで Ctrl+C → 値を写す。表計算の形（タブと改行）を Ctrl+V → rowsPaste の1回・知らせ・Ctrl+Z の1回で戻る。1つの値はそのセルに（読めなければ断る）・2,001 個は断る', T, async () => {
+  let clip = { text: '' };
+  const l = await openDb({ returns: { clipReadRows: () => clip } });
+  try {
+    const [r0, r1] = l.rows;
+    await clickEl(l, cellOf(l, r1, l.c2), 60);
+    await press(l, editor(l), { key: 'Escape' });
+    const c = await press(l, active(l), { key: 'c', code: 'KeyC', ctrlKey: true });
+    assert.ok(c.defaultPrevented);
+    assert.deepStrictEqual(l.called('copy').map((x) => x.args), [['200']]);
+    // 1つの値: 読めなければ断る・読めれば rowsPaste の 1×1
+    clip = { text: 'たくさん' };
+    await press(l, active(l), { key: 'v', code: 'KeyV', ctrlKey: true }); await l.drain(60);
+    assert.strictEqual($(l, 'toast').textContent, 'この列の値として読めませんでした。');
+    assert.deepStrictEqual(l.called('rowsPaste'), []);
+    clip = { text: '450\r\n' };
+    await press(l, active(l), { key: 'v', code: 'KeyV', ctrlKey: true }); await l.drain(60);
+    assert.deepStrictEqual(l.called('rowsPaste').map((x) => x.args), [[l.id, 'v1', { row: r1, col: l.c2 }, [['450']]]]);
+    assert.strictEqual(cellsIn(l, r1).cells[l.c2], 450);
+    // 何行何列か（引用符の中の改行とタブも）: 選んだセルから右下へ・足りない行は足す
+    await clickEl(l, cellOf(l, r1, l.c1), 60);
+    await press(l, editor(l), { key: 'Escape' });
+    clip = { text: 'あ\t10\r\n"い\tう"\tx\r\nえ\t30\r\n', html: '<table><tr><td>あ</td></tr></table>' };
+    const steps = l.steps.length;
+    await press(l, active(l), { key: 'v', code: 'KeyV', ctrlKey: true }); await l.drain(120);
+    assert.deepStrictEqual(l.called('rowsPaste').map((x) => x.args)[1], [l.id, 'v1', { row: r1, col: l.c1 }, [['あ', '10'], ['い う', 'x'], ['え', '30']]]);
+    assert.strictEqual($(l, 'toast').textContent, '1 行を足し、1 個の値は読めなかったので空にしました');
+    assert.strictEqual(dataRows(l).length, 4);
+    assert.deepStrictEqual(texts(l).map((r) => r.slice(1, 3)), [['メモ 0', '100'], ['あ', '10'], ['い う', ''], ['え', '30']]);
+    assert.strictEqual(l.steps.length, steps + 1, '貼り付けが歩みの1つでない');
+    await press(l, active(l), { key: 'z', code: 'KeyZ', ctrlKey: true });
+    assert.deepStrictEqual(texts(l).map((r) => r.slice(1, 3)), [['メモ 0', '100'], ['メモ 1', '450'], ['メモ 2', '300']], 'Ctrl+Z の1回で戻らない');
+    // 右にはみ出した値は数を知らせる
+    await clickEl(l, cellOf(l, r0, l.c4), 60);
+    clip = { text: 'a\tb\tc' };
+    await press(l, active(l), { key: 'v', code: 'KeyV', ctrlKey: true }); await l.drain(80);
+    assert.strictEqual($(l, 'toast').textContent, '0 行を足し、0 個の値は読めなかったので空にしました（貼れない列の 3 個の値は貼りませんでした）');
+    // 2,001 個は断る（送らない）
+    const n = l.called('rowsPaste').length;
+    clip = { text: Array.from({ length: 1001 }, () => '1\t2').join('\n') };
+    await press(l, active(l), { key: 'v', code: 'KeyV', ctrlKey: true }); await l.drain(60);
+    assert.strictEqual($(l, 'toast').textContent, '1回に貼れるのは 2,000 個の値までです。');
+    assert.strictEqual(l.called('rowsPaste').length, n);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

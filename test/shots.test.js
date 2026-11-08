@@ -229,7 +229,8 @@ const RETAKEN_150 = ['edit-slash-recent-light', 'settings-shortcuts-light', 'pag
 const ADDED_150 = [...NEW_150, ...RETAKEN_150];
 // 0.16.0（計画 docs/plans/2026-11-04-160.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.16.0 の表の画面だけ（RETAKE_160）。
 // DV-1 でデータベースの表の明暗と拡大 200% の3枚を足した（NEW_160。足した画面で、まだ基準が無い）
-const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light'];
+// DV-2 で列のメニュー・選択肢の選び・暦の3枚を足した（同じく、まだ基準が無い）
+const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light'];
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
 const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
@@ -282,7 +283,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     ...NEW_140,
     // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を、PR-2 で子ページの行の明暗の2枚を足した。PH-5・PH-6・PL-3 で足した画面も（版を 0.15.0 に上げる commit で基準にした）
     ...NEW_150,
-    // 0.16.0 DV-1 で意図して変えた: データベースの表の明暗と拡大 200% の3枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.16.0 DV-1 で意図して変えた: データベースの表の明暗と拡大 200% の3枚を足した（取り直し待ち・まだ基準が無い）。DV-2 で列のメニュー・選択肢の選び・暦の3枚を足した
     ...NEW_160]);
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -1160,7 +1161,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.16.0 DV-1（計画 docs/plans/2026-11-04-160.md の決めたこと 24〜32・47・51・R47〜R55）: データベースのページの表（#pDb と .db* の CSS・dbModel と dbView の写し・
   // 見える行だけ描く表・表のキー・行を足す・選ぶ・消す・並べる・Ctrl+Z）と SHORTCUTS の写しの表のキーの行。変わる画面は足した NEW_160 の3枚と、近道の表が伸びる
   // RETAKEN_160 の4枚（どれも RETAKE にある）。ほかの画面の種にデータベースは無いので変わらない見込み。値を今の app.html に合わせた（前の値は b222a928…）
-  assert.strictEqual(sha, '09dcf07eef56d48e927d1b91d2b20a0893c1bdcce493e6629f562b197ecb335a',
+  // 0.16.0 DV-2（計画の決めたこと 10〜14・25・52・R63〜R70）: 列の見出しのボタンと列のメニュー・右端の［＋］・⚙ ビューの設定（消した列）・種類ごとのセルの書き手（選びの窓・暦・
+  // チェック・数値）・URL とメールと電話の値のリンク・写す・貼る と、その CSS。変わる画面は足した NEW_160 の db-colmenu・db-cell-select・db-cell-date と、
+  // 見出しに［＋］と ⚙ が増える db-table の3枚（どれも RETAKE にあり、まだ基準が無い）。値を今の app.html に合わせた（前の値は 09dcf07e…）
+  assert.strictEqual(sha, '5144215e550343511b622e78fdf53f032932e82a93424abc7bc72997f22f248d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

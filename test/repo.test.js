@@ -290,8 +290,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.15.0 PL-3 で画面がアイコンと見た目の口（pageSetIcon・pageSetLook）を呼び始めたので外した
   // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」）: データベースの呼び口は、画面が呼び始める DV-1〜DV-3 まで待つ
   // 0.16.0 DV-1 で意図して変えた: 表の画面が dbGet・dbView・rowAdd・rowSetCell・rowsSetCell・rowMove・rowsTrash を呼び始めたので外した
-  const PENDING_APP = new Set(['dbCreate', 'rowsPaste', 'colAdd', 'colRename',
-    'colSetType', 'colMove', 'colRemove', 'colRestore', 'colPurge', 'colSetOpts', 'colSetFmt', 'viewAdd', 'viewUpdate', 'viewRemove', 'viewMove']);
+  // 0.16.0 DV-2 で意図して直した: 画面が呼び始めた rowsPaste・colAdd・colRename・colSetType・colRemove・colRestore・colPurge・colSetOpts・colSetFmt・viewUpdate を外した
+  const PENDING_APP = new Set(['dbCreate', 'colMove', 'viewAdd', 'viewRemove', 'viewMove']);
   // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
   // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
   const KEPT_APP = new Set(['pageSetMemo']);

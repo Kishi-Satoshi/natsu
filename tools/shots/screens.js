@@ -125,14 +125,21 @@ const OPEN_LOOK_MENU = `(async () => {
   [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '書体 ▸').click();
   return 1;
 })()`;
-// 0.16.0 DV-1: 1行目のデータベースを開いて（表を読むので少し待つ）、3行目の「状態」のセルを選ぶ（DV-1 では書き手の無い種類なので、選ぶだけ）
-const OPEN_DB = `(async () => {
+// 0.16.0 DV-1: 1行目のデータベースを開いて（表を読むので少し待つ）、3行目の「状態」のセルを選ぶ
+// 0.16.0 DV-2 で意図して直した: ステータスのセルは押すと選びの窓が開くので、Esc で窓を閉じて選んだだけの形にする
+const OPEN_DB_AT = (then) => `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 500));
-  const c = [...document.querySelectorAll('#pDb .dbrow')][2].querySelector('.dbcell[data-col="c2"]');
-  c.click();
+  const cell = (row, col) => [...document.querySelectorAll('#pDb .dbrow')][row].querySelector('.dbcell[data-col="' + col + '"]');
+  ${then}
   return 1;
 })()`;
+const OPEN_DB = OPEN_DB_AT(`cell(2, 'c2').click();
+  const q = document.querySelector('#pDb .dbpick input'); if (q) q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));`);
+// 0.16.0 DV-2: 列のメニュー（数値の列「金額」の見出しを押す）・選択肢の選び（3行目の「状態」のセル。3つのまとまりの見出し）・暦（1行目の「期日」のセル）
+const OPEN_DB_COLMENU = OPEN_DB_AT(`[...document.querySelectorAll('#pDb .dbcolh')].find((h) => h.dataset.col === 'c3').querySelector('.dbcolbtn').click();`);
+const OPEN_DB_SELECT = OPEN_DB_AT(`cell(2, 'c2').click();`);
+const OPEN_DB_DATE = OPEN_DB_AT(`cell(0, 'c4').click();`);
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -485,6 +492,9 @@ const SCREENS = [
   { name: 'db-table-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB },
   { name: 'db-table-dark', page: 'app', theme: 'dark', get answers() { return dbAnswers(); }, act: OPEN_DB },
   { name: 'db-table-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return dbAnswers(); }, act: OPEN_DB },
+  { name: 'db-colmenu-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB_COLMENU },
+  { name: 'db-cell-select-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB_SELECT },
+  { name: 'db-cell-date-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB_DATE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -604,7 +614,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // edit-slash-light・edit-slash-dark は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 195 枚）
 // 0.16.0（計画 docs/plans/2026-11-04-160.md の「取り直す画面（RETAKE）」）: DV-1 で足したデータベースの表の明暗と拡大 200% の3枚（まだ基準が無い）と、
 // 近道の表に「データベースの表のセルを選んでいるとき」の行が増える設定の4枚（settings-shortcuts-light と［一般］の3枚。今の基準がある）
-const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
+// DV-2 で足した列のメニュー・選択肢の選び・暦の3枚（まだ基準が無い）
+const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
+  'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

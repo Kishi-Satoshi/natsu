@@ -1671,10 +1671,10 @@ function colRename(db, a) {
 // そのデータベースの全部の行（ゴミ箱の行も。列の種類を変える・選択肢を消す・完全に消すは、戻したときに形の違うセルを残さない）
 const allRows = (db, d) => db.prepare(HOT_QUERIES.dbAllRows).all(d.id).map((r) => ({ id: r.id, cells: (JSON.parse(r.attrs || '{}').cells) || {} }));
 // 種類を変える（決めたこと 13: セルを新しい種類に読み替えて同じ命令で書き直す。前の値は oplog にあり、Ctrl+Z で戻る）→ { col, emptied }
-function colSetType(db, a) {
-  const d = mustDb(db, a.db);
+// 種類を変えたときの新しい列とセルの書き直し（col.setType と、変える前に数を見る col.typeCheck の両方: R63）→ { from, to, cellSets, emptied } | null（同じ種類）
+function typePlan(db, d, a) {
   const from = liveCol(d, a.col);
-  if (from.type === a.type) return { ops: [], pageIds: [], result: { col: from, emptied: 0 } };
+  if (from.type === a.type) return null;
   if (from.type === 'title' || from.type === 'rel' || a.type === 'rel' || !DM.COLS[from.type].writable || !DM.COLS[a.type].writable) throw refuse('bad-args');
   const OPT = ['select', 'multi', 'status'];
   let to = { id: from.id, name: from.name, type: a.type, ...DM.COLS[a.type].defaults() };
@@ -1694,8 +1694,21 @@ function colSetType(db, a) {
     if (got.value === null) emptied += 1;
     cellSets.push({ op: 'set', id: r.id, key: `cell:${from.id}`, value: got.value ?? undefined, old: was });
   }
+  return { from, to, cellSets, emptied };
+}
+function colSetType(db, a) {
+  const d = mustDb(db, a.db);
+  const plan = typePlan(db, d, a);
+  if (!plan) return { ops: [], pageIds: [], result: { col: liveCol(d, a.col), emptied: 0 } };
+  const { to, cellSets, emptied } = plan;
   const f = freshIds(d, colsWith(d, to));   // 読み替えで足した選択肢の ID は使い直さない（R56）
   return dbDone(db, d, [...f.ops, ...remapCellOps(cellSets, f.mapCell)], { col: f.cols.find((c) => c.id === to.id), emptied });
+}
+// 種類を変える前に、読めずに空になるセルの数を見る（読む命令。何も書かない: 決めたこと 13・TR6「変える前に消える数を確かめで出す」・R63）→ { emptied }
+function colTypeCheck(db, a) {
+  const d = mustDb(db, a.db);
+  const plan = typePlan(db, d, a);
+  return { result: { emptied: plan ? plan.emptied : 0 } };
 }
 function colMove(db, a) {
   const d = mustDb(db, a.db);
@@ -2433,6 +2446,7 @@ const DEFS = {
   'col.add': { roles: ['app'], write: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?' }, pageOf: dbOfArgs, run: colAdd, dupResult: DUP['col.add'] },
   'col.rename': { roles: ['app'], write: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: dupCol },
   'col.setType': { roles: ['app'], write: true, args: { db: 'id', col: 'id', type: 'colType' }, pageOf: dbOfArgs, run: colSetType, dupResult: DUP['col.setType'] },
+  'col.typeCheck': { roles: ['app'], write: false, args: { db: 'id', col: 'id', type: 'colType' }, run: colTypeCheck },
   'col.move': { roles: ['app'], write: true, args: { db: 'id', col: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: colMove, dupResult: dupCol },
   'col.remove': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRemove, dupResult: dupCol },
   'col.restore': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRestore, dupResult: dupCol },
