@@ -474,8 +474,9 @@ function filterDefaults(view, cols) {
 // ---------------------------------------------------------------- 見える行の切り出し（決めたこと 32）
 // heights（Map か配列: 行の番号 → 読んだ高さ）・defaultHeight（まだ読んでいない行）・total（行の数）
 // → { from, count, before（from より上の行の高さの和）, after（from + count から下の和） }
-function windowOf({ scrollTop = 0, viewHeight = 0, heights, defaultHeight = 32, pad = 50, total = 0 } = {}) {
-  const n = Math.max(0, Math.floor(total));
+function windowOf(opts = {}) {
+  const { scrollTop = 0, viewHeight = 0, heights, defaultHeight = 32, pad = 50 } = opts;
+  const n = Math.max(0, Math.floor(Number(opts.total) || 0));   // 行の数（画面の写しで名前 total を宣言しない: tools/risk.js の数の名前の照らし）
   if (n === 0) return { from: 0, count: 0, before: 0, after: 0 };
   const hOf = (i) => {
     const h = heights && (typeof heights.get === 'function' ? heights.get(i) : heights[i]);

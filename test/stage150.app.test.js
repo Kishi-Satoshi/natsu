@@ -463,7 +463,7 @@ async function openDb(o = {}) {
     const tx = `${role[0]}:ph4-${String(++txn).padStart(6, '0')}`;
     const r = core.call(db, { role, cmd, args, tx }, { now: NOW, labels: {} });
     if (!r.ok) throw new Error(r.code);   // contextBridge を越えた Error は message だけが残る
-    if (role === 'app' && (r.changed || r.dupChanged) && U.UNDO_CMDS.has(cmd)) { const s = { cmd, pageId: typeof args.pageId === 'string' ? args.pageId : args.id, step: tx }; if (L) L.fire('onEditStep', s); }
+    if (role === 'app' && (r.changed || r.dupChanged) && U.UNDO_CMDS.has(cmd)) { const s = { cmd, pageId: typeof args.db === 'string' ? args.db : typeof args.pageId === 'string' ? args.pageId : args.id, step: tx }; if (L) L.fire('onEditStep', s); }
     return r.result;
   };
   const made = typeof o.before === 'function' ? o.before(call) : null;   // 0.15.0 PR-2: 画面を開く前に DB の命令で種を作る（作ったページの ID を返す）

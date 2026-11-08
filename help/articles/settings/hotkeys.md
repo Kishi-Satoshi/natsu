@@ -1,7 +1,7 @@
 ---
 title: ホットキー
 description: 音声入力と議事録のホットキーを変える。ほかのアプリと重なったとき。NaTsu の窓の中だけで効くキー（Ctrl+W・要約とメモの行の近道）の一覧
-updated: 2026-11-04
+updated: 2026-11-08
 sources: README.md, src/renderer/app.html, src/main.js, src/mainlib.js, src/settings.js, src/shortcuts.js
 related: dictation/dictation, summary/edit-summary, record/start-stop
 ---
@@ -111,6 +111,20 @@ NaTsu の窓が前にあるときだけ効くキーです。同じ一覧は ［�
 | [[Enter]] | ページを今のタブで開く |
 | [[Ctrl+Enter]] | ページを新しいタブで開く |
 | [[Shift+F10]] | 行のメニューを開く（中にページを作る・移動先・新しいタブで開く・削除） |
+
+### データベースの表のセルを選んでいるとき
+
+| キー | 動き |
+| --- | --- |
+| [[↑]]・[[↓]]・[[←]]・[[→]] | セルを移る |
+| [[Tab]]・[[Shift+Tab]] | 右・左のセルへ |
+| [[Home]]・[[End]] | 行の頭・末のセルへ |
+| [[Ctrl+Home]]・[[Ctrl+End]] | 表の頭・末のセルへ |
+| [[Enter]] | セルを書く（書いている間は Enter で決める） |
+| [[Esc]] | セルの選びをやめる（書いている間は、書いた文字を捨てる） |
+| [[Delete]]・[[Backspace]] | 選んだセルを空にする（書けるセルだけ） |
+| [[Ctrl+Z]] | 元に戻す |
+| [[Ctrl+Shift+Z]]・[[Ctrl+Y]] | やり直す |
 
 - [[Ctrl+W]] で閉じるのはタブだけで、窓は閉じません。タブが1つだけのときは、閉じて空のページになります。
 - 録音中のタブは [[Ctrl+W]] で閉じません。「録音中のページは閉じられません（［■ 終了して作成］で止めます）」と出ます。［文字起こしを始める］ を押して録音が始まるのを待っている間の、録音の前のタブも同じです。

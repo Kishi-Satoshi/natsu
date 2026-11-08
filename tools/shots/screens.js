@@ -125,6 +125,14 @@ const OPEN_LOOK_MENU = `(async () => {
   [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '書体 ▸').click();
   return 1;
 })()`;
+// 0.16.0 DV-1: 1行目のデータベースを開いて（表を読むので少し待つ）、3行目の「状態」のセルを選ぶ（DV-1 では書き手の無い種類なので、選ぶだけ）
+const OPEN_DB = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 500));
+  const c = [...document.querySelectorAll('#pDb .dbrow')][2].querySelector('.dbcell[data-col="c2"]');
+  c.click();
+  return 1;
+})()`;
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -472,6 +480,11 @@ const SCREENS = [
   { name: 'page-menu-look-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true, font: 'serif' }); }, act: OPEN_LOOK_MENU },
   // PL-3 直し（R77）: 小さい文字の拡大 200%（狭い窓の題名は標準の狭い窓より小さい）
   { name: 'look-small-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ small: true }); }, act: OPEN_PAGE },
+  // 0.16.0 DV-1（計画 docs/plans/2026-11-04-160.md の「取り直す画面」）: データベースの表（20 行・7 種類の列・下の集計・選んだセル）の明暗と拡大 200%（横に捲れて見出しが切れない）。
+  // 足した画面（まだ基準が無い）
+  { name: 'db-table-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB },
+  { name: 'db-table-dark', page: 'app', theme: 'dark', get answers() { return dbAnswers(); }, act: OPEN_DB },
+  { name: 'db-table-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return dbAnswers(); }, act: OPEN_DB },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -589,7 +602,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 議事録の子ページの一覧・［移動先…］・新しいページ・ゴミ箱の窓・アイコンの選び・全幅・小さい文字と書体・「···」の見た目の項目、取り直した 7 枚: 設定の［一般］の3枚と近道の表・
 // / メニュー・「···」の2枚）に「0.15.0の画面はこの見た目でよいです」（2026-11-06）と答えたので、CI run 41936731119（622444a）の artifact 13374567273 の .after.png（27 枚。
 // edit-slash-light・edit-slash-dark は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 195 枚）
-const RETAKE = new Set([]);
+// 0.16.0（計画 docs/plans/2026-11-04-160.md の「取り直す画面（RETAKE）」）: DV-1 で足したデータベースの表の明暗と拡大 200% の3枚（まだ基準が無い）と、
+// 近道の表に「データベースの表のセルを選んでいるとき」の行が増える設定の4枚（settings-shortcuts-light と［一般］の3枚。今の基準がある）
+const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -734,6 +749,42 @@ function treeAnswers() {
   return {
     'koeApp.pagesSearch': [...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
     'koeApp.uiState': { tree: { open: ['p1', 'p1a', 'p1a1', 'p1a1a'] } },
+  };
+}
+
+/**
+ * 0.16.0 DV-1: データベースのページ（一覧のいちばん上。page:get の答えは kind 'database'）。列は 名前（題名）・担当（ユーザー）・状態（ステータス）・
+ * 金額（数値の円）・期日（日付）・済み（チェック）・資料（URL）の7種類。表の読み（db.view）は 20 行と下の集計（全件・合計・チェック済みの割合）
+ */
+function dbAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const page = { id: 'pd1', kind: 'database', title: '案件の一覧', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [] };
+  const cols = [
+    { id: 'title', name: '名前', type: 'title' },
+    { id: 'c1', name: '担当', type: 'person' },
+    { id: 'c2', name: '状態', type: 'status', opts: [{ id: 'o1', name: '未着手', color: 'default' }, { id: 'o2', name: '進行中', color: 'blue' }, { id: 'o3', name: '完了', color: 'green' }],
+      groups: { todo: ['o1'], doing: ['o2'], done: ['o3'] } },
+    { id: 'c3', name: '金額', type: 'number', fmt: 'yen' },
+    { id: 'c4', name: '期日', type: 'date' },
+    { id: 'c5', name: '済み', type: 'check' },
+    { id: 'c6', name: '資料', type: 'url' },
+  ];
+  const view = { id: 'v1', name: '表', layout: 'table', props: cols.map((c) => ({ col: c.id, show: true, wrap: false })), sort: [], filter: null, group: null,
+    agg: { title: 'count', c3: 'sum', c5: 'checkedPct' } };
+  const NAMES = ['見積もりの作成', '発注書の確認', '検収の段取り', '請求書の発行', '打ち合わせの準備'];
+  const WHO = ['佐藤', '鈴木', '高橋'];
+  const rows = Array.from({ length: 20 }, (_, i) => ({
+    id: `r${i + 1}`, ord: `a${String(i).padStart(2, '0')}`, title: `${NAMES[i % 5]} ${i + 1}`, createdAt: at, updatedAt: at, by: { c: 'me', u: 'me' }, no: i + 1,
+    cells: { c1: [WHO[i % 3]], c2: ['o1', 'o2', 'o3'][i % 3], c3: 12000 + i * 1500, c4: { start: `2026-11-${String(4 + (i % 20)).padStart(2, '0')}` },
+      ...(i % 3 === 2 ? { c5: true } : {}), ...(i % 4 === 0 ? { c6: `https://example.com/doc/${i + 1}` } : {}) },
+    depth: 0, hasKids: false,
+  }));
+  const sum = rows.reduce((n, r) => n + r.cells.c3, 0);
+  const row = { id: 'pd1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'database' };
+  return {
+    'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] },
+    'koeApp.dbGet': { id: 'pd1', title: page.title, cols, views: [view], rowCount: 20 },
+    'koeApp.dbView': { total: 20, shown: 20, rows, groups: null, agg: { title: 20, c3: sum, c5: (rows.filter((r) => r.cells.c5).length / 20) * 100 }, sig: '1.20.shots' },
   };
 }
 

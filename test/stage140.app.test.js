@@ -76,7 +76,7 @@ async function openReal(pages, o = {}) {
     if (!r.ok) throw new Error(r.code);
     // preload と同じ: 戻せる命令が ok で changed のときだけ、答えより先に画面の受け口へ（R59・R75）
     if (role === 'app' && (r.changed || r.dupChanged) && U.UNDO_CMDS.has(cmd)) {
-      const s = { cmd, pageId: typeof args.pageId === 'string' ? args.pageId : args.id, step: tx };
+      const s = { cmd, pageId: typeof args.db === 'string' ? args.db : typeof args.pageId === 'string' ? args.pageId : args.id, step: tx };   // 0.16.0 DV-1: preload と同じく、表の命令は args.db の歩み
       steps.push(s);
       if (L) L.fire('onEditStep', s);
     }

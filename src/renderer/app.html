@@ -335,6 +335,44 @@
   /* 0.15.0 PH-4（決めたこと 24・BQ2 (a)）: 白紙のページは頭（アイコンと題名）と本文だけ。3つのタブは出さず、本文は会議のブロックの枠で囲まない。
      無題の題名の欄と空の本文は灰色の手引き */
   #pageWrap.blank .ptabs { display: none; }
+  /* 0.16.0 DV-1（決めたこと 24〜32・51）: データベースのページは頭と表だけ。表は見える行だけを描き、表の中を捲る（横にも捲れて見出しは切れない） */
+  #pageWrap.db .ptabs, #pageWrap.db .pane, #pageWrap.db #bodyKids, #pageWrap.db #pKids, #pageWrap.db #pPending { display: none; }
+  #pageWrap.db .mblock { border-color: transparent; }
+  .dbwrap { margin-top: 8px; }
+  .dbtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .dbtab { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 6px 6px 0 0; cursor: pointer; }
+  .dbtab[aria-selected="true"] { color: var(--text); font-weight: 500; border-bottom: 2px solid var(--text); }
+  .dbtab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .dbselbar { position: relative; display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: 13px; }
+  .dbselbar[hidden] { display: none; }
+  .dbselcount { color: var(--text); font-weight: 500; margin-right: 6px; }
+  .dbmenu { position: absolute; top: 100%; left: 6px; z-index: 20; min-width: 180px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+  .dbscroll { max-height: calc(100vh - 230px); overflow: auto; position: relative; }
+  .dbgrid { display: block; min-width: max-content; font-size: 14px; }
+  .dbgrid:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .dbrowh, .dbrow, .dbfoot { display: flex; border-bottom: 1px solid var(--line); }
+  .dbrowh { position: sticky; top: 0; z-index: 2; background: var(--bg); color: var(--muted); font-size: 13px; }
+  .dbcolh, .dbcell, .dbagg { flex: none; box-sizing: border-box; padding: 6px 8px; border-right: 1px solid var(--line); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-height: 32px; }
+  .dbcell.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .dbcell[aria-selected="true"] { background: var(--hover); }
+  .dbcell[aria-selected="true"]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .dbcell[aria-readonly="true"] { color: var(--muted); }
+  .dblead { flex: none; width: 52px; display: flex; align-items: center; gap: 4px; padding-left: 4px; box-sizing: border-box; }
+  .dbgrip { cursor: grab; color: var(--muted); opacity: 0; user-select: none; }
+  .dbrow:hover .dbgrip { opacity: 1; }
+  .dbcheck, .dbcheckall { margin: 0; }
+  .dbrow.dropbefore, .dbrow.dropafter { position: relative; }
+  .dbrow.dropbefore::before, .dbrow.dropafter::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
+  .dbrow.dropbefore::before { top: -1px; }
+  .dbrow.dropafter::after { bottom: -1px; }
+  .dbwait { min-height: 32px; }
+  .dbedit { width: 100%; box-sizing: border-box; font: inherit; border: 0; padding: 0; background: transparent; color: inherit; outline: none; }
+  .dbfoot { border-bottom: 0; color: var(--muted); font-size: 12px; }
+  .dbfoot[hidden] { display: none; }
+  .dbagg { border-right: 0; text-align: right; }
+  .dbadd { border: 0; background: none; color: var(--muted); font: inherit; font-size: 14px; padding: 6px 8px; cursor: pointer; border-radius: 6px; }
+  .dbadd:hover { background: var(--hover); }
+  .dbadd:focus-visible { outline: 2px solid var(--accent); }
   #pageWrap.blank .mblock { border-color: transparent; }
   #pTitle[data-ph]:empty::before { content: attr(data-ph); color: var(--muted); }
   .bodyph { color: var(--muted); padding: 4px 2px; border-radius: 6px; cursor: text; }
@@ -1217,6 +1255,8 @@
             <div id="pPending" class="pendline" role="status" hidden><span id="pPendingText"></span><button type="button" class="ghost" id="pRetranscribe">もう一度文字起こし</button></div>
             <div id="pScript" class="pane" role="tabpanel" aria-labelledby="paneBtnScript"></div>
             <div id="pMemo" class="pane" role="tabpanel" aria-labelledby="paneBtnMemo"></div>
+            <!-- 0.16.0 DV-1（計画 docs/plans/2026-11-04-160.md の決めたこと 24〜32・51）: データベースのページの表（ビューのタブ・表・下の集計・［＋ 新しい行］。中は画面が作る） -->
+            <div id="pDb" class="dbwrap" hidden></div>
             </div>
           </div>
           </div>
@@ -2010,6 +2050,16 @@
     { keys: 'Enter', what: 'ページを今のタブで開く', where: 'サイドバーのページの一覧', codes: [] },
     { keys: 'Ctrl+Enter', what: 'ページを新しいタブで開く', where: 'サイドバーのページの一覧', codes: [] },
     { keys: 'Shift+F10', what: '行のメニューを開く（中にページを作る・移動先・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+    // 0.16.0 DV-1 のデータベースの表（決めたこと 51）
+    { keys: '↑・↓・←・→', what: 'セルを移る', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Tab・Shift+Tab', what: '右・左のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Home・End', what: '行の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Ctrl+Home・Ctrl+End', what: '表の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Enter', what: 'セルを書く（書いている間は Enter で決める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Esc', what: 'セルの選びをやめる（書いている間は、書いた文字を捨てる）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Delete・Backspace', what: '選んだセルを空にする（書けるセルだけ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Ctrl+Z', what: '元に戻す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
   // 効く所が替わる所に見出しの行（th colspan=2）を入れ、キーは「・」で区切った1つずつを <kbd> で（文字は textContent で入れる）
   function renderShortcuts() {
@@ -3832,6 +3882,967 @@
     return { FONTS, normalizeLook, isPlainLook, lookClasses };
   })();
   // ---- pageLook の写しはここまで
+  // ---- dbModel の写し（0.16.0 DV-1。src/dbModel.js の TYPES から cellValue まで。字は同じで、行の頭に4つの空白を足した。
+  // 画面は部品を読めないので写す。セルの見せる文字（fmtCell）・列の種類の表（COLS）を表の画面が使う。test/stage160.app.test.js が字と答えを照らす）
+  const dbModelView = (() => {
+    const TYPES = Object.freeze(['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no']);
+    const OPT_COLORS = Object.freeze(['default', 'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red']);
+    const NUM_FMTS = Object.freeze(['plain', 'comma', 'percent', 'yen', 'dollar']);
+    const WHO = Object.freeze(['me', 'claude', 'system']);            // 作成者・最終更新者の値（並べ替えもこの順: 決めたこと 11）
+    const STATUS_GROUPS = Object.freeze(['todo', 'doing', 'done']);
+    const OPT_TYPES = Object.freeze(['select', 'multi', 'status']);
+    const MAX = Object.freeze({
+      text: 10000, title: 500, url: 2000, email: 254, phone: 30,    // 決めたこと 7・10（題名は今のページの題名と同じ 500 字: validate の LIMITS.title）
+      people: 10, personName: 50, rel: 100, opts: 200, optName: 100, colName: 100,
+    });
+
+    const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;                            // 行・データベースの ID（src/db/validate.js の ID の形と同じ）
+    const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+    const TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+    const PREFIX_RE = /^[A-Za-z]{0,10}$/;
+    const PHONE_RE = /^[0-9+\-() ]+$/;
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+$/;
+    const OPT_COMMA_RE = /[,，]/;                                       // 選択肢の名前に入れない（J-20）
+    const NAME_SPLIT_RE = /[、,，]/;                                    // 文字 → 複数選択・ユーザーの区切り（R7）
+    // 名前と住所に入れない文字: 制御の文字・書式の文字（幅の無い文字・向きの制御の文字・ソフトハイフンなど \p{Cf}）・行と段落の区切り・
+    // 見えない文字と空に見える文字（結合の書記素の結び・ハングルの空き・点字の空き・異体字の選び）（F145: 答えと画面の形を偽らせない。DS-1 直し F7）
+    // DS-2 直し（rv40 F3・R43）: 既定で見えない文字（\p{Default_Ignorable_Code_Point}: 異体字の選び U+E0100〜・モンゴル文字とクメール文字の見えない文字ほか）・
+    // 対の無いサロゲート・私用の文字・割り当ての無い文字も入れない
+    const UNSAFE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\p{Cs}\p{Co}\p{Cn}\u034f\u115f\u1160\u180e\u2800\u3164\uffa0\ufe00-\ufe0f]/u;
+    // 名前（列・選択肢・人）では、絵文字の後の異体字の選び（U+FE0F）と、絵文字どうしをつなぐ U+200D だけは通す（❤️・👩‍💻）
+    const EMOJI_JOIN_RE = /(\p{Extended_Pictographic})\ufe0f|(\p{Extended_Pictographic}\ufe0f?)\u200d(?=\p{Extended_Pictographic})/gu;
+    const nameUnsafe = (s) => UNSAFE_RE.test(s.replace(EMOJI_JOIN_RE, (m, a, b) => a || b));
+
+    function fail(why) { const e = new Error(why); e.code = 'bad-args'; return e; }
+    const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+    const missing = (v) => v === null || v === undefined;
+    const isBlank = (v) => missing(v) || v === '' || v === false || (Array.isArray(v) && v.length === 0);
+    const has = (o, k) => isObj(o) && Object.hasOwn(o, k);
+    // 名前の寄せ方（大文字小文字と全角半角: J-20）
+    // DS-2 直し（rv40 F3・R43）: 絵文字の後の U+FE0F と絵文字をつなぐ U+200D は寄せて外す（「😀」と「😀️」・「😀😀」と「😀‍😀」を同じ名前と見る）
+    const foldName = (s) => String(s).normalize('NFKC').toLowerCase().replace(/[\ufe0f\u200d]/g, '');
+    const nameOk = (s, max) => typeof s === 'string' && s.length >= 1 && s.length <= max && s === s.trim() && !nameUnsafe(s) && !/^\p{M}/u.test(s);   // 結合の文字で始まる名前（R43）も断る
+    const optOf = (col, id) => (Array.isArray(col.opts) ? col.opts.find((o) => isObj(o) && o.id === id) : undefined);
+    // 頭の文字と数の ID（o<数>・c<数>）の、今ある一番大きい数の次（R2）
+    function nextId(head, ids) {
+      const re = new RegExp(`^${head}(\\d{1,9})$`);
+      let top = 0;
+      for (const id of ids) { const m = typeof id === 'string' && re.exec(id); if (m) top = Math.max(top, Number(m[1])); }
+      return `${head}${top + 1}`;
+    }
+
+    // ---------------------------------------------------------------- 日と時刻
+    function realDay(s) {
+      const m = typeof s === 'string' && DAY_RE.exec(s);
+      if (!m) return false;
+      const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3]);
+      if (y < 1000 || mo < 1 || mo > 12 || d < 1) return false;   // 年は 1000〜9999（4 桁: DS-1 直し F5）
+      const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+      const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+      return d <= days;
+    }
+    const realTime = (s) => typeof s === 'string' && TIME_RE.test(s);
+
+    // ---------------------------------------------------------------- 住所・メール・電話の形
+    const HTTP_HEAD_RE = /^https?:\/\//i;                              // SEC2: 住所の頭は http(s) だけ（javascript:・file:・data: を通さない。頭を見るのはここ1か所）
+    function httpUrlOk(s) {
+      if (s.length > MAX.url || /\s/.test(s) || UNSAFE_RE.test(s) || !HTTP_HEAD_RE.test(s)) return false;
+      let u;
+      try { u = new URL(s); } catch (_) { return false; }                 // 頭（http(s) と「:」「//」）だけ・壊れた住所を断る
+      return u.username === '' && u.password === '';                       // 利用者の欄（頭の後の「見せたい名前@本当の住所」）で見た目を偽らせない（DS-1 直し F13）
+    }
+    const emailOk = (s) => s.length <= MAX.email && EMAIL_RE.test(s) && !UNSAFE_RE.test(s);
+    const phoneOk = (s) => s.length <= MAX.phone && PHONE_RE.test(s) && /\d/.test(s);
+
+    // ================================================================ セルの照らし（種類ごと。空は undefined を返す）
+    function textCell(max, okFn) {
+      return (col, v) => {
+        if (missing(v) || v === '') return undefined;
+        if (typeof v !== 'string') throw fail('cell-not-text');
+        if (okFn) { if (!okFn(v)) throw fail(`cell-${col.type}`); return v; }
+        if (v.length > max) throw fail('cell-too-long');
+        return v;
+      };
+    }
+    function numberCell(col, v) {
+      if (missing(v)) return undefined;
+      if (!Number.isFinite(v)) throw fail('cell-not-number');   // 文字の '12'・NaN・Infinity・真偽を断る（Number.isFinite は型を変えない）
+      return v === 0 ? 0 : v;
+    }
+    function optionCell(col, v) {
+      if (missing(v) || v === '') return undefined;
+      const known = typeof v === 'string' && optOf(col, v) !== undefined;
+      if (!known) throw fail('cell-option');
+      return v;
+    }
+    function optionsCell(col, v) {
+      if (missing(v)) return undefined;
+      if (!Array.isArray(v)) throw fail('cell-not-list');
+      if (v.length === 0) return undefined;
+      if (v.length > MAX.opts || new Set(v).size !== v.length) throw fail('cell-options');
+      for (const id of v) if (typeof id !== 'string' || optOf(col, id) === undefined) throw fail('cell-option');
+      return [...v];
+    }
+    const DATE_KEYS = Object.freeze(['start', 'end', 'time', 'endTime']);
+    function dateCell(col, v) {
+      if (missing(v)) return undefined;
+      if (!isObj(v) || Object.keys(v).some((k) => !DATE_KEYS.includes(k))) throw fail('cell-date');
+      if (!realDay(v.start)) throw fail('cell-date-start');
+      const out = { start: v.start };
+      if (v.time !== undefined) { if (!realTime(v.time)) throw fail('cell-date-time'); out.time = v.time; }
+      if (v.end !== undefined) { if (!realDay(v.end)) throw fail('cell-date-end'); out.end = v.end; }
+      if (v.endTime !== undefined) {
+        if (out.time === undefined || !realTime(v.endTime)) throw fail('cell-date-end-time');   // 始まりの時刻の無い終わりの時刻は断る
+        out.endTime = v.endTime;
+      }
+      const lastDay = out.end === undefined ? out.start : out.end;
+      if (lastDay < out.start) throw fail('cell-date-backwards');
+      if (lastDay === out.start && out.endTime !== undefined && out.endTime < out.time) throw fail('cell-time-backwards');
+      return out;
+    }
+    function peopleCell(col, v) {
+      if (missing(v)) return undefined;
+      if (!Array.isArray(v)) throw fail('cell-not-list');
+      if (v.length === 0) return undefined;
+      if (v.length > MAX.people || new Set(v).size !== v.length || !v.every((s) => nameOk(s, MAX.personName))) throw fail('cell-people');
+      return [...v];
+    }
+    function checkCell(col, v) {
+      if (v === true) return true;
+      if (missing(v) || v === false) return undefined;          // 偽は空（R6）
+      throw fail('cell-not-check');
+    }
+    function relCell(col, v) {
+      if (missing(v)) return undefined;
+      if (!Array.isArray(v)) throw fail('cell-not-list');
+      if (v.length === 0) return undefined;
+      if (v.length > MAX.rel || new Set(v).size !== v.length || !v.every((id) => typeof id === 'string' && ID_RE.test(id))) throw fail('cell-rel');
+      return [...v];
+    }
+
+    // ---------------------------------------------------------------- 列の欄の照らし（種類ごと）
+    function optsOk(col) {
+      const opts = col.opts;
+      if (!Array.isArray(opts) || opts.length > MAX.opts) return false;
+      const ids = new Set();
+      const names = new Set();
+      for (const o of opts) {
+        if (!isObj(o) || Object.keys(o).length !== 3 || !/^o\d{1,9}$/.test(o.id) || ids.has(o.id)) return false;
+        if (!nameOk(o.name, MAX.optName) || OPT_COMMA_RE.test(o.name) || names.has(foldName(o.name))) return false;
+        if (!OPT_COLORS.includes(o.color)) return false;
+        ids.add(o.id); names.add(foldName(o.name));
+      }
+      return true;
+    }
+    function statusOk(col) {
+      if (!optsOk(col) || !isObj(col.groups)) return false;
+      const g = col.groups;
+      if (Object.keys(g).length !== STATUS_GROUPS.length || !STATUS_GROUPS.every((k) => Array.isArray(g[k]))) return false;
+      const placed = STATUS_GROUPS.flatMap((k) => g[k]);
+      // どの選択肢もちょうど1つのまとまりに入る
+      return placed.length === col.opts.length && new Set(placed).size === placed.length && placed.every((id) => optOf(col, id) !== undefined);
+    }
+
+    // ---------------------------------------------------------------- 列の種類の表（label は列のメニューの［種類 ▸］の名前: 決めたこと 10 の表の左の列）
+    const always = () => true;
+    const noFold = () => '';
+    const textFold = (col, v) => (typeof v === 'string' ? v : '');
+    const optFold = (col, v) => { const o = optOf(col, v); return o ? o.name : ''; };
+    const optsFold = (col, v) => (Array.isArray(v) ? v.map((id) => optFold(col, id)).filter(Boolean).join('\n') : '');
+    const statusDefaults = () => ({
+      opts: [{ id: 'o1', name: '未着手', color: 'default' }, { id: 'o2', name: '進行中', color: 'blue' }, { id: 'o3', name: '完了', color: 'green' }],
+      groups: { todo: ['o1'], doing: ['o2'], done: ['o3'] },
+    });
+    const kind = (label, cell, more = {}) => Object.freeze({
+      label, writable: cell !== null, cell, keys: [], defaults: () => ({}), check: always, fold: noFold, ...more,
+    });
+    const COLS = Object.freeze({
+      title: kind('題名', textCell(MAX.title)),
+      text: kind('テキスト', textCell(MAX.text), { fold: textFold }),
+      number: kind('数値', numberCell, { keys: ['fmt'], defaults: () => ({ fmt: 'plain' }), check: (c) => c.fmt === undefined || NUM_FMTS.includes(c.fmt) }),
+      select: kind('選択', optionCell, { keys: ['opts'], defaults: () => ({ opts: [] }), check: optsOk, fold: optFold }),
+      multi: kind('複数選択', optionsCell, { keys: ['opts'], defaults: () => ({ opts: [] }), check: optsOk, fold: optsFold }),
+      status: kind('ステータス', optionCell, { keys: ['opts', 'groups'], defaults: statusDefaults, check: statusOk, fold: optFold }),
+      date: kind('日付', dateCell),
+      person: kind('ユーザー', peopleCell),
+      check: kind('チェック', checkCell),
+      url: kind('URL', textCell(MAX.url, httpUrlOk), { fold: textFold }),
+      email: kind('メール', textCell(MAX.email, emailOk), { fold: textFold }),
+      phone: kind('電話', textCell(MAX.phone, phoneOk), { fold: textFold }),
+      rel: kind('リレーション', relCell, {
+        keys: ['db', 'back'],
+        check: (c) => typeof c.db === 'string' && ID_RE.test(c.db) && (c.back === undefined || (typeof c.back === 'string' && ID_RE.test(c.back))),
+      }),
+      // 書けない種類（行の欄から読む: cellValue）
+      ctime: kind('作成日時', null),
+      mtime: kind('最終更新日時', null),
+      cby: kind('作成者', null),
+      mby: kind('最終更新者', null),
+      no: kind('ID', null, { keys: ['prefix'], check: (c) => c.prefix === undefined || (typeof c.prefix === 'string' && PREFIX_RE.test(c.prefix)) }),
+    });
+    const defOf = (col) => (isObj(col) && typeof col.type === 'string' && Object.hasOwn(COLS, col.type) ? COLS[col.type] : null);
+
+    // 列の形がよいか（決めたこと 10 の表）
+    function colOk(col) {
+      const def = defOf(col);
+      if (!def || typeof col.id !== 'string' || !ID_RE.test(col.id)) return false;
+      if ((col.id === 'title') !== (col.type === 'title')) return false;
+      if (!nameOk(col.name, MAX.colName)) return false;
+      if (col.gone !== undefined && (col.gone !== true || col.type === 'title')) return false;   // gone は true だけ。題名の列は消せない
+      const allowed = ['id', 'name', 'type', 'gone', ...def.keys];
+      if (Object.keys(col).some((k) => !allowed.includes(k))) return false;
+      return def.check(col);
+    }
+
+    // セルの値を照らす → 照らした値 | null（空） | 投げる（bad-args）
+    function cellOf(col, v) {
+      const def = defOf(col);
+      if (!def) throw fail('col-type');
+      if (def.writable === false) throw fail('col-read-only');
+      const out = def.cell(col, v);
+      return out === undefined ? null : out;
+    }
+
+    // ================================================================ 選択肢と列を足す
+    // 選択肢の名前がよいか（1〜100 字・前後に空白なし・カンマなし・大文字小文字と全角半角を寄せて重ならない。exceptId は名前を変える選択肢自身）
+    function optNameOk(opts, name, exceptId) {
+      if (!nameOk(name, MAX.optName) || OPT_COMMA_RE.test(name)) return false;
+      const want = foldName(name);
+      const others = (Array.isArray(opts) ? opts : []).filter((o) => isObj(o) && o.id !== exceptId);
+      return others.every((o) => foldName(o.name) !== want);
+    }
+    // 選択肢を足した列の写し → { id, col }（もとの列は変えない。ステータスの新しい選択肢は「未着手」のまとまりに入れる）
+    function addOpt(col, name, color = 'default') {
+      if (!isObj(col) || !OPT_TYPES.includes(col.type)) throw fail('col-no-options');
+      const opts = Array.isArray(col.opts) ? col.opts : [];
+      if (opts.length >= MAX.opts) throw fail('too-many-options');
+      if (!optNameOk(opts, name)) throw fail('option-name');
+      if (!OPT_COLORS.includes(color)) throw fail('option-color');
+      const id = nextId('o', opts.map((o) => o && o.id));
+      const out = { ...col, opts: [...opts, { id, name, color }] };
+      if (col.type === 'status') {
+        const g = isObj(col.groups) ? col.groups : {};
+        out.groups = {};
+        for (const k of STATUS_GROUPS) out.groups[k] = Array.isArray(g[k]) ? [...g[k]] : [];
+        out.groups.todo.push(id);
+      }
+      return { id, col: out };
+    }
+    // 新しい列 → { id: c<数>, name, type, …既定 }（名前が空なら種類の名前・重なれば「名前 2」「名前 3」…。題名の列は足せない）
+    function newCol(type, name, cols) {
+      if (typeof type !== 'string' || !Object.hasOwn(COLS, type) || type === 'title') throw fail('col-type');
+      if (!missing(name) && typeof name !== 'string') throw fail('col-name');
+      const list = Array.isArray(cols) ? cols.filter(isObj) : [];
+      const base = (name || '').trim() || COLS[type].label;
+      if (!nameOk(base, MAX.colName)) throw fail('col-name');
+      const taken = new Set(list.map((c) => (typeof c.name === 'string' ? foldName(c.name) : '')));
+      let pick = base;
+      for (let n = 2; taken.has(foldName(pick)); n += 1) {
+        const tail = ` ${n}`;
+        pick = `${base.slice(0, MAX.colName - tail.length).trimEnd()}${tail}`;
+      }
+      return { id: nextId('c', list.map((c) => c.id)), name: pick, type, ...COLS[type].defaults() };
+    }
+
+    // ================================================================ 種類の読み替え（決めたこと 13・52・R2・R7）
+    const TRUE_WORDS = Object.freeze(['はい', 'true', 'yes', 'y', '1', '✓', 'on']);   // テキスト → チェックで真にする語（R7。大文字小文字を寄せる）
+    const THOUSANDS_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
+    const DECIMAL_RE = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i;   // 指数の形（1e+21・1e-7: 数を文字にした形）も読む（DS-1 直し F9）
+    const DATE_TEXT_RE = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?$/;
+
+    // 文字 → 数（全角を寄せ、3桁区切りのカンマを外した数だけ。読めなければ null）
+    function readNumber(s) {
+      let t = String(s).normalize('NFKC').replace(/\u2212/g, '-').trim();
+      if (THOUSANDS_RE.test(t)) t = t.replace(/,/g, '');
+      const n = DECIMAL_RE.test(t) ? Number(t) : NaN;
+      return Number.isFinite(n) ? n : null;
+    }
+    // 文字 → 日付（YYYY-MM-DD・YYYY/MM/DD と HH:MM の形だけ。推し量らない: 決めたこと 14）
+    function readDate(s) {
+      const m = DATE_TEXT_RE.exec(String(s).normalize('NFKC').trim());
+      if (!m) return null;
+      const p2 = (x) => x.padStart(2, '0');
+      const out = { start: `${m[1]}-${p2(m[2])}-${p2(m[3])}` };
+      if (m[4] !== undefined) out.time = `${p2(m[4])}:${m[5]}`;
+      return realDay(out.start) && (out.time === undefined || realTime(out.time)) ? out : null;
+    }
+    const splitNames = (s) => String(s).split(NAME_SPLIT_RE).map((x) => x.trim()).filter(Boolean);
+    // もとの値の文字（テキストへの読み替え。日付とチェックは見せる文字と同じ形）
+    function plainOf(col, v) {
+      switch (col.type) {
+        case 'number': return String(v);
+        case 'select': case 'status': return optFold(col, v);
+        case 'multi': return v.map((id) => optFold(col, id)).filter(Boolean).join(SHOW.join);
+        case 'person': return v.join(SHOW.join);
+        case 'date': return showDate(v);
+        case 'check': return SHOW.check;
+        default: return v;   // 題名・テキスト・URL・メール・電話
+      }
+    }
+    // もとの値の名前の並び（選択肢の種類とユーザーへの読み替え）
+    function namesOf(col, v) {
+      if (col.type === 'multi') return v.map((id) => optFold(col, id)).filter(Boolean);
+      if (col.type === 'select' || col.type === 'status') return [optFold(col, v)].filter(Boolean);
+      if (col.type === 'person') return [...v];
+      return splitNames(plainOf(col, v));
+    }
+    // 名前 → 選択肢の ID（名前で寄せる。無ければ足す。足せなければ null）
+    function optionFor(col, name) {
+      const want = foldName(name);
+      const hit = (col.opts || []).find((o) => isObj(o) && foldName(o.name) === want);
+      if (hit) return { id: hit.id, col };
+      if ((col.opts || []).length >= MAX.opts || !optNameOk(col.opts, name)) return null;
+      return addOpt(col, name);
+    }
+    const tryCell = (col, v) => { try { return cellOf(col, v); } catch (_) { return null; } };
+
+    // fromCol の値 v を toCol の種類に読み替える → { value（照らした値 | null）, col（選択肢を足したなら足した toCol の写し。でなければ toCol） }
+    // リレーションへ・から、書けない種類へ・からは投げる（決めたこと 13）。読めない値は空（null）。もとの列は変えない。
+    function convertCell(fromCol, toCol, v) {
+      const fd = defOf(fromCol); const td = defOf(toCol);
+      if (!fd || !td) throw fail('col-type');
+      if (!fd.writable || !td.writable) throw fail('col-read-only');
+      if (fromCol.type === 'rel' && toCol.type === 'rel') return { value: tryCell(toCol, v), col: toCol };   // リレーションどうしは値のまま（DS-1 直し F11）
+      if (fromCol.type === 'rel' || toCol.type === 'rel') throw fail('col-rel');
+      // 消えた選択肢の ID は外して、分かる名前だけを読み替える（DS-1 直し F8）
+      const known = fromCol.type === 'multi' && Array.isArray(v) ? v.filter((id) => optOf(fromCol, id) !== undefined) : v;
+      const src = tryCell(fromCol, known);
+      if (src === null) return { value: null, col: toCol };
+      const from = fromCol.type;
+      switch (toCol.type) {
+        case 'number': return { value: from === 'number' ? src : readNumber(plainOf(fromCol, src)), col: toCol };
+        case 'check': {
+          const word = foldName(plainOf(fromCol, src)).trim();
+          return { value: TRUE_WORDS.includes(word) ? true : null, col: toCol };
+        }
+        case 'date': return { value: from === 'date' ? { ...src } : readDate(plainOf(fromCol, src)), col: toCol };
+        case 'person': {
+          const names = [...new Set(namesOf(fromCol, src))].filter((s) => nameOk(s, MAX.personName)).slice(0, MAX.people);
+          return { value: names.length ? names : null, col: toCol };
+        }
+        case 'select': case 'status': {
+          const first = namesOf(fromCol, src)[0];
+          const got = first === undefined ? null : optionFor(toCol, first);
+          return got ? { value: got.id, col: got.col } : { value: null, col: toCol };
+        }
+        case 'multi': {
+          let col = toCol;
+          const ids = [];
+          for (const name of namesOf(fromCol, src)) {
+            const got = optionFor(col, name);
+            if (!got) continue;
+            col = got.col;
+            if (!ids.includes(got.id)) ids.push(got.id);
+          }
+          return { value: ids.length ? ids : null, col };
+        }
+        case 'url': case 'email': case 'phone': return { value: tryCell(toCol, String(plainOf(fromCol, src)).trim()), col: toCol };
+        default: return { value: tryCell(toCol, plainOf(fromCol, src)), col: toCol };   // 題名・テキスト
+      }
+    }
+
+    // ================================================================ 見せる文字（R8。持ち主が 2026-11-07 に承認した形。見せ方を変えるときはこの節だけを直す）
+    // 画面のセル・行のページのプロパティ・MCP の答えが同じ文字を使う。
+    const SHOW = Object.freeze({
+      untitled: '無題のページ',                                        // 無題の行（白紙のページの「無題のページ」と同じ）
+      check: '✓',                                                      // チェック済み
+      join: ', ',                                                       // 複数選択・ユーザー・リレーションのつなぎ
+      arrow: ' → ',                                                     // 日付の期間
+      noJoin: '-',                                                      // ID の接頭辞と番号の間（TASK-12）
+      who: Object.freeze({ me: '自分', claude: 'Claude', system: 'NaTsu' }),   // 作成者・最終更新者（決めたこと 11）
+      yen: '¥',
+      dollar: '$',
+      percent: '%',
+    });
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const showDay = (day) => day.replace(/-/g, '/');                    // 2026-11-04 → 2026/11/04
+    // 日付 → 「2026/11/04」「2026/11/04 10:00」「2026/11/04 → 2026/11/08」（同じ日の終わりの時刻は「2026/11/04 10:00 → 11:00」）
+    function showDate(v) {
+      let s = showDay(v.start) + (v.time ? ` ${v.time}` : '');
+      if (v.end && v.end !== v.start) s += SHOW.arrow + showDay(v.end) + (v.endTime ? ` ${v.endTime}` : '');
+      else if (v.endTime) s += SHOW.arrow + v.endTime;
+      return s;
+    }
+    // 作成日時・最終更新日時（ISO の文字）→ その PC の時刻の「2026/11/04 10:00」
+    function showStamp(iso) {
+      const d = new Date(iso);
+      if (typeof iso !== 'string' || Number.isNaN(d.getTime())) return '';
+      return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+    // 数の3桁区切り（打った数のまま。丸めない）: 1234567.5 → 1,234,567.5
+    function grouped(n) {
+      const s = String(Math.abs(n));
+      if (/e/i.test(s)) return String(n);
+      const [whole, frac] = s.split('.');
+      return (n < 0 ? '-' : '') + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (frac ? `.${frac}` : '');
+    }
+    const money = (sign, n) => (n < 0 ? '-' : '') + sign + grouped(Math.abs(n));   // ¥1,200・-$5.25
+    const SHOW_NUMBER = Object.freeze({
+      plain: (n) => String(n),
+      comma: grouped,
+      percent: (n) => `${String(n)}${SHOW.percent}`,                    // 打った数のまま（100 倍しない）
+      yen: (n) => money(SHOW.yen, n),
+      dollar: (n) => money(SHOW.dollar, n),
+    });
+    function lookupRow(rowsById, id) {
+      if (!rowsById) return undefined;
+      if (typeof rowsById.get === 'function') return rowsById.get(id);
+      return Object.hasOwn(rowsById, id) ? rowsById[id] : undefined;
+    }
+    // リレーションの相手の行の題名（無い行・ゴミ箱の行は出さない。無題は「無題のページ」）
+    function relTitles(ids, rowsById) {
+      const out = [];
+      for (const id of Array.isArray(ids) ? ids : []) {
+        const r = lookupRow(rowsById, id);
+        if (!isObj(r) || r.trashed) continue;
+        out.push(typeof r.title === 'string' && r.title !== '' ? r.title : SHOW.untitled);
+      }
+      return out;
+    }
+    // セルの見せる文字（opts.rowsById: リレーションの相手の行 ID → { title, trashed? } の Map か物）
+    function fmtCell(col, v, opts) {
+      const def = defOf(col);
+      if (!def) return '';
+      if (col.type === 'title') return typeof v === 'string' && v !== '' ? v : SHOW.untitled;
+      if (isBlank(v)) return '';
+      switch (col.type) {
+        case 'text': case 'url': case 'email': case 'phone': return typeof v === 'string' ? v : '';
+        case 'number': return Number.isFinite(v) ? (SHOW_NUMBER[col.fmt] || SHOW_NUMBER.plain)(v) : '';
+        case 'select': case 'status': return optFold(col, v);
+        case 'multi': return Array.isArray(v) ? v.map((id) => optFold(col, id)).filter(Boolean).join(SHOW.join) : '';
+        case 'person': return Array.isArray(v) ? v.join(SHOW.join) : '';
+        case 'date': return isObj(v) && typeof v.start === 'string' ? showDate(v) : '';
+        case 'check': return v === true ? SHOW.check : '';
+        case 'ctime': case 'mtime': return showStamp(v);
+        case 'cby': case 'mby': return has(SHOW.who, v) ? SHOW.who[v] : '';
+        case 'no': return Number.isFinite(v) ? (col.prefix ? `${col.prefix}${SHOW.noJoin}${v}` : String(v)) : '';
+        case 'rel': return relTitles(v, opts && opts.rowsById).join(SHOW.join);
+        default: return '';
+      }
+    }
+
+    // ================================================================ 検索の欄と行の値
+    // 行の fold に足す文字（決めたこと 6: テキスト・URL・メール・電話の文字と、選択・複数選択・ステータスの選択肢の名前。1つ1行。消した列は入れない）
+    function foldCells(cols, cells) {
+      const lines = [];
+      for (const col of Array.isArray(cols) ? cols : []) {
+        const def = defOf(col);
+        if (!def || col.gone || !has(cells, col.id) || isBlank(cells[col.id])) continue;
+        const s = def.fold(col, cells[col.id]);
+        if (s) lines.push(s);
+      }
+      return lines.join('\n');
+    }
+    // 行の、その列の値（題名・作成日時・最終更新日時・作成者・最終更新者・ID は行の欄から。空は null）
+    function cellValue(row, col) {
+      if (!isObj(row) || !isObj(col)) return null;
+      switch (col.type) {
+        case 'title': return typeof row.title === 'string' && row.title !== '' ? row.title : null;
+        case 'ctime': return typeof row.createdAt === 'string' ? row.createdAt : null;
+        case 'mtime': return typeof row.updatedAt === 'string' ? row.updatedAt : (typeof row.createdAt === 'string' ? row.createdAt : null);   // 書き換えていなければ作成日時（DS-1 直し F11）
+        case 'cby': return isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null;
+        case 'mby': return isObj(row.by) && WHO.includes(row.by.u) ? row.by.u : (isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null);   // 書き換えていなければ作成者
+        case 'no': return Number.isFinite(row.no) ? row.no : null;
+        default: return has(row.cells, col.id) && !missing(row.cells[col.id]) ? row.cells[col.id] : null;
+      }
+    }
+    return { TYPES, COLS, OPT_COLORS, NUM_FMTS, WHO, STATUS_GROUPS, MAX, foldName, colOk, cellOf, optNameOk, addOpt, newCol, convertCell, fmtCell, foldCells, cellValue };
+  })();
+  // ---- dbModel の写しはここまで
+  // ---- dbView の写し（0.16.0 DV-1。src/dbView.js の FILTER_DEPTH から windowOf まで。字は同じで、行の頭に4つの空白を足した。
+  // 読む部品は dbModel の写しと、検索の寄せ方 fold（cite.js の searchFold と同じ規則）。見える行の切り出し（windowOf）・新しい行の値（filterDefaults）を表の画面が使う）
+  const dbViewView = (() => {
+    const DM = dbModelView;
+    const searchFold = fold;
+    const FILTER_DEPTH = 3;          // 絞り込みのグループの入れ子（一番外のグループを 1 段と数える: V-T20）
+    const WIDTH_MIN = 80;
+    const WIDTH_MAX = 800;
+    const VIEW_NAME_MAX = 100;
+    const FILTER_TEXT_MAX = 200;
+    const DAYS_MAX = 3650;
+    const VIEW_KEYS = ['id', 'name', 'layout', 'props', 'sort', 'filter', 'group', 'agg'];
+    const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+    const collator = new Intl.Collator('ja');
+
+    const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+    const isEmpty = (v) => v === null || v === undefined || (Array.isArray(v) && v.length === 0);
+    const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+    // ---------------------------------------------------------------- 日（その PC の時刻）
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const dayOfDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    function addDays(day, n) {
+      const [y, m, d] = day.split('-').map(Number);
+      return dayOfDate(new Date(y, m - 1, d + n, 12));
+    }
+    function realDay(s) {
+      if (typeof s !== 'string' || !DAY_RE.test(s)) return false;
+      return addDays(s, 0) === s;
+    }
+    const daysBetween = (a, b) => {
+      const [y1, m1, d1] = a.split('-').map(Number); const [y2, m2, d2] = b.split('-').map(Number);
+      return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+    };
+    // 日付の値か作成日時・最終更新日時の値 → { start, end, time? }（日は YYYY-MM-DD）か null
+    function spanOf(col, v) {
+      if (isEmpty(v)) return null;
+      if (col.type === 'ctime' || col.type === 'mtime') {
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) return null;
+        const day = dayOfDate(d);
+        return { start: day, end: day, time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}` };
+      }
+      if (!isObj(v) || typeof v.start !== 'string') return null;
+      return { start: v.start, end: typeof v.end === 'string' ? v.end : v.start, time: v.time || '' };
+    }
+
+    // ---------------------------------------------------------------- 絞り込みの条件（決めたこと 18）
+    const TEXT_OPS = ['contains', 'notContains', 'is', 'startsWith', 'endsWith', 'empty', 'notEmpty'];
+    const NUM_OPS = ['eq', 'ne', 'gt', 'lt', 'ge', 'le', 'empty'];
+    const DATE_OPS = ['before', 'after', 'on', 'between', 'today', 'pastDays', 'nextDays', 'empty'];
+    const FILTER_OPS = Object.freeze({
+      title: TEXT_OPS, text: TEXT_OPS, person: TEXT_OPS, url: TEXT_OPS, email: TEXT_OPS, phone: TEXT_OPS,
+      number: NUM_OPS, no: NUM_OPS,
+      select: ['any', 'none', 'empty'], status: ['any', 'none', 'empty'], cby: ['any', 'none'], mby: ['any', 'none'],
+      multi: ['anyOf', 'allOf', 'empty'],
+      date: DATE_OPS, ctime: DATE_OPS, mtime: DATE_OPS,
+      check: ['yes', 'no'],
+      rel: ['contains', 'empty'],
+    });
+    const NO_VALUE = ['empty', 'notEmpty', 'today', 'yes', 'no'];
+    const filterText = (v) => typeof v === 'string' && v !== '' && v.length <= FILTER_TEXT_MAX && !/[\u0000-\u001f]/.test(v);
+    // 条件の値の形がよいか
+    function condValueOk(col, cmp, v) {
+      if (NO_VALUE.includes(cmp)) return v === undefined;
+      const t = col.type;
+      if (FILTER_OPS[t] === TEXT_OPS) return filterText(v) && searchFold(v) !== '';   // 寄せると空になる語（記号だけ）は全部に当たるので落とす（DS-1 直し F4）
+      if (FILTER_OPS[t] === NUM_OPS) return typeof v === 'number' && Number.isFinite(v);
+      if (FILTER_OPS[t] === DATE_OPS) {
+        if (cmp === 'between') return isObj(v) && realDay(v.from) && realDay(v.to) && v.from <= v.to && Object.keys(v).length === 2;
+        if (cmp === 'pastDays' || cmp === 'nextDays') return Number.isInteger(v) && v >= 1 && v <= DAYS_MAX;
+        return realDay(v);
+      }
+      if (t === 'rel') return typeof v === 'string' && ID_RE.test(v);
+      if (t === 'cby' || t === 'mby') return Array.isArray(v) && v.length > 0 && v.every((x) => DM.WHO.includes(x)) && new Set(v).size === v.length;
+      // 選択肢の種類: 今ある選択肢の ID の並び
+      return Array.isArray(v) && v.length > 0 && v.length <= 200 && new Set(v).size === v.length &&
+        v.every((id) => (col.opts || []).some((o) => o.id === id));
+    }
+    // 列の値の文字（テキストの条件と検索のため）
+    function textValue(col, v) {
+      if (isEmpty(v)) return '';
+      if (Array.isArray(v)) return v.join(', ');
+      return typeof v === 'string' ? v : String(v);
+    }
+    // memo（applyView の1回の中だけ）: 行と列ごとの寄せた文字（同じ行の同じ列を何度も寄せない: DS-1 直し F10）
+    function foldedText(col, row, v, memo) {
+      if (!memo) return searchFold(textValue(col, v));
+      const k = `${row.id}\u0000${col.id}`;
+      let s = memo.get(k);
+      if (s === undefined) { s = searchFold(textValue(col, v)); memo.set(k, s); }
+      return s;
+    }
+    function matchCond(c, row, byId, now, memo) {
+      const col = byId.get(c.col);
+      if (!col || !isObj(c) || !(FILTER_OPS[col.type] || []).includes(c.cmp)) return true;   // 無い列・消した列・知らない条件は無いのと同じ
+      const v = DM.cellValue(row, col);
+      const empty = isEmpty(v);
+      if (c.cmp === 'empty') return col.type === 'check' ? v !== true : empty;
+      if (c.cmp === 'notEmpty') return !empty;
+      switch (col.type) {
+        case 'title': case 'text': case 'person': case 'url': case 'email': case 'phone': {
+          const s = foldedText(col, row, v, memo); const w = searchFold(c.value);
+          if (c.cmp === 'contains') return s.includes(w);
+          if (c.cmp === 'notContains') return !s.includes(w);
+          if (c.cmp === 'is') return s === w;
+          if (c.cmp === 'startsWith') return s.startsWith(w);
+          return s.endsWith(w);
+        }
+        case 'number': case 'no': {
+          if (empty) return c.cmp === 'ne';
+          const x = c.value;
+          return { eq: v === x, ne: v !== x, gt: v > x, lt: v < x, ge: v >= x, le: v <= x }[c.cmp];
+        }
+        case 'select': case 'status': case 'cby': case 'mby': {
+          const hit = !empty && c.value.includes(v);
+          return c.cmp === 'any' ? hit : !hit;
+        }
+        case 'multi': {
+          const have = Array.isArray(v) ? v : [];
+          return c.cmp === 'anyOf' ? c.value.some((id) => have.includes(id)) : c.value.every((id) => have.includes(id));
+        }
+        case 'check': return c.cmp === 'yes' ? v === true : v !== true;
+        case 'rel': return Array.isArray(v) && v.includes(c.value);
+        default: {   // 日付・作成日時・最終更新日時
+          const s = spanOf(col, v);
+          if (!s) return false;
+          const today = dayOfDate(new Date(now));
+          switch (c.cmp) {
+            case 'before': return s.start < c.value;
+            case 'after': return s.end > c.value;
+            case 'on': return s.start <= c.value && c.value <= s.end;
+            case 'between': return c.value.from <= s.start && s.start <= c.value.to;
+            case 'today': return s.start <= today && today <= s.end;
+            case 'pastDays': return addDays(today, -(c.value - 1)) <= s.start && s.start <= today;
+            case 'nextDays': return today <= s.start && s.start <= addDays(today, c.value - 1);
+            default: return true;
+          }
+        }
+      }
+    }
+    function matchTree(tree, row, byId, now, memo) {
+      if (!isObj(tree)) return true;
+      if (!Array.isArray(tree.items)) return matchCond(tree, row, byId, now, memo);
+      const items = tree.items;
+      if (items.length === 0) return true;
+      const one = (it) => matchTree(it, row, byId, now, memo);
+      return tree.op === 'or' ? items.some(one) : items.every(one);
+    }
+    const liveCols = (cols) => (Array.isArray(cols) ? cols.filter((c) => c && !c.gone && Object.hasOwn(DM.COLS, c.type)) : []);
+    const colMap = (cols) => new Map(liveCols(cols).map((c) => [c.id, c]));
+    // 行が絞り込みに当たるか（tree が無ければ通る。now が無ければ今の時刻: DS-1 直し F12）
+    function matchFilter(tree, row, cols, now) {
+      return matchTree(tree, row, colMap(cols), Number.isFinite(now) ? now : Date.now());
+    }
+
+    // ---------------------------------------------------------------- 並べ替え（決めたこと 17）
+    const optIndex = (col, id) => { const i = (col.opts || []).findIndex((o) => o.id === id); return i < 0 ? (col.opts || []).length : i; };
+    function cmpPlain(col, a, b) {
+      switch (col.type) {
+        case 'number': case 'no': return a < b ? -1 : a > b ? 1 : 0;
+        case 'select': case 'status': return optIndex(col, a) - optIndex(col, b);
+        case 'multi': {
+          const x = a.map((id) => optIndex(col, id)); const y = b.map((id) => optIndex(col, id));
+          for (let i = 0; i < Math.min(x.length, y.length); i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+          return x.length - y.length;
+        }
+        case 'date': { const x = `${a.start} ${a.time || ''}`; const y = `${b.start} ${b.time || ''}`; return x < y ? -1 : x > y ? 1 : 0; }
+        case 'ctime': case 'mtime': return a < b ? -1 : a > b ? 1 : 0;
+        case 'cby': case 'mby': return DM.WHO.indexOf(a) - DM.WHO.indexOf(b);
+        case 'rel': return a.length - b.length;
+        default: return collator.compare(textValue(col, a), textValue(col, b));
+      }
+    }
+    // 2つの値の並び（-1・0・1）。空はいつも最後（昇順でも降順でも）。チェックは偽（空）が先
+    function compareCells(col, a, b, dir = 'asc') {
+      const s = dir === 'desc' ? -1 : 1;
+      if (col.type === 'check') return s * ((a === true ? 1 : 0) - (b === true ? 1 : 0));
+      const ea = isEmpty(a); const eb = isEmpty(b);
+      if (ea || eb) return ea && eb ? 0 : ea ? 1 : -1;
+      return Math.sign(s * cmpPlain(col, a, b));
+    }
+    const byOrd = (x, y) => (x.ord < y.ord ? -1 : x.ord > y.ord ? 1 : x.createdAt < y.createdAt ? -1 : x.createdAt > y.createdAt ? 1 : x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+
+    // ---------------------------------------------------------------- 集計（決めたこと 21）
+    const COMMON_AGG = ['count', 'values', 'unique', 'empty', 'filled', 'emptyPct', 'filledPct'];
+    function AGG_KINDS(col) {
+      if (!col) return [];
+      if (col.type === 'number' || col.type === 'no') return [...COMMON_AGG, 'sum', 'avg', 'median', 'min', 'max', 'range'];
+      if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') return [...COMMON_AGG, 'earliest', 'latest', 'range'];
+      if (col.type === 'check') return ['count', 'checked', 'unchecked', 'checkedPct', 'uncheckedPct'];
+      return COMMON_AGG;
+    }
+    const pct = (n, d) => (d === 0 ? 0 : (n / d) * 100);
+    // 列の値の並び → 集計の値（数か日の文字。数えるものが無ければ null）
+    function aggregate(col, values, kind) {
+      const all = Array.isArray(values) ? values : [];
+      const filled = all.filter((v) => !isEmpty(v));
+      switch (kind) {
+        case 'count': return all.length;
+        case 'values': return filled.reduce((n, v) => n + (Array.isArray(v) ? v.length : 1), 0);
+        case 'empty': return all.length - filled.length;
+        case 'filled': return filled.length;
+        case 'emptyPct': return pct(all.length - filled.length, all.length);
+        case 'filledPct': return pct(filled.length, all.length);
+        case 'unique': return new Set(filled.flatMap((v) => (Array.isArray(v) ? v : [JSON.stringify(v)]))).size;
+        case 'checked': return all.filter((v) => v === true).length;
+        case 'unchecked': return all.filter((v) => v !== true).length;
+        case 'checkedPct': return pct(all.filter((v) => v === true).length, all.length);
+        case 'uncheckedPct': return pct(all.filter((v) => v !== true).length, all.length);
+        default: break;
+      }
+      if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') {
+        const spans = filled.map((v) => spanOf(col, v)).filter(Boolean);
+        if (!spans.length) return null;
+        const first = spans.reduce((m, s) => (s.start < m ? s.start : m), spans[0].start);
+        const last = spans.reduce((m, s) => (s.end > m ? s.end : m), spans[0].end);
+        if (kind === 'earliest') return first;
+        if (kind === 'latest') return last;
+        if (kind === 'range') return daysBetween(first, last);
+        return null;
+      }
+      const nums = filled.filter((v) => typeof v === 'number').sort((a, b) => a - b);
+      if (!nums.length) return kind === 'sum' ? 0 : null;
+      switch (kind) {
+        case 'sum': return nums.reduce((a, b) => a + b, 0);
+        case 'avg': return nums.reduce((a, b) => a + b, 0) / nums.length;
+        case 'median': { const m = nums.length >> 1; return nums.length % 2 ? nums[m] : (nums[m - 1] + nums[m]) / 2; }
+        case 'min': return nums[0];
+        case 'max': return nums[nums.length - 1];
+        case 'range': return nums[nums.length - 1] - nums[0];
+        default: return null;
+      }
+    }
+
+    // ---------------------------------------------------------------- グループ（決めたこと 19）
+    const GROUP_BY = Object.freeze({ status: ['group', 'option'], date: ['day', 'week', 'month', 'year'], ctime: ['day', 'week', 'month', 'year'], mtime: ['day', 'week', 'month', 'year'] });
+    const GROUP_TYPES = Object.freeze(['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'ctime', 'mtime', 'cby', 'mby', 'no']);
+    const STATUS_GROUPS = ['todo', 'doing', 'done'];
+    function dateKey(by, day) {
+      if (by === 'year') return day.slice(0, 4);
+      if (by === 'month') return day.slice(0, 7);
+      if (by === 'week') {
+        const [y, m, d] = day.split('-').map(Number);
+        const wd = (new Date(y, m - 1, d, 12).getDay() + 6) % 7;   // 月曜を週の頭に
+        return addDays(day, -wd);
+      }
+      return day;
+    }
+    // 行の値 → グループの鍵の並び（空は ['']）
+    function groupKeys(col, g, v) {
+      if (col.type === 'check') return [v === true ? 'true' : 'false'];
+      if (col.type === 'status' && (g.by || 'group') === 'group') {
+        const gs = col.groups || {};
+        if (isEmpty(v)) return ['todo'];
+        return [STATUS_GROUPS.find((k) => (gs[k] || []).includes(v)) || 'todo'];
+      }
+      if (isEmpty(v)) return [''];
+      if (col.type === 'multi' || col.type === 'person') return [...new Set(v)];
+      if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') { const s = spanOf(col, v); return s ? [dateKey(g.by || 'month', s.start)] : ['']; }
+      return [String(v)];
+    }
+    // 鍵の自然な並び（選択肢の並び・値の昇順。空は最後）と、行が無くても出す鍵
+    function naturalKeys(col, g, seen) {
+      if (col.type === 'check') return ['false', 'true'];
+      if (col.type === 'status' && (g.by || 'group') === 'group') return [...STATUS_GROUPS];
+      if (col.type === 'select' || col.type === 'multi' || col.type === 'status') return [...(col.opts || []).map((o) => o.id), ''];
+      const keys = [...seen].filter((k) => k !== '');
+      if (col.type === 'number' || col.type === 'no') keys.sort((a, b) => Number(a) - Number(b));
+      else if (col.type === 'cby' || col.type === 'mby') keys.sort((a, b) => DM.WHO.indexOf(a) - DM.WHO.indexOf(b));
+      else if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') keys.sort();
+      else keys.sort(collator.compare);
+      if (seen.has('')) keys.push('');
+      return keys;
+    }
+
+    // ---------------------------------------------------------------- ビュー（決めたこと 15）
+    function defaultView(id, layout, cols, name) {
+      const lay = layout === 'list' ? 'list' : 'table';
+      return {
+        id, name: typeof name === 'string' && name ? name : (lay === 'list' ? 'リスト' : '表'), layout: lay,
+        props: liveCols(cols).map((c) => ({ col: c.id, show: lay === 'table' || c.type === 'title', wrap: false })),
+        sort: [], filter: null, group: null, agg: {},
+      };
+    }
+    const nameOk = (s) => typeof s === 'string' && s.trim() !== '' && s === s.trim() && s.length <= VIEW_NAME_MAX && !/[\u0000-\u001f]/.test(s);
+    // 絞り込みのグループを照らす（depth は今のグループの段）→ 照らしたグループ | null（中身が無い）
+    function normGroup(g, byId, depth, bad) {
+      if (!isObj(g) || (g.op !== 'and' && g.op !== 'or') || !Array.isArray(g.items) || Object.keys(g).some((k) => k !== 'op' && k !== 'items')) { bad(); return null; }
+      const items = [];
+      for (const it of g.items) {
+        if (isObj(it) && Array.isArray(it.items)) {
+          if (depth + 1 > FILTER_DEPTH) { bad(); continue; }
+          const sub = normGroup(it, byId, depth + 1, bad);
+          if (sub) items.push(sub);
+          continue;
+        }
+        const col = isObj(it) ? byId.get(it.col) : null;
+        const keysOk = isObj(it) && Object.keys(it).every((k) => k === 'col' || k === 'cmp' || k === 'value');
+        if (!col || !keysOk || !(FILTER_OPS[col.type] || []).includes(it.cmp) || !condValueOk(col, it.cmp, it.value)) { bad(); continue; }
+        items.push(it.value === undefined ? { col: it.col, cmp: it.cmp } : { col: it.col, cmp: it.cmp, value: it.value });
+      }
+      return items.length ? { op: g.op, items } : null;
+    }
+    function normGroupBy(g, byId, bad) {
+      const col = isObj(g) ? byId.get(g.col) : null;
+      if (!col || !GROUP_TYPES.includes(col.type)) { bad(); return null; }
+      const out = { col: g.col };
+      // 隠す・手で並べるグループの鍵（グループの鍵はテキストの値そのままなので、セルと同じ長さまで。悪い鍵と重なりだけを落とす: DS-1 直し F1）
+      const keysOf = (a) => {
+        const keep = [];
+        for (const x of a.slice(0, 1000)) { if (typeof x === 'string' && x.length <= DM.MAX.text && !keep.includes(x)) keep.push(x); else bad(); }
+        if (a.length > 1000) bad();
+        return keep;
+      };
+      for (const k of Object.keys(g)) {
+        if (k === 'col') continue;
+        if (k === 'by' && (GROUP_BY[col.type] || []).includes(g.by)) out.by = g.by;
+        else if ((k === 'hide' || k === 'order') && Array.isArray(g[k])) { const keep = keysOf(g[k]); if (keep.length) out[k] = keep; }
+        else if (k === 'hideEmpty' && typeof g.hideEmpty === 'boolean') { if (g.hideEmpty) out.hideEmpty = true; }
+        else bad();
+      }
+      return out;
+    }
+    // ビューを照らす → { view, repaired（落とした・既定に戻した項目の名前） }。壊れた項目だけを直し、ほかの設定は残す（試作の項目ごとの照らし）
+    function normalizeView(v, cols) {
+      const repaired = [];
+      const mark = (k) => () => { if (!repaired.includes(k)) repaired.push(k); };
+      const src = isObj(v) ? v : (mark('view')(), {});
+      for (const k of Object.keys(src)) if (!VIEW_KEYS.includes(k)) mark(k)();
+      const byId = colMap(cols);
+      const layout = src.layout === 'table' || src.layout === 'list' ? src.layout : (mark('layout')(), 'table');
+      const id = typeof src.id === 'string' && ID_RE.test(src.id) ? src.id : (mark('id')(), 'v1');
+      const out = defaultView(id, layout, cols);
+      if (nameOk(src.name)) out.name = src.name; else mark('name')();
+      // 列の表示・幅・折り返し（無い列・消した列・重なりは落とす。ビューに無い列は後ろに足す）
+      if (src.props !== undefined) {
+        if (!Array.isArray(src.props)) mark('props')();
+        else {
+          const props = [];
+          const bad = mark('props');
+          for (const p of src.props) {
+            const col = isObj(p) ? byId.get(p.col) : null;
+            if (!col || props.some((x) => x.col === p.col)) { bad(); continue; }
+            const one = { col: p.col, show: true, wrap: false };
+            if (p.show !== undefined) { if (typeof p.show === 'boolean') one.show = p.show; else bad(); }
+            if (col.type === 'title' && !one.show) { one.show = true; bad(); }
+            if (p.width !== undefined) { if (Number.isInteger(p.width) && p.width >= WIDTH_MIN && p.width <= WIDTH_MAX) one.width = p.width; else bad(); }
+            if (p.wrap !== undefined) { if (typeof p.wrap === 'boolean') one.wrap = p.wrap; else bad(); }
+            if (Object.keys(p).some((k) => !['col', 'show', 'width', 'wrap'].includes(k))) bad();
+            props.push(one);
+          }
+          for (const d of out.props) if (!props.some((x) => x.col === d.col)) props.push(d);
+          out.props = props;
+        }
+      }
+      if (src.sort !== undefined) {
+        const bad = mark('sort');
+        if (!Array.isArray(src.sort)) bad();
+        else {
+          for (const s of src.sort) {
+            if (!isObj(s) || !byId.has(s.col) || (s.dir !== 'asc' && s.dir !== 'desc') || Object.keys(s).length !== 2 || out.sort.some((x) => x.col === s.col)) { bad(); continue; }
+            out.sort.push({ col: s.col, dir: s.dir });
+          }
+        }
+      }
+      if (src.filter !== undefined && src.filter !== null) out.filter = normGroup(src.filter, byId, 1, mark('filter'));
+      if (src.group !== undefined && src.group !== null) out.group = normGroupBy(src.group, byId, mark('group'));
+      if (src.agg !== undefined) {
+        const bad = mark('agg');
+        if (!isObj(src.agg)) bad();
+        else {
+          for (const [k, kind] of Object.entries(src.agg)) {
+            if (!byId.has(k) || !AGG_KINDS(byId.get(k)).includes(kind)) { bad(); continue; }
+            out.agg[k] = kind;
+          }
+        }
+      }
+      return { view: out, repaired };
+    }
+
+    // ---------------------------------------------------------------- ビューを当てる（決めたこと 30）
+    // rows（ゴミ箱でない行）→ { order: [{ id, depth, hasKids, g? }], groups: [{ key, count, hidden? }] | null, agg, total }
+    function applyView(rows, view, cols, opts = {}) {
+      const byId = colMap(cols);
+      const live = liveCols(cols);
+      const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+      const memo = new Map();
+      let list = (Array.isArray(rows) ? rows : []).filter((r) => matchTree(view && view.filter, r, byId, now, memo));
+      const q = typeof opts.q === 'string' ? searchFold(opts.q) : '';
+      // 欄ごとに寄せて \u0001 でつなぐ（欄をまたいで当たらない: DS-1 直し F3。行の検索の欄 fold と同じ形）
+      if (q) list = list.filter((r) => [r.title || '', ...DM.foldCells(live, r.cells).split('\n')].map(searchFold).join('\u0001').includes(q));
+      // 並べ替え（重ねた列の順。同じなら並びの鍵）。並べ替えの無いビューは並びの鍵の順（手で並べる: 決めたこと 17）
+      const sorts = (view && Array.isArray(view.sort) ? view.sort : []).map((s) => ({ col: byId.get(s.col), dir: s.dir })).filter((s) => s.col);
+      if (sorts.length) {
+        const keyed = list.map((r) => ({ r, k: sorts.map((s) => DM.cellValue(r, s.col)) }));
+        keyed.sort((x, y) => {
+          for (let i = 0; i < sorts.length; i += 1) {
+            const c = compareCells(sorts[i].col, x.k[i], y.k[i], sorts[i].dir);
+            if (c) return c;
+          }
+          return byOrd(x.r, y.r);
+        });
+        list = keyed.map((x) => x.r);
+      } else {
+        list = [...list].sort(byOrd);
+      }
+      // 集計は絞り込んだ後の行で数える
+      const agg = {};
+      for (const [k, kind] of Object.entries((view && view.agg) || {})) {
+        const col = byId.get(k);
+        if (col) agg[k] = aggregate(col, list.map((r) => DM.cellValue(r, col)), kind);
+      }
+      const g = view && view.group;
+      const gcol = g ? byId.get(g.col) : null;
+      // total は絞り込んだ行の数、shown は並べる行の数（グループでは1つの行がいくつものグループに出る・隠したグループの行は出ない。窓は shown で切る: DS-1 直し F2）
+      if (!gcol) return { order: list.map((r) => ({ id: r.id, depth: 0, hasKids: false })), groups: null, agg, total: list.length, shown: list.length };
+      // グループ: 鍵ごとに行を分ける（複数選択とユーザーは、どの値のグループにも行が出る）
+      const members = new Map();
+      for (const r of list) {
+        for (const k of groupKeys(gcol, g, DM.cellValue(r, gcol))) {
+          if (!members.has(k)) members.set(k, []);
+          members.get(k).push(r);
+        }
+      }
+      const natural = naturalKeys(gcol, g, new Set(members.keys()));
+      for (const k of members.keys()) if (!natural.includes(k)) natural.push(k);
+      const manual = Array.isArray(g.order) ? g.order.filter((k) => natural.includes(k)) : [];
+      const keys = [...manual, ...natural.filter((k) => !manual.includes(k))];
+      const hide = new Set(Array.isArray(g.hide) ? g.hide : []);
+      const groups = [];
+      const order = [];
+      for (const key of keys) {
+        const rs = members.get(key) || [];
+        if (g.hideEmpty && rs.length === 0) continue;
+        const at = groups.length;
+        if (hide.has(key)) { groups.push({ key, count: rs.length, hidden: true }); continue; }   // 隠したグループは数だけ（目のアイコン）
+        groups.push({ key, count: rs.length });
+        for (const r of rs) order.push({ id: r.id, depth: 0, hasKids: false, g: at });
+      }
+      return { order, groups, agg, total: list.length, shown: order.length };
+    }
+
+    // ---------------------------------------------------------------- 新しい行の値（0.16.0 DS-3。決めたこと 24・52）
+    // 絞り込みのあるビューで行を足す（［＋ 新しい行］・貼り付けで足りない行）とき、足した行がすぐ見えなくならないように、絞り込みの一番外の
+    // グループが「かつ」（か条件が1つだけ）なら、その中の条件の「等しい」「どれか」「どれかを含む」「全部を含む」「はい」の値を入れる → { <列の ID>: 値 }。
+    // 「または」・入れ子のグループ・ほかの条件・書けない列は見ない（どの値が見える行になるか1つに決まらない）
+    function filterDefaults(view, cols) {
+      const f = isObj(view) ? view.filter : null;
+      if (!isObj(f) || !Array.isArray(f.items) || (f.op !== 'and' && f.items.length !== 1)) return {};
+      const byId = colMap(cols);
+      const out = {};
+      for (const it of f.items) {
+        const col = isObj(it) && !Array.isArray(it.items) ? byId.get(it.col) : null;
+        if (!col || col.type === 'title' || Object.hasOwn(out, col.id)) continue;
+        let v;
+        if (it.cmp === 'is' && ['text', 'url', 'email', 'phone'].includes(col.type)) v = it.value;
+        else if (it.cmp === 'is' && col.type === 'person') v = [it.value];
+        else if (it.cmp === 'eq' && col.type === 'number') v = it.value;
+        else if (it.cmp === 'any' && (col.type === 'select' || col.type === 'status') && Array.isArray(it.value)) v = it.value[0];
+        else if (it.cmp === 'anyOf' && col.type === 'multi' && Array.isArray(it.value)) v = it.value.slice(0, 1);
+        else if (it.cmp === 'allOf' && col.type === 'multi') v = it.value;
+        else if (it.cmp === 'yes' && col.type === 'check') v = true;
+        else continue;
+        try { const x = DM.cellOf(col, v); if (x !== null) out[col.id] = x; } catch (_) { /* 列に合わない値は入れない */ }
+      }
+      return out;
+    }
+
+    // ---------------------------------------------------------------- 見える行の切り出し（決めたこと 32）
+    // heights（Map か配列: 行の番号 → 読んだ高さ）・defaultHeight（まだ読んでいない行）・total（行の数）
+    // → { from, count, before（from より上の行の高さの和）, after（from + count から下の和） }
+    function windowOf(opts = {}) {
+      const { scrollTop = 0, viewHeight = 0, heights, defaultHeight = 32, pad = 50 } = opts;
+      const n = Math.max(0, Math.floor(Number(opts.total) || 0));   // 行の数（画面の写しで名前 total を宣言しない: tools/risk.js の数の名前の照らし）
+      if (n === 0) return { from: 0, count: 0, before: 0, after: 0 };
+      const hOf = (i) => {
+        const h = heights && (typeof heights.get === 'function' ? heights.get(i) : heights[i]);
+        return Number.isFinite(h) && h > 0 ? h : defaultHeight;
+      };
+      const tops = new Float64Array(n + 1);
+      for (let i = 0; i < n; i += 1) tops[i + 1] = tops[i] + hOf(i);
+      let first = -1;
+      for (let i = 0; i < n; i += 1) if (tops[i + 1] > scrollTop) { first = i; break; }
+      if (first < 0) first = n - 1;
+      let last = first + 1;
+      while (last < n && tops[last] < scrollTop + viewHeight) last += 1;
+      const from = Math.max(0, first - pad);
+      const end = Math.min(n, last + pad);
+      return { from, count: end - from, before: tops[from], after: tops[n] - tops[end] };
+    }
+    return { FILTER_OPS, FILTER_DEPTH, GROUP_TYPES, AGG_KINDS, defaultView, normalizeView, matchFilter, compareCells, aggregate, applyView, filterDefaults, windowOf };
+  })();
+  // ---- dbView の写しはここまで
   // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
   function rowTitle(p) {
     // PH-6・PH-7 直し（2026-11-04 の持ち主の答え「日付だけにする」・F116）: 白紙のページは日付だけ（長さ・要約なし・種類は会議の欄）
@@ -4813,11 +5824,15 @@
     // （会議の種類の行・プロパティ・［AI 要約］［メモ］［文字起こし］のタブ・［要約を生成］を出さない）
     const blank = isBlankPage(curPage);
     $('pageWrap').classList.toggle('blank', blank);
+    // 0.16.0 DV-1（決めたこと 1・50）: データベースのページは頭（アイコンと題名）と表だけ（会議の種類の行・プロパティ・3つのタブ・［要約を生成］を出さない）
+    const dbp = isDbPage(curPage);
+    $('pageWrap').classList.toggle('db', dbp);
     $('pIcon').textContent = pageEmoji(curPage);
     applyLook(curPage);   // 0.15.0 PL-3（決めたこと 41）: ページを替えたら前のページの見た目を外す
     syncIconBtn();
-    if (blank) $('pTitle').setAttribute('data-ph', blankUntitled()); else $('pTitle').removeAttribute('data-ph');
+    if (blank) $('pTitle').setAttribute('data-ph', blankUntitled()); else if (dbp) $('pTitle').setAttribute('data-ph', dbUntitled()); else $('pTitle').removeAttribute('data-ph');
     if (!curPage) {
+      dbShow(null);
       $('pTitle').textContent = '';
       $('pProps').textContent = '';
       $('pMore').hidden = true;
@@ -4835,6 +5850,7 @@
       return;
     }
     $('pTypeRow').style.display = blank ? 'none' : '';
+    if (dbp) $('pTypeRow').style.display = 'none';   // 0.16.0 DV-1: データベースのページにも会議の種類の行は無い
     $('pTypeLiveHint').hidden = true;
     $('pMore').hidden = false;
     $('pTitle').textContent = curPage.title;
@@ -4863,7 +5879,7 @@
     // 生成中は押せない。生成の途中で page:updated が来て描き直されても、
     // summarizing に入っている間は押せないままにする（main 側は同じページの
     // 二重起動を同じ Promise で返すが、画面側でも二重に押させない）。
-    const sumBtn = blank ? null : mk(curPage.blocks.length ? '要約を再生成' : '要約を生成', async () => {
+    const sumBtn = blank || dbp ? null : mk(curPage.blocks.length ? '要約を再生成' : '要約を生成', async () => {
       const pid = curId;
       if (summarizing.has(pid)) return;
       // 0.13.0 ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるときだけ、作り直す前に確かめる（作り直すと書き直した所は元に戻る）
@@ -4883,7 +5899,7 @@
     if (sumBtn && summarizing.has(curId)) { sumBtn.disabled = true; sumBtn.textContent = '生成中…'; }
     // コピーは、いま開いているタブの中身を写す。議事録タブなら議事録、
     // 文字起こしタブなら文字起こし、メモタブならメモ。
-    mk('コピー', async () => {
+    if (!dbp) mk('コピー', async () => {   // 0.16.0 DV-1: データベースのページは写す本文が無い
       let text = ''; let what = '';
       if (pane === 'script') {
         // 空にした行（実質の削除）は写さない
@@ -4928,10 +5944,11 @@
     renderBlocks();
     renderScript();
     renderMemo();
-    setPane(blank ? 'note' : pane);   // 0.15.0 PH-4: 白紙のページは本文（要約の欄）だけ
+    setPane(blank || dbp ? 'note' : pane);   // 0.15.0 PH-4: 白紙のページは本文（要約の欄）だけ
     renderCrumb();
     syncNoPage();
-    if (!blank) refreshPending();   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
+    if (!blank && !dbp) refreshPending();
+    dbShow(dbp ? curId : null);   // 0.16.0 DV-1: データベースの表（同じデータベースなら読み直し、同じ印なら描き直さない）   // 0.13.2 LN-5: 保存したページの文字起こし待ちの残り（main が数える）
   }
   // ページを消す（「···」の［削除］とサイドバーの行のメニューの［削除］。0.15.0 PH-3 で1つの関数にした）
   // 0.15.0 PH-6（決めたこと 30・32・F121）: 確かめの文。子があれば中のページの数（ゴミ箱に入っていない子孫）・子の無い白紙のページはその文・子の無い議事録は今の文
@@ -8351,7 +9368,8 @@
   window.koeApp.onEditStep((s) => {
     if (!s || typeof s.step !== 'string' || typeof s.pageId !== 'string') return;
     if (s.cmd === 'edit.revert') { if (reverting && reverting.pid === s.pageId) reverting.tx = s.step; return; }
-    const key = s.cmd === 'page.setMemoDoc' ? memoKeyOf(s.pageId) : /^blocks?\./.test(String(s.cmd)) ? noteKey(s.pageId) : '';
+    const key = s.cmd === 'page.setMemoDoc' ? memoKeyOf(s.pageId) : /^blocks?\./.test(String(s.cmd)) ? noteKey(s.pageId)
+      : DB_STEP_RE.test(String(s.cmd)) ? dbStepKey(s.pageId) : '';   // 0.16.0 DV-1（決めたこと 47）: 表の命令はデータベースの歩み
     if (!key) return;
     if (stepBox && (stepBox.key === null || stepBox.key === key) && !stepBox.lit) { stepBox.key = key; stepBox.steps.push(s.step); return; }
     undoBk = bookPush(undoBk, key, [s.step]);
@@ -8490,6 +9508,661 @@
     el._txt.focus();
     setCaret(el._txt, m.mark.length);
     undoLit = { pid, id: m.id, mark: m.mark };
+  }
+  // ================= 0.16.0 DV-1: データベースのページ（表）=================
+  // 計画 docs/plans/2026-11-04-160.md の決めたこと 24〜32・47・51・R47〜。表は DB の読む命令 db.view の見える分（見えている行と上下 50 行）だけを描き、
+  // 捲るたびに足りない分を読む（1万行でも止めない: 決めたこと 30・32）。同じ印 sig の答えでは描き直さない。
+  // セルの見せる文字は dbModel の写しの fmtCell（画面と MCP で同じ: R8）。他人の文字（列の名前・セル・ビューの名前・題名）は textContent だけ（0.14.0 EB-6）。
+  // 表の操作は元に戻すの歩み（データベースの歩み bookKey(<データベースの ID>, 'db')）。ビューの設定は歩みにしない（決めたこと 47）
+  function isDbPage(p) { return Boolean(p && typeof p === 'object' && p.kind === 'database'); }
+  function dbUntitled() { return '無題のデータベース'; }   // 無題のデータベースの名前（題名は '' で持つ: R30）
+  const DB_ROW_H = 32;        // まだ測っていない行の高さ（px）
+  const DB_PAD = 50;          // 見える行の上下に置く行（決めたこと 32）
+  const DB_READ_MAX = 200;    // db.view の1回の行（src/db/commands.js の DB_VIEW_MAX と同じ）
+  const DB_SEL_MAX = 2000;    // 選んだ行の命令の上限（src/db/validate.js の LIMITS.blocks と同じ: R47）
+  const DB_EDIT_TYPES = ['title', 'text', 'url', 'email', 'phone'];   // DV-1 で書き手のある種類（ほかの種類の書き手は DV-2）
+  const DB_STEP_RE = /^(?:rows?|col|rel|db)\./;   // データベースの歩みの命令（ビューの命令は歩みにしない: 決めたこと 47）
+  const DB_ROWS_FULL = '1つのデータベースの行は 10,000 までです。';
+  const DB_AGG_LABEL = { count: '全件', values: '値のある件数', unique: '異なる値の数', empty: '空の数', filled: '空でない数', emptyPct: '空の割合', filledPct: '空でない割合',
+    sum: '合計', avg: '平均', median: '中央値', min: '最小', max: '最大', range: '範囲', earliest: '最も早い', latest: '最も遅い',
+    checked: 'チェック済み', unchecked: '未チェック', checkedPct: 'チェック済みの割合', uncheckedPct: '未チェックの割合' };
+  let dbSt = null;   // 開いているデータベースの表（窓のメモリ。ページを替えると捨てる）
+  const dbStepKey = (id) => bookKey(id, 'db');
+  function dbNew(id) {
+    return { id, info: null, viewId: '', total: 0, shown: -1, sig: '', rows: new Map(), known: new Map(), heights: new Map(), agg: {}, sel: null, checked: new Set(),
+      editing: null, dirty: false, seq: 0, drag: null, painted: null, menu: null };
+  }
+  function dbViewOf(st) { return st && st.info ? st.info.views.find((v) => v.id === st.viewId) || null : null; }
+  // 描く列（ビューの並びで出す列。消した列は出さない）
+  function dbColsOf(st) {
+    const v = dbViewOf(st);
+    if (!v) return [];
+    const byId = new Map(st.info.cols.filter((c) => !c.gone).map((c) => [c.id, c]));
+    return v.props.filter((p) => p.show && byId.has(p.col)).map((p) => ({ col: byId.get(p.col), width: Number.isFinite(p.width) ? p.width : (p.col === 'title' ? 280 : 180), wrap: p.wrap === true }));
+  }
+  const dbEditable = (col) => Boolean(col && DB_EDIT_TYPES.includes(col.type));
+  const dbWritable = (col) => Boolean(col && dbModelView.COLS[col.type] && dbModelView.COLS[col.type].writable && col.type !== 'rel');
+  const dbScroller = () => $('pDb') && $('pDb').querySelector('.dbscroll');
+  // 見える行の窓（行の高さは読んだ行の高さ。まだ知らない間は頭の DB_READ_MAX 行を見込む）
+  function dbWin(st) {
+    const sc = dbScroller();
+    const rowsN = st.shown < 0 ? DB_READ_MAX : st.shown;
+    return dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: DB_PAD, total: rowsN });
+  }
+  // データベースのページを開く（renderPage から）。同じデータベースなら表を読み直す（同じ印なら描き直さない）
+  function dbShow(id) {
+    const box = $('pDb');
+    box.hidden = !id;
+    if (!id) { dbSt = null; box.textContent = ''; return; }
+    if (dbSt && dbSt.id === id && dbSt.info) { dbPaint(); dbLoad(true); return; }
+    dbOpen(id);
+  }
+  async function dbOpen(id) {
+    const st = dbNew(id);
+    dbSt = st;
+    let info = null;
+    try { info = await window.koeApp.dbGet(id); } catch (_) { info = null; }
+    if (dbSt !== st) return;
+    st.info = info && Array.isArray(info.views) && info.views.length ? info : null;
+    st.viewId = st.info ? st.info.views[0].id : '';
+    dbPaint();
+    await dbLoad(false);
+  }
+  // 窓の行を読む（force: 印が変わったかを見るために読み直す）。読んだ分の印が変わっていれば、覚えた行を捨てて読み直す
+  async function dbLoad(force) {
+    const st = dbSt;
+    if (!st || !dbViewOf(st)) return;
+    const seq = ++st.seq;
+    let fresh = false;
+    let check = force;
+    for (let pass = 0; pass < 4; pass += 1) {
+      const unknown = st.shown < 0;
+      const w = dbWin(st);
+      const want = [];
+      for (let i = w.from; i < w.from + w.count; i += 1) if (check || !st.rows.has(i)) want.push(i);
+      if (!want.length && (st.shown < 0 || check)) want.push(w.from);   // 行が無くても印を読む（ほかの所で行が戻ったら描く）
+      if (!want.length) break;
+      let restart = false;
+      // 続いた番号ごとに DB_READ_MAX 行ずつ（印を見るだけなら初めの1回）
+      for (let k = 0; k < want.length && !restart;) {
+        let j = k;
+        while (j + 1 < want.length && want[j + 1] === want[j] + 1 && j + 1 - k < DB_READ_MAX) j += 1;
+        const from = want[k];
+        const count = j - k + 1;
+        k = j + 1;
+        let r;
+        try { r = await window.koeApp.dbView(st.id, st.viewId, from, count); } catch (_) { r = null; }
+        if (dbSt !== st || st.seq !== seq) return;
+        if (!r) { st.shown = 0; st.rows.clear(); fresh = true; restart = false; k = want.length; break; }
+        if (r.sig !== st.sig) {
+          const had = st.sig !== '';
+          st.sig = r.sig; st.total = r.total; st.shown = r.shown; st.agg = r.agg || {};
+          st.rows.clear();
+          fresh = true;
+          if (check) { check = false; restart = true; }
+          if (had && await dbInfoAgain(st, seq)) { restart = true; break; }   // 列とビューが変わった: 骨組みから描き直して窓を読み直す
+          if (dbSt !== st || st.seq !== seq) return;
+        }
+        r.rows.forEach((row, n) => {
+          if (!st.rows.has(from + n)) fresh = true;
+          st.rows.set(from + n, row);
+          st.known.set(row.id, row);
+        });
+        if (check) { check = false; restart = true; break; }   // 印が同じ: 覚えた行のまま（描き直さない）
+      }
+      if (!restart && !(unknown && st.shown >= 0)) break;   // 初めて行の数を知ったら、その数の窓でもう一度
+    }
+    if (fresh || !st.painted) dbPaintRows();
+  }
+  // 印が変わったときに列とビューを読み直す（ほかの所・ほかの窓で変わった）。変わっていれば骨組みを描き直して真
+  const dbInfoKey = (info) => JSON.stringify(info ? [info.title, info.cols, info.views, info.sub || null] : null);
+  async function dbInfoAgain(st, seq) {
+    let info = null;
+    try { info = await window.koeApp.dbGet(st.id); } catch (_) { info = null; }
+    if (dbSt !== st || st.seq !== seq || !info || !Array.isArray(info.views) || !info.views.length || dbInfoKey(info) === dbInfoKey(st.info)) return false;
+    st.info = info;
+    if (!dbViewOf(st)) st.viewId = info.views[0].id;
+    dbPaint();
+    return true;
+  }
+  // 表の骨組み（ビューのタブ・選んだ行の帯・見出し・表・下の集計・［＋ 新しい行］）
+  function dbPaint() {
+    const st = dbSt;
+    const box = $('pDb');
+    box.textContent = '';
+    if (!st || !st.info) return;
+    st.painted = null;
+    const tabs = document.createElement('div');
+    tabs.className = 'dbtabs'; tabs.setAttribute('role', 'tablist');
+    for (const v of st.info.views) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'dbtab'; b.setAttribute('role', 'tab');
+      b.textContent = v.name;
+      b.setAttribute('aria-selected', v.id === st.viewId ? 'true' : 'false');
+      b.tabIndex = v.id === st.viewId ? 0 : -1;
+      b.onclick = () => dbPickView(v.id);
+      tabs.appendChild(b);
+    }
+    box.appendChild(tabs);
+    const bar = document.createElement('div');
+    bar.className = 'dbselbar'; bar.hidden = true;
+    box.appendChild(bar);
+    const sc = document.createElement('div');
+    sc.className = 'dbscroll';
+    sc.onscroll = () => dbOnScroll();
+    const grid = document.createElement('div');
+    grid.className = 'dbgrid'; grid.setAttribute('role', 'grid');
+    grid.setAttribute('aria-label', oneLine(curPage && curPage.title) || dbUntitled());
+    grid.tabIndex = 0;
+    grid.onkeydown = (ev) => dbGridKey(ev);
+    const cols = dbColsOf(st);
+    const head = document.createElement('div');
+    head.className = 'dbrowh'; head.setAttribute('role', 'row');
+    const lead = document.createElement('div');
+    lead.className = 'dblead'; lead.setAttribute('role', 'columnheader');
+    const all = document.createElement('input');
+    all.type = 'checkbox'; all.className = 'dbcheckall';
+    all.setAttribute('aria-label', 'すべての行を選ぶ');
+    all.onchange = () => dbCheckAll(all.checked);
+    lead.appendChild(all);
+    head.appendChild(lead);
+    for (const c of cols) {
+      const h = document.createElement('div');
+      h.className = 'dbcolh'; h.setAttribute('role', 'columnheader');
+      h.dataset.col = c.col.id;
+      h.style.width = `${c.width}px`;
+      h.textContent = c.col.name;
+      head.appendChild(h);
+    }
+    grid.appendChild(head);
+    const top = document.createElement('div'); top.className = 'dbpad'; top.setAttribute('aria-hidden', 'true');
+    const body = document.createElement('div'); body.className = 'dbbody'; body.setAttribute('role', 'rowgroup');
+    const bottom = document.createElement('div'); bottom.className = 'dbpad'; bottom.setAttribute('aria-hidden', 'true');
+    grid.append(top, body, bottom);
+    sc.appendChild(grid);
+    const foot = document.createElement('div');
+    foot.className = 'dbfoot'; foot.setAttribute('aria-hidden', 'true');
+    sc.appendChild(foot);
+    box.appendChild(sc);
+    const add = document.createElement('button');
+    add.type = 'button'; add.className = 'dbadd';
+    add.textContent = '＋ 新しい行';
+    add.onclick = () => dbAddRow(null);
+    box.appendChild(add);
+    st.parts = { tabs, bar, sc, grid, head, all, top, body, bottom, foot };
+    dbPaintBar();
+  }
+  // 見える窓の行を描く（見えている行と上下 50 行だけ: 決めたこと 32）。編集中は描き直さない（終えてから）
+  function dbPaintRows() {
+    const st = dbSt;
+    if (!st || !st.parts) return;
+    if (st.editing) { st.dirty = true; return; }
+    const p = st.parts;
+    const a = document.activeElement;
+    const hadFocus = Boolean(a) && (a === p.grid || isIn(a, p.body));
+    const cols = dbColsOf(st);
+    const w = st.shown <= 0 ? { from: 0, count: 0, before: 0, after: 0 } : dbWin(st);
+    p.grid.setAttribute('aria-rowcount', String(Math.max(0, st.shown) + 1));
+    p.top.style.height = `${w.before}px`;
+    p.bottom.style.height = `${w.after}px`;
+    p.body.textContent = '';
+    for (let i = w.from; i < w.from + w.count; i += 1) {
+      const row = st.rows.get(i);
+      p.body.appendChild(row ? dbRowEl(st, cols, row, i) : dbWaitEl(i));
+    }
+    st.painted = { from: w.from, count: w.count };
+    // 読んだ行の高さを覚える（折り返しのある列で行の高さが揃わない: 決めたこと 32）
+    for (const el of p.body.querySelectorAll('.dbrow')) {
+      const h = el.getBoundingClientRect().height;
+      const i = Number(el.dataset.i);
+      if (h > 0 && Number.isInteger(i)) st.heights.set(i, h);
+    }
+    dbPaintFoot(st, cols);
+    p.all.checked = st.shown > 0 && st.checked.size >= st.shown;
+    const cell = st.sel ? dbCellEl(st.sel.row, st.sel.col) : null;
+    p.grid.tabIndex = cell ? -1 : 0;
+    if (hadFocus) (cell || p.grid).focus();   // 描き直してもフォーカスを同じセルに戻す（決めたこと 51）
+  }
+  function dbWaitEl(i) {
+    const el = document.createElement('div');
+    el.className = 'dbrow dbwait'; el.setAttribute('role', 'row'); el.setAttribute('aria-busy', 'true');
+    el.setAttribute('aria-rowindex', String(i + 2));
+    return el;
+  }
+  function dbRowEl(st, cols, row, i) {
+    const el = document.createElement('div');
+    el.className = 'dbrow'; el.setAttribute('role', 'row');
+    el.dataset.id = row.id; el.dataset.i = String(i);
+    el.setAttribute('aria-rowindex', String(i + 2));
+    const lead = document.createElement('div');
+    lead.className = 'dblead'; lead.setAttribute('role', 'gridcell');
+    const grip = document.createElement('span');
+    grip.className = 'dbgrip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
+    grip.draggable = true;
+    grip.ondragstart = (ev) => dbDragStart(ev, row.id);
+    const ck = document.createElement('input');
+    ck.type = 'checkbox'; ck.className = 'dbcheck';
+    ck.checked = st.checked.has(row.id);
+    ck.setAttribute('aria-label', dbRowName(row));
+    ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = st.shown > 0 && st.checked.size >= st.shown; };
+    lead.append(grip, ck);
+    el.appendChild(lead);
+    for (const c of cols) {
+      const cell = document.createElement('div');
+      cell.className = 'dbcell'; cell.setAttribute('role', 'gridcell');
+      cell.dataset.col = c.col.id;
+      cell.style.width = `${c.width}px`;
+      if (c.wrap) cell.classList.add('wrap');
+      const on = Boolean(st.sel && st.sel.row === row.id && st.sel.col === c.col.id);
+      cell.setAttribute('aria-selected', on ? 'true' : 'false');
+      if (!dbWritable(c.col)) cell.setAttribute('aria-readonly', 'true');
+      cell.tabIndex = on ? 0 : -1;
+      cell.textContent = dbModelView.fmtCell(c.col, dbModelView.cellValue(row, c.col), { rowsById: st.known });
+      cell.onclick = () => dbCellClick(row.id, c.col.id);
+      cell.onkeydown = (ev) => dbCellKey(ev, row.id, c.col.id);
+      el.appendChild(cell);
+    }
+    el.ondragover = (ev) => dbDragOver(ev, el);
+    el.ondragleave = () => el.classList.remove('dropbefore', 'dropafter');
+    el.ondrop = (ev) => dbDrop(ev, el);
+    return el;
+  }
+  const dbRowName = (row) => dbModelView.fmtCell({ id: 'title', name: '', type: 'title' }, dbModelView.cellValue(row, { id: 'title', type: 'title' }), {});
+  function dbPaintFoot(st, cols) {
+    const f = st.parts.foot;
+    f.textContent = '';
+    const v = dbViewOf(st);
+    const lead = document.createElement('div'); lead.className = 'dblead';
+    f.appendChild(lead);
+    let any = false;
+    for (const c of cols) {
+      const d = document.createElement('div');
+      d.className = 'dbagg'; d.style.width = `${c.width}px`;
+      const kind = v && v.agg ? v.agg[c.col.id] : '';
+      if (kind && Object.hasOwn(st.agg, c.col.id)) { d.textContent = dbAggText(c.col, kind, st.agg[c.col.id]); any = true; }
+      f.appendChild(d);
+    }
+    f.hidden = !any;
+  }
+  // 下の集計の見せる文字（決めたこと 21・R9。割合は丸めて %・数値の列の数は列の見せ方・日付は日付の見せ方・期間は日の数）
+  function dbAggText(col, kind, x) {
+    const label = DB_AGG_LABEL[kind] || '';
+    if (x === null || x === undefined) return label;
+    let s;
+    if (/Pct$/.test(kind)) s = `${Math.round(x)}%`;
+    else if (['earliest', 'latest'].includes(kind)) s = dbModelView.fmtCell({ id: 'd', name: '', type: 'date' }, { start: String(x) }, {});
+    else if (kind === 'range' && col.type !== 'number' && col.type !== 'no') s = `${x} 日`;
+    else if (['sum', 'avg', 'median', 'min', 'max', 'range'].includes(kind) && col.type === 'number') s = dbModelView.fmtCell(col, Math.round(x * 100) / 100, {});
+    else s = typeof x === 'number' ? (Math.round(x * 100) / 100).toLocaleString('ja-JP') : String(x);
+    return `${label} ${s}`;
+  }
+  function dbCellEl(rowId, colId) {
+    const st = dbSt;
+    if (!st || !st.parts) return null;
+    for (const el of st.parts.body.querySelectorAll('.dbrow')) {
+      if (el.dataset.id !== rowId) continue;
+      return [...el.querySelectorAll('.dbcell')].find((c) => c.dataset.col === colId) || null;
+    }
+    return null;
+  }
+  // 捲った: 窓が替われば覚えた行で描き直し、足りない分を読む
+  function dbOnScroll() {
+    const st = dbSt;
+    if (!st || !st.painted || st.shown <= 0) return;
+    const w = dbWin(st);
+    if (w.from !== st.painted.from || w.count !== st.painted.count) dbPaintRows();
+    dbLoad(false);
+  }
+  function dbPickView(viewId) {
+    const st = dbSt;
+    if (!st || st.viewId === viewId) return;
+    dbEditEnd(true);
+    st.viewId = viewId; st.sig = ''; st.shown = -1; st.rows.clear(); st.heights.clear(); st.sel = null;
+    dbPaint();
+    const sc = dbScroller(); if (sc) sc.scrollTop = 0;
+    dbLoad(false);
+  }
+  // 行の番号（覚えた行から）
+  function dbIndexOf(st, rowId) {
+    for (const [i, r] of st.rows) if (r.id === rowId) return i;
+    return -1;
+  }
+  // 番号の行を見せ（窓の外なら捲って読む）、そのセルを選ぶ
+  async function dbSelectAt(i, colId) {
+    const st = dbSt;
+    if (!st || st.shown <= 0) return;
+    const n = Math.max(0, Math.min(st.shown - 1, i));
+    const sc = dbScroller();
+    const w = st.painted || { from: 0, count: 0 };
+    if (sc && (!st.rows.has(n) || n < w.from || n >= w.from + w.count)) {
+      let y = 0;
+      for (let k = 0; k < n; k += 1) y += st.heights.get(k) || DB_ROW_H;
+      sc.scrollTop = Math.max(0, y - DB_ROW_H * 2);
+      dbPaintRows();
+      await dbLoad(false);
+    }
+    if (dbSt !== st) return;
+    const row = st.rows.get(n);
+    if (!row) return;
+    dbSelect(row.id, colId);
+  }
+  function dbSelect(rowId, colId) {
+    const st = dbSt;
+    if (!st) return;
+    st.sel = rowId ? { row: rowId, col: colId } : null;
+    for (const c of st.parts.body.querySelectorAll('.dbcell')) {
+      const on = Boolean(st.sel) && c.parentNode && c.parentNode.dataset.id === rowId && c.dataset.col === colId;
+      c.setAttribute('aria-selected', on ? 'true' : 'false');
+      c.tabIndex = on ? 0 : -1;
+    }
+    const cell = st.sel ? dbCellEl(rowId, colId) : null;
+    st.parts.grid.tabIndex = cell ? -1 : 0;
+    if (cell) cell.scrollIntoView({ block: 'nearest' });
+    (cell || st.parts.grid).focus();
+  }
+  function dbCellClick(rowId, colId) {
+    const st = dbSt;
+    if (!st || (st.editing && st.editing.row === rowId && st.editing.col === colId)) return;
+    dbEditEnd(true);
+    dbSelect(rowId, colId);
+    const col = st.info.cols.find((c) => c.id === colId);
+    if (dbEditable(col)) dbEditStart(rowId, colId);   // セルを押すと書き手（決めたこと 25。書けない種類は選ぶだけ）
+  }
+  // 選んだセルのキー（決めたこと 51）
+  function dbCellKey(ev, rowId, colId) {
+    const st = dbSt;
+    if (!st || imeEnter(ev)) return;
+    if (st.editing) return;
+    const k = ev.key;
+    const ctrl = ev.ctrlKey || ev.metaKey;
+    if (ctrl && !ev.shiftKey && !ev.altKey && (ev.code === 'KeyD' || String(k).toLowerCase() === 'd')) { ev.preventDefault(); ev.stopPropagation(); return; }   // 表の中の Ctrl+D は何もしない（決めたこと 52）
+    const dir = undoKey(ev);
+    if (dir) { ev.preventDefault(); ev.stopPropagation(); dbUndo(dir); return; }
+    const cols = dbColsOf(st).map((c) => c.col.id);
+    const ci = cols.indexOf(colId);
+    const ri = dbIndexOf(st, rowId);
+    const go = (r, c) => { ev.preventDefault(); ev.stopPropagation(); dbSelectAt(r, cols[Math.max(0, Math.min(cols.length - 1, c))]); };
+    if (k === 'ArrowDown') return go(ri + 1, ci);
+    if (k === 'ArrowUp') return go(ri - 1, ci);
+    if (k === 'ArrowRight') return go(ri, ci + 1);
+    if (k === 'ArrowLeft') return go(ri, ci - 1);
+    if (k === 'Tab') {
+      if (!ev.shiftKey && ci === cols.length - 1 && ri >= st.shown - 1) return;   // 表の末で Tab: 表の外の次の部品へ
+      if (ev.shiftKey && ci === 0 && ri === 0) return;
+      if (!ev.shiftKey) return ci < cols.length - 1 ? go(ri, ci + 1) : go(ri + 1, 0);
+      return ci > 0 ? go(ri, ci - 1) : go(ri - 1, cols.length - 1);
+    }
+    if (k === 'Home') return ctrl ? go(0, 0) : go(ri, 0);
+    if (k === 'End') return ctrl ? go(st.shown - 1, cols.length - 1) : go(ri, cols.length - 1);
+    if (k === 'Escape') { ev.preventDefault(); dbSelect(null); return; }
+    const col = st.info.cols.find((c) => c.id === colId);
+    if (k === 'Enter' && !ctrl) { ev.preventDefault(); if (dbEditable(col)) dbEditStart(rowId, colId); return; }
+    if ((k === 'Delete' || k === 'Backspace') && !ctrl) {
+      ev.preventDefault();
+      if (!dbWritable(col)) return;   // 書けないセルは何もしない
+      const row = st.known.get(rowId);
+      if (row && dbModelView.cellValue(row, col) === null) return;
+      dbWrite(() => window.koeApp.rowSetCell(st.id, rowId, colId, null));
+    }
+  }
+  // セルを選んでいないときの表のキー（Ctrl+Z とやり直し・↓ で最初のセル）
+  function dbGridKey(ev) {
+    const st = dbSt;
+    if (!st || ev.target !== st.parts.grid || imeEnter(ev)) return;
+    const dir = undoKey(ev);
+    if (dir) { ev.preventDefault(); dbUndo(dir); return; }
+    if (ev.key === 'ArrowDown' || ev.key === 'Enter') { ev.preventDefault(); const c = dbColsOf(st)[0]; if (c) dbSelectAt(0, c.col.id); }
+  }
+  // 書く命令を送って表を読み直す（断られたら一言。答えを返す）。送っている間は Ctrl+Z が待つ（inFlight）
+  async function dbWrite(send) {
+    const st = dbSt;
+    let r = null;
+    try { r = await inFlight(send()); }
+    catch (e) {
+      const code = String((e && (e.code || e.message)) || 'internal');
+      toast(code === 'too-big' ? DB_ROWS_FULL : `変更を保存できませんでした: ${code}`);
+      return null;
+    }
+    if (dbSt === st) await dbLoad(true);
+    return r;
+  }
+  // ---- セルの書き手（DV-1 は文字の種類だけ。Enter で決める・Esc でやめる・Tab で右へ。変換確定の Enter は抜ける: imeEnter）
+  function dbEditStart(rowId, colId) {
+    const st = dbSt;
+    const cell = dbCellEl(rowId, colId);
+    const row = st && st.known.get(rowId);
+    const col = st && st.info.cols.find((c) => c.id === colId);
+    if (!cell || !row || !dbEditable(col)) return;
+    const was = dbModelView.cellValue(row, col);
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'dbedit';
+    inp.value = was === null ? '' : String(was);
+    inp.setAttribute('aria-label', col.name);
+    st.editing = { row: rowId, col: colId, was: inp.value, inp };
+    cell.textContent = '';
+    cell.appendChild(inp);
+    inp.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, 'enter'); return; }
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(false, 'stay'); return; }
+      if (ev.key === 'Tab') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, ev.shiftKey ? 'left' : 'right'); }
+    };
+    inp.onblur = () => { if (dbSt === st && st.editing && st.editing.inp === inp) dbEditEnd(true); };
+    inp.focus();
+  }
+  async function dbEditEnd(save, then) {
+    const st = dbSt;
+    const ed = st && st.editing;
+    if (!ed) return;
+    st.editing = null;
+    const value = String(ed.inp.value).replace(/[\r\n\t]+/g, ' ');
+    const cols = dbColsOf(st).map((c) => c.col.id);
+    const last = dbIndexOf(st, ed.row) === st.shown - 1;
+    if (save && value !== ed.was) await dbWrite(() => window.koeApp.rowSetCell(st.id, ed.row, ed.col, value === '' ? null : value));
+    else if (st.dirty) { st.dirty = false; dbPaintRows(); }
+    else {
+      const cell = dbCellEl(ed.row, ed.col);
+      const row = st.known.get(ed.row);
+      const col = st.info.cols.find((c) => c.id === ed.col);
+      if (cell && row && col) cell.textContent = dbModelView.fmtCell(col, dbModelView.cellValue(row, col), { rowsById: st.known });
+    }
+    if (dbSt !== st) return;
+    st.dirty = false;
+    if (then === 'enter' && ed.col === 'title' && last) { await dbAddRow(ed.row); return; }   // 最後の行の題名で Enter: 次の行（決めたこと 24）
+    const ci = cols.indexOf(ed.col);
+    if (then === 'right' && ci < cols.length - 1) { dbSelect(ed.row, cols[ci + 1]); return; }
+    if (then === 'left' && ci > 0) { dbSelect(ed.row, cols[ci - 1]); return; }
+    if (then) dbSelect(ed.row, ed.col);
+  }
+  // ［＋ 新しい行］と最後の行の題名の Enter: 行を1つ足し（絞り込みの値を入れる: 決めたこと 24・R35）、その題名のセルを書く
+  async function dbAddRow(afterId) {
+    const st = dbSt;
+    if (!st || !st.info) return;
+    dbEditEnd(true);
+    const cells = dbViewView.filterDefaults(dbViewOf(st), st.info.cols);
+    const r = await dbWrite(() => window.koeApp.rowAdd(st.id, { ...(afterId ? { afterId } : {}), ...(Object.keys(cells).length ? { cells } : {}) }));
+    if (!r || dbSt !== st) return;
+    let i = dbIndexOf(st, r.id);
+    if (i < 0) {   // 窓の外（末に足した行）: 捲って読む
+      const sc = dbScroller();
+      if (sc) { sc.scrollTop = Number.MAX_SAFE_INTEGER; dbPaintRows(); await dbLoad(false); }
+      i = dbIndexOf(st, r.id);
+    }
+    if (i < 0 || dbSt !== st) return;
+    dbSelect(r.id, 'title');
+    dbEditStart(r.id, 'title');
+  }
+  // ---- 選んだ行（決めたこと 27・R47: 全部を選ぶはビューに並ぶ行の全部。2,000 を越えると［削除］［列の値を変える ▸］は押せない）
+  async function dbCheckAll(on) {
+    const st = dbSt;
+    if (!st) return;
+    st.checked = new Set();
+    if (on) {
+      for (let from = 0; from < st.shown; from += DB_READ_MAX) {
+        let r = null;
+        try { r = await window.koeApp.dbView(st.id, st.viewId, from, Math.min(DB_READ_MAX, st.shown - from)); } catch (_) { r = null; }
+        if (dbSt !== st || !r) return;
+        for (const row of r.rows) { st.checked.add(row.id); st.known.set(row.id, row); }
+      }
+    }
+    for (const ck of st.parts.body.querySelectorAll('.dbcheck')) ck.checked = st.checked.has(ck.parentNode.parentNode.dataset.id);
+    dbPaintBar();
+  }
+  function dbPaintBar() {
+    const st = dbSt;
+    if (!st || !st.parts) return;
+    const bar = st.parts.bar;
+    bar.textContent = '';
+    dbMenuClose();
+    const n = st.checked.size;
+    bar.hidden = n === 0;
+    if (!n) return;
+    const t = document.createElement('span'); t.className = 'dbselcount'; t.textContent = `${n} 行を選んでいます`;
+    const mk = (label, fn, off) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ghost'; b.textContent = label; b.disabled = Boolean(off); b.onclick = fn; bar.appendChild(b); return b; };
+    bar.appendChild(t);
+    mk('削除', () => dbTrashChecked(), n > DB_SEL_MAX);
+    mk('リンクを写す', () => dbCopyLinks());
+    const set = mk('列の値を変える ▸', () => dbSetMenu(set), n > DB_SEL_MAX);
+    set.setAttribute('aria-haspopup', 'menu');
+  }
+  async function dbTrashChecked() {
+    const st = dbSt;
+    const ids = [...st.checked];
+    if (!ids.length || ids.length > DB_SEL_MAX) return;
+    const r = await dbWrite(() => window.koeApp.rowsTrash(st.id, ids));
+    if (!r || dbSt !== st) return;
+    st.checked = new Set();
+    if (st.sel && ids.includes(st.sel.row)) st.sel = null;
+    dbPaintBar();
+    st.parts.all.checked = false;
+    st.parts.grid.focus();
+    toast(`行 ${r.trashed} 件をゴミ箱に入れました（Ctrl+Z で戻せます）`);
+  }
+  async function dbCopyLinks() {
+    const st = dbSt;
+    const base = await linkBaseNow();
+    if (!base) { toast('リンクを写せませんでした。'); return; }
+    const lines = [...st.checked].map((id) => st.known.get(id)).filter(Boolean)
+      .map((row) => pageRefLine({ id: row.id, title: row.title, date: String(row.createdAt || '').slice(0, 10) }, base));
+    if (!lines.length) return;
+    await window.koeApp.copy(lines.join('\n')); toast('リンクを写しました。');
+  }
+  // ［列の値を変える ▸］: 列を選び、値を書いて Enter で、選んだ全部の行のその列を同じ値に（rows.setCell の1回: 決めたこと 27）
+  function dbMenuClose() {
+    const st = dbSt;
+    if (st && st.menu) { if (st.menu.parentNode) st.menu.parentNode.removeChild(st.menu); st.menu = null; }
+  }
+  function dbSetMenu(from) {
+    const st = dbSt;
+    if (!st) return;
+    if (st.menu) { dbMenuClose(); return; }
+    const m = document.createElement('div');
+    m.className = 'dbmenu'; m.setAttribute('role', 'menu');
+    const items = [];
+    for (const c of st.info.cols) {
+      if (c.gone || c.type === 'title' || !dbEditable(c)) continue;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.tabIndex = -1;
+      b.textContent = c.name;
+      b.onclick = () => dbSetValue(c);
+      m.appendChild(b); items.push(b);
+    }
+    m.onkeydown = (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); dbMenuClose(); from.focus(); return; }
+      const i = items.indexOf(document.activeElement);
+      if (ev.key === 'ArrowDown' && items.length) { ev.preventDefault(); items[(i + 1) % items.length].focus(); }
+      if (ev.key === 'ArrowUp' && items.length) { ev.preventDefault(); items[(i + items.length - 1) % items.length].focus(); }
+    };
+    st.parts.bar.appendChild(m);
+    st.menu = m;
+    if (items.length) items[0].focus();
+  }
+  function dbSetValue(col) {
+    const st = dbSt;
+    const m = st && st.menu;
+    if (!m) return;
+    m.textContent = '';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'dbedit';
+    inp.setAttribute('aria-label', col.name);
+    inp.onkeydown = async (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); dbMenuClose(); return; }
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      const ids = [...st.checked];
+      const v = String(inp.value).replace(/[\r\n\t]+/g, ' ');
+      dbMenuClose();
+      if (ids.length && ids.length <= DB_SEL_MAX) await dbWrite(() => window.koeApp.rowsSetCell(st.id, ids, col.id, v === '' ? null : v));
+    };
+    m.appendChild(inp);
+    inp.focus();
+  }
+  // ---- 行の ⋮⋮ で上下に（並べ替えの無いビューだけ: 決めたこと 17・27）
+  function dbDragStart(ev, rowId) {
+    const st = dbSt;
+    const v = dbViewOf(st);
+    if (!st || !v) return;
+    if (v.sort.length) { ev.preventDefault(); st.drag = null; toast('並べ替えを外すと、手で並べられます'); return; }
+    st.drag = rowId;
+    if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('application/x-natsu-row', rowId); }
+  }
+  const dbDragOn = (ev) => Boolean(dbSt && dbSt.drag && ev.dataTransfer && [...(ev.dataTransfer.types || [])].includes('application/x-natsu-row'));
+  function dbDropAfter(ev, el) {
+    const r = el.getBoundingClientRect();
+    return ev.clientY >= r.top + r.height / 2;
+  }
+  function dbDragOver(ev, el) {
+    if (!dbDragOn(ev) || el.dataset.id === dbSt.drag) return;
+    ev.preventDefault();
+    const after = dbDropAfter(ev, el);
+    el.classList.toggle('dropafter', after);
+    el.classList.toggle('dropbefore', !after);
+  }
+  async function dbDrop(ev, el) {
+    el.classList.remove('dropbefore', 'dropafter');
+    if (!dbDragOn(ev)) return;
+    ev.preventDefault();
+    const st = dbSt;
+    const id = st.drag;
+    st.drag = null;
+    if (el.dataset.id === id) return;
+    const i = Number(el.dataset.i);
+    let afterId = el.dataset.id;
+    if (!dbDropAfter(ev, el)) { const prev = st.rows.get(i - 1); afterId = i > 0 && prev ? prev.id : ''; }
+    if (afterId === id) return;
+    await dbWrite(() => window.koeApp.rowMove(st.id, id, afterId));
+  }
+  document.addEventListener('dragend', () => { if (dbSt) dbSt.drag = null; });
+  // ---- 元に戻す（データベースの歩み: 決めたこと 47・48）
+  function dbUndo(dir) {
+    const st = dbSt;
+    if (!st) return;
+    const id = st.id;
+    undoChain = undoChain.then(() => dbUndoRun(dir, id)).catch(() => {});
+  }
+  async function dbUndoRun(dir, id) {
+    await editsSettled();
+    const st = dbSt;
+    if (!st || st.id !== id) return;
+    const key = dbStepKey(id);
+    const got = dir === 'undo' ? bookTakeUndo(undoBk, key) : bookTakeRedo(undoBk, key);
+    if (!got.entry) { toast(dir === 'undo' ? 'これ以上は戻せません' : 'やり直せるものはありません'); return; }
+    const slotNow = Object.hasOwn(got.book, key) ? got.book[key] : { undo: [], redo: [] };
+    const takenAt = slotNow[dir].length;
+    undoBk = got.book;
+    const run = { pid: id, tx: null };
+    reverting = run;
+    let code = '';
+    try { await inFlight(window.koeApp.editRevert(id, got.entry.steps)); }
+    catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
+    finally { if (reverting === run) reverting = null; }
+    if (code) {
+      if (code === 'stale' || code === 'bad-args') { toast('ほかの所で変わったので、元に戻せませんでした'); undoBk = bookDrop(undoBk, key); }
+      else { undoBk = putBack(undoBk, key, dir, got.entry, takenAt, slotNow.undo.length); if (code !== 'locked') toast(`変更を保存できませんでした: ${code}`); }
+    } else if (run.tx) undoBk = bookDone(undoBk, key, dir, run.tx);
+    pruneMarks();
+    if (dbSt === st) await dbLoad(true);
   }
   let pendingEdits = 0;   // 分割・結合・変換・足すの答えを待っている数（ED-5 の summaryBusy が読む）
   const editRows = (box = $('pNote')) => (box ? [...box.querySelectorAll('.blk')].filter((e) => e._txt && e.dataset.locked !== '1') : []);   // 鍵の無い行（区切り線も）。0.14.0 MB-4: 欄の箱ごと
@@ -10394,6 +12067,7 @@
     if (blockSel && !isMemoKey(blockSel.pageId)) blockSel = null;   // 0.14.0 EK-4（決めたこと 28）: 描き直すと選びを外す（選んだ行の操作の答えは selAfter が選び直す）
     selDrag = null;
     const box = $('pNote'); box.textContent = '';
+    if (isDbPage(curPage)) return;   // 0.16.0 DV-1: データベースのページに本文は無い（表は #pDb）
     wireDrop(box);
     // 0.10.0 LS-2: 鍵の間は欄の頭に一言を出し、要約の欄を読むだけにする（つまみ・削除の × を出さず、文・チェック・担当と期限を直せない）。
     // 鍵の一言が要約待ちの文を含むので、鍵の間は要約の欄の理由（summaryError）を重ねて出さない
@@ -10541,7 +12215,7 @@
   // 行は「アイコン・名前・値」（.prop の .k に「アイコン 名前」、.v に値。第1b回 N4）
   function renderProps() {
     const props = $('pProps'); props.textContent = '';
-    if (isBlankPage(curPage)) return;   // 0.15.0 PH-4（BQ2 (a)）: 白紙のページにプロパティは無い
+    if (isBlankPage(curPage) || isDbPage(curPage)) return;   // 0.15.0 PH-4（BQ2 (a)）: 白紙のページにプロパティは無い（0.16.0 DV-1: データベースのページも）
     // 名前の欄のアイコンは灰色の .ic に包む（k.textContent は今と同じ「🔗 出典」。第1b2回 P-2）
     const add = (icon, name, value, color) => {
       const r = document.createElement('div'); r.className = 'prop';
@@ -10595,6 +12269,7 @@
     selClear();   // 0.14.0 EK-4（決めたこと 28・44）: 選んだ行も
     flushSegEdit();
     flushMemo();   // 0.14.0 MB-4: メモの行（録音中と録音の前の欄も）
+    if (dbSt && dbSt.editing) dbEditEnd(true);   // 0.16.0 DV-1: 書いているセル
     if (!pid || !curPage) return;
     commitTitle(pid);
     for (const t of $('pNote').querySelectorAll('.blk .txt')) if (typeof t._commit === 'function') t._commit(pid);
@@ -11643,7 +13318,7 @@
     if (!p.message) { e.style.display = 'none'; return; }
     e.style.display = ''; e.textContent = p.message;
   });
-  window.koeApp.onPagesUpdated(() => { refreshList(); refreshTrash(); });   // 0.15.0 PH-6: ほかの窓・Claude の変更でゴミ箱も
+  window.koeApp.onPagesUpdated(() => { refreshList(); refreshTrash(); if (dbSt) dbLoad(true); });   // 0.16.0 DV-1: 開いている表も読み直す（同じ印なら描き直さない）   // 0.15.0 PH-6: ほかの窓・Claude の変更でゴミ箱も
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
   // 0.13.0 RDY-3（RD13）: 受けはこの1か所。記録中のタブが録音の前のページなら置き換えずに新しいタブで開く（次の会議の準備を消さない: F86）
   function pageOpenFromMain(id, o) {

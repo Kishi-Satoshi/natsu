@@ -75,8 +75,8 @@ const HTTP_HEAD_RE = /^https?:\/\//i;                              // SEC2: 住�
 function httpUrlOk(s) {
   if (s.length > MAX.url || /\s/.test(s) || UNSAFE_RE.test(s) || !HTTP_HEAD_RE.test(s)) return false;
   let u;
-  try { u = new URL(s); } catch (_) { return false; }                 // 「https://」だけ・壊れた住所を断る
-  return u.username === '' && u.password === '';                       // 利用者の欄（https://見せたい名前@本当の住所）で見た目を偽らせない（DS-1 直し F13）
+  try { u = new URL(s); } catch (_) { return false; }                 // 頭（http(s) と「:」「//」）だけ・壊れた住所を断る
+  return u.username === '' && u.password === '';                       // 利用者の欄（頭の後の「見せたい名前@本当の住所」）で見た目を偽らせない（DS-1 直し F13）
 }
 const emailOk = (s) => s.length <= MAX.email && EMAIL_RE.test(s) && !UNSAFE_RE.test(s);
 const phoneOk = (s) => s.length <= MAX.phone && PHONE_RE.test(s) && /\d/.test(s);

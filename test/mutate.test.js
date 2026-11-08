@@ -1384,6 +1384,8 @@ const IDS_160 = [
   'tb-listed-rows', 'tb-isdoc', 'tb-row-read', 'tb-row-rev', 'tb-row-fold', 'tb-row-max', 'tb-row-no', 'tb-cell-op',
   'tb-undo-row-trash', 'tb-undo-stale', 'tb-view-undo', 'tb-move-into-db', 'tb-db-live-parent', 'tb-db-delete-count', 'tb-paste-rows', 'tb-paste-convert',
   'tb-paste-max',
+  // 0.16.0 DV-1 で作った行
+  'vw-window', 'vw-sig', 'vw-ime', 'vw-focus-keep', 'vw-del-readonly', 'vw-ctrl-d', 'vw-undo-key', 'vw-undo-view',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');

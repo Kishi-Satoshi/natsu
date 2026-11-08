@@ -5,6 +5,7 @@
 // 「Ctrl+Shift+Digit7」の形の ev.code の組。keyAction の受けないキーは空） }。効く所ごとに続けて並べる（設定の表は効く所の見出しで区切る）。
 // 全体の音声入力のキーは設定の［音声入力ホットキー］なので、この表に入れない（設定の表の下に一言）。
 // 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 20・26・28・BQ7 (a)）: Ctrl+Shift+N（新しいページの選び）・Ctrl+Shift+U（親のページへ）と、サイドバーのページの一覧のキーの行を足した。
+// 0.16.0 DV-1（計画 docs/plans/2026-11-04-160.md の決めたこと 51）: データベースの表のセルを選んでいるときのキーの行を足した。
 // 画面（app.html）はこの表を写す（test/stage140.app.test.js が同じ行かを照らす）。
 
 const SHORTCUTS = Object.freeze([
@@ -60,6 +61,16 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Enter', what: 'ページを今のタブで開く', where: 'サイドバーのページの一覧', codes: [] },
   { keys: 'Ctrl+Enter', what: 'ページを新しいタブで開く', where: 'サイドバーのページの一覧', codes: [] },
   { keys: 'Shift+F10', what: '行のメニューを開く（中にページを作る・移動先・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+  // 0.16.0 DV-1 のデータベースの表（決めたこと 51）
+  { keys: '↑・↓・←・→', what: 'セルを移る', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Tab・Shift+Tab', what: '右・左のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Home・End', what: '行の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Ctrl+Home・Ctrl+End', what: '表の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Enter', what: 'セルを書く（書いている間は Enter で決める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Esc', what: 'セルの選びをやめる（書いている間は、書いた文字を捨てる）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Delete・Backspace', what: '選んだセルを空にする（書けるセルだけ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Ctrl+Z', what: '元に戻す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
 ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
 
 module.exports = { SHORTCUTS };
