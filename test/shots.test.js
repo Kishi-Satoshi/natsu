@@ -230,7 +230,9 @@ const ADDED_150 = [...NEW_150, ...RETAKEN_150];
 // 0.16.0（計画 docs/plans/2026-11-04-160.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは 0.16.0 の表の画面だけ（RETAKE_160）。
 // DV-1 でデータベースの表の明暗と拡大 200% の3枚を足した（NEW_160。足した画面で、まだ基準が無い）
 // DV-2 で列のメニュー・選択肢の選び・暦の3枚を足した（同じく、まだ基準が無い）
-const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light'];
+// DV-3 で意図して変えた: リスト・絞り込みの窓・グループ・ビューのタブの4枚を足した
+const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
+  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light'];
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
 const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
@@ -1166,7 +1168,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 見出しに［＋］と ⚙ が増える db-table の3枚（どれも RETAKE にあり、まだ基準が無い）。値を今の app.html に合わせた（前の値は 09dcf07e…）
   // 0.16.0 DV-1 直し（rv44・R72）: 表の読み直し（確かめの引き継ぎ・断られたら前のまま）・描き直しの窓のずれ・フォーカスで捲らない・日付の「期間」・Ctrl+Tab・
   // 行のチェックの Tab（<script> の中だけ。撮る画面の種では見た目は変わらない見込み）。値を今の app.html に合わせた（前の値は 5144215e…）
-  assert.strictEqual(sha, '6bd88bbe8a008a913267959070a469acb228655f25c627baa5270b4b1a97a915',
+  // 0.16.0 DV-3（計画の決めたこと 15〜23・R74〜R81）: ビューのタブ（［＋］・「他 n 件」・引っ張る・タブのメニュー）・設定の窓（並べ替え・絞り込み・グループ・列の表示）・
+  // グループの頭・リスト・見出しの幅の取っ手と引っ張り・下の集計のボタン・中の検索の欄と、その CSS。変わる画面は足した NEW_160 の db-list・db-filter・db-group・db-views と、
+  // 下の集計の欄と［＋］と検索の欄が出る db-*（どれも RETAKE にあり、まだ基準が無い）。値を今の app.html に合わせた（前の値は 6bd88bbe…）
+  assert.strictEqual(sha, 'e66e3ebdb7dea581f2b8c8305e83d647186f883efacdcc62250ef89ef8056f58',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

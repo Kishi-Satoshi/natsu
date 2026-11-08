@@ -49,7 +49,8 @@ test('1b2 L-1・G8: 青（--accent）は主ボタン・フォーカスの輪と�
   // 0.10.0 L-2（D70）で意図して足した: 一覧のチェックボックスの入った印（.pchk[aria-checked="true"]。「入った印」の1つ）
   // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 21・R24）で意図して足した: サイドバーの木の落とし先（.pitem.dropin の枠・.pitem.dropbefore／dropafter の線。「落とし先の線」の1つ）
   // 0.16.0 DV-1 で意図して変えた: データベースの表の行の落とし先の線（.dbrow.dropbefore・.dbrow.dropafter）も「落とし先の線」
-  const OK = /^(button\.action|#updBadge (button\.go|\.dot))|:focus|\.check input:checked|\.pchk\[aria-checked="true"\]|\.blk\.dropmark|\.pitem\.drop(in|before|after)|\.dbrow\.drop(before|after)|\.seg\.(hit|editing)|\.atag-edit|#engineFetchBar/;
+  // 0.16.0 DV-3 で意図して変えた: ビューのタブ・列の見出し・設定の窓の行（並べ替え・グループ・列の表示）の落とし先の線も「落とし先の線」
+  const OK = /^(button\.action|#updBadge (button\.go|\.dot))|:focus|\.check input:checked|\.pchk\[aria-checked="true"\]|\.blk\.dropmark|\.pitem\.drop(in|before|after)|\.dbrow\.drop(before|after)|\.(dbtab|dbcolh|dbsortrow|dbgrow|dbproprow)\.drop(before|after)|\.seg\.(hit|editing)|\.atag-edit|#engineFetchBar/;
   for (const r of rules) {
     if (r.sel.startsWith(':root')) continue;
     for (const [k, v] of Object.entries(r.decls)) {

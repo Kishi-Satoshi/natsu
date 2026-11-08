@@ -291,7 +291,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」）: データベースの呼び口は、画面が呼び始める DV-1〜DV-3 まで待つ
   // 0.16.0 DV-1 で意図して変えた: 表の画面が dbGet・dbView・rowAdd・rowSetCell・rowsSetCell・rowMove・rowsTrash を呼び始めたので外した
   // 0.16.0 DV-2 で意図して直した: 画面が呼び始めた rowsPaste・colAdd・colRename・colSetType・colRemove・colRestore・colPurge・colSetOpts・colSetFmt・viewUpdate を外した
-  const PENDING_APP = new Set(['dbCreate', 'colMove', 'viewAdd', 'viewRemove', 'viewMove']);
+  // 0.16.0 DV-3 で意図して直した: 画面が呼び始めた viewAdd・viewRemove・viewMove を外した（colMove は R74 で画面が呼ばない: 見出しの並べ替えはビューの並び）
+  const PENDING_APP = new Set(['dbCreate', 'colMove']);
   // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
   // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
   const KEPT_APP = new Set(['pageSetMemo']);
@@ -1543,7 +1544,7 @@ test('0.10.0 L-2 D74: app.html の画面の文に「Claude に渡す」が無く
 test('0.10.0 LN-1: parseNatsuLinkView（app.html）と natsulink.parseNatsuLink は同じ表で同じ答え', () => {
   const NL = require('../src/natsulink');
   const view = new Function(`${fnFromApp('parseNatsuLinkView')}\nreturn parseNatsuLinkView;`)();   // eslint-disable-line no-new-func
-  const cases = ['natsu://page/pm1', 'natsu://page/pm1#t:s3-s5', 'natsu://page/pm1#b:b3', 'natsu://page/pm1#m:2', 'natsu://page/pm1#b3', 'natsu://page/pm1/', '  natsu://page/pm1#t:s1-s1 \n',
+  const cases = ['natsu://page/pm1', 'natsu://page/pm1#t:s3-s5', 'natsu://page/pm1#b:b3', 'natsu://page/pm1#m:2', 'natsu://page/pm1#v:v2', 'natsu://page/pm1#v:', 'natsu://page/pm1#b3', 'natsu://page/pm1/', '  natsu://page/pm1#t:s1-s1 \n',
     'NATSU://page/pm1', 'natsu:page/pm1', 'natsu://other/pm1', 'natsu://page/pm1?x=1', 'natsu://page/pm%201', 'natsu://page/p m1', 'natsu://page/pm1"', "natsu://page/pm1'",
     'natsu://page/pm1\\', 'natsu://page/pm1\u0000', `natsu://page/pm1#${'b'.repeat(288)}`, `natsu://page/${'a'.repeat(65)}`, 'natsu://page/pm1#t:s3-', 'natsu://page/pm1#a#b',
     'natsu://page/pm1//', 'natsu://page/', 'natsu://page/pm1#javascript:x', `${NL.LINK_ORIGIN}/open#p=pm1`, 'pm1', '', null, 5];

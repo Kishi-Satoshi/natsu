@@ -6,7 +6,7 @@ const L = require('../src/natsulink');
 
 const T = { timeout: 5000 };
 const O = 'https://natsu-help.natsu-code.workers.dev';
-const ANCHORS = ['', 't:s12-s18', 't:s1-s1', 'b:b3_x-Y', 'm:0', 'm:12'];
+const ANCHORS = ['', 't:s12-s18', 't:s1-s1', 'b:b3_x-Y', 'm:0', 'm:12', 'v:v2', 'v:a_B-9'];   // 0.16.0 DV-3（決めたこと 16・R75）: データベースのビューの印 v:<ビューの ID>
 
 test('D78・決めたこと 154: 住所の頭は LINK_ORIGIN の1か所。読むときに受ける頭は LINK_ORIGINS（今の頭を含む・凍っている）', T, () => {
   assert.strictEqual(L.LINK_ORIGIN, O);
@@ -22,7 +22,7 @@ test('D72・決めたこと 142: natsuLink と parseNatsuLink は行って戻る
     assert.deepStrictEqual(L.parseNatsuLink(s), { id: 'pm1', anchor: a }, s);
   }
   // 作れない形は ''
-  for (const [id, a] of [['p m', ''], ['a'.repeat(65), ''], ['pm1', 't:s3-'], ['pm1', 'x:1'], ['pm1', 'm:a'], [null, ''], ['pm1', 'b:a/b']]) assert.strictEqual(L.natsuLink(id, a), '', `${id} ${a}`);
+  for (const [id, a] of [['p m', ''], ['a'.repeat(65), ''], ['pm1', 't:s3-'], ['pm1', 'x:1'], ['pm1', 'm:a'], [null, ''], ['pm1', 'b:a/b'], ['pm1', 'v:'], ['pm1', 'v:a b'], ['pm1', `v:${'a'.repeat(65)}`]]) assert.strictEqual(L.natsuLink(id, a), '', `${id} ${a}`);
 });
 
 test('D72: parseNatsuLink は前の形 #<ブロック ID>（設計書の B10）を受けて読み捨てる・末尾の / を1つ許す・前後の空白を除く', T, () => {

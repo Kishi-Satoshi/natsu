@@ -1386,8 +1386,8 @@ const IDS_160 = [
   'tb-paste-max',
   // 0.16.0 DV-1 で作った行
   'vw-window', 'vw-sig', 'vw-ime', 'vw-focus-keep', 'vw-del-readonly', 'vw-ctrl-d', 'vw-undo-key', 'vw-undo-view',
-  // 0.16.0 DV-2 で作った行
-  'vw-url-open', 'vw-person-cand', 'vw-paste-grid',
+  // 0.16.0 DV-2 で作った行（vw-paste-grid）と DV-3 で作った行（vw-view-save）。表の行の順
+  'vw-url-open', 'vw-person-cand', 'vw-view-save', 'vw-paste-grid',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');

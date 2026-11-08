@@ -398,6 +398,50 @@
   .dbopt[data-color="yellow"] { background: var(--mkbg-yellow); } .dbopt[data-color="green"] { background: var(--mkbg-green); } .dbopt[data-color="blue"] { background: var(--mkbg-blue); }
   .dbopt[data-color="purple"] { background: var(--mkbg-purple); } .dbopt[data-color="pink"] { background: var(--mkbg-pink); } .dbopt[data-color="red"] { background: var(--mkbg-red); }
   .dbdaterow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  /* 0.16.0 DV-3（決めたこと 15〜23）: ビューのタブの［＋］・「他 n 件」・中の検索・見出しの幅の取っ手と並べ替えの印・設定の窓・グループの頭・リスト・下の集計のボタン */
+  .dbtabs { align-items: center; }
+  .dbtab[hidden], .dbtabmore[hidden] { display: none; }
+  .dbtab { position: relative; }
+  .dbtab.dropbefore::before, .dbtab.dropafter::after, .dbcolh.dropbefore::before, .dbcolh.dropafter::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
+  .dbtab.dropbefore::before, .dbcolh.dropbefore::before { left: 0; }
+  .dbtab.dropafter::after, .dbcolh.dropafter::after { right: 0; }
+  .dbtabmore, .dbviewadd { border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+  .dbtabmore:hover, .dbviewadd:hover { background: var(--hover); }
+  .dbtabmore:focus-visible, .dbviewadd:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .dbsearch { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 13px; }
+  .dbsearch + .dbsetbtn { margin-left: 0; }
+  .dbsearchq { width: 160px; font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); }
+  .dbcolh { position: relative; }
+  .dbresize { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 1; }
+  .dbresize:hover { background: var(--hover); }
+  .dbpanel { min-width: 300px; max-width: 520px; max-height: 60vh; overflow: auto; gap: 4px; }
+  .dbpanelbody { display: flex; flex-direction: column; gap: 4px; padding: 2px 4px 4px; }
+  .dbpanel select, .dbpanel .dbmenuinput { font: inherit; font-size: 13px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); }
+  .dbsortrow, .dbfcond, .dbgrow, .dbproprow, .dbfhead, .dbffoot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; position: relative; }
+  .dbsortrow .dbgrip, .dbgrow .dbgrip, .dbproprow .dbgrip { opacity: 1; }
+  .dbfgroup { display: flex; flex-direction: column; gap: 4px; }
+  .dbfgroup .dbfgroup { border-left: 2px solid var(--line); padding-left: 8px; }
+  .dbfop[aria-pressed="true"] { font-weight: 600; color: var(--text); background: var(--hover); }
+  .dbfopt { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+  .dbx { border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .dbx:hover, .dbx:focus-visible { background: var(--hover); outline: none; }
+  .dbglist { display: flex; flex-direction: column; gap: 2px; }
+  .dbsortrow.dropbefore::before, .dbgrow.dropbefore::before, .dbproprow.dropbefore::before, .dbsortrow.dropafter::after, .dbgrow.dropafter::after, .dbproprow.dropafter::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
+  .dbsortrow.dropbefore::before, .dbgrow.dropbefore::before, .dbproprow.dropbefore::before { top: -1px; }
+  .dbsortrow.dropafter::after, .dbgrow.dropafter::after, .dbproprow.dropafter::after { bottom: -1px; }
+  .dbghead { background: var(--bg); }
+  .dbgcell { display: flex; align-items: center; gap: 6px; padding: 4px 8px; min-height: 32px; font-size: 13px; font-weight: 500; }
+  .dbgtoggle, .dbgadd { border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; padding: 0 4px; border-radius: 4px; }
+  .dbgtoggle:hover, .dbgadd:hover { background: var(--hover); }
+  .dbgtoggle:focus-visible, .dbgadd:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .dbgcount { color: var(--muted); font-weight: 400; }
+  .dblist { min-width: 0; }
+  .dblist .dbrow { align-items: center; }
+  .dblist .dbcell { border-right: 0; flex: none; color: var(--muted); font-size: 13px; }
+  .dblist .dbcell[data-col="title"] { flex: 1 1 auto; min-width: 120px; color: var(--text); font-size: 14px; }
+  .dbicon { margin-left: 2px; }
+  .dbaggbtn { width: 100%; min-height: 20px; border: 0; background: none; color: inherit; font: inherit; text-align: right; cursor: pointer; padding: 0; }
+  .dbaggbtn:hover, .dbaggbtn:focus-visible { background: var(--hover); outline: none; }
   .dbdaterow [hidden] { display: none; }
   .dbdatein { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
   .dbdatecheck { display: flex; align-items: center; gap: 4px; font-size: 13px; }
@@ -5712,7 +5756,7 @@
     const parts = t.slice('natsu://page/'.length).split('#');
     if (parts.length > 2 || !/^[A-Za-z0-9_-]{1,64}$/.test(parts[0])) return null;
     if (parts.length === 1) return { id: parts[0], anchor: '' };
-    if (/^(?:t:s\d{1,6}-s\d{1,6}|b:[A-Za-z0-9_-]{1,64}|m:\d{1,4})$/.test(parts[1])) return { id: parts[0], anchor: parts[1] };
+    if (/^(?:t:s\d{1,6}-s\d{1,6}|b:[A-Za-z0-9_-]{1,64}|m:\d{1,4}|v:[A-Za-z0-9_-]{1,64})$/.test(parts[1])) return { id: parts[0], anchor: parts[1] };   // v: は 0.16.0 DV-3 のビュー（R75）
     if (/^[A-Za-z0-9_-]{1,64}$/.test(parts[1])) return { id: parts[0], anchor: '' };
     return null;
   }
@@ -9561,7 +9605,8 @@
   const dbStepKey = (id) => bookKey(id, 'db');
   function dbNew(id) {
     return { id, info: null, viewId: '', total: 0, shown: -1, sig: '', rows: new Map(), known: new Map(), heights: new Map(), agg: {}, sel: null, checked: new Set(),
-      editing: null, dirty: false, seq: 0, drag: null, painted: null, menu: null };
+      editing: null, dirty: false, seq: 0, drag: null, painted: null, menu: null,
+      q: '', groups: null, lines: null, rowLine: null, panel: null, tabDrag: null, colDrag: null, pdrag: null, hiddenViews: [] };   // 0.16.0 DV-3: 中の検索の語（窓のメモリ）・グループ・設定の窓
   }
   function dbViewOf(st) { return st && st.info ? st.info.views.find((v) => v.id === st.viewId) || null : null; }
   // 描く列（ビューの並びで出す列。消した列は出さない）
@@ -9577,9 +9622,26 @@
   // 見える行の窓（行の高さは読んだ行の高さ。まだ知らない間は頭の DB_READ_MAX 行を見込む）
   function dbWin(st) {
     const sc = dbScroller();
-    const rowsN = st.shown < 0 ? DB_READ_MAX : st.shown;
-    return dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: DB_PAD, total: rowsN });
+    return dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: DB_PAD, total: dbLineN(st) });
   }
+  // 0.16.0 DV-3（決めたこと 19・R76）: グループのある表は、グループの頭の行と行を1つの並び（線）にして捲る。線の値は行の番号か、頭なら -1-<グループの番号>。
+  // 隠したグループ（開け閉めで閉じた・目のアイコンで隠した）は頭と数だけ。グループの無い表は線と行の番号が同じ
+  function dbLinesOf(st) {
+    st.lines = null; st.rowLine = null;
+    if (!Array.isArray(st.groups) || st.shown < 0) return;
+    const lines = [];
+    const rowLine = [];
+    let i = 0;
+    st.groups.forEach((g, gi) => {
+      lines.push(-1 - gi);
+      if (g.hidden) return;
+      for (let k = 0; k < g.count && i < st.shown; k += 1) { rowLine[i] = lines.length; lines.push(i); i += 1; }
+    });
+    st.lines = lines; st.rowLine = rowLine;
+  }
+  const dbLineN = (st) => (st.shown < 0 ? DB_READ_MAX : st.lines ? st.lines.length : st.shown);
+  const dbLineAt = (st, li) => (st.lines ? st.lines[li] : li);
+  const dbRowLine = (st, i) => (st.rowLine && Number.isInteger(st.rowLine[i]) ? st.rowLine[i] : i);
   // データベースのページを開く（renderPage から）。同じデータベースなら表を読み直す（同じ印なら描き直さない）
   function dbShow(id) {
     const box = $('pDb');
@@ -9597,7 +9659,9 @@
     st.opening = false;
     if (dbSt !== st) return;
     st.info = info && Array.isArray(info.views) && info.views.length ? info : null;
-    st.viewId = st.info ? st.info.views[0].id : '';
+    const want = dbLinkWant && dbLinkWant.id === id ? dbLinkWant.viewId : '';   // 0.16.0 DV-3（決めたこと 16）: ビューのリンクで開いた
+    dbLinkWant = null;
+    st.viewId = st.info ? (st.info.views.some((v) => v.id === want) ? want : st.info.views[0].id) : '';
     dbPaint();
     await dbLoad(false);
   }
@@ -9617,8 +9681,14 @@
       const check = st.check;
       const w = dbWin(st);
       const want = [];
-      for (let i = w.from; i < w.from + w.count; i += 1) if (check || !st.rows.has(i)) want.push(i);
-      if (!want.length && (st.shown < 0 || check)) want.push(w.from);   // 行が無くても印を読む（ほかの所で行が戻ったら描く）
+      let first = -1;
+      for (let li = w.from; li < w.from + w.count; li += 1) {
+        const i = dbLineAt(st, li);
+        if (i < 0) continue;   // グループの頭（0.16.0 DV-3）
+        if (first < 0) first = i;
+        if (check || !st.rows.has(i)) want.push(i);
+      }
+      if (!want.length && (st.shown < 0 || check)) want.push(Math.max(0, first));   // 行が無くても印を読む（ほかの所で行が戻ったら描く）
       if (!want.length) break;
       let restart = false;
       // 続いた番号ごとに DB_READ_MAX 行ずつ（印を見るだけなら初めの1回）
@@ -9629,12 +9699,15 @@
         const count = j - k + 1;
         k = j + 1;
         let r;
-        try { r = await window.koeApp.dbView(st.id, st.viewId, from, count); } catch (_) { r = null; }
+        try { r = await window.koeApp.dbView(st.id, st.viewId, from, count, ...(st.q ? [st.q] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 中の検索の語（決めたこと 22）
         if (dbSt !== st || st.seq !== seq) return;
         if (!r) { st.check = true; if (fresh || !st.painted) dbPaintRows(); return; }   // 断られた: 表は前のまま（次の読みで確かめる）
         if (r.sig !== st.sig) {
           const had = st.sig !== '';
           st.sig = r.sig; st.total = r.total; st.shown = r.shown; st.agg = r.agg || {};
+          if (st.lines || Array.isArray(r.groups)) st.heights.clear();   // 0.16.0 DV-3: グループの線が替わる（覚えた高さは線の番号）
+          st.groups = Array.isArray(r.groups) ? r.groups : null;
+          dbLinesOf(st);
           st.rows.clear();
           fresh = true;
           st.check = false;
@@ -9643,7 +9716,7 @@
           if (dbSt !== st || st.seq !== seq) return;
         }
         r.rows.forEach((row, n) => {
-          if (!st.rows.has(from + n) && dbDrawn(st, from + n)) fresh = true;   // 描いた窓の外の行は覚えるだけ（窓の端に近づいたら描く: rv44 F3）
+          if (!st.rows.has(from + n) && dbDrawn(st, dbRowLine(st, from + n))) fresh = true;   // 描いた窓の外の行は覚えるだけ（窓の端に近づいたら描く: rv44 F3）
           st.rows.set(from + n, row);
           st.known.set(row.id, row);
         });
@@ -9658,35 +9731,31 @@
   async function dbInfoAgain(st, seq) {
     let info = null;
     try { info = await window.koeApp.dbGet(st.id); } catch (_) { info = null; }
-    if (dbSt !== st || st.seq !== seq || !info || !Array.isArray(info.views) || !info.views.length || dbInfoKey(info) === dbInfoKey(st.info)) return false;
+    if (dbSt !== st || st.seq !== seq || !info || !Array.isArray(info.views) || !info.views.length) return false;
+    if (dbInfoKey(info) === dbInfoKey(st.info)) {   // 0.16.0 DV-3: 行の数だけが変わった: 中の検索の欄を出し入れする（表は描き直さない）
+      const was = dbSearchOn(st);
+      st.info.rowCount = info.rowCount;
+      if (was !== dbSearchOn(st)) dbPaintTabs(st);
+      return false;
+    }
     st.info = info;
     if (!dbViewOf(st)) st.viewId = info.views[0].id;
     dbPaint();
     return true;
   }
   // 表の骨組み（ビューのタブ・選んだ行の帯・見出し・表・下の集計・［＋ 新しい行］）
+  // 0.16.0 DV-3: タブは引っ張って並べ、入り切らないものは「他 n 件」。リストの形は見出しと下の集計を出さない（決めたこと 23）。開いている設定の窓は残す
   function dbPaint() {
     const st = dbSt;
     const box = $('pDb');
+    const searching = Boolean(st && st.parts && st.parts.q && document.activeElement === st.parts.q);
     box.textContent = '';
     if (!st || !st.info) return;
     st.painted = null;
+    const v = dbViewOf(st);
+    const list = Boolean(v && v.layout === 'list');
     const tabs = document.createElement('div');
     tabs.className = 'dbtabs'; tabs.setAttribute('role', 'tablist');
-    for (const v of st.info.views) {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'dbtab'; b.setAttribute('role', 'tab');
-      b.textContent = v.name;
-      b.setAttribute('aria-selected', v.id === st.viewId ? 'true' : 'false');
-      b.tabIndex = v.id === st.viewId ? 0 : -1;
-      b.onclick = () => dbPickView(v.id);
-      tabs.appendChild(b);
-    }
-    const gear = document.createElement('button');   // 0.16.0 DV-2: ビューの設定（［消した列］。DV-3 が並べ替え・絞り込みなどを足す）
-    gear.type = 'button'; gear.className = 'dbsetbtn'; gear.textContent = '⚙';
-    gear.setAttribute('aria-label', DB_VIEW_SET); gear.title = DB_VIEW_SET; gear.setAttribute('aria-haspopup', 'menu');
-    gear.onclick = () => dbSettingsMenu(gear);
-    tabs.appendChild(gear);
     box.appendChild(tabs);
     const bar = document.createElement('div');
     bar.className = 'dbselbar'; bar.hidden = true;
@@ -9695,7 +9764,7 @@
     sc.className = 'dbscroll';
     sc.onscroll = () => dbOnScroll();
     const grid = document.createElement('div');
-    grid.className = 'dbgrid'; grid.setAttribute('role', 'grid');
+    grid.className = list ? 'dbgrid dblist' : 'dbgrid'; grid.setAttribute('role', 'grid');
     grid.setAttribute('aria-label', oneLine(curPage && curPage.title) || dbUntitled());
     grid.tabIndex = 0;
     grid.onkeydown = (ev) => dbGridKey(ev);
@@ -9719,7 +9788,15 @@
       hb.type = 'button'; hb.className = 'dbcolbtn'; hb.setAttribute('aria-haspopup', 'menu');
       hb.textContent = c.col.name;
       hb.onclick = () => dbColMenu(c.col.id, hb);
-      h.appendChild(hb);
+      hb.draggable = true;   // 0.16.0 DV-3（V-T10・R74）: 見出しを引っ張って、このビューの列の並びを替える
+      hb.ondragstart = (ev) => dbColDragStart(ev, c.col.id);
+      h.ondragover = (ev) => dbColDragOver(ev, h);
+      h.ondragleave = () => h.classList.remove('dropbefore', 'dropafter');
+      h.ondrop = (ev) => dbColDrop(ev, h);
+      const rz = document.createElement('span');   // 0.16.0 DV-3（V-T12・決めたこと 20）: 見出しの右の端を引っ張って幅を替える
+      rz.className = 'dbresize'; rz.setAttribute('aria-hidden', 'true');
+      rz.onmousedown = (ev) => dbResizeStart(ev, c.col.id, c.width);
+      h.append(hb, rz);
       head.appendChild(h);
     }
     const plus = document.createElement('div');   // 0.16.0 DV-2: 右端の［＋］で列を足す（決めたこと 13・V-T16）
@@ -9730,14 +9807,14 @@
     pb.onclick = () => dbAddColMenu(pb);
     plus.appendChild(pb);
     head.appendChild(plus);
-    grid.appendChild(head);
+    if (!list) grid.appendChild(head);
     const top = document.createElement('div'); top.className = 'dbpad'; top.setAttribute('aria-hidden', 'true');
     const body = document.createElement('div'); body.className = 'dbbody'; body.setAttribute('role', 'rowgroup');
     const bottom = document.createElement('div'); bottom.className = 'dbpad'; bottom.setAttribute('aria-hidden', 'true');
     grid.append(top, body, bottom);
     sc.appendChild(grid);
     const foot = document.createElement('div');
-    foot.className = 'dbfoot'; foot.setAttribute('aria-hidden', 'true');
+    foot.className = 'dbfoot';
     sc.appendChild(foot);
     box.appendChild(sc);
     const add = document.createElement('button');
@@ -9746,8 +9823,12 @@
     add.onclick = () => dbAddRow(null);
     box.appendChild(add);
     st.parts = { tabs, bar, sc, grid, head, all, top, body, bottom, foot };
+    dbPaintTabs(st);
+    if (searching && st.parts.q) st.parts.q.focus();
     dbPaintBar();
     if (st.editing && st.editing.pick) box.appendChild(st.editing.pick);   // 0.16.0 DV-2: 列が変わって描き直しても、開いている選びの窓は残す
+    if (st.panel && st.panel.viewId !== st.viewId) dbPanelClose();
+    if (st.panel) box.appendChild(st.panel.el);   // 0.16.0 DV-3: 設定の窓は描き直しても開いたまま（書くたびに閉じない）
   }
   // 見える窓の行を描く（見えている行と上下 50 行だけ: 決めたこと 32）。編集中は描き直さない（終えてから）
   function dbPaintRows() {
@@ -9758,21 +9839,25 @@
     const a = document.activeElement;
     const hadFocus = Boolean(a) && (a === p.grid || isIn(a, p.body));
     const cols = dbColsOf(st);
-    const w = st.shown <= 0 ? { from: 0, count: 0, before: 0, after: 0 } : dbWin(st);
-    p.grid.setAttribute('aria-rowcount', String(Math.max(0, st.shown) + 1));
+    const lineN = st.shown < 0 ? 0 : dbLineN(st);   // 0.16.0 DV-3: グループの頭も1本の線（決めたこと 19）
+    const w = lineN <= 0 ? { from: 0, count: 0, before: 0, after: 0 } : dbWin(st);
+    const list = p.grid.classList.contains('dblist');
+    p.grid.setAttribute('aria-rowcount', String(lineN + (list ? 0 : 1)));
     p.top.style.height = `${w.before}px`;
     p.bottom.style.height = `${w.after}px`;
     p.body.textContent = '';
-    for (let i = w.from; i < w.from + w.count; i += 1) {
+    for (let li = w.from; li < w.from + w.count; li += 1) {
+      const i = dbLineAt(st, li);
+      if (i < 0) { p.body.appendChild(dbGroupHeadEl(st, -1 - i, li)); continue; }
       const row = st.rows.get(i);
-      p.body.appendChild(row ? dbRowEl(st, cols, row, i) : dbWaitEl(i));
+      p.body.appendChild(row ? dbRowEl(st, cols, row, i, li) : dbWaitEl(li));
     }
     st.painted = { from: w.from, count: w.count };
-    // 読んだ行の高さを覚える（折り返しのある列で行の高さが揃わない: 決めたこと 32）
+    // 読んだ行の高さを覚える（折り返しのある列で行の高さが揃わない: 決めたこと 32）。番号は線の番号
     for (const el of p.body.querySelectorAll('.dbrow')) {
       const h = el.getBoundingClientRect().height;
-      const i = Number(el.dataset.i);
-      if (h > 0 && Number.isInteger(i)) st.heights.set(i, h);
+      const li = Number(el.dataset.li);
+      if (h > 0 && Number.isInteger(li)) st.heights.set(li, h);
     }
     dbPaintFoot(st, cols);
     p.all.checked = st.shown > 0 && st.checked.size >= st.shown;
@@ -9780,17 +9865,19 @@
     p.grid.tabIndex = cell ? -1 : 0;
     if (hadFocus) (cell || p.grid).focus({ preventScroll: true });   // 描き直してもフォーカスを同じセルに戻す（決めたこと 51。DV-1 直し rv44 F3: 戻すときに捲らない）
   }
-  function dbWaitEl(i) {
+  function dbWaitEl(li) {
     const el = document.createElement('div');
     el.className = 'dbrow dbwait'; el.setAttribute('role', 'row'); el.setAttribute('aria-busy', 'true');
-    el.setAttribute('aria-rowindex', String(i + 2));
+    el.dataset.li = String(li);
+    el.setAttribute('aria-rowindex', String(li + 2));
     return el;
   }
-  function dbRowEl(st, cols, row, i) {
+  function dbRowEl(st, cols, row, i, li) {
+    const list = st.parts.grid.classList.contains('dblist');   // 0.16.0 DV-3（決めたこと 23）: リストは「アイコン 題名」と右端の値
     const el = document.createElement('div');
     el.className = 'dbrow'; el.setAttribute('role', 'row');
-    el.dataset.id = row.id; el.dataset.i = String(i);
-    el.setAttribute('aria-rowindex', String(i + 2));
+    el.dataset.id = row.id; el.dataset.i = String(i); el.dataset.li = String(li);
+    el.setAttribute('aria-rowindex', String(li + 2));
     const lead = document.createElement('div');
     lead.className = 'dblead'; lead.setAttribute('role', 'gridcell');
     const grip = document.createElement('span');
@@ -9804,12 +9891,13 @@
     ck.setAttribute('aria-label', dbRowName(row));
     ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = st.shown > 0 && st.checked.size >= st.shown; };
     lead.append(grip, ck);
+    if (list) { const ic = document.createElement('span'); ic.className = 'dbicon'; ic.setAttribute('aria-hidden', 'true'); ic.textContent = '📄'; lead.appendChild(ic); }
     el.appendChild(lead);
     for (const c of cols) {
       const cell = document.createElement('div');
       cell.className = 'dbcell'; cell.setAttribute('role', 'gridcell');
       cell.dataset.col = c.col.id;
-      cell.style.width = `${c.width}px`;
+      if (!list) cell.style.width = `${c.width}px`;
       if (c.wrap) cell.classList.add('wrap');
       const on = Boolean(st.sel && st.sel.row === row.id && st.sel.col === c.col.id);
       cell.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -9826,21 +9914,28 @@
     return el;
   }
   const dbRowName = (row) => dbModelView.fmtCell({ id: 'title', name: '', type: 'title' }, dbModelView.cellValue(row, { id: 'title', type: 'title' }), {});
+  // 0.16.0 DV-3（決めたこと 21・V-T14）: 下の集計は列ごとのボタン。押すと集計の選び（列のメニューの［集計 ▸］と同じ）。空の欄は「集計」。リストには出さない
   function dbPaintFoot(st, cols) {
     const f = st.parts.foot;
     f.textContent = '';
     const v = dbViewOf(st);
+    if (!v || v.layout === 'list') { f.hidden = true; return; }
     const lead = document.createElement('div'); lead.className = 'dblead';
     f.appendChild(lead);
-    let any = false;
     for (const c of cols) {
       const d = document.createElement('div');
-      d.className = 'dbagg'; d.style.width = `${c.width}px`;
-      const kind = v && v.agg ? v.agg[c.col.id] : '';
-      if (kind && Object.hasOwn(st.agg, c.col.id)) { d.textContent = dbAggText(c.col, kind, st.agg[c.col.id]); any = true; }
+      d.className = 'dbagg'; d.style.width = `${c.width}px`; d.dataset.col = c.col.id;
+      const kind = v.agg ? v.agg[c.col.id] : '';
+      const text = kind && Object.hasOwn(st.agg, c.col.id) ? dbAggText(c.col, kind, st.agg[c.col.id]) : '';
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'dbaggbtn'; b.dataset.col = c.col.id; b.setAttribute('aria-haspopup', 'menu');
+      b.textContent = text;
+      b.setAttribute('aria-label', text || '集計');
+      b.onclick = () => dbAggMenu(c.col, b);
+      d.appendChild(b);
       f.appendChild(d);
     }
-    f.hidden = !any;
+    f.hidden = false;
   }
   // 下の集計の見せる文字（決めたこと 21・R9。割合は丸めて %・数値の列の数は列の見せ方・日付は日付の見せ方・期間は日の数）
   // DV-1 直し（rv44 F4・R55）: 日付・作成日時・最終更新日時の range は「期間」（数値と ID は「範囲」）
@@ -9872,9 +9967,9 @@
   const dbDrawn = (st, i) => !st.painted || (i >= st.painted.from && i < st.painted.from + st.painted.count);
   function dbOnScroll() {
     const st = dbSt;
-    if (!st || !st.painted || st.shown <= 0) return;
+    if (!st || !st.painted || st.shown < 0 || dbLineN(st) <= 0) return;
     const sc = dbScroller();
-    const seen = dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: 0, total: st.shown });
+    const seen = dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: 0, total: dbLineN(st) });
     const p = st.painted;
     const w = dbWin(st);
     const near = seen.from < p.from || seen.from + seen.count > p.from + p.count || Math.abs(w.from - p.from) > DB_EDGE || Math.abs(w.from + w.count - (p.from + p.count)) > DB_EDGE;
@@ -9888,7 +9983,8 @@
     const st = dbSt;
     if (!st || st.viewId === viewId) return;
     dbEditEnd(true);
-    st.viewId = viewId; st.sig = ''; st.shown = -1; st.rows.clear(); st.heights.clear(); st.sel = null;
+    dbPanelClose();   // 0.16.0 DV-3: 設定の窓は今のビューのもの
+    st.viewId = viewId; st.sig = ''; st.shown = -1; st.rows.clear(); st.heights.clear(); st.sel = null; st.groups = null; dbLinesOf(st);
     dbPaint();
     const sc = dbScroller(); if (sc) sc.scrollTop = 0;
     dbLoad(false);
@@ -9905,9 +10001,10 @@
     const n = Math.max(0, Math.min(st.shown - 1, i));
     const sc = dbScroller();
     const w = st.painted || { from: 0, count: 0 };
-    if (sc && (!st.rows.has(n) || n < w.from || n >= w.from + w.count)) {
+    const ln = dbRowLine(st, n);   // 0.16.0 DV-3: 捲る所は線の番号（グループの頭を数える）
+    if (sc && (!st.rows.has(n) || ln < w.from || ln >= w.from + w.count)) {
       let y = 0;
-      for (let k = 0; k < n; k += 1) y += st.heights.get(k) || DB_ROW_H;
+      for (let k = 0; k < ln; k += 1) y += st.heights.get(k) || DB_ROW_H;
       sc.scrollTop = Math.max(0, y - DB_ROW_H * 2);
       dbPaintRows();
       await dbLoad(false);
@@ -10051,12 +10148,13 @@
     if (then) dbSelect(ed.row, ed.col);
   }
   // ［＋ 新しい行］と最後の行の題名の Enter: 行を1つ足し（絞り込みの値を入れる: 決めたこと 24・R35）、その題名のセルを書く
-  async function dbAddRow(afterId) {
+  // 0.16.0 DV-3（決めたこと 24）: グループの［＋］は、そのグループの値（extra の cells・title）も入れる
+  async function dbAddRow(afterId, extra = {}) {
     const st = dbSt;
     if (!st || !st.info) return;
     dbEditEnd(true);
-    const cells = dbViewView.filterDefaults(dbViewOf(st), st.info.cols);
-    const r = await dbWrite(() => window.koeApp.rowAdd(st.id, { ...(afterId ? { afterId } : {}), ...(Object.keys(cells).length ? { cells } : {}) }));
+    const cells = { ...dbViewView.filterDefaults(dbViewOf(st), st.info.cols), ...(extra.cells || {}) };
+    const r = await dbWrite(() => window.koeApp.rowAdd(st.id, { ...(afterId ? { afterId } : {}), ...(Object.keys(cells).length ? { cells } : {}), ...(extra.title ? { title: extra.title } : {}) }));
     if (!r || dbSt !== st) return;
     let i = dbIndexOf(st, r.id);
     if (i < 0) {   // 窓の外（末に足した行）: 捲って読む
@@ -10076,7 +10174,7 @@
     if (on) {
       for (let from = 0; from < st.shown; from += DB_READ_MAX) {
         let r = null;
-        try { r = await window.koeApp.dbView(st.id, st.viewId, from, Math.min(DB_READ_MAX, st.shown - from)); } catch (_) { r = null; }
+        try { r = await window.koeApp.dbView(st.id, st.viewId, from, Math.min(DB_READ_MAX, st.shown - from), ...(st.q ? [st.q] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 探している語の行だけ
         if (dbSt !== st || !r) return;
         for (const row of r.rows) { st.checked.add(row.id); st.known.set(row.id, row); }
       }
@@ -10213,7 +10311,7 @@
     if (afterId === id) return;
     await dbWrite(() => window.koeApp.rowMove(st.id, id, afterId));
   }
-  document.addEventListener('dragend', () => { if (dbSt) dbSt.drag = null; });
+  document.addEventListener('dragend', () => { if (dbSt) { dbSt.drag = null; dbSt.tabDrag = null; dbSt.colDrag = null; dbSt.pdrag = null; } });   // 0.16.0 DV-3: タブ・見出し・設定の窓の ⋮⋮
   // ---- 元に戻す（データベースの歩み: 決めたこと 47・48）
   function dbUndo(dir) {
     const st = dbSt;
@@ -10293,6 +10391,7 @@
   function dbMenuAt(anchor, items, cls) {
     const st = dbSt;
     dbMenuClose();
+    dbPanelClose();   // 0.16.0 DV-3: ほかのメニューを開くと設定の窓は閉じる
     const m = document.createElement('div');
     m.className = `dbmenu ${cls || ''}`.trim(); m.setAttribute('role', 'menu');
     dbMenuPlace(m, anchor);
@@ -10421,7 +10520,7 @@
     dbMenuClose();
     const v = dbViewOf(st);
     const props = v.props.map((p) => (p.col === colId ? { ...p, ...change } : p));
-    return dbWrite(() => window.koeApp.viewUpdate(st.id, st.viewId, { props }));
+    return dbViewSave({ props });
   }
   function dbAggMenu(col, anchor) {
     const st = dbSt;
@@ -10431,7 +10530,7 @@
       dbMenuClose();
       const agg = { ...(v.agg || {}) };
       if (now === k) delete agg[col.id]; else agg[col.id] = k;   // 同じ集計をもう一度選ぶと外す
-      dbWrite(() => window.koeApp.viewUpdate(st.id, st.viewId, { agg }));
+      dbViewSave({ agg });
     } })), 'dbcolmenu');
   }
   // ［左に入れる］［右に入れる］: テキストの列を足し（colAdd の1回）、今のビューの並びのその列の隣に置く（viewUpdate の1回）
@@ -10447,7 +10546,7 @@
     const props = dbViewOf(st).props.filter((p) => p.col !== r.col.id);
     const at = props.findIndex((p) => p.col === col.id) + (side === 'right' ? 1 : 0);
     props.splice(Math.max(0, at), 0, { col: r.col.id, show: true, wrap: false });
-    await dbWrite(() => window.koeApp.viewUpdate(st.id, st.viewId, { props }));
+    await dbViewSave({ props });
   }
   // 右端の［＋］: 種類を選んで足し、名前の欄を開く
   function dbAddColMenu(anchor) {
@@ -10464,13 +10563,14 @@
     } })), 'dbcolmenu');
     m.dataset.add = '1';
   }
-  // ビューの設定（DV-2 は［消した列］だけ: 戻す・完全に消す。R-24）
+  // ビューの設定（DV-2 は［消した列］だけ: 戻す・完全に消す。R-24。0.16.0 DV-3: 並べ替え・絞り込み・グループ・列の表示の窓）
   function dbSettingsMenu(anchor) {
     const st = dbSt;
-    if (st.menu && st.menu.dataset.set === '1') { dbMenuClose(); return; }
+    if ((st.menu && st.menu.dataset.set === '1') || st.panel) { dbMenuClose(); dbPanelClose(); return; }
     dbEditEnd(true);
     const gone = st.info.cols.filter((c) => c.gone);
-    const m = dbMenuAt(anchor, [{ head: DB_VIEW_SET }, { label: '消した列', fn: () => dbGoneMenu(anchor), off: !gone.length }], 'dbsetmenu');
+    const m = dbMenuAt(anchor, [{ head: DB_VIEW_SET }, ...DB_PANELS.map((k) => ({ label: k, fn: () => dbPanelOpen(k) })),
+      { label: '消した列', fn: () => dbGoneMenu(anchor), off: !gone.length }], 'dbsetmenu');
     m.dataset.set = '1';
   }
   function dbGoneMenu(anchor) {
@@ -10490,6 +10590,635 @@
     }
     const first = m.querySelector('button');
     if (first) first.focus();
+  }
+  // ================= 0.16.0 DV-3: ビューのタブと設定・リスト・下の集計の選び・中の検索 =================
+  // 計画 docs/plans/2026-11-04-160.md の決めたこと 15〜23・R74〜。ビューの設定（タブの名前・並び・並べ替え・絞り込み・グループ・列の表示と並びと幅と
+  // 折り返し・集計）は、どれも view.update などのビューの命令の1回で、元に戻すの歩みにしない（決めたこと 47）。他人の文字（ビュー・列・選択肢の名前）は textContent だけ
+  const DB_VIEWS_MAX = 20;   // 1つのデータベースのビュー（src/db/validate.js の LIMITS.dbViews と同じ）
+  const DB_VIEWS_FULL = 'ビューは 20 までです。';
+  const DB_VIEW_ADD = 'ビューを足す';
+  const DB_VIEW_NAME = 'ビューの名前';
+  const DB_VIEW_DEL_ASK = (name) => `ビュー『${name}』を削除します。並べ替えや絞り込みの設定も消えます。行は消えません。`;
+  const DB_SEARCH = 'この中を探す';
+  const DB_PANELS = ['並べ替え', '絞り込み', 'グループ', '列の表示'];
+  const DB_SORT_DIR = [['asc', '昇順'], ['desc', '降順']];
+  const DB_OP_LABEL = Object.freeze({ contains: '含む', notContains: '含まない', is: '等しい', startsWith: '始まる', endsWith: '終わる', empty: '空', notEmpty: '空でない',
+    eq: '=', ne: '≠', gt: '>', lt: '<', ge: '≥', le: '≤', any: 'どれか', none: 'どれでもない', anyOf: 'どれかを含む', allOf: '全部を含む',
+    before: '前', after: '後', on: 'その日', between: '間', today: '今日', pastDays: '過去 n 日', nextDays: '次の n 日', yes: 'はい', no: 'いいえ' });
+  const DB_GROUP_BY = Object.freeze({ day: '日', week: '週', month: '月', year: '年', group: '3つのまとまり', option: '選択肢ごと' });
+  const DB_GROUP_BYS = Object.freeze({ status: ['group', 'option'], date: ['day', 'week', 'month', 'year'], ctime: ['day', 'week', 'month', 'year'], mtime: ['day', 'week', 'month', 'year'] });
+  const DB_DAYS = 7;          // 「過去 n 日」「次の n 日」の始めの n
+  const DB_W_MIN = 80;        // 列の幅（src/dbView.js の WIDTH_MIN・WIDTH_MAX と同じ）
+  const DB_W_MAX = 800;
+  const DB_MORE_W = 64;       // 「他 n 件」のために空けておく幅（px）
+  let dbLinkWant = null;      // ビューのリンクで開くデータベースとビュー（表を読む前に来たとき）
+  const dbLive = (st) => st.info.cols.filter((c) => !c.gone && dbModelView.COLS[c.type]);
+  // ビューの設定を書く（view.update の1回。歩みにしない）。どの設定の道もここを通る
+  async function dbViewSave(patch, viewId) {
+    const st = dbSt;
+    if (st.editing) await dbEditEnd(true);   // 書いているセルは決めてから（表の形が替わる）
+    return dbWrite(() => window.koeApp.viewUpdate(st.id, viewId || st.viewId, patch));
+  }
+  // ---- タブ（決めたこと 16・V-T02〜V-T04）
+  function dbPaintTabs(st) {
+    const tabs = st.parts.tabs;
+    tabs.textContent = '';
+    st.parts.tabEls = [];
+    for (const v of st.info.views) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'dbtab'; b.setAttribute('role', 'tab');
+      b.textContent = v.name;
+      b.dataset.view = v.id;
+      b.setAttribute('aria-selected', v.id === st.viewId ? 'true' : 'false');
+      b.tabIndex = v.id === st.viewId ? 0 : -1;
+      b.onclick = () => (v.id === dbSt.viewId ? dbTabMenu(v.id, b) : dbPickView(v.id));   // 今のタブを押すとタブのメニュー（V-T04）
+      b.oncontextmenu = (ev) => { ev.preventDefault(); dbTabMenu(v.id, b); };
+      b.draggable = true;
+      b.ondragstart = (ev) => dbTabDragStart(ev, v.id);
+      b.ondragover = (ev) => dbTabDragOver(ev, b);
+      b.ondragleave = () => b.classList.remove('dropbefore', 'dropafter');
+      b.ondrop = (ev) => dbTabDrop(ev, b);
+      tabs.appendChild(b);
+      st.parts.tabEls.push(b);
+    }
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'dbtabmore'; more.hidden = true; more.setAttribute('aria-haspopup', 'menu');
+    more.onclick = () => dbMoreMenu(more);
+    const add = document.createElement('button');
+    add.type = 'button'; add.className = 'dbviewadd'; add.textContent = '＋';
+    add.setAttribute('aria-label', DB_VIEW_ADD); add.title = DB_VIEW_ADD; add.setAttribute('aria-haspopup', 'menu');
+    add.onclick = () => dbViewAddMenu(add);
+    tabs.append(more, add);
+    st.parts.more = more; st.parts.add = add; st.parts.search = null; st.parts.q = null;
+    if (dbSearchOn(st)) {   // 決めたこと 22・V-T23: 行が 3 以上のとき（語があれば、行が減っても出したまま）
+      const wrap = document.createElement('span');
+      wrap.className = 'dbsearch';
+      const glass = document.createElement('span'); glass.setAttribute('aria-hidden', 'true'); glass.textContent = '🔍';
+      const q = document.createElement('input');
+      q.type = 'text'; q.className = 'dbsearchq';
+      q.setAttribute('placeholder', DB_SEARCH); q.setAttribute('aria-label', DB_SEARCH);
+      q.value = st.q;
+      q.oninput = (ev) => { if (ev && ev.isComposing) return; dbSearchSet(q.value); };   // 変換中の語では探さない
+      q.addEventListener('compositionend', () => dbSearchSet(q.value));
+      q.onkeydown = (ev) => {
+        if (imeEnter(ev)) return;
+        if (ev.key === 'Escape' && q.value !== '') { ev.preventDefault(); ev.stopPropagation(); q.value = ''; dbSearchSet(''); }
+      };
+      wrap.append(glass, q);
+      tabs.appendChild(wrap);
+      st.parts.search = wrap; st.parts.q = q;
+    }
+    const gear = document.createElement('button');   // 0.16.0 DV-2: ビューの設定
+    gear.type = 'button'; gear.className = 'dbsetbtn'; gear.textContent = '⚙';
+    gear.setAttribute('aria-label', DB_VIEW_SET); gear.title = DB_VIEW_SET; gear.setAttribute('aria-haspopup', 'menu');
+    gear.onclick = () => dbSettingsMenu(gear);
+    tabs.appendChild(gear);
+    st.parts.gear = gear;
+    dbFitTabs(st);
+  }
+  // 入り切らないタブを隠して「他 n 件」に（今のタブはいつも出す。幅を測れないときは全部を出す）
+  function dbFitTabs(st) {
+    const p = st && st.parts;
+    if (!p || !p.tabEls) return;
+    for (const b of p.tabEls) b.hidden = false;
+    p.more.hidden = true;
+    st.hiddenViews = [];
+    const wid = (el) => (el ? el.getBoundingClientRect().width : 0);
+    const avail = wid(p.tabs) - wid(p.add) - wid(p.search) - wid(p.gear);
+    const sum = p.tabEls.reduce((n, b) => n + wid(b), 0);
+    if (avail <= 0 || sum <= avail) return;
+    const on = p.tabEls.find((b) => b.dataset.view === st.viewId);
+    let used = wid(on);
+    for (const b of p.tabEls) {
+      if (b === on) continue;
+      if (used + wid(b) <= avail - DB_MORE_W) used += wid(b);
+      else { b.hidden = true; st.hiddenViews.push(b.dataset.view); }
+    }
+    p.more.textContent = `他 ${st.hiddenViews.length} 件`;
+    p.more.hidden = !st.hiddenViews.length;
+  }
+  window.addEventListener('resize', () => dbFitTabs(dbSt));
+  function dbMoreMenu(anchor) {
+    const st = dbSt;
+    const views = st.hiddenViews.map((id) => st.info.views.find((v) => v.id === id)).filter(Boolean);
+    dbMenuAt(anchor, views.map((v) => ({ label: v.name, fn: () => { dbMenuClose(); dbPickView(v.id); } })), 'dbcolmenu');
+  }
+  // タブを引っ張って並べる（view.move の1回: V-T03）
+  function dbTabDragStart(ev, viewId) {
+    const st = dbSt;
+    if (!st) return;
+    st.tabDrag = viewId;
+    if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('application/x-natsu-view', viewId); }
+  }
+  const dbTabDragOn = (ev) => Boolean(dbSt && dbSt.tabDrag && ev.dataTransfer && [...(ev.dataTransfer.types || [])].includes('application/x-natsu-view'));
+  const dbRightHalf = (ev, el) => { const r = el.getBoundingClientRect(); return ev.clientX >= r.left + r.width / 2; };
+  function dbTabDragOver(ev, b) {
+    if (!dbTabDragOn(ev) || b.dataset.view === dbSt.tabDrag) return;
+    ev.preventDefault();
+    const after = dbRightHalf(ev, b);
+    b.classList.toggle('dropafter', after);
+    b.classList.toggle('dropbefore', !after);
+  }
+  async function dbTabDrop(ev, b) {
+    b.classList.remove('dropbefore', 'dropafter');
+    if (!dbTabDragOn(ev)) return;
+    ev.preventDefault();
+    const st = dbSt;
+    const id = st.tabDrag;
+    st.tabDrag = null;
+    if (b.dataset.view === id) return;
+    const views = st.info.views;
+    const i = views.findIndex((v) => v.id === b.dataset.view);
+    const after = dbRightHalf(ev, b) ? b.dataset.view : (i > 0 ? views[i - 1].id : '');
+    if (after === id) return;
+    await dbWrite(() => window.koeApp.viewMove(st.id, id, after));
+  }
+  // タブのメニュー（V-T04: 名前を変える・複製・リンクを写す・削除。最後の1つは消せない）
+  function dbTabMenu(viewId, anchor) {
+    const st = dbSt;
+    const v = st.info.views.find((x) => x.id === viewId);
+    if (!v) return;
+    if (st.menu && st.menu.dataset.tab === viewId) { dbMenuClose(); return; }
+    dbEditEnd(true);
+    const n = st.info.views.length;
+    const m = dbMenuAt(anchor, [
+      { label: '名前を変える', fn: () => dbMenuInput(anchor, DB_VIEW_NAME, v.name, (name) => { if (name && name !== v.name) dbViewSave({ name }, v.id); }) },
+      { label: '複製', fn: () => dbViewCopy(v.id), off: n >= DB_VIEWS_MAX },
+      { label: 'リンクを写す', fn: () => dbViewLink(v.id) },
+      { label: '削除', fn: () => dbViewRemove(v.id), off: n <= 1 },
+    ], 'dbcolmenu');
+    m.dataset.tab = viewId;
+  }
+  async function dbViewCopy(viewId) {
+    const st = dbSt;
+    dbMenuClose();
+    const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { from: viewId }));
+    if (r && r.view && dbSt === st) dbPickView(r.view.id);
+  }
+  // ビューへのリンク（ページの［リンクを写す］と同じ https の形に、ビューの印 &a=v:<ビューの ID>。開くとそのタブを選ぶ: 決めたこと 16・R75）
+  async function dbViewLink(viewId) {
+    const st = dbSt;
+    dbMenuClose();
+    const base = await linkBaseNow();
+    if (!base || !curPage || dbSt !== st) { toast('リンクを写せませんでした。'); return; }
+    await window.koeApp.copy(`${pageRefLine(curPage, base)}&a=v:${viewId}`); toast('リンクを写しました。');
+  }
+  // ビューを消す（確かめる。消すのは設定だけで行は消えない。今のビューなら先に残りの最初のビューへ）
+  async function dbViewRemove(viewId) {
+    const st = dbSt;
+    dbMenuClose();
+    const v = st.info.views.find((x) => x.id === viewId);
+    if (!v || st.info.views.length <= 1) return;
+    if (!window.confirm(DB_VIEW_DEL_ASK(oneLine(v.name)))) return;
+    if (viewId === st.viewId) dbPickView(st.info.views.find((x) => x.id !== viewId).id);
+    await dbWrite(() => window.koeApp.viewRemove(st.id, viewId));
+  }
+  // ［＋］: 名前の欄と［表］［リスト］（押すとそのビューを足して選ぶ。名前の欄の Enter は表。名前が空なら「表」「リスト」: V-T02）
+  function dbViewAddMenu(anchor) {
+    const st = dbSt;
+    if (st.menu && st.menu.dataset.add === 'view') { dbMenuClose(); return; }
+    dbEditEnd(true);
+    if (st.info.views.length >= DB_VIEWS_MAX) { dbMenuClose(); dbPanelClose(); toast(DB_VIEWS_FULL); return; }
+    const inp = document.createElement('input');
+    const go = async (layout) => {
+      const name = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
+      dbMenuClose();
+      const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { layout, ...(name ? { name } : {}) }));
+      if (r && r.view && dbSt === st) dbPickView(r.view.id);
+    };
+    const m = dbMenuAt(anchor, [{ head: DB_VIEW_ADD }, { label: '表', fn: () => go('table') }, { label: 'リスト', fn: () => go('list') }], 'dbcolmenu');
+    m.dataset.add = 'view';
+    inp.type = 'text'; inp.className = 'dbedit dbmenuinput';
+    inp.setAttribute('aria-label', DB_VIEW_NAME); inp.setAttribute('placeholder', DB_VIEW_NAME);
+    inp.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbMenuClose(); anchor.focus(); return; }
+      if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); go('table'); }
+    };
+    m.insertBefore(inp, m.querySelector('.mitem'));
+    inp.focus();
+  }
+  // ビューのリンクで開いた（showLinkSpot から。表を読む前なら dbOpen が選ぶ）
+  function dbLinkView(id, viewId) {
+    if (dbSt && dbSt.id === id && dbSt.info) { if (dbSt.info.views.some((v) => v.id === viewId)) dbPickView(viewId); return; }
+    dbLinkWant = { id, viewId };
+  }
+  // ---- 中の検索（決めたこと 22: 語はビューに覚えない。窓のメモリだけ）
+  const dbSearchOn = (st) => Boolean(st && st.info) && (st.q !== '' || (Number(st.info.rowCount) || 0) >= 3);
+  function dbSearchSet(text) {
+    const st = dbSt;
+    if (!st) return;
+    const q = String(text).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 500);
+    if (q === st.q) return;
+    dbEditEnd(true);
+    st.q = q; st.sig = ''; st.shown = -1; st.rows.clear(); st.heights.clear(); st.sel = null;
+    const sc = dbScroller(); if (sc) sc.scrollTop = 0;
+    dbLoad(false);
+  }
+  // ---- 見出しを引っ張る（このビューの列の並び: R74）・幅を引っ張る（離したときに1回: 決めたこと 20）
+  function dbColDragStart(ev, colId) {
+    const st = dbSt;
+    if (!st) return;
+    st.colDrag = colId;
+    if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('application/x-natsu-col', colId); }
+  }
+  const dbColDragOn = (ev) => Boolean(dbSt && dbSt.colDrag && ev.dataTransfer && [...(ev.dataTransfer.types || [])].includes('application/x-natsu-col'));
+  function dbColDragOver(ev, h) {
+    if (!dbColDragOn(ev) || h.dataset.col === dbSt.colDrag) return;
+    ev.preventDefault();
+    const after = dbRightHalf(ev, h);
+    h.classList.toggle('dropafter', after);
+    h.classList.toggle('dropbefore', !after);
+  }
+  function dbColDrop(ev, h) {
+    h.classList.remove('dropbefore', 'dropafter');
+    if (!dbColDragOn(ev)) return;
+    ev.preventDefault();
+    const st = dbSt;
+    const id = st.colDrag;
+    st.colDrag = null;
+    if (h.dataset.col === id) return;
+    const props = dbViewOf(st).props.map((p) => ({ ...p }));
+    const from = props.findIndex((p) => p.col === id);
+    const t = props.findIndex((p) => p.col === h.dataset.col);
+    if (from < 0 || t < 0) return;
+    dbArrMove(props, from, dbRightHalf(ev, h) ? t + 1 : t);
+    dbViewSave({ props });
+  }
+  // 配る: a の from 番を、元の並びの to 番の前（to が長さなら末）へ動かす
+  function dbArrMove(a, from, to) {
+    const [x] = a.splice(from, 1);
+    a.splice(to > from ? to - 1 : to, 0, x);
+    return a;
+  }
+  function dbResizeStart(ev, colId, w0) {
+    const st = dbSt;
+    if (!st || (ev.button !== undefined && ev.button !== 0)) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const x0 = ev.clientX;
+    let w = w0;
+    const move = (e) => { w = Math.max(DB_W_MIN, Math.min(DB_W_MAX, Math.round(w0 + (Number(e.clientX) - x0)))); dbColWidth(st, colId, w); };
+    const up = (e) => {
+      if (e && Number.isFinite(e.clientX)) move(e);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      if (w !== w0 && dbSt === st) dbPropPatch(colId, { width: w });   // 引っ張っている間は画面だけ。離したときに view.update の1回
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+  function dbColWidth(st, colId, w) {
+    if (!st.parts) return;
+    for (const el of st.parts.sc.querySelectorAll('.dbcolh, .dbcell, .dbagg')) if (el.dataset.col === colId) el.style.width = `${w}px`;
+  }
+  // ---- グループの頭（決めたこと 19・R76: 開け閉めは目のアイコンと同じ hide。頭と数は残す）
+  function dbGroupName(col, g, key) {
+    if (key === '') return '（空）';
+    if (col.type === 'check') return key === 'true' ? 'チェック済み' : '未チェック';
+    if (col.type === 'status' && (g.by || 'group') === 'group') return DB_STATUS_HEAD[key] || key;
+    if (['select', 'multi', 'status'].includes(col.type)) { const o = (col.opts || []).find((x) => x.id === key); return o ? o.name : key; }
+    if (['date', 'ctime', 'mtime'].includes(col.type)) {
+      const by = g.by || 'month';
+      const [y, m, d] = key.split('-');
+      if (by === 'year') return y;
+      if (by === 'month') return `${y}/${m}`;
+      return by === 'week' ? `${y}/${m}/${d} の週` : `${y}/${m}/${d}`;
+    }
+    if (col.type === 'cby' || col.type === 'mby') return dbModelView.fmtCell(col, key, {});
+    if (col.type === 'number' || col.type === 'no') return dbModelView.fmtCell(col, Number(key), {});
+    return key;
+  }
+  // グループの［＋］で足す行の値（そのグループに入る値。書けない列・決まらない値は入れない）
+  function dbGroupCells(col, g, key) {
+    if (!dbWritable(col) || key === '') return {};
+    if (col.type === 'title') return { title: key };
+    let v;
+    if (col.type === 'check') v = key === 'true' ? true : undefined;
+    else if (col.type === 'multi' || col.type === 'person') v = [key];
+    else if (col.type === 'status' && (g.by || 'group') === 'group') v = ((col.groups || {})[key] || [])[0];
+    else if (col.type === 'number') v = Number(key);
+    else if (col.type === 'date') v = (g.by || 'month') === 'day' ? { start: key } : undefined;
+    else v = key;
+    return v === undefined ? {} : { cells: { [col.id]: v } };
+  }
+  function dbGroupHeadEl(st, gi, li) {
+    const v = dbViewOf(st);
+    const grp = st.groups[gi];
+    const col = v && v.group ? dbColOf(st, v.group.col) : null;
+    const el = document.createElement('div');
+    el.className = 'dbrow dbghead'; el.setAttribute('role', 'row');
+    el.dataset.li = String(li);
+    el.setAttribute('aria-rowindex', String(li + 2));
+    if (!grp || !col) return el;
+    const name = dbGroupName(col, v.group, grp.key);
+    const cell = document.createElement('div');
+    cell.className = 'dbgcell'; cell.setAttribute('role', 'gridcell');
+    const tog = document.createElement('button');
+    tog.type = 'button'; tog.className = 'dbgtoggle';
+    tog.textContent = grp.hidden ? '▸' : '▾';
+    tog.setAttribute('aria-expanded', grp.hidden ? 'false' : 'true');
+    tog.setAttribute('aria-label', name);
+    tog.onclick = () => dbGroupHide(grp.key, !grp.hidden);
+    const nm = document.createElement('span'); nm.className = 'dbgname'; nm.textContent = name;
+    const ct = document.createElement('span'); ct.className = 'dbgcount'; ct.textContent = String(grp.count);
+    const add = document.createElement('button');
+    add.type = 'button'; add.className = 'dbgadd'; add.textContent = '＋';
+    add.setAttribute('aria-label', '＋ 新しい行'); add.title = '＋ 新しい行';
+    add.onclick = () => dbAddRow(null, dbGroupCells(col, v.group, grp.key));
+    cell.append(tog, nm, ct, add);
+    el.appendChild(cell);
+    return el;
+  }
+  function dbGroupHide(key, on) {
+    const st = dbSt;
+    const v = dbViewOf(st);
+    if (!v || !v.group) return null;
+    const hide = new Set(v.group.hide || []);
+    if (on) hide.add(key); else hide.delete(key);
+    const g = { ...v.group };
+    if (hide.size) g.hide = [...hide]; else delete g.hide;
+    return dbViewSave({ group: g });
+  }
+  // ---- 設定の窓（並べ替え・絞り込み・グループ・列の表示）。書いても閉じず、描き直しても残る（dbPaint が付け直す）
+  function dbPanelClose() {
+    const st = dbSt;
+    if (st && st.panel) { if (st.panel.el.parentNode) st.panel.el.parentNode.removeChild(st.panel.el); st.panel = null; }
+  }
+  function dbPanelOpen(kind) {
+    const st = dbSt;
+    dbMenuClose(); dbPanelClose();
+    const v = dbViewOf(st);
+    if (!v) return;
+    const el = document.createElement('div');
+    el.className = 'dbmenu dbsetmenu dbpanel'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', kind);
+    dbMenuPlace(el, st.parts.gear);
+    const head = document.createElement('div'); head.className = 'dbmenuhead'; head.textContent = kind;
+    const body = document.createElement('div'); body.className = 'dbpanelbody';
+    el.append(head, body);
+    el.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbPanelClose(); if (dbSt === st && st.parts && st.parts.gear) st.parts.gear.focus(); }
+    };
+    const draft = kind === '並べ替え' ? v.sort.map((s) => ({ ...s })) : kind === '絞り込み' ? JSON.parse(JSON.stringify(v.filter || { op: 'and', items: [] }))
+      : kind === '列の表示' ? v.props.map((p) => ({ ...p })) : null;
+    st.panel = { el, body, kind, viewId: st.viewId, draft };
+    $('pDb').appendChild(el);
+    dbPanelPaint(st);
+    const f = el.querySelectorAll('button, select, input').find((x) => !x.disabled);
+    if (f) f.focus();
+  }
+  // 窓の中身を描き直す（フォーカスは同じ印 data-k の部品へ戻す）
+  function dbPanelPaint(st) {
+    const pn = st.panel;
+    if (!pn) return;
+    const a = document.activeElement;
+    const k = a && isIn(a, pn.el) ? a.dataset.k : '';
+    pn.body.textContent = '';
+    if (pn.kind === '並べ替え') dbSortPanel(st, pn);
+    else if (pn.kind === '絞り込み') pn.body.appendChild(dbFilterGroup(st, pn, pn.draft, 1, 'f', null));
+    else if (pn.kind === 'グループ') dbGroupPanel(st, pn);
+    else dbPropsPanel(st, pn);
+    if (k) { const back = pn.el.querySelectorAll('button, select, input').find((x) => x.dataset.k === k); if (back) back.focus(); }
+  }
+  async function dbPanelSave(st, patch) {
+    const pn = st.panel;
+    await dbViewSave(patch, pn ? pn.viewId : st.viewId);
+    if (dbSt === st && st.panel === pn && pn) dbPanelPaint(st);
+  }
+  // 窓の部品（印 k はフォーカスを戻すため）
+  function dbSelectEl(label, choices, value, k) {
+    const s = document.createElement('select');
+    s.setAttribute('aria-label', label);
+    s.dataset.k = k;
+    for (const [val, text] of choices) { const o = document.createElement('option'); o.value = val; o.textContent = text; s.appendChild(o); }
+    s.value = value;
+    return s;
+  }
+  function dbXBtn(k, fn) {
+    const x = document.createElement('button');
+    x.type = 'button'; x.className = 'dbx'; x.textContent = '✕';
+    x.setAttribute('aria-label', '外す'); x.title = '外す'; x.dataset.k = k;
+    x.onclick = fn;
+    return x;
+  }
+  function dbBtn(label, k, fn, off) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'ghost'; b.textContent = label; b.dataset.k = k; b.disabled = Boolean(off);
+    b.onclick = fn;
+    return b;
+  }
+  // 窓の中の ⋮⋮ で並べる（並べ替えの優先・グループ・列の表示）。落とした所の上半分なら前へ、下半分なら後ろへ
+  function dbPanelRow(st, kind, i, row, onMove) {
+    const grip = document.createElement('span');
+    grip.className = 'dbgrip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
+    grip.draggable = true;
+    grip.ondragstart = (ev) => { st.pdrag = { kind, i }; if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData(`application/x-natsu-${kind}`, String(i)); } };
+    const on = (ev) => Boolean(st.pdrag && st.pdrag.kind === kind && ev.dataTransfer && [...(ev.dataTransfer.types || [])].includes(`application/x-natsu-${kind}`));
+    const below = (ev) => { const r = row.getBoundingClientRect(); return ev.clientY >= r.top + r.height / 2; };
+    row.ondragover = (ev) => { if (!on(ev) || st.pdrag.i === i) return; ev.preventDefault(); row.classList.toggle('dropafter', below(ev)); row.classList.toggle('dropbefore', !below(ev)); };
+    row.ondragleave = () => row.classList.remove('dropbefore', 'dropafter');
+    row.ondrop = (ev) => {
+      row.classList.remove('dropbefore', 'dropafter');
+      if (!on(ev)) return;
+      ev.preventDefault();
+      const from = st.pdrag.i;
+      st.pdrag = null;
+      if (from === i) return;
+      onMove(from, below(ev) ? i + 1 : i);
+    };
+    row.appendChild(grip);
+  }
+  // 並べ替え（決めたこと 17・V-T21: 重ねる・⋮⋮ で優先・✕ で外す）
+  function dbSortPanel(st, pn) {
+    const cols = dbLive(st);
+    const save = () => dbPanelSave(st, { sort: pn.draft.map((s) => ({ ...s })) });
+    pn.draft.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.className = 'dbsortrow';
+      dbPanelRow(st, 'sort', i, row, (from, to) => { dbArrMove(pn.draft, from, to); dbPanelPaint(st); save(); });
+      const cs = dbSelectEl('列', cols.filter((c) => c.id === s.col || !pn.draft.some((x) => x.col === c.id)).map((c) => [c.id, c.name]), s.col, `s${i}c`);
+      cs.onchange = () => { pn.draft[i] = { col: cs.value, dir: s.dir }; save(); };
+      const ds = dbSelectEl('向き', DB_SORT_DIR, s.dir, `s${i}d`);
+      ds.onchange = () => { pn.draft[i] = { col: s.col, dir: ds.value }; save(); };
+      row.append(cs, ds, dbXBtn(`s${i}x`, () => { pn.draft.splice(i, 1); dbPanelPaint(st); save(); }));
+      pn.body.appendChild(row);
+    });
+    const free = cols.find((c) => !pn.draft.some((x) => x.col === c.id));
+    pn.body.appendChild(dbBtn('並べ替えを足す', 'sadd', () => { if (!free) return; pn.draft.push({ col: free.id, dir: 'asc' }); dbPanelPaint(st); save(); }, !free));
+  }
+  // 絞り込み（決めたこと 18・V-T19・V-T20: かつ／または・入れ子 3 段）。窓の中の書きかけ（値の無い条件）は書かず、照らした木だけを書く
+  const dbFilterCols = (st) => dbLive(st).filter((c) => (dbViewView.FILTER_OPS[c.type] || []).length && c.type !== 'rel');   // リレーションの条件は DR-1
+  function dbValueKind(col, cmp) {
+    if (['empty', 'notEmpty', 'today', 'yes', 'no'].includes(cmp)) return 'none';
+    if (cmp === 'between') return 'range';
+    if (cmp === 'pastDays' || cmp === 'nextDays') return 'days';
+    if (['title', 'text', 'person', 'url', 'email', 'phone'].includes(col.type)) return 'text';
+    if (col.type === 'number' || col.type === 'no') return 'num';
+    if (['date', 'ctime', 'mtime'].includes(col.type)) return 'day';
+    return 'opts';
+  }
+  function dbFilterSave(st, pn) {
+    const v = dbViewOf(st);
+    if (!v) return null;
+    const clean = dbViewView.normalizeView({ ...v, filter: pn.draft }, st.info.cols).view.filter;
+    if (JSON.stringify(clean) === JSON.stringify(v.filter || null)) return null;   // 書きかけで何も変わらない
+    return dbPanelSave(st, { filter: clean });
+  }
+  function dbFilterGroup(st, pn, g, depth, k, parent) {
+    const box = document.createElement('div');
+    box.className = 'dbfgroup';
+    const head = document.createElement('div'); head.className = 'dbfhead';
+    for (const [op, label] of [['and', 'かつ'], ['or', 'または']]) {
+      const b = dbBtn(label, `${k}o${op}`, () => { g.op = op; dbPanelPaint(st); dbFilterSave(st, pn); });
+      b.className = 'dbfop'; b.setAttribute('aria-pressed', g.op === op ? 'true' : 'false');
+      head.appendChild(b);
+    }
+    if (parent) head.appendChild(dbXBtn(`${k}x`, () => { parent.splice(parent.indexOf(g), 1); dbPanelPaint(st); dbFilterSave(st, pn); }));
+    box.appendChild(head);
+    g.items.forEach((it, i) => {
+      box.appendChild(Array.isArray(it.items) ? dbFilterGroup(st, pn, it, depth + 1, `${k}.${i}`, g.items) : dbFilterCond(st, pn, it, g.items, `${k}.${i}`));
+    });
+    const foot = document.createElement('div'); foot.className = 'dbffoot';
+    foot.append(
+      dbBtn('条件を足す', `${k}+c`, () => {
+        const col = dbFilterCols(st)[0];
+        if (!col) return;
+        const c = { col: col.id, cmp: dbViewView.FILTER_OPS[col.type][0] };
+        if (dbValueKind(col, c.cmp) === 'days') c.value = DB_DAYS;
+        g.items.push(c); dbPanelPaint(st); dbFilterSave(st, pn);
+      }),
+      dbBtn('グループを足す', `${k}+g`, () => { g.items.push({ op: 'and', items: [] }); dbPanelPaint(st); }, depth >= dbViewView.FILTER_DEPTH),
+    );
+    box.appendChild(foot);
+    return box;
+  }
+  function dbFilterCond(st, pn, c, parent, k) {
+    const row = document.createElement('div');
+    row.className = 'dbfcond';
+    const cols = dbFilterCols(st);
+    const col = cols.find((x) => x.id === c.col) || cols[0];
+    if (!col) return row;
+    const save = () => dbFilterSave(st, pn);
+    const cs = dbSelectEl('列', cols.map((x) => [x.id, x.name]), col.id, `${k}c`);
+    cs.onchange = () => {
+      const nc = cols.find((x) => x.id === cs.value);
+      if (!nc) return;
+      c.col = nc.id; c.cmp = dbViewView.FILTER_OPS[nc.type][0]; delete c.value;
+      if (dbValueKind(nc, c.cmp) === 'days') c.value = DB_DAYS;
+      dbPanelPaint(st); save();
+    };
+    const ops = dbViewView.FILTER_OPS[col.type];
+    const os = dbSelectEl('条件', ops.map((o) => [o, DB_OP_LABEL[o] || o]), c.cmp, `${k}o`);
+    os.onchange = () => {
+      const was = dbValueKind(col, c.cmp);
+      c.cmp = os.value;
+      const now = dbValueKind(col, c.cmp);
+      if (now !== was) { delete c.value; if (now === 'days') c.value = DB_DAYS; }
+      dbPanelPaint(st); save();
+    };
+    row.append(cs, os);
+    const kind = dbValueKind(col, c.cmp);
+    const field = (type, label, value, kk) => {
+      const inp = document.createElement('input');
+      inp.type = type; inp.className = 'dbmenuinput'; inp.setAttribute('aria-label', label); inp.dataset.k = kk;
+      inp.value = value === undefined || value === null ? '' : String(value);
+      row.appendChild(inp);
+      return inp;
+    };
+    if (kind === 'text' || kind === 'num' || kind === 'days' || kind === 'day') {
+      const inp = field(kind === 'text' ? 'text' : kind === 'day' ? 'date' : 'number', col.name, c.value, `${k}v`);
+      if (kind === 'days') { inp.min = '1'; inp.max = '3650'; }
+      const commit = () => {
+        const raw = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
+        if (kind === 'text' || kind === 'day') { if (raw) c.value = raw; else delete c.value; }
+        else { const n = Number(raw); if (raw !== '' && Number.isFinite(n)) c.value = kind === 'days' ? Math.trunc(n) : n; else delete c.value; }
+        save();
+      };
+      inp.onchange = commit;
+      inp.onkeydown = (ev) => { if (imeEnter(ev)) return; if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); commit(); } };   // 変換確定の Enter では書かない
+    } else if (kind === 'range') {
+      const cur = c.value && typeof c.value === 'object' ? c.value : { from: '', to: '' };
+      const a = field('date', col.name, cur.from, `${k}va`);
+      const b = field('date', '終わりの日', cur.to, `${k}vb`);
+      a.onchange = b.onchange = () => { c.value = { from: String(a.value), to: String(b.value) }; save(); };
+    } else if (kind === 'opts') {
+      const choices = col.type === 'cby' || col.type === 'mby' ? dbModelView.WHO.map((w) => [w, dbModelView.fmtCell(col, w, {})]) : (col.opts || []).map((o) => [o.id, o.name]);
+      const have = Array.isArray(c.value) ? c.value : [];
+      choices.forEach(([id, name], j) => {
+        const lab = document.createElement('label'); lab.className = 'dbfopt';
+        const ck = document.createElement('input');
+        ck.type = 'checkbox'; ck.checked = have.includes(id); ck.setAttribute('aria-label', name); ck.dataset.k = `${k}v${j}`;
+        ck.onchange = () => {
+          const next = choices.map((x) => x[0]).filter((x) => (x === id ? ck.checked : have.includes(x)));
+          if (next.length) c.value = next; else delete c.value;
+          dbPanelPaint(st); save();
+        };
+        const t = document.createElement('span'); t.textContent = name;
+        lab.append(ck, t);
+        row.appendChild(lab);
+      });
+    }
+    row.appendChild(dbXBtn(`${k}x`, () => { parent.splice(parent.indexOf(c), 1); dbPanelPaint(st); save(); }));
+    return row;
+  }
+  // グループ（決めたこと 19・V-T22: 列・日付の単位・ステータスのまとめ方・空のグループを隠す・出し入れ・手で並べる／昇順）
+  function dbGroupPanel(st, pn) {
+    const v = dbViewOf(st);
+    if (!v) return;
+    const g = v.group;
+    const cols = dbLive(st).filter((c) => dbViewView.GROUP_TYPES.includes(c.type));
+    const save = (group) => dbPanelSave(st, { group });
+    const cs = dbSelectEl('列', [['', 'なし'], ...cols.map((c) => [c.id, c.name])], g ? g.col : '', 'gc');
+    cs.onchange = () => save(cs.value ? { col: cs.value } : null);
+    pn.body.appendChild(cs);
+    const col = g ? cols.find((c) => c.id === g.col) : null;
+    if (!col) return;
+    const bys = DB_GROUP_BYS[col.type];
+    if (bys) {
+      const bs = dbSelectEl('グループ', bys.map((b) => [b, DB_GROUP_BY[b]]), g.by || bys[col.type === 'status' ? 0 : 2], 'gb');
+      bs.onchange = () => save({ col: g.col, by: bs.value, ...(g.hideEmpty ? { hideEmpty: true } : {}) });   // 単位を替えるとグループの鍵が替わる（隠す・手の並びは外す）
+      pn.body.appendChild(bs);
+    }
+    const lab = document.createElement('label'); lab.className = 'dbfopt';
+    const he = document.createElement('input');
+    he.type = 'checkbox'; he.checked = g.hideEmpty === true; he.setAttribute('aria-label', '空のグループを隠す'); he.dataset.k = 'ge';
+    he.onchange = () => { const n = { ...g }; if (he.checked) n.hideEmpty = true; else delete n.hideEmpty; save(n); };
+    const ht = document.createElement('span'); ht.textContent = '空のグループを隠す';
+    lab.append(he, ht);
+    pn.body.appendChild(lab);
+    const list = document.createElement('div'); list.className = 'dbglist';
+    const groups = Array.isArray(st.groups) ? st.groups : [];
+    groups.forEach((x, i) => {
+      const row = document.createElement('div'); row.className = 'dbgrow';
+      dbPanelRow(st, 'group', i, row, (from, to) => { const keys = groups.map((y) => y.key); dbArrMove(keys, from, to); save({ ...g, order: keys }); });
+      const name = dbGroupName(col, g, x.key);
+      const eye = document.createElement('input');
+      eye.type = 'checkbox'; eye.checked = !x.hidden; eye.setAttribute('aria-label', name); eye.dataset.k = `gh${i}`;
+      eye.onchange = async () => { await dbGroupHide(x.key, !eye.checked); if (dbSt === st && st.panel === pn) dbPanelPaint(st); };
+      const t = document.createElement('span'); t.className = 'dbgname'; t.textContent = name;
+      const n = document.createElement('span'); n.className = 'dbgcount'; n.textContent = String(x.count);
+      row.append(eye, t, n);
+      list.appendChild(row);
+    });
+    pn.body.appendChild(list);
+    pn.body.appendChild(dbBtn('昇順に並べる', 'go', () => { const n = { ...g }; delete n.order; save(n); }, !g.order));
+  }
+  // 列の表示（決めたこと 20・V-T18: チェックで出す・隠す。⋮⋮ で並べる。題名の列は隠せないが動かせる: V-T11）
+  function dbPropsPanel(st, pn) {
+    const live = new Map(dbLive(st).map((c) => [c.id, c]));
+    const save = () => dbPanelSave(st, { props: pn.draft.map((p) => ({ ...p })) });
+    pn.draft.forEach((p, i) => {
+      const col = live.get(p.col);
+      if (!col) return;
+      const row = document.createElement('div'); row.className = 'dbproprow';
+      dbPanelRow(st, 'prop', i, row, (from, to) => { dbArrMove(pn.draft, from, to); dbPanelPaint(st); save(); });
+      const ck = document.createElement('input');
+      ck.type = 'checkbox'; ck.checked = p.show !== false; ck.disabled = col.type === 'title'; ck.setAttribute('aria-label', col.name); ck.dataset.k = `p${p.col}`;
+      ck.onchange = () => { p.show = ck.checked; save(); };
+      const t = document.createElement('span'); t.textContent = col.name;
+      row.append(ck, t);
+      pn.body.appendChild(row);
+    });
   }
   // ---- セルの書き手（決めたこと 25）: 種類で分ける。書けない種類（作成日時など・リレーション）は出さない
   function dbOpenWriter(rowId, colId) {
@@ -13922,6 +14651,7 @@
   }
   function showLinkSpot(anchor) {
     if (!anchor) return;
+    if (anchor.startsWith('v:')) { dbLinkView(curId, anchor.slice(2)); return; }   // 0.16.0 DV-3（決めたこと 16）: データベースのビューのタブを選ぶ
     clearTimeout(linkHitT);
     for (const e of document.querySelectorAll('.linkhit')) e.classList.remove('linkhit');
     const kind = anchor[0];

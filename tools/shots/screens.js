@@ -140,6 +140,11 @@ const OPEN_DB = OPEN_DB_AT(`cell(2, 'c2').click();
 const OPEN_DB_COLMENU = OPEN_DB_AT(`[...document.querySelectorAll('#pDb .dbcolh')].find((h) => h.dataset.col === 'c3').querySelector('.dbcolbtn').click();`);
 const OPEN_DB_SELECT = OPEN_DB_AT(`cell(2, 'c2').click();`);
 const OPEN_DB_DATE = OPEN_DB_AT(`cell(0, 'c4').click();`);
+// 0.16.0 DV-3: リスト（開くだけ）・絞り込みの窓（⚙ →［絞り込み］）・グループ（開くだけ）・タブの「他 n 件」と今のタブのメニュー
+const OPEN_DB_PLAIN = OPEN_DB_AT('');
+const OPEN_DB_FILTER = OPEN_DB_AT(`document.querySelector('#pDb .dbsetbtn').click();
+  [...document.querySelectorAll('#pDb .dbmenu .mitem')].find((b) => b.textContent === '絞り込み').click();`);
+const OPEN_DB_VIEWS = OPEN_DB_AT(`document.querySelector('#pDb .dbtab[aria-selected="true"]').click();`);
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -495,6 +500,10 @@ const SCREENS = [
   { name: 'db-colmenu-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB_COLMENU },
   { name: 'db-cell-select-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB_SELECT },
   { name: 'db-cell-date-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB_DATE },
+  { name: 'db-list-light', page: 'app', theme: 'light', get answers() { return dbAnswers('list'); }, act: OPEN_DB_PLAIN },
+  { name: 'db-filter-light', page: 'app', theme: 'light', get answers() { return dbAnswers('filter'); }, act: OPEN_DB_FILTER },
+  { name: 'db-group-light', page: 'app', theme: 'light', get answers() { return dbAnswers('group'); }, act: OPEN_DB_PLAIN },
+  { name: 'db-views-light', page: 'app', theme: 'light', get answers() { return dbAnswers('views'); }, act: OPEN_DB_VIEWS },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -615,7 +624,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.16.0（計画 docs/plans/2026-11-04-160.md の「取り直す画面（RETAKE）」）: DV-1 で足したデータベースの表の明暗と拡大 200% の3枚（まだ基準が無い）と、
 // 近道の表に「データベースの表のセルを選んでいるとき」の行が増える設定の4枚（settings-shortcuts-light と［一般］の3枚。今の基準がある）
 // DV-2 で足した列のメニュー・選択肢の選び・暦の3枚（まだ基準が無い）
+// DV-3 で足したリスト・絞り込みの窓・グループ・ビューのタブ（「他 n 件」とタブのメニュー）の4枚（まだ基準が無い）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
+  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light',
   'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -768,7 +779,8 @@ function treeAnswers() {
  * 0.16.0 DV-1: データベースのページ（一覧のいちばん上。page:get の答えは kind 'database'）。列は 名前（題名）・担当（ユーザー）・状態（ステータス）・
  * 金額（数値の円）・期日（日付）・済み（チェック）・資料（URL）の7種類。表の読み（db.view）は 20 行と下の集計（全件・合計・チェック済みの割合）
  */
-function dbAnswers() {
+// 0.16.0 DV-3: kind で見本のビューを替える（list: リスト・filter: 入れ子の絞り込み・group: ステータスでまとめる・views: タブ 12 個）
+function dbAnswers(kind = '') {
   const at = '2026-10-17T00:00:00.000Z';
   const page = { id: 'pd1', kind: 'database', title: '案件の一覧', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [] };
   const cols = [
@@ -783,6 +795,10 @@ function dbAnswers() {
   ];
   const view = { id: 'v1', name: '表', layout: 'table', props: cols.map((c) => ({ col: c.id, show: true, wrap: false })), sort: [], filter: null, group: null,
     agg: { title: 'count', c3: 'sum', c5: 'checkedPct' } };
+  if (kind === 'list') Object.assign(view, { name: '一覧', layout: 'list', props: cols.map((c) => ({ col: c.id, show: ['title', 'c1', 'c2', 'c4'].includes(c.id), wrap: false })), agg: {} });
+  if (kind === 'filter') view.filter = { op: 'and', items: [{ col: 'c2', cmp: 'any', value: ['o1', 'o2'] }, { op: 'or', items: [{ col: 'c3', cmp: 'gt', value: 20000 }, { col: 'c5', cmp: 'yes' }] }] };
+  if (kind === 'group') view.group = { col: 'c2' };
+  const views = kind === 'views' ? [view, ...['今週', '担当別', '完了したもの', '金額の大きい順', '来月の期日', '資料のあるもの', 'リスト', '未着手', '進行中', '確認待ち', '保留'].map((name, i) => ({ ...view, id: `v${i + 2}`, name }))] : [view];
   const NAMES = ['見積もりの作成', '発注書の確認', '検収の段取り', '請求書の発行', '打ち合わせの準備'];
   const WHO = ['佐藤', '鈴木', '高橋'];
   const rows = Array.from({ length: 20 }, (_, i) => ({
@@ -792,11 +808,14 @@ function dbAnswers() {
     depth: 0, hasKids: false,
   }));
   const sum = rows.reduce((n, r) => n + r.cells.c3, 0);
+  // グループ: ステータスの3つのまとまりの順に並べ、g にまとまりの番号
+  const grouped = kind === 'group' ? [0, 1, 2].flatMap((g) => rows.filter((r) => r.cells.c2 === `o${g + 1}`).map((r) => ({ ...r, g }))) : rows;
+  const groups = kind === 'group' ? ['todo', 'doing', 'done'].map((key, g) => ({ key, count: rows.filter((r) => r.cells.c2 === `o${g + 1}`).length })) : null;
   const row = { id: 'pd1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'database' };
   return {
     'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] },
-    'koeApp.dbGet': { id: 'pd1', title: page.title, cols, views: [view], rowCount: 20 },
-    'koeApp.dbView': { total: 20, shown: 20, rows, groups: null, agg: { title: 20, c3: sum, c5: (rows.filter((r) => r.cells.c5).length / 20) * 100 }, sig: '1.20.shots' },
+    'koeApp.dbGet': { id: 'pd1', title: page.title, cols, views, rowCount: 20 },
+    'koeApp.dbView': { total: 20, shown: 20, rows: grouped, groups, agg: { title: 20, c3: sum, c5: (rows.filter((r) => r.cells.c5).length / 20) * 100 }, sig: '1.20.shots' },
   };
 }
 

@@ -1,7 +1,7 @@
 'use strict';
 // 議事録のリンクの形と照らし（0.10.0 Task LN-1。計画 docs/plans/2026-10-20-100.md の決めたこと 142・153・154。D72・D78）。純粋（Node の部品も Electron も読まない）。
 // MCP の道具（src/mcp/tools.js の meetingRef と答えの出典）・main（リンクで起こされたとき・画面に貼ったとき・［リンクを写す］の住所の頭）が使う。
-//  - natsu://page/<ID>（会議）と natsu://page/<ID>#<印>（印は t:s12-s18・b:<ブロック>・m:<段落>。決めたこと 75 の印と同じ形）。
+//  - natsu://page/<ID>（会議）と natsu://page/<ID>#<印>（印は t:s12-s18・b:<ブロック>・m:<段落>。決めたこと 75 の印と同じ形。0.16.0 DV-3 からデータベースのビュー v:<ビューの ID>）。
 //    前の形 #<ブロック ID>（設計書の B10）も受けて読み捨てる（会議の全体を指したものとして読む）。
 //  - https の住所 <LINK_ORIGIN>/open#p=<ID>（&a=<印>）。# の後ろはブラウザーがサーバーへ送らないので、会議の ID が Worker・Cloudflare・
 //    会社の通信の検査の記録に残らない。後の共有のために、知らない鍵（&w=… など）は飛ばして読む（今の鍵の順は決まり: p、あれば a）。
@@ -14,7 +14,7 @@ const LINK_ORIGINS = Object.freeze([LINK_ORIGIN]);
 const LINK_MAX = 300;
 const NATSU_PREFIX = 'natsu://page/';
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;   // src/db/validate.js の ID_RE と同じ形
-const ANCHOR_RE = /^(?:t:s\d{1,6}-s\d{1,6}|b:[A-Za-z0-9_-]{1,64}|m:\d{1,4})$/;
+const ANCHOR_RE = /^(?:t:s\d{1,6}-s\d{1,6}|b:[A-Za-z0-9_-]{1,64}|m:\d{1,4}|v:[A-Za-z0-9_-]{1,64})$/;   // v: は 0.16.0 DV-3 のデータベースのビュー（決めたこと 16・R75）
 const LEGACY_RE = /^[A-Za-z0-9_-]{1,64}$/;   // 前の形 #<ブロック ID>（読み捨てる）
 const KEY_RE = /^[a-z]{1,16}$/;
 const VALUE_RE = /^[A-Za-z0-9_:.-]{0,64}$/;

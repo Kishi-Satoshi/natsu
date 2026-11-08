@@ -37,7 +37,7 @@ function runOpen(hash) {
 
 test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、location.href と［NaTsu で開く］の href に natsu://page/<ID>#<印> を入れ、「NaTsu で開いています。開かないときは［NaTsu で開く］を押してください。」（再審査の指摘 8）', T, () => {
   for (const [hash, want] of [['#p=pm1&a=t:s1-s3', 'natsu://page/pm1#t:s1-s3'], ['#p=pm1', 'natsu://page/pm1'], ['#p=pm1&a=b:b3', 'natsu://page/pm1#b:b3'],
-    ['#p=pm1&w=team1&a=m:2', 'natsu://page/pm1#m:2']]) {
+    ['#p=pm1&w=team1&a=m:2', 'natsu://page/pm1#m:2'], ['#p=pd1&a=v:v2', 'natsu://page/pd1#v:v2']]) {   // 0.16.0 DV-3（R75）: データベースのビューの印
     const r = runOpen(hash);
     assert.strictEqual(r.href, want, hash);
     assert.deepStrictEqual(r.go, { hidden: false, href: want }, hash);
@@ -46,7 +46,7 @@ test('D78・決めたこと 155: open.js は #p=<ID>&a=<印> を照らし、loca
 });
 
 test('D78: 読めない # の後ろ（../x・javascript:・順の違い・? の形・空白・長すぎる）は location を変えず「このリンクは開けません（形が違います）。NaTsu でもう一度［リンクを写す］を押してください。」（3回目の指摘 7）。# の後ろが空（ログインで落ちた: R23）は「ログインの後は、Claude のリンクをもう一度押してください。」', T, () => {
-  for (const hash of ['#p=../x', '#p=pm1&a=javascript:alert(1)', '#a=t:s1-s2&p=pm1', '#p=pm1&p=pm2', '#p=pm1 x', '#p=pm1%20', `#p=pm1&x=${'y'.repeat(300)}`, '#p=', '#x=1', '#p=pm1&a=t:s3-']) {
+  for (const hash of ['#p=../x', '#p=pm1&a=javascript:alert(1)', '#a=t:s1-s2&p=pm1', '#p=pm1&p=pm2', '#p=pm1 x', '#p=pm1%20', `#p=pm1&x=${'y'.repeat(300)}`, '#p=', '#x=1', '#p=pm1&a=t:s3-', '#p=pd1&a=v:', '#p=pd1&a=v:a/b']) {
     const r = runOpen(hash);
     assert.strictEqual(r.href, null, hash);
     assert.strictEqual(r.go.hidden, true, hash);
@@ -59,7 +59,7 @@ test('D78: 読めない # の後ろ（../x・javascript:・順の違い・? の�
 });
 
 test('D78: open.js の照らしと natsulink.parseOpenUrl に同じ表を当てて同じ答え（住所の # の後ろ）', T, () => {
-  const frags = ['p=pm1', 'p=pm1&a=t:s1-s3', 'p=pm1&a=b:x_1', 'p=pm1&a=m:0', 'p=pm1&x=1&a=t:s1-s2', 'p=pm1&w=team1', 'p=pm1/', 'p=../x', 'p=', 'a=t:s1-s2&p=pm1',
+  const frags = ['p=pm1', 'p=pm1&a=t:s1-s3', 'p=pm1&a=b:x_1', 'p=pm1&a=m:0', 'p=pd1&a=v:v2', 'p=pd1&a=v:', 'p=pm1&x=1&a=t:s1-s2', 'p=pm1&w=team1', 'p=pm1/', 'p=../x', 'p=', 'a=t:s1-s2&p=pm1',
     'p=pm1&a=t:s1-s2&a=m:1', 'p=pm1&p=pm2', 'p=pm1&a=t:s3-', 'p=pm1&a=javascript:x', `p=${'a'.repeat(65)}`, 'p=pm1&=1', 'p=pm1&X=1', 'p=pm1 x', 'p=pm1"', `p=pm1&x=${'y'.repeat(260)}`];
   for (const f of frags) {
     const want = NL.parseOpenUrl(`${NL.LINK_ORIGIN}/open#${f}`);
