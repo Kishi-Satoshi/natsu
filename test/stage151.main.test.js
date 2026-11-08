@@ -171,3 +171,14 @@ test('ND-2・F153: 画面の［コピー］は今どおり Windows の常駐の 
   assert.deepStrictEqual(o.pasterLines, [`copy ${Buffer.from('写す文', 'utf8').toString('base64')}\n`], JSON.stringify(o.pasterLines));
   assert.ok(!o.pasterLines.some((l) => /^(fg|paste)\b/.test(l)), JSON.stringify(o.pasterLines));
 });
+
+// ---------------------------------------------------------------- ND-1・PS-1 直し（2026-11-08 の点検 M3・F147）
+test('ND-1 直し・F147: 起動で読めなかった settings.json が読めるようになると、議事録のキーが既定と違うときだけ、そのキーだけを登録し直す（同じなら登録し直さない）', { timeout: sceneTimeout(30000) }, async () => {
+  const r = await sceneRun(['text', '--json-scene=unreadable-hotkey']);
+  assert.deepStrictEqual(r.before, ['Alt+M'], '読めない間は既定のキーで登録する');
+  assert.strictEqual(r.got, 'Control+Alt+M', '前提: 読み直しで本当の値になる');
+  assert.deepStrictEqual(r.calls, ['Control+Alt+M'], '読み直したキーを登録し直さない・ほかのキーも登録した');
+  assert.deepStrictEqual(r.after, ['Control+Alt+M'], '既定のキーが残った・新しいキーが登録されていない');
+  const same = await sceneRun(['text', '--json-scene=unreadable-hotkey-same']);
+  assert.deepStrictEqual([same.before, same.got, same.calls, same.after], [['Alt+M'], 'Alt+M', [], ['Alt+M']], '同じキーなのに登録し直した');
+});

@@ -24,25 +24,33 @@ const isObj = (v) => {
   return proto === Object.prototype || proto === null;
 };
 
-// プライベートの3つの項目を1つずつ照らす（壊れた項目だけ既定に戻す: 持ち主の試作の state-store.js の「項目ごとの検証器」の考え）
+const itemOk = (x) => typeof x === 'boolean' || (typeof x === 'number' && Number.isFinite(x)) || (typeof x === 'string' && x.length <= TEXT_MAX);
+// 後の版の private の中の項目の名前（英字だけ。__proto__ のような名前で組の形を変えない）
+const ITEM_NAME_RE = /^[A-Za-z]{1,20}$/;
+// プライベートの3つの項目を1つずつ照らす（壊れた項目だけ既定に戻す: 持ち主の試作の state-store.js の「項目ごとの検証器」の考え）。
+// 0.15.1 ND-1・PS-1 直し（2026-11-08 の点検 M5・R36）: 後の版が足した項目（形の正しい名前で、真偽・有限の数・40 字までの文字）は読まずに残す（3つと合わせて 10 項目まで）
 function normPrivate(p) {
   const src = isObj(p) ? p : {};
-  return {
+  const out = {
     open: typeof src.open === 'boolean' ? src.open : SECTION_DEFAULT.open,
     sort: SORTS.includes(src.sort) ? src.sort : SECTION_DEFAULT.sort,
     show: SHOW_STEPS.includes(src.show) ? src.show : SECTION_DEFAULT.show,
   };
+  let n = 3;
+  for (const k of Object.keys(src)) {
+    if (Object.hasOwn(out, k) || n >= ITEMS_MAX || !ITEM_NAME_RE.test(k) || !itemOk(src[k])) continue;
+    out[k] = src[k];
+    n += 1;
+  }
+  return out;
 }
 function laterOk(v) {
   if (!isObj(v)) return false;
   const ks = Object.keys(v);
   if (ks.length > ITEMS_MAX) return false;
-  return ks.every((k) => {
-    const x = v[k];
-    return typeof x === 'boolean' || (typeof x === 'number' && Number.isFinite(x)) || (typeof x === 'string' && x.length <= TEXT_MAX);
-  });
+  return ks.every((k) => itemOk(v[k]));
 }
-const samePrivate = (a, b) => isObj(b) && Object.keys(b).length === 3 && a.open === b.open && a.sort === b.sort && a.show === b.show;
+const samePrivate = (a, b) => isObj(b) && Object.keys(b).length === Object.keys(a).length && Object.keys(a).every((k) => Object.hasOwn(b, k) && a[k] === b[k]);
 
 // raw → { sections, repaired }。private は無ければ既定（直したことにしない）。セクションは private を入れて 10 まで（11 個目から落とす）
 function normSections(raw) {
@@ -134,8 +142,9 @@ function stampText(iso) {
 function kanaFold(s) {
   return String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
 }
-// 題名の五十音（決めたこと 34）
-const COLLATOR = new Intl.Collator('ja');
+// 題名の並び（決めたこと 34）。0.15.1 ND-1・PS-1 直し（R36）: 持ち主の答え（2026-11-08）「数を数として並べる（第1回→第2回→第10回）（おすすめ）」。
+// かなは五十音の順、漢字は読みの順にはならない（ヘルプは「名前の順」と書き、五十音とは言い切らない）
+const COLLATOR = new Intl.Collator('ja', { numeric: true });
 
 // ライブラリの表の行 → [{ id, depth, hasKids, open, place? }]。
 // opts: col（'' は手動の並び・'title' はページ名・'edited' は最終更新日時）・dir（'asc'・'desc'）・q（探す語）・open（開いている ID の Set）・

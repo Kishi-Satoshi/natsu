@@ -25,6 +25,19 @@ const CP932_NIHONGO = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]);
 // 今の利用者がふつうに持っている設定（30 のキー。localThreads は CPU の移し替えに当たらない 3）
 // 0.9.0 O-1（設計書 D25）で意図して変えた: 0.9.0 の置き場所 pillSlot を足した（0.9.0 で一度起動した人の形）。前の版が書いた pillPos・pillCustom は
 // 知らないキーとして残っている（0.9.0 は読み書きしない）。pillSlot があるので、起動の前の位置の直し（migratePillSlot）はこの設定を書き直さない
+// 読めない間の登録 → 読み直し（retrySettingsRead）→ その後に globalShortcut.register へ渡したキーと、登録しているキー
+async function reloadHotkeyAct(c) {
+  const gs = c.electron.globalShortcut;
+  const keys = ['Alt+M', 'Control+Alt+M'];
+  c.out.before = keys.filter((k) => gs.isRegistered(k));
+  const reg = gs.register;
+  const calls = [];
+  gs.register = (acc, cb) => { calls.push(acc); return reg(acc, cb); };
+  c.timers.retrySettingsRead[0]();
+  c.out.got = (await c.handlers['settings:get']()).meetingHotkey;
+  c.out.calls = calls;
+  c.out.after = keys.filter((k) => gs.isRegistered(k));
+}
 const TYPICAL = {
   localServerExe: 'C:\\engine\\whisper-server.exe', localModelPath: 'C:\\engine\\ggml-model.bin', localPort: 8990, localThreads: 3,
   vadModelPath: '', useVad: true, suppressNst: true, sumServerExe: '', sumModelPath: '', sumPort: 8991, sumThreads: 3, language: 'ja',
@@ -200,6 +213,12 @@ module.exports = {
       c.out.themeAfter = (await c.handlers['settings:get']()).theme;
       c.out.pendingAfter = pending();
     } },
+  // 0.15.1 ND-1・PS-1 直し（2026-11-08 の点検 M3）: 起動で読めなかった settings.json が読めるようになったら、議事録のキーが既定と違うときだけ
+  // そのキーを登録し直す（applyReloadedSettings の枝。第1a回からテストが無かった）。-same は既定と同じキー（登録し直さない）
+  'unreadable-hotkey': { files: { 'settings.json': pretty({ ...TYPICAL, meetingHotkey: 'Control+Alt+M' }) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }], act: (c) => reloadHotkeyAct(c) },
+  'unreadable-hotkey-same': { files: { 'settings.json': pretty({ ...TYPICAL, meetingHotkey: 'Alt+M' }) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }], act: (c) => reloadHotkeyAct(c) },
   // 0.15.1 ND-2: unreadable-dictation（音声入力の最中の設定の読み直し）・history-unreadable（読めない履歴）は音声入力と一緒に消した
   // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
   // 0.9.0 O-1 で意図して変えた: 録音バーを動かすと、窓の中心に一番近い置き場所の名前を pillSlot にまとめ書きする（pillCustom は置いたまま

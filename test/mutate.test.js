@@ -1375,6 +1375,7 @@ test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の�
 const IDS_151 = [
   // 0.15.1 ND-1（表の行の順に）
   'nd-set-keep', 'nd-set-save', 'nd-ws-tab', 'nd-hk-side', 'nd-hk-fallback', 'nd-hk-save',
+  'nd-hk-reload',   // ND-1・PS-1 直し（R36）
   // 0.15.1 ND-2（表の行の順に）
   'nd-hk-dict', 'nd-esc-global', 'nd-history-read', 'nd-history-write', 'nd-dictwait-keep', 'nd-ipc-history', 'nd-audio-done', 'nd-overlay-mode',
   'nd-tidy-send',   // ND-1
@@ -1390,6 +1391,7 @@ const IDS_151 = [
   'nd-winh-note',
   // 0.15.1 PS-1・PS-2（表の行の順に）
   'ps-ws-norm', 'ps-ws-unknown',   // PS-1
+  'ps-ws-item',   // ND-1・PS-1 直し（R36）
   'ps-head-text', 'ps-head-fold', 'ps-head-aria', 'ps-head-hide', 'ps-fold-save', 'ps-fold-restore', 'ps-sort-save', 'ps-add-unfold', 'ps-add-top', 'ps-open-keep',
   'ps-fold-selend', 'ps-bottom-pin', 'ps-menu-select', 'ps-menu-esc', 'ps-tree-label',   // PS-2
   'ps-sort-edited', 'ps-sort-level',   // PS-1
@@ -1398,16 +1400,18 @@ const IDS_151 = [
   'ps-more-open',   // PS-2
   'ps-ren-line',   // PS-1
   'lb-open',   // PS-2
-  'lb-tab-keep', 'lb-rel-time', 'lb-sort-name', 'lb-sort-level', 'lb-search',   // PS-1
+  'lb-tab-keep', 'lb-rel-time', 'lb-sort-name',   // PS-1
+  'lb-sort-num',   // ND-1・PS-1 直し（R36）
+  'lb-sort-level', 'lb-search',   // PS-1
 ];
 // 作ったタスクの表の行の範囲（はじめの id・終わりの id。表の続いた行）。タスクを作るたびに足し、Task G の前に表の全部とちょうど同じかを見る形に替える（0.15.0 の R1 と同じ）
 const BUILT_151 = [
   ['nd-help-word', 'nd-help-cite'],   // ND-4
   ['nd-preload-api', 'nd-ui-word'], ['nd-winh-note', 'nd-winh-note'],   // ND-3
   ['nd-hk-dict', 'nd-overlay-mode'], ['nd-tray-items', 'nd-engine-lock'],   // ND-2
-  ['nd-set-keep', 'nd-hk-save'], ['nd-tidy-send', 'nd-tidy-send'], ['nd-login-moments', 'nd-login-moments'],   // ND-1
-  ['ps-ws-norm', 'ps-ws-unknown'], ['ps-sort-edited', 'ps-sort-level'], ['ps-show-limit', 'ps-show-kids'], ['ps-ren-line', 'ps-ren-line'],   // PS-1
-  ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-name'], ['lb-sort-level', 'lb-search'],   // PS-1
+  ['nd-set-keep', 'nd-hk-reload'], ['nd-tidy-send', 'nd-tidy-send'], ['nd-login-moments', 'nd-login-moments'],   // ND-1
+  ['ps-ws-norm', 'ps-ws-item'], ['ps-sort-edited', 'ps-sort-level'], ['ps-show-limit', 'ps-show-kids'], ['ps-ren-line', 'ps-ren-line'],   // PS-1
+  ['lb-tab-keep', 'lb-tab-keep'], ['lb-rel-time', 'lb-sort-num'], ['lb-sort-level', 'lb-search'],   // PS-1
   ['ps-head-text', 'ps-tree-label'], ['ps-sort-drag', 'ps-sort-drag'], ['ps-more-open', 'ps-more-open'], ['lb-open', 'lb-open'],   // PS-2
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
@@ -1446,7 +1450,7 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');
   const rows = planRows151();
-  assert.strictEqual(rows.length, 74, '計画の 0.15.1 の表（nd- 30・ps- 33・lb- 11）が読めない');   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
+  assert.strictEqual(rows.length, 77, '計画の 0.15.1 の表（nd- 31・ps- 34・lb- 12）が読めない');   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');

@@ -39,6 +39,8 @@ test('PS-1・F158: normSections の表（項目ごとに照らす・壊れた項
   assert.deepStrictEqual(N({ private: { open: false, sort: 'x', show: 10 } }), { sections: { private: P({ open: false, show: 10 }) }, repaired: true });
   assert.deepStrictEqual(N({ private: { open: false, sort: 'edited', show: 7 } }), { sections: { private: P({ open: false, sort: 'edited' }) }, repaired: true });
   assert.deepStrictEqual(N({ private: { open: 'no', sort: 'edited', show: 5 } }), { sections: { private: P({ sort: 'edited', show: 5 }) }, repaired: true });
+  // ND-1・PS-1 直し（2026-11-08 の点検 M2）: 真偽でない偽の値（0・''）も既定（開く）に戻す（Boolean で寄せると閉じてしまう）
+  for (const open of [0, '', null]) assert.deepStrictEqual(N({ private: { open, sort: 'edited', show: 5 } }), { sections: { private: P({ sort: 'edited', show: 5 }) }, repaired: true }, String(open));
   assert.deepStrictEqual(N({ private: { open: false, sort: 'edited', show: '5' } }).sections.private, P({ open: false, sort: 'edited' }));
   // 組でない・null は既定
   for (const raw of [{ private: 'x' }, null, 'x', [], 3]) assert.deepStrictEqual(N(raw), { sections: { private: P() }, repaired: true }, JSON.stringify(raw));
@@ -59,6 +61,18 @@ test('PS-1・F158: normSections の表（項目ごとに照らす・壊れた項
   const r = N({ private: P(), ...ten });
   assert.deepStrictEqual(Object.keys(r.sections), ['private', 'sa', 'sb', 'sc', 'sd', 'se', 'sf', 'sg', 'sh', 'si']);
   assert.strictEqual(r.repaired, true);
+  // ND-1・PS-1 直し（2026-11-08 の点検 M5・R36）: private の中の後の版の項目（形の正しい名前で、真偽・有限の数・40 字までの文字）は読まずに残す（10 項目まで）。
+  // 形の悪い項目だけ落とす。sort・show は今どおり決まった値だけ（後の版の値は既定に戻す）
+  assert.deepStrictEqual(N({ private: { ...P({ open: false }), pinned: true, note: 'あ'.repeat(40), n: 3 } }),
+    { sections: { private: { ...P({ open: false }), pinned: true, note: 'あ'.repeat(40), n: 3 } }, repaired: false });
+  for (const bad of [{ deep: { x: 1 } }, { list: [1] }, { note: 'あ'.repeat(41) }, { n: Infinity }, { 'a-b': true }, { ['x'.repeat(21)]: true }]) {
+    assert.deepStrictEqual(N({ private: { ...P(), pinned: true, ...bad } }), { sections: { private: { ...P(), pinned: true } }, repaired: true }, JSON.stringify(bad));
+  }
+  const many = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`k${String.fromCharCode(97 + i)}`, i]));
+  const kept = N({ private: { ...P(), ...many } });
+  assert.deepStrictEqual(Object.keys(kept.sections.private), ['open', 'sort', 'show', 'ka', 'kb', 'kc', 'kd', 'ke', 'kf', 'kg'], '10 項目より多く残した・少なく残した');
+  assert.strictEqual(kept.repaired, true);
+  assert.strictEqual(Object.getPrototypeOf(N(JSON.parse('{"private":{"__proto__":{"x":1},"open":true}}')).sections.private), Object.prototype, '__proto__ の項目で組の形が変わった');
   // 入力は書き換えない・返す組は入力と別の物
   const raw = { private: P({ show: 7 }), fav: { open: true } };
   const copy = JSON.parse(JSON.stringify(raw));
@@ -133,13 +147,19 @@ test('PS-1・F162: sectionRows の表（手動は 0.15.0 の visibleRows と同�
   // 数が段の数より多い・壊れた値はすべて
   assert.deepStrictEqual(SS.sectionRows(TREE, new Set(), { show: 20 }), { rows: PT.visibleRows(TREE, new Set()), hidden: 0 });
   assert.strictEqual(SS.sectionRows(TREE, new Set(), { show: 7 }).rows.length, 7);
+  // ND-1・PS-1 直し（点検 M2）: 決まった値でない数（3）はすべて（3 つに絞らない）
+  assert.deepStrictEqual(SS.sectionRows(TREE, new Set(), { show: 3 }), { rows: PT.visibleRows(TREE, new Set()), hidden: 0 });
   assert.deepStrictEqual(SS.sectionRows(TREE, null, {}).rows.map((r) => r.id), ['pa', 'pb', 'pc', 'pd', 'pe', 'pf', 'pg']);
   // 閉じた行の子は出さない
   assert.deepStrictEqual(ids(SS.sectionRows(TREE, new Set(), { sort: 'edited' }).rows), ['pg', 'pb', 'pd', 'pc', 'pe', 'pa', 'pf']);
 });
 
 // ---------------------------------------------------------------- relTime（決めたこと 34・F164）
-test('PS-1・F164: relTime の表（たった今・n 分前・n 時間前・n 日前・n 週間前・年/月/日。未来はたった今・壊れた値は空）と stampText', T, () => {
+test('PS-1・F164: relTime の表（たった今・n 分前・n 時間前・n 日前・n 週間前・年/月/日。未来はたった今・壊れた値は空）と stampText', T, (t) => {
+  // ND-1・PS-1 直し（2026-11-08 の点検 M1）: 日本の暦で見る（CI の UTC では、その PC の暦と UTC の暦が同じになり、UTC で日付を作る間違いを見落とす）
+  const prevTZ = process.env.TZ;
+  process.env.TZ = 'Asia/Tokyo';
+  t.after(() => { if (prevTZ === undefined) delete process.env.TZ; else process.env.TZ = prevTZ; });
   const now = new Date(2026, 10, 6, 14, 5, 0);   // その PC の暦の 2026/11/06 14:05
   const ago = (ms) => new Date(now.getTime() - ms).toISOString();
   const S = 1000; const M = 60 * S; const H = 60 * M; const D = 24 * H;
@@ -153,6 +173,9 @@ test('PS-1・F164: relTime の表（たった今・n 分前・n 時間前・n �
   for (const bad of ['', 'x', null, undefined, 3, {}]) assert.strictEqual(SS.relTime(bad, now), '', String(bad));
   assert.strictEqual(SS.relTime(ago(H), 'x'), '');
   assert.strictEqual(SS.stampText(new Date(2026, 10, 6, 4, 5, 0).toISOString()), '2026/11/06 04:05');
+  // 日本の朝 08:30 は UTC では前の日の 23:30（UTC の暦で書くと日も時も違う）
+  assert.strictEqual(SS.stampText('2026-11-05T23:30:00.000Z'), '2026/11/06 08:30');
+  assert.strictEqual(SS.relTime('2026-09-30T23:30:00.000Z', now), '2026/10/01');
   assert.strictEqual(SS.stampText('x'), '');
 });
 
@@ -192,6 +215,30 @@ test('PS-1・F164: libraryRows の表（並べ替え無しはサイドバーの�
   assert.deepStrictEqual(L({ q: '   ' }).map((r) => r.id), ['pr1', 'pr2', 'pr3'], '空白だけの語で絞った');
 });
 
+test('PS-1・F164: libraryRows の表（ND-1・PS-1 直し: 名前の順は数を数として並べる・同じ名前は手動の並びのまま・場所は 5 段より深ければ頭を「…」・英字の大小を寄せる）', T, () => {
+  // 持ち主の答え（2026-11-08）「数を数として並べる（第1回→第2回→第10回）（おすすめ）」（R36）
+  const rows = [ROW('n10', '2026-11-07T00:00:00.000Z', '2026-11-01T00:00:00.000Z'), ROW('n1', '2026-11-06T00:00:00.000Z', '2026-11-01T00:00:00.000Z'),
+    ROW('n2', '2026-11-05T00:00:00.000Z', '2026-11-01T00:00:00.000Z'), ROW('s1', '2026-11-04T00:00:00.000Z', '2026-11-03T00:00:00.000Z'),
+    ROW('s2', '2026-11-03T00:00:00.000Z', '2026-11-03T00:00:00.000Z')];
+  const names = { n10: '定例 第10回', n1: '定例 第1回', n2: '定例 第2回', s1: '同じ名前', s2: '同じ名前' };
+  const tree = PT.pageTree(rows);
+  const L = (o) => SS.libraryRows(tree, { titleOf: (id) => names[id], ...o }).map((r) => r.id);
+  assert.deepStrictEqual(L({ col: 'title', dir: 'asc' }), ['n1', 'n2', 'n10', 's1', 's2'], '数を数として並べない（第10回が第2回より前）');
+  assert.deepStrictEqual(L({ col: 'title', dir: 'desc' }), ['s1', 's2', 'n10', 'n2', 'n1'], '逆の向きで、同じ名前の手動の並びが崩れた');
+  // 同じ最終更新も手動の並び（いちばん上は新しい順）のまま
+  assert.deepStrictEqual(L({ col: 'edited', dir: 'desc' }), ['s1', 's2', 'n10', 'n1', 'n2']);
+  assert.deepStrictEqual(L({ col: 'edited', dir: 'asc' }), ['n10', 'n1', 'n2', 's1', 's2']);
+  // 場所: 7 段の深い行は祖先の後ろの 5 つと頭の「…」
+  const deep = Array.from({ length: 7 }, (_, i) => ROW(`d${i}`, `2026-11-0${i + 1}T00:00:00.000Z`, '2026-11-01T00:00:00.000Z', i ? `d${i - 1}` : null, 'a'));
+  const dt = PT.pageTree(deep);
+  const dn = (id) => (id === 'd6' ? 'いちばん下' : `段${id.slice(1)}`);
+  assert.deepStrictEqual(SS.libraryRows(dt, { titleOf: dn, q: 'いちばん' }).map((r) => r.place), ['… / 段1 / 段2 / 段3 / 段4 / 段5']);
+  assert.deepStrictEqual(SS.libraryRows(dt, { titleOf: (id) => (id === 'd5' ? 'いちばん下' : `段${id.slice(1)}`), q: 'いちばん' }).map((r) => r.place), ['段0 / 段1 / 段2 / 段3 / 段4']);
+  // 英字の大小と全角を寄せる
+  assert.strictEqual(SS.kanaFold('ＡＢＣ Def'), 'abcdef');
+  assert.deepStrictEqual(SS.libraryRows(tree, { titleOf: (id) => (id === 's2' ? 'Weekly Review' : names[id]), q: 'weekly' }).map((r) => r.id), ['s2']);
+});
+
 test('PS-1・F164: libraryRows は 5,000 ページで 100 ミリ秒以内（3 回の中央値。並べ替え・語・開け閉め）', { timeout: 30000 }, () => {
   const rows = [];
   for (let i = 0; i < 5000; i++) {
@@ -207,12 +254,15 @@ test('PS-1・F164: libraryRows は 5,000 ページで 100 ミリ秒以内（3 �
     const t0 = process.hrtime.bigint();
     SS.libraryRows(tree, { col: 'title', dir: 'asc', open, titleOf: title });
     SS.libraryRows(tree, { col: 'edited', dir: 'desc', open, titleOf: title });
-    SS.libraryRows(tree, { q: 'ｷﾛｸ', titleOf: title });
+    SS.libraryRows(tree, { q: '会議', titleOf: title });   // ND-1・PS-1 直し（点検 M2）: 全部に当たる語（当たりと場所の道も測る）
     times.push(Number(process.hrtime.bigint() - t0) / 1e6 / 3);
   }
   times.sort((a, b) => a - b);
   assert.ok(times[1] <= 100, `中央値 ${times[1].toFixed(1)} ms`);
   assert.strictEqual(SS.libraryRows(tree, { open, titleOf: title }).length, 5000);
+  const hits = SS.libraryRows(tree, { q: '会議', titleOf: title });
+  assert.strictEqual(hits.length, 5000, '測った語が当たっていない');
+  assert.ok(hits.some((r) => r.place), '測った語の当たりに場所が無い');
 });
 
 test('PS-1: oneLineTitle（改行・タブ・続いた改行を1つの空白に・前後の空白を落とす）', T, () => {
