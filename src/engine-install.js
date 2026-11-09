@@ -271,6 +271,12 @@ function candidateOf(root, manifest, shas, recs, current) {
   c.checkFiles = eng.files.filter((f) => /\.(exe|dll)$/i.test(f.name))
     .map((f) => ({ file: path.join(dir, ...relParts(f.name)), size: f.size, sha256: f.sha256 }));
   c.models = [model, vad].filter(Boolean).map((r) => ({ file: at(r.place), size: r.size, mtimeMs: r.mtimeMs }));
+  // 0.15.1 GV-1（D126・決めたこと 48）: 組の印（GPU で動かせる・Visual C++ ランタイムを使わない）は、候補のエンジンの記録と同じ SHA-256 の
+  // ピンの項目からだけ付ける（同じ id の前の組（上流の CPU 版）の記録に今のピンの印を付けない: F173・F175）
+  const engSha = shas[recs.indexOf(eng)];
+  const same = manifest.items.find((i) => i.kind === 'zip' && sameSha(i.sha256, engSha));
+  c.vulkan = Boolean(same && same.vulkan === true);
+  c.runtime = same && same.runtime === 'bundled' ? 'bundled' : '';
   return c;
 }
 
@@ -279,8 +285,9 @@ function candidateOf(root, manifest, shas, recs, current) {
  *  - 組の項目が全部 ready なら、今のピンの組（current: true）。
  *  - そうでなく、installed.active[group] の SHA-256 が全部記録にあり、置き場所が記録と合えば、前の組（current: false）。
  *  - どちらでもなければ null。
- * Cand = { current, shas, dir, exe, model, vad?, checkFiles: [{ file, size, sha256 }], models: [{ file, size, mtimeMs }] }
+ * Cand = { current, shas, dir, exe, model, vad?, checkFiles: [{ file, size, sha256 }], models: [{ file, size, mtimeMs }], vulkan, runtime }
  *   checkFiles は exe と DLL（SHA-256 で照らす）、models はモデルと VAD（大きさと更新時刻で照らす）。
+ *   vulkan（真偽）・runtime（'bundled' か ''）は 0.15.1 GV-1 の組の印（エンジンの記録と同じ SHA-256 のピンの項目の物。前の組では false・''）。
  */
 function managedCandidates(home, manifest, installed, statFn = fs.statSync) {
   const out = byGroup(() => null);
@@ -1085,7 +1092,8 @@ function makeRunner(deps = {}) {
 // ---------------------------------------------------------------- その4: 古い版の片付けと、ライセンスの写し（Task 12c）
 
 // 記録が何と言っても消さない置き場所（root からの相対。記録・写し・取り込み途中のフォルダ）
-const SPECIAL_PLACES = ['installed.json', 'THIRD-PARTY-NOTICES.txt', '.download'];
+// 0.15.1 GV-1（D126・決めたこと 47）: gpu-state.json は GPU の印のファイル（main が書く。記録には無い）
+const SPECIAL_PLACES = ['installed.json', 'THIRD-PARTY-NOTICES.txt', '.download', 'gpu-state.json'];
 
 // ---------------------------------------------------------------- 0.10.0 LS-4: 0.9.x の要約の組を消す（D59・決めたこと 107）
 // 0.9.x の表にあった要約のエンジン（llama-b11669 の 23 個）とモデル（gemma）の、置き場所の名前と大きさ。消すのは管理しているフォルダの下の

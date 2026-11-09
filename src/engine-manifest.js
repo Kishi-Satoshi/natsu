@@ -6,6 +6,7 @@
  *
  * 決まり:
  *  - URL は版を固定する。GitHub はリリースのタグ、Hugging Face は 40 桁の commit。
+ *    GitHub は上流（ggml-org）の札か、このリポジトリの先行版の札（whisper-vulkan-<頭7桁>。アプリの更新の札 natsu-v でない）。
  *    latest・main・api.github.com は使わない（API は1つの IP から1時間に60回まで）。
  *  - dir と dest は `/` 区切りの英数字だけの相対パス。Windows のパスにするのは使う側（path.join）。
  *    置き場所の根元は %LOCALAPPDATA%\natsu\engine（engine-install.js が決める）。
@@ -28,35 +29,46 @@ function deepFreeze(o) {
   return o;
 }
 
-// whisper.cpp v1.9.5（commit d1be6fde11ac6e0407606b4e42fe72d34add8037）。資産は CI の仮リリースのタグ b5454 にある。
-// zip の Release/ の中の 13 個（合計 11,850,240 バイト）。
+// 0.15.1 GV-1（D126）: NaTsu の CI が whisper.cpp v1.9.5（commit d1be6fde11ac6e0407606b4e42fe72d34add8037）を Vulkan 付きで作った先行版の組。
+// GPU を使えないときも同じ組を -ng で起こす。資産はこのリポジトリの先行版のタグ whisper-vulkan-d1be6fd にある（latest にしない・
+// アプリの更新の札 natsu-v の形でない）。zip の中は平ら（strip が空）で 19 個。試験用の whisper-cli.exe を除く 18 個（合計 60,473,419 バイト）。
+// Visual C++ ランタイムは使わない（C/C++ の実行の部品は中に持ち、OpenMP の vcomp140.dll を同梱。vulkan-1.dll は GPU のドライバの物を使う）。
+// 0.15.0 までの上流の CPU 版（タグ b5454 の whisper-bin-x64.zip）はピンから外した（前から取り込んだ PC は同じ id の「新しい版」として取り直す）。
 const WHISPER_FILES = [
-  { name: 'Release/whisper-server.exe', size: 726016, sha256: 'a97456e747f28e7bb09c1dac35f40d94404c5ecffa74aaaaa7a3753ea6543121' },
-  { name: 'Release/whisper.dll', size: 1370112, sha256: '034396d75bb5720c1851674ff64a96192b58f6927b68d334ebd254ce6cad9674' },
-  { name: 'Release/ggml.dll', size: 62464, sha256: '31fe18616d872af9b6134b47a6dff8072ae4ecbe5df0273f4f8dc36766c9db8e' },
-  { name: 'Release/ggml-base.dll', size: 693248, sha256: 'bede0d6b2d387236ecd2b5dd676d51c8984b5b6e0ae461a12174e9c01345c5f0' },
-  { name: 'Release/ggml-cpu-alderlake.dll', size: 1009664, sha256: 'd8f5c56ea490394eeae8b271650f2647aecd039a542d6df9e0140726e62a4603' },
-  { name: 'Release/ggml-cpu-cannonlake.dll', size: 1049600, sha256: '74127b40abd4f595d9db6af0fa313a02e18ff42fc228bfa05281e7c788dd4507' },
-  { name: 'Release/ggml-cpu-cascadelake.dll', size: 1061376, sha256: '4b11c427b844eeac87529af9a8d94b35aad2024666beb2a35e59fe3077e4b81e' },
-  { name: 'Release/ggml-cpu-haswell.dll', size: 1010688, sha256: '1306b1014c8118d27234d8ddc0e66ced1f8c8476bf85071595fd182ea9b7263b' },
-  { name: 'Release/ggml-cpu-icelake.dll', size: 1061376, sha256: '2b4dc4c66e7d8fe2807283816e9cf3b7f7d0556f59df34069871e37eab8aed40' },
-  { name: 'Release/ggml-cpu-sandybridge.dll', size: 1026560, sha256: '04edbdebc01a1d421062a960881a4f34d520d99693999518243f332406444c6e' },
-  { name: 'Release/ggml-cpu-skylakex.dll', size: 1049600, sha256: '1774714cf93621406ff35344b54715619a83242ae3e331e44d98a3b35ce801be' },
-  { name: 'Release/ggml-cpu-sse42.dll', size: 862720, sha256: 'f060318772c4c2dbac312bbfff6ea700b85dbc502bb38585a7186d06d549301a' },
-  { name: 'Release/ggml-cpu-x64.dll', size: 866816, sha256: '4b4b05caba40d4309b5d710ef74c59ba190516b8489f27bdb1ba11ae33c6e9d3' },
+  { name: 'whisper-server.exe', size: 1064448, sha256: '5a49fed45dfb5fe1c6e3801f59fb090a323e7d606fbbcff1aa7fd62db3d781f4' },
+  { name: 'whisper.dll', size: 1930752, sha256: '1597ffce8a86f3c6c1cd81eb85d743e119237a25506e572fea7d238f8d1ac572' },
+  { name: 'ggml.dll', size: 178176, sha256: 'bc2cb5480322f9c6b35d78d6f473081be08fc346dfac647257a0086362ba45f1' },
+  { name: 'ggml-base.dll', size: 895488, sha256: 'bffe0d7771fafe32a0c9d309ac465f2ede0e8faf1aaf095725950a0386935932' },
+  { name: 'ggml-cpu-alderlake.dll', size: 1186304, sha256: '0b3f73e5772f4ec7df5f35b7ce04c56d3ee5990c4b70c6c46ad233a09568bbee' },
+  { name: 'ggml-cpu-cannonlake.dll', size: 1226752, sha256: '490f201c0beac11afa118c7a6fd58da06ce14ba386207a35634788e235766a0a' },
+  { name: 'ggml-cpu-cascadelake.dll', size: 1238016, sha256: '6cd120a64550390999eb2dc445145253c7320e83fa6b5d67a0656f3b788b2279' },
+  { name: 'ggml-cpu-haswell.dll', size: 1187328, sha256: '398f3059588e157d7f2ad8eedae255a91e9028b28be1b1915eddff567923384a' },
+  { name: 'ggml-cpu-icelake.dll', size: 1238016, sha256: 'a17635055ae03d7aeaac8967102e066ef2b1364d5e4b506f85af658bac2cc0f7' },
+  { name: 'ggml-cpu-sandybridge.dll', size: 1203200, sha256: '527fd298af02e6851e337162ce865e79413ebea8b86e49e00b9d824080756e72' },
+  { name: 'ggml-cpu-skylakex.dll', size: 1226752, sha256: '1dd10486c96c7c907bbeefc98cde4a2285bfbcce997f22c1a8e9cf762071e7e0' },
+  { name: 'ggml-cpu-sse42.dll', size: 1039872, sha256: 'b287ead5996a439c947b1ebc8b111ea18d7d6ccf9539abd4e9ce7db5bd7523ce' },
+  { name: 'ggml-cpu-x64.dll', size: 1044992, sha256: '04e0fc1fe4b223b047c705510fed8b09264189b1069388d814818b726093c450' },
+  { name: 'ggml-vulkan.dll', size: 45598208, sha256: 'b1229fe6f95d423e26c97bd3e4668744f03d90bec749976f4d0c6cfc2dec2d62' },
+  { name: 'vcomp140.dll', size: 212920, sha256: '95d4ce4a6802d1e18b5e0e1722cc30ea72ca7e033f83828f05c0b7b993fe7cbf' },
+  { name: 'LICENSE-whisper.cpp.txt', size: 1099, sha256: 'bcd8ec749126d45cb06737d0690295d73df4b6e7e194205bcf91190368f27285' },
+  { name: 'THIRD-PARTY-NOTICES.txt', size: 508, sha256: '7d269d19ae3481649e2da194313ef483553cdb9520f2bfdadf57a5f50d79eb92' },
+  { name: 'BUILD-INFO.txt', size: 588, sha256: '6f52d6867c04d1653af609e69613c3df6389478ebe392347af2e8dc1b3e94c35' },
 ];
 
 const MANIFEST = deepFreeze({
   schema: 1,
   items: [
     {
+      // id は 0.15.0 までと同じ（前から取り込んだ PC は「新しい版」になり、取る間は前の組を使う: RF13）
       id: 'whisper-engine', group: 'whisper', kind: 'zip',
-      label: '文字起こしエンジン（whisper.cpp）', version: '1.9.5',
-      url: 'https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip',
-      size: 8928640, sha256: '6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb',
-      dir: 'whisper-1.9.5', strip: 'Release/', exe: 'whisper-server.exe',
+      label: '文字起こしエンジン（whisper.cpp・Vulkan）', version: '1.9.5',
+      url: 'https://github.com/Kishi-Satoshi/natsu/releases/download/whisper-vulkan-d1be6fd/whisper-vulkan-bin-x64-d1be6fd.zip',
+      size: 20440811, sha256: 'd3d6957113b179667eb770592a544ebc290518c30f29c7952b2b58e8f2614510',
+      dir: 'whisper-1.9.5-vk', strip: '', exe: 'whisper-server.exe',
       files: WHISPER_FILES,
-      license: 'MIT（Copyright (c) 2023-2026 The ggml authors）',
+      // vulkan: GPU で動かせる組の印（main が GPU の形を試す）。runtime: Visual C++ ランタイムを使わない組の印（照らさない）
+      vulkan: true, runtime: 'bundled',
+      license: 'MIT（Copyright (c) 2023-2026 The ggml authors）。同梱の vcomp140.dll は Microsoft Visual C++ の再頒布できる部品',
     },
     {
       id: 'whisper-vad', group: 'whisper', kind: 'file', role: 'vad',

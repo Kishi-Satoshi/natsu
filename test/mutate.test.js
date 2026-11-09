@@ -1414,7 +1414,13 @@ const IDS_151 = [
   'lb-sort-level', 'lb-search',   // PS-1
   'lb-new', 'lb-text', 'lb-kids',   // PS-4
   'lb-press-hold', 'lb-open-focus', 'lb-move-back', 'lb-sel-menu', 'lb-sort-aria',   // PS-4 直し（R44）
+  // 0.15.1 GV-1（計画の「変異の表」の gv- の行の順に。PC の中の文字起こしを GPU 版に: D126）
+  'gv-pin-id', 'gv-pin-vulkan', 'gv-cand-current', 'gv-cleanup-keep', 'gv-consent', 'gv-update-auto', 'gv-log-fail', 'gv-log-lost',
+  'gv-plan-manual', 'gv-plan-mark', 'gv-plan-driver', 'gv-state-norm', 'gv-ng-args', 'gv-log-path',
 ];
+// 0.15.1 GV-1（計画の「変異の表」の gv- の決まり）: GV-1〜GV-3 の間は、まだ作っていないタスクの gv- の行を除いて表と比べる（ND-5 の前の BUILT_151 と同じ形）。
+// タスクを作るたびに減らし、GV-4 で表の全部（111）に戻す（この並びを消す）
+const GV_TODO_151 = ['gv-rt-bundled', 'gv-rt-prev', 'gv-silent-cpu', 'gv-crash-cpu', 'gv-resend-cpu', 'gv-trying', 'gv-ng-noloop', 'gv-wf-clobber', 'gv-help-fallback'];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
 const GONE_151 = [
@@ -1443,25 +1449,27 @@ function planRows151() {
   const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
   assert.ok(at > 0, '計画の「変異の表」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
-  return [...table.matchAll(/^\| ((?:nd|ps|lb)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+  return [...table.matchAll(/^\| ((?:nd|ps|lb|gv)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);   // 0.15.1 GV-1 で gv を足した
 }
 test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の「変異の表」の nd-・ps-・lb- の行とちょうど同じ（行の順。0.15.1 ND-5 で作ったタスクの範囲から表の全部に）。nd-・ps-・lb- の変異は IDS_151 にある。どれも決まったテストのファイルを持ち、why が 0.15.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_151.filter((id) => !byId.has(id)), [], 'IDS_151 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
-  assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb|gv)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');   // 0.15.1 GV-1 で gv を足した
   const rows = planRows151();
-  assert.strictEqual(rows.length, 88, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 17）が読めない');   // PS-4 直しで lb-press-hold・lb-open-focus・lb-move-back・lb-sel-menu・lb-sort-aria を足した（83 → 88: R44）   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
+  assert.strictEqual(rows.length, 111, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 17・gv- 23）が読めない');   // 0.15.1 GV-1 で表の頭に gv を足した（88 → 111: 計画の「変異の表」の gv- の決まり）   // PS-4 直しで lb-press-hold・lb-open-focus・lb-move-back・lb-sel-menu・lb-sort-aria を足した（83 → 88: R44）   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');
   // 0.15.1 ND-5（計画の「変異の表」の決まり・G3）で意図して変えた: 表の全部のタスクを作ったので、作ったタスクの範囲（BUILT_151）でなく、表の nd-・ps-・lb- の行とちょうど同じ（行の順）
-  assert.deepStrictEqual(IDS_151, rows, 'IDS_151 が計画の「変異の表」の nd-・ps-・lb- の行とちょうど同じでない（行の順）');
+  // 0.15.1 GV-1（計画の「変異の表」の gv- の決まり）で意図して変えた: GV-1〜GV-3 の間は、まだ作っていない gv- の行（GV_TODO_151）を除いて比べる
+  assert.deepStrictEqual(GV_TODO_151.filter((id) => !rows.includes(id) || !/^gv-/.test(id) || IDS_151.includes(id) || MUTANTS.some((m) => m.id === id)), [], 'GV_TODO_151 が表のまだ作っていない gv- の行でない');
+  assert.deepStrictEqual(IDS_151, rows.filter((id) => !GV_TODO_151.includes(id)), 'IDS_151 が計画の「変異の表」の nd-・ps-・lb-・gv- の行（まだ作っていない gv- を除く）とちょうど同じでない（行の順）');
   // 前の版の頭の照らしと、並べて作る 0.16.0 の頭（tb・vw: 計画の「並べて作る決まり」の 4）に当たらない
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/]) {
     assert.deepStrictEqual(IDS_151.filter((id) => re.test(id)), [], `${re} に当たる 0.15.1 の id`);
   }
-  for (const ids of [IDS_140, IDS_150]) assert.deepStrictEqual(ids.filter((id) => /^(nd|ps|lb)-/.test(id)), [], '前の版の IDS に 0.15.1 の頭');
+  for (const ids of [IDS_140, IDS_150]) assert.deepStrictEqual(ids.filter((id) => /^(nd|ps|lb|gv)-/.test(id)), [], '前の版の IDS に 0.15.1 の頭');   // 0.15.1 GV-1 で gv を足した
   for (const id of IDS_151) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
