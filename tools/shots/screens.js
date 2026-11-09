@@ -111,10 +111,15 @@ const OPEN_TRASH = `(async () => {
   return 1;
 })()`;
 // 0.15.0 PL-3: 1行目のページを開いて（非同期なので少し待つ）、ページの頭のアイコンを押してアイコンの選びを開く
+// 0.16.0 DR-1 の CI（run 42572852010）で、決まった 300 ミリ秒ではページを開き終わらずに［アイコン］を押し、窓が出ないまま撮った（2回の撮りで違う: 揺れ）。
+// ページの題名が出るまで待ってから押し、窓が出るまで待つ（出なければ投げて「撮れない」）
 const OPEN_ICON = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
-  await new Promise((r) => setTimeout(r, 300));
+  const until = async (ok, what) => { for (let i = 0; i < 50 && !ok(); i++) await new Promise((r) => setTimeout(r, 100)); if (!ok()) throw new Error(what); };
+  await until(() => document.getElementById('pTitle').textContent !== '', 'ページが開かない');
+  await new Promise((r) => setTimeout(r, 100));
   document.getElementById('pIcon').click();
+  await until(() => !document.getElementById('iconPop').hidden, 'アイコンの窓が出ない');
   return 1;
 })()`;
 // 0.15.0 PL-3: 1行目のページを開いて「···」のメニューを開き、［書体 ▸］を押して 標準・明朝・等幅 を出す
