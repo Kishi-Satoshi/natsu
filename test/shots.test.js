@@ -1182,7 +1182,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変わる画面は db-row-page-light（新）と近道の表の設定の4枚（RETAKE にある）。表の画面は［開く］が隠れていて変わらない見込み（選んだセルは状態の列）。値を今の app.html に合わせた（前の値は 6585989c…）
   // 0.16.0 DV-3 直し2（rv49・R95）: 「他 n 件」・［＋］・中の検索・⚙ の CSS（縮めず1行）・タブを入れる幅・見出しのチェック・グループの［＋］・選びの窓の focusout。
   // 変わる画面は db-views-light（「他 n 件」が1行・検索の欄が縮まない。RETAKE にある）。値を今の app.html に合わせた（前の値は 31ee7509…）
-  assert.strictEqual(sha, '46b7ecf69c98fb1307a69dd6884be83f64b87410bcae6a05aa8b26ffad46b947',
+  // 0.16.0 R96（2026-11-09 の持ち主の答え）: SHORTCUTS の写しにビューのタブの2行・［グループ］の窓の 200 を越えた一言（.dbgmore）・切れたタブの吹き出し。
+  // 変わる画面は近道の表の設定の4枚と db-views-light（長い名前のビュー。どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 46b7ecf6…）
+  assert.strictEqual(sha, 'fe8425935f7034fd08f6ddd98f179a11e7c946f788e75cddc1c717e8ddb0c5c2',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

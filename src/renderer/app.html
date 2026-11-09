@@ -434,6 +434,7 @@
   .dbx { border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
   .dbx:hover, .dbx:focus-visible { background: var(--hover); outline: none; }
   .dbglist { display: flex; flex-direction: column; gap: 2px; }
+  .dbgmore { color: var(--muted); font-size: 12px; margin-top: 4px; }   /* R96: ［グループ］の窓に出していないグループの数 */
   .dbsortrow.dropbefore::before, .dbgrow.dropbefore::before, .dbproprow.dropbefore::before, .dbsortrow.dropafter::after, .dbgrow.dropafter::after, .dbproprow.dropafter::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
   .dbsortrow.dropbefore::before, .dbgrow.dropbefore::before, .dbproprow.dropbefore::before { top: -1px; }
   .dbsortrow.dropafter::after, .dbgrow.dropafter::after, .dbproprow.dropafter::after { bottom: -1px; }
@@ -2157,6 +2158,9 @@
     { keys: 'Space', what: '行のページを開く', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Ctrl+Z', what: '元に戻す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    // 0.16.0 R96（2026-11-09 の持ち主の答え）: データベースのビューのタブのキー（DV-3 直しの R89 (F6) で作ったキー）
+    { keys: '←・→', what: 'となりのビューへ（端では反対の端へ）', where: 'ビューのタブを選んでいるとき', codes: [] },
+    { keys: 'Home・End', what: '最初・最後のビューへ', where: 'ビューのタブを選んでいるとき', codes: [] },
   ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
   // 効く所が替わる所に見出しの行（th colspan=2）を入れ、キーは「・」で区切った1つずつを <kbd> で（文字は textContent で入れる）
   function renderShortcuts() {
@@ -11009,6 +11013,10 @@
     for (const b of p.tabEls) b.hidden = false;
     p.more.hidden = true;
     st.hiddenViews = [];
+    // R96（2026-11-09 の持ち主の答え）: 切れている（240px で …）タブだけ、名前全体を吹き出しに（隠す前に測る）
+    for (const b of p.tabEls) {
+      if (b.scrollWidth > b.clientWidth) b.setAttribute('title', b.textContent); else b.removeAttribute('title');
+    }
     // DV-3 直し2（rv49 I1）: 部品の間（.dbtabs の gap）も数え、「他 n 件」を出した後にその本当の幅で入り切るまで後ろのタブから隠す
     const wid = (el) => (el ? el.getBoundingClientRect().width : 0);
     const w = new Map(p.tabEls.map((b) => [b, wid(b) + DB_TAB_GAP]));   // 隠す前に測る（隠したタブの幅は 0）
@@ -11569,6 +11577,12 @@
       list.appendChild(row);
     });
     pn.body.appendChild(list);
+    const rest = (Array.isArray(st.groups) ? st.groups.length : 0) - groups.length;
+    if (rest > 0) {   // R96（2026-11-09 の持ち主の答え）: 窓に出していないグループの数を一番下に
+      const more = document.createElement('div'); more.className = 'dbgmore';
+      more.textContent = `ほかに ${rest} 件あります（ここには最初の ${DB_GLIST_MAX} 件を出します）`;
+      pn.body.appendChild(more);
+    }
     pn.body.appendChild(dbBtn('昇順に並べる', 'go', () => { const n = { ...g }; delete n.order; save(n); }, !g.order));
   }
   // 列の表示（決めたこと 20・V-T18: チェックで出す・隠す。⋮⋮ で並べる。題名の列は隠せないが動かせる: V-T11）

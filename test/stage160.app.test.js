@@ -2315,3 +2315,70 @@ test('DV-4: 行のページの「···」は［リンクを写す］・見た�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ================================================================ R96（2026-11-09 の持ち主の答え: 近道の表のタブのキー・写す1行の無題の名前・［グループ］の窓の 200 の一言・切れたタブの名前）
+test('R96 (1): 近道の表に「ビューのタブを選んでいるとき」の ←・→「となりのビューへ（端では反対の端へ）」と Home・End「最初・最後のビューへ」（src/shortcuts.js と画面の写し）', () => {
+  const SC = require('../src/shortcuts.js').SHORTCUTS;
+  const where = 'ビューのタブを選んでいるとき';
+  assert.deepStrictEqual(SC.filter((r) => r.where === where).map((r) => [r.keys, r.what, r.codes.length]),
+    [['←・→', 'となりのビューへ（端では反対の端へ）', 0], ['Home・End', '最初・最後のビューへ', 0]], '近道の表にビューのタブの行が無い');
+  assert.ok(HTML.includes(`{ keys: '←・→', what: 'となりのビューへ（端では反対の端へ）', where: '${where}', codes: [] },`), '画面の写しに行が無い');
+});
+
+test('R96 (2): 写す1行の無題の名前は画面と同じ（データベースは「無題のデータベース」・行は「無題のページ」）。データベースの「···」・選んだ行の帯・行のメニュー', T, async () => {
+  const B = 'https://example.invalid/open#p=';
+  const l = await openDb({ titles: ['', '発注'] });
+  try {
+    const r0 = l.rows[0];
+    $(l, 'pMore').click(); await l.drain(20);
+    await clickEl(l, $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === 'リンクを写す'));
+    const ck = dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbcheck'); ck.checked = true; ck.dispatchEvent({ type: 'change' }); await l.drain(20);
+    await clickEl(l, box(l).querySelector('.dbselbar').querySelectorAll('button').find((b) => b.textContent === 'リンクを写す'));
+    ck.checked = false; ck.dispatchEvent({ type: 'change' }); await l.drain(20);
+    await clickEl(l, dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbgrip'), 40);
+    await clickEl(l, item(l, 'リンクを写す'), 100);
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [`NaTsu の「無題のデータベース」 ${B}${l.id}`, `NaTsu の「無題のページ」 ${B}${r0}`, `NaTsu の「無題のページ」 ${B}${r0}`]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('R96 (3): ［グループ］の窓は 200 を越えると一番下に「ほかに n 件あります（ここには最初の 200 件を出します）」（越えなければ出さない）', T, async () => {
+  const l = await openDb({ many: 300, before: (call, d) => { call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: d.c1 } } }); } });
+  try {
+    await openPanel(l, 'グループ');
+    const more = panel(l).querySelectorAll('.dbgmore');
+    assert.strictEqual(more.length, 1, '200 を越えたのに一言が無い');
+    assert.strictEqual(more[0].textContent, 'ほかに 100 件あります（ここには最初の 200 件を出します）');
+    const kids = [...panel(l).querySelector('.dbglist').parentNode.childNodes];
+    assert.ok(kids.indexOf(more[0]) === kids.indexOf(panel(l).querySelector('.dbglist')) + 1, '一言がグループの並びのすぐ下に無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  const s = await openDb({ before: (call, d) => { call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: d.c1 } } }); } });
+  try {
+    await openPanel(s, 'グループ');
+    assert.strictEqual(panel(s).querySelectorAll('.dbgmore').length, 0, '200 までなのに一言が出る');
+  } finally { s.done(); }
+});
+
+test('R96 (4): 切れているタブ（240px で …）だけ、名前全体を吹き出し（title）で出す（切れていないタブには付けない・新しい言葉は無い）', T, async () => {
+  const long = '今週のうちに終わらせたい見積もりと発注と検収のまとめ';
+  const l = await openDb({ before: (call, d) => { call('view.add', { db: d.id, name: long }); } });
+  const had = ['scrollWidth', 'clientWidth'].map((k) => Object.getOwnPropertyDescriptor(Element.prototype, k));
+  try {
+    // 名前の字の幅 20px・タブは 240px まで（本物の Chromium では .dbtab の max-width と text-overflow: ellipsis）
+    Object.defineProperty(Element.prototype, 'scrollWidth', { configurable: true, get() { return this.classList && this.classList.contains('dbtab') ? this.textContent.length * 20 : 0; } });
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get() { return this.classList && this.classList.contains('dbtab') ? Math.min(this.textContent.length * 20, 240) : 0; } });
+    await clickEl(l, tabs(l).find((b) => b.textContent === long), 160);
+    const t = (name) => tabs(l).find((b) => b.textContent === name);
+    assert.strictEqual(t(long).getAttribute('title'), long, '切れたタブに名前全体の吹き出しが無い');
+    assert.ok(!t('表').hasAttribute('title'), '切れていないタブに吹き出しが付く');
+    // 名前を短くすると外れる
+    l.call('view.update', { db: l.id, viewId: 'v2', patch: { name: '短い' } });
+    l.fire('onPagesUpdated'); await l.drain(120);
+    assert.ok(!t('短い').hasAttribute('title'), '短くしても吹き出しが残る');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally {
+    for (const [i, k] of ['scrollWidth', 'clientWidth'].entries()) { if (had[i]) Object.defineProperty(Element.prototype, k, had[i]); else delete Element.prototype[k]; }
+    l.done();
+  }
+});

@@ -7,6 +7,7 @@
 // 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 20・26・28・BQ7 (a)）: Ctrl+Shift+N（新しいページの選び）・Ctrl+Shift+U（親のページへ）と、サイドバーのページの一覧のキーの行を足した。
 // 0.16.0 DV-1（計画 docs/plans/2026-11-04-160.md の決めたこと 51）: データベースの表のセルを選んでいるときのキーの行を足した。
 // 0.16.0 DV-4（2026-11-09 の持ち主の承認・R90）: 同じ所の Ctrl+C・Ctrl+V・Ctrl+Shift+V（DV-2 で作ったキー）と Space（行のページを開く）の行を足した。
+// 0.16.0 R96（2026-11-09 の持ち主の答え「足す…（おすすめ）」）: ビューのタブを選んでいるときの ←・→・Home・End の行を足した。
 // 画面（app.html）はこの表を写す（test/stage140.app.test.js が同じ行かを照らす）。
 
 const SHORTCUTS = Object.freeze([
@@ -75,6 +76,9 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Space', what: '行のページを開く', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Z', what: '元に戻す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  // 0.16.0 R96（2026-11-09 の持ち主の答え）: データベースのビューのタブのキー（DV-3 直しの R89 (F6) で作ったキー）
+  { keys: '←・→', what: 'となりのビューへ（端では反対の端へ）', where: 'ビューのタブを選んでいるとき', codes: [] },
+  { keys: 'Home・End', what: '最初・最後のビューへ', where: 'ビューのタブを選んでいるとき', codes: [] },
 ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
 
 module.exports = { SHORTCUTS };

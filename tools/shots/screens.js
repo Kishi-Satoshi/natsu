@@ -168,6 +168,14 @@ const OPEN_DB_VIEWS = OPEN_DB_AT(`const shown = [...document.querySelectorAll('#
   if (qw < 150) throw new Error('中の検索の欄が縮んでいる: ' + qw);
   const strip = document.querySelector('#pDb .dbtabs').getBoundingClientRect().height;
   if (strip > Math.max(...shown) + 16) throw new Error('タブの並びが2行以上: ' + strip);
+  // R96: 切れている（240px で …）タブだけ名前全体の吹き出し（title）
+  const cut = [...document.querySelectorAll('#pDb .dbtab')].filter((b) => !b.hidden && b.scrollWidth > b.clientWidth);
+  if (!cut.length) throw new Error('長い名前のタブが切れていない');
+  for (const b of document.querySelectorAll('#pDb .dbtab')) {
+    if (b.hidden) continue;
+    const want = cut.includes(b) ? b.textContent : null;
+    if (b.getAttribute('title') !== want) throw new Error('タブの吹き出しが違う: ' + b.textContent + ' → ' + b.getAttribute('title'));
+  }
   document.querySelector('#pDb .dbtab[aria-selected="true"]').click();`);
 // 0.16.0 DV-4: 1行目の題名のセルの［開く］で行のページ（列の値の並びと本文）。本物の Chromium で列の値の並び・パンくず・画面のエラーを確かめ、崩れていれば「撮れない」
 const OPEN_DB_ROW = OPEN_DB_AT(`const errs = [];
@@ -835,7 +843,7 @@ function dbAnswers(kind = '') {
   if (kind === 'list') Object.assign(view, { name: '一覧', layout: 'list', props: cols.map((c) => ({ col: c.id, show: ['title', 'c1', 'c2', 'c4'].includes(c.id), wrap: false })), agg: {} });
   if (kind === 'filter') view.filter = { op: 'and', items: [{ col: 'c2', cmp: 'any', value: ['o1', 'o2'] }, { op: 'or', items: [{ col: 'c3', cmp: 'gt', value: 20000 }, { col: 'c5', cmp: 'yes' }] }] };
   if (kind === 'group') view.group = { col: 'c2' };
-  const views = kind === 'views' ? [view, ...['今週', '担当別', '完了したもの', '金額の大きい順', '来月の期日', '資料のあるもの', 'リスト', '未着手', '進行中', '確認待ち', '保留'].map((name, i) => ({ ...view, id: `v${i + 2}`, name }))] : [view];
+  const views = kind === 'views' ? [view, ...['今週のうちに終わらせたい見積もりと発注と検収のまとめ', '担当別', '完了したもの', '金額の大きい順', '来月の期日', '資料のあるもの', 'リスト', '未着手', '進行中', '確認待ち', '保留'].map((name, i) => ({ ...view, id: `v${i + 2}`, name }))] : [view];
   const NAMES = ['見積もりの作成', '発注書の確認', '検収の段取り', '請求書の発行', '打ち合わせの準備'];
   const WHO = ['佐藤', '鈴木', '高橋'];
   const rows = Array.from({ length: 20 }, (_, i) => ({
