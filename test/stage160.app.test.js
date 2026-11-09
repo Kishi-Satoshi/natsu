@@ -1776,8 +1776,13 @@ test('R87: 写すリンクの1行は、議事録だけ「NaTsu の議事録「�
 // ================================================================ DV-3 直し（2026-11-09 の 6a9f0c5..0b7cc16 の点検 rv48。R88〜）
 test('DV-3 直し（rv48 F1）: 画面の部品は querySelectorAll の答え（NodeList）に配列の部品（find・map・filter など）を使わない（偽の DOM は配列を返すので字面で見る）', () => {
   const script = HTML.slice(HTML.indexOf('<script>'));
-  const bad = script.split('\n').map((s, i) => [i, s]).filter(([, s]) => /querySelectorAll\([^)]*\)\s*\.(find|findIndex|map|filter|some|every|reduce|includes|indexOf|slice|flatMap|at)\b/.test(s));
-  assert.deepStrictEqual(bad.map(([, s]) => s.trim().slice(0, 120)), []);
+  // DV-3 直し2（rv49 M-d）で広げた: 選び方の中の括弧（:not(…)）・行をまたぐ鎖も見る（children は本文の行の木の配列と字で分けられないので見ない）
+  const ARR = '(?:find|findIndex|map|filter|some|every|reduce|includes|indexOf|slice|flatMap|at)\\b';
+  const RE = new RegExp(`querySelectorAll\\((?:[^()]|\\([^()]*\\))*\\)\\s*\\.${ARR}`, 'g');
+  const bad = [...script.matchAll(RE)].map((m) => m[0].replace(/\s+/g, ' ').slice(0, 120));
+  assert.deepStrictEqual(bad, []);
+  const probe = 'x.querySelectorAll(\'.a:not(.b)\')\n    .find((y) => y); w.querySelectorAll(q).map(f);';
+  assert.strictEqual([...probe.matchAll(RE)].length, 2, '照らしが括弧・行またぎを見ない');
 });
 
 test('DV-3 直し（rv48 F2・F10）: 複数選択とユーザーの窓は選んで描き直しても閉じず、続けて選べる。窓の押せない所を押してもフォーカスを動かさない（暦が閉じない）', T, async () => {
@@ -1907,6 +1912,155 @@ test('DV-3 直し（rv48 F7・F8・F9）: タブは縮めず1行（CSS）・［�
     assert.strictEqual(box(s).querySelector('.dbcheckall').checked, true, '全部を選んでも見出しのチェックが外れる');
     assert.deepStrictEqual(s.errors.map(fmt), []);
   } finally { s.done(); }
+});
+
+// ================================================================ DV-3 直し2（2026-11-09 の 0b7cc16..d2ead8d の点検 rv49。R95）
+const gheadOf = (l, name) => box(l).querySelectorAll('.dbghead').find((h) => h.querySelector('.dbgname') && h.querySelector('.dbgname').textContent === name);
+const selCells = (l) => box(l).querySelectorAll('.dbcell').filter((c) => c.getAttribute('aria-selected') === 'true');
+const editRow = (l) => (editor(l) ? editor(l).parentNode.parentNode.dataset.id : '');
+
+test('DV-3 直し2（rv49 I1・M-a）: タブの並びの「他 n 件」・［＋］・中の検索・⚙ は縮めず1行（CSS）。入り切るかはタブの間も数え、「他 n 件」の本当の幅で入り切るまで隠す。「他 n 件」から選ぶと選んだタブにフォーカス', T, async () => {
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  for (const sel of ['.dbtabmore', '.dbviewadd', '.dbsearch', '.dbsetbtn']) {
+    const d = S.declsFor(rules, sel, { at: '' });
+    assert.deepStrictEqual([d.flex, d['white-space']], ['none', 'nowrap'], `${sel} が縮む・折り返す`);
+  }
+  const l = await openDb({ before: (call, d) => { for (const n of ['二', '三', '四', '五', '六']) call('view.add', { db: d.id, name: n }); } });
+  const was = Element.prototype.getBoundingClientRect;
+  try {
+    // 幅 450 の並び・幅 100 のタブ・間 2px・「他 n 件」は本当の幅 150（［＋］・検索・⚙ は 0）→ 今のタブと 1 つだけ・「他 4 件」
+    Element.prototype.getBoundingClientRect = function rect() {
+      const w = this.classList.contains('dbtabs') ? 450 : this.classList.contains('dbtab') ? 100 : this.classList.contains('dbtabmore') && !this.hidden ? 150 : -1;
+      return w < 0 ? was.call(this) : { top: 0, left: 0, right: w, bottom: 30, width: w, height: 30 };
+    };
+    await clickEl(l, tabs(l).find((b) => b.textContent === '二'), 160);
+    assert.deepStrictEqual(tabNames(l), ['表', '二'], '「他 n 件」の幅とタブの間を数えずに並べた');
+    const more = box(l).querySelector('.dbtabmore');
+    assert.deepStrictEqual([more.hidden, more.textContent], [false, '他 4 件']);
+    await clickEl(l, more);
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['三', '四', '五', '六'], '隠したタブがビューの順でない');
+    await clickEl(l, item(l, '五'), 160);
+    assert.strictEqual(tabOn(l).textContent, '五');
+    assert.ok(active(l) === tabOn(l), '「他 n 件」から選んだタブにフォーカスが無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { Element.prototype.getBoundingClientRect = was; l.done(); }
+});
+
+test('DV-3 直し2（rv49 I2）: 閉じたグループがあっても、全部を選んだ見出しのチェックは描き直しても付いたまま・もう一度押すと外れる。行のチェックを外すと外れ、付け直すと付く', T, async () => {
+  const l = await openDb({ before: (call, d) => { call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: d.c3 } } }); } });
+  try {
+    await clickEl(l, gheadOf(l, 'チェック済み').querySelector('.dbgtoggle'), 200);
+    assert.ok(!dataRows(l).some((r) => r.dataset.id === l.rows[0]), 'グループが閉じない');
+    const all = () => box(l).querySelector('.dbcheckall');
+    all().checked = true; all().dispatchEvent({ type: 'change' }); await l.drain(120);
+    assert.strictEqual(box(l).querySelector('.dbselbar .dbselcount').textContent, '2 行を選んでいます');
+    l.call('row.setCell', { db: l.id, id: l.rows[1], col: l.c1, value: '描き直す' });   // 印を変えて描き直させる
+    l.fire('onPagesUpdated'); await l.drain(120);
+    assert.strictEqual(all().checked, true, '閉じたグループがあると、描き直したときに見出しのチェックが外れる');
+    const ck = () => dataRows(l).find((r) => r.dataset.id === l.rows[1]).querySelector('.dbcheck');
+    ck().checked = false; ck().dispatchEvent({ type: 'change' }); await l.drain(20);
+    assert.strictEqual(all().checked, false, '行のチェックを外しても見出しのチェックが残る');
+    ck().checked = true; ck().dispatchEvent({ type: 'change' }); await l.drain(20);
+    assert.strictEqual(all().checked, true, '選び直しても見出しのチェックが付かない');
+    all().checked = false; all().dispatchEvent({ type: 'change' }); await l.drain(120);
+    assert.ok(box(l).querySelector('.dbselbar').hidden, '見出しをもう一度押しても選びが外れない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  // 複数選択でまとめて同じ行が2度出ても、行のチェックを外して付け直すと見出しのチェックが付く（並ぶ行の数 shown でなく、行の数で見る: rv48 F9）
+  const s = await openDb({ before: (call, d) => {
+    const w = withTypes(call, d);
+    call('row.setCell', { db: d.id, id: d.rows[0], col: w.c6, value: w.o6.map((o) => o.id) });
+    call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: w.c6 } } });
+    return w;
+  } });
+  try {
+    const all = () => box(s).querySelector('.dbcheckall');
+    all().checked = true; all().dispatchEvent({ type: 'change' }); await s.drain(120);
+    const ck = () => dataRows(s).find((r) => r.dataset.id === s.rows[1]).querySelector('.dbcheck');
+    ck().checked = false; ck().dispatchEvent({ type: 'change' }); await s.drain(20);
+    assert.strictEqual(all().checked, false);
+    ck().checked = true; ck().dispatchEvent({ type: 'change' }); await s.drain(20);
+    assert.strictEqual(all().checked, true, '2度出る行があると、選び直しても見出しのチェックが付かない');
+    assert.deepStrictEqual(s.errors.map(fmt), []);
+  } finally { s.done(); }
+});
+
+test('DV-3 直し2（rv49 I3）: 値を書かないグループ（日付の月）の［＋］は、足した行（（空）のグループ）を書く（押したグループの行を選ばない）。探している間のグループの［＋］はほかの行を選ばない', T, async () => {
+  // 日付の列は 5 番目に足す列（c5）。1万行の種と同じに、行の操作で月の値を入れる
+  const l = await openDb({ many: 600, manyCells: (i) => ({ c5: { start: i < 300 ? '2026-10-05' : '2026-11-05' } }),
+    before: (call, d) => { const c = call('col.add', { db: d.id, type: 'date', name: '期日' }).col.id; assert.strictEqual(c, 'c5'); call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: c } } }); } });
+  try {
+    height(l, 640); await scrollTo(l, 0);
+    await clickEl(l, gheadOf(l, '2026/10').querySelector('.dbgadd'), 400);
+    assert.deepStrictEqual(l.called('rowAdd').map((c) => c.args), [[l.id, {}]], '値を書かないグループに値を書いた');
+    const added = editRow(l);
+    assert.ok(added && !l.rows.includes(added) && !/^rz/.test(added), `足した行を書かない（${added || '書き手なし'}）`);
+    assert.deepStrictEqual(selCells(l).map((c) => c.parentNode.dataset.id), [added], '押したグループの行を選んだ');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  const s = await openDb({ before: (call, d) => { call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: d.c1 } } }); } });
+  try {
+    const q = box(s).querySelector('.dbsearchq');
+    q.value = '見積'; q.dispatchEvent({ type: 'input' }); await s.drain(160);
+    assert.deepStrictEqual(dataRows(s).map((r) => r.dataset.id), [s.rows[0]]);
+    await clickEl(s, gheadOf(s, 'メモ 0').querySelector('.dbgadd'), 300);
+    assert.strictEqual(s.called('rowAdd').length, 1);
+    assert.deepStrictEqual(selCells(s).map((c) => c.parentNode.dataset.id), [], '探している語に当たらない行を足して、ほかの行を選んだ');
+    assert.deepStrictEqual(s.errors.map(fmt), []);
+  } finally { s.done(); }
+});
+
+test('DV-3 直し2（rv49 M-c f3）: 閉じたグループの［＋］は捲らずほかの行を選ばない・閉じたグループの後ろのグループの［＋］はそのグループの末（足した行）を書く', T, async () => {
+  const l = await openDb({ many: 900, manyCells: (i) => ({ c1: i < 300 ? 'A' : i < 600 ? 'B' : 'C' }), before: (call, d) => { call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: d.c1 } } }); } });
+  try {
+    height(l, 640); await scrollTo(l, 0);
+    await clickEl(l, gheadOf(l, 'A').querySelector('.dbgtoggle'), 300);
+    await clickEl(l, gheadOf(l, 'B').querySelector('.dbgadd'), 400);
+    assert.deepStrictEqual(l.called('rowAdd').map((c) => c.args), [[l.id, { cells: { c1: 'B' } }]]);
+    const added = editRow(l);
+    assert.ok(added && !/^rz/.test(added) && !l.rows.includes(added), `グループ B の末の足した行を書かない（${added || '書き手なし'}）`);
+    await press(l, editor(l), { key: 'Escape' });
+    await scrollTo(l, 0);
+    await clickEl(l, gheadOf(l, 'A').querySelector('.dbgadd'), 400);
+    assert.strictEqual(l.called('rowAdd').length, 2);
+    assert.deepStrictEqual([selCells(l).length, editRow(l)], [0, ''], '閉じたグループの［＋］でほかの行を選んだ');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-3 直し2（rv49 M-b）: 選択の選びの窓は、窓の外の部品へフォーカスが動くと閉じる（描き直しで行き先の無い focusout では閉じない）', T, async () => {
+  const l = await openDb({ before: withTypes });
+  try {
+    await clickEl(l, cellOf(l, l.rows[0], l.c5), 60);
+    assert.ok(picker(l));
+    picker(l).dispatchEvent({ type: 'focusout', relatedTarget: null }); await l.drain(40);
+    assert.ok(picker(l), '行き先の無い focusout で閉じた（選ぶたびに描き直すので閉じてはいけない）');
+    picker(l).dispatchEvent({ type: 'focusout', relatedTarget: picker(l).querySelector('input') }); await l.drain(40);
+    assert.ok(picker(l), '窓の中へ動いて閉じた');
+    picker(l).dispatchEvent({ type: 'focusout', relatedTarget: $(l, 'pTitle') }); await l.drain(80);
+    assert.ok(picker(l) === null, '窓の外へフォーカスが動いても閉じない');
+    assert.deepStrictEqual(l.called('rowSetCell'), [], '閉じるだけで書いた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-3 直し2（rv49 M-c f8）: ［グループ］の窓で並べると、前の手の並びが 1,000 あっても 1,000 までで書く（DB に断られない）', T, async () => {
+  const old = Array.from({ length: 1000 }, (_, i) => `前の鍵 ${i}`);
+  const l = await openDb({ many: 300, before: (call, d) => { call('view.update', { db: d.id, viewId: 'v1', patch: { group: { col: d.c1, order: old } } }); } });
+  try {
+    const p = await openPanel(l, 'グループ');
+    assert.ok(p);
+    const list = () => panel(l).querySelectorAll('.dbglist .dbgrow');
+    for (const r of list()) r._rect = { top: 0, height: 30 };
+    const second = list()[1].querySelector('.dbgname').textContent;
+    list()[1].querySelector('.dbgrip').dispatchEvent({ type: 'dragstart', dataTransfer: { effectAllowed: '', setData() {} } });
+    list()[0].dispatchEvent({ type: 'drop', clientY: 2, dataTransfer: { types: ['application/x-natsu-group'] }, preventDefault() {} }); await l.drain(200);
+    const order = viewNow(l).group.order;
+    assert.strictEqual(order.length, 1000, '手の並びを 1,000 までに切らない（DB が断る）');
+    assert.strictEqual(order[0], second, '並べた鍵が先頭に無い');
+    assert.ok(!/変更を保存できませんでした/.test($(l, 'toast').textContent), $(l, 'toast').textContent);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });
 
 // ================================================================ DV-4（決めたこと 26・51・R49・2026-11-09 の持ち主の承認 R90〜）

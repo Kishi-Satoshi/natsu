@@ -162,6 +162,12 @@ const OPEN_DB_FILTER = OPEN_DB_AT(`const errs = [];
 const OPEN_DB_VIEWS = OPEN_DB_AT(`const shown = [...document.querySelectorAll('#pDb .dbtab')].filter((b) => !b.hidden).map((b) => b.getBoundingClientRect().height);
   if (Math.max(...shown) > Math.min(...shown) + 1) throw new Error('タブの高さが揃わない（名前が折り返している）: ' + shown.join(','));
   if (document.querySelector('#pDb .dbtabmore').hidden) throw new Error('入り切らないタブがあるのに「他 n 件」が出ない');
+  const mh = document.querySelector('#pDb .dbtabmore').getBoundingClientRect().height;   // DV-3 直し2（rv49 I1）: 「他 n 件」も1行・中の検索の欄は縮まない
+  if (mh > Math.max(...shown) + 1) throw new Error('「他 n 件」が折り返している: ' + mh);
+  const qw = document.querySelector('#pDb .dbsearchq').getBoundingClientRect().width;
+  if (qw < 150) throw new Error('中の検索の欄が縮んでいる: ' + qw);
+  const strip = document.querySelector('#pDb .dbtabs').getBoundingClientRect().height;
+  if (strip > Math.max(...shown) + 16) throw new Error('タブの並びが2行以上: ' + strip);
   document.querySelector('#pDb .dbtab[aria-selected="true"]').click();`);
 // 0.16.0 DV-4: 1行目の題名のセルの［開く］で行のページ（列の値の並びと本文）。本物の Chromium で列の値の並び・パンくず・画面のエラーを確かめ、崩れていれば「撮れない」
 const OPEN_DB_ROW = OPEN_DB_AT(`const errs = [];

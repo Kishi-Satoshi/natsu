@@ -408,6 +408,7 @@
   /* 0.16.0 DV-3（決めたこと 15〜23）: ビューのタブの［＋］・「他 n 件」・中の検索・見出しの幅の取っ手と並べ替えの印・設定の窓・グループの頭・リスト・下の集計のボタン */
   .dbtabs { align-items: center; }
   .dbtab[hidden], .dbtabmore[hidden] { display: none; }
+  .dbtabmore, .dbviewadd, .dbsearch, .dbsetbtn { flex: none; white-space: nowrap; }   /* DV-3 直し2（rv49 I1）: 「他 n 件」・［＋］・中の検索・⚙ も縮めず1行 */
   .dbtab { position: relative; flex: none; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }   /* DV-3 直し（rv48 F7）: 縮めず1行（入り切らない分は「他 n 件」） */
   .dbtab.dropbefore::before, .dbtab.dropafter::after, .dbcolh.dropbefore::before, .dbcolh.dropafter::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); color: var(--on-accent); pointer-events: none; }
   .dbtab.dropbefore::before, .dbcolh.dropbefore::before { left: 0; }
@@ -9927,7 +9928,7 @@
       if (h > 0 && Number.isInteger(li)) st.heights.set(li, h);
     }
     dbPaintFoot(st, cols);
-    p.all.checked = st.total > 0 && st.checked.size >= st.total;   // DV-3 直し（rv48 F9）: 行の数（グループで重なって出る行を2度数えない）
+    p.all.checked = dbAllOn(st);   // DV-3 直し（rv48 F9）: 行の数（グループで重なって出る行を2度数えない）。DV-3 直し2（rv49 I2）: 閉じたグループの行は数えない
     const cell = st.sel ? dbCellEl(st.sel.row, st.sel.col) : null;
     p.grid.tabIndex = cell ? -1 : 0;
     if (hadFocus) (cell || p.grid).focus({ preventScroll: true });   // 描き直してもフォーカスを同じセルに戻す（決めたこと 51。DV-1 直し rv44 F3: 戻すときに捲らない）
@@ -9961,7 +9962,7 @@
     ck.tabIndex = -1;   // DV-1 直し（rv44 F9）: 行のチェックは Tab で止めない（表は1つの Tab の止まり。押して選ぶ）
     ck.checked = st.checked.has(row.id);
     ck.setAttribute('aria-label', dbRowName(row));
-    ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = st.total > 0 && st.checked.size >= st.total; };
+    ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = dbAllOn(st); };
     lead.append(grip, ck);
     if (list) { const ic = document.createElement('span'); ic.className = 'dbicon'; ic.setAttribute('aria-hidden', 'true'); ic.textContent = '📄'; lead.appendChild(ic); }
     el.appendChild(lead);
@@ -10262,6 +10263,7 @@
         for (const row of r.rows) { st.checked.add(row.id); st.known.set(row.id, row); }
       }
     }
+    st.allN = on ? st.checked.size : 0; st.allTotal = st.total;   // DV-3 直し2（rv49 I2）: 全部を選んだときの行の数（閉じたグループの行は入らない）
     for (const ck of st.parts.body.querySelectorAll('.dbcheck')) ck.checked = st.checked.has(ck.parentNode.parentNode.dataset.id);
     dbPaintBar();
   }
@@ -10607,6 +10609,11 @@
       if (to && isIn(to, pop)) return;
       if (st.editing === ed) rpEditEnd(st, true);
     });
+    else pop.addEventListener('focusout', (ev) => {   // 選びの窓は窓の外の部品へ動いたら閉じる（表と同じ: rv49 M-b）
+      const to = ev && ev.relatedTarget;
+      if (!to || isIn(to, pop)) return;
+      if (st.editing === ed) rpEditEnd(st, false);
+    });
   }
   // 書き手を閉じる（save: 1行の欄は打った値を、暦は決めた値を書く）。描き直して、その列の値へフォーカスを戻す
   async function rpEditEnd(st, save) {
@@ -10924,7 +10931,10 @@
   const DB_DAYS = 7;          // 「過去 n 日」「次の n 日」の始めの n
   const DB_W_MIN = 80;        // 列の幅（src/dbView.js の WIDTH_MIN・WIDTH_MAX と同じ）
   const DB_W_MAX = 800;
-  const DB_MORE_W = 64;       // 「他 n 件」のために空けておく幅（px）
+  const DB_MORE_W = 64;       // 「他 n 件」のために空けておく幅（px。出した後は本当の幅で見直す: rv49 I1）
+  const DB_TAB_GAP = 2;       // タブの並びの部品の間（.dbtabs の gap と同じ）
+  // DV-3 直し2（rv49 I2）: 見出しのチェック。全部を選んだ後は、選んだときの行（閉じたグループの行は入らない）と行の数で見る（行が増減したら外れる）
+  const dbAllOn = (st) => st.total > 0 && (st.allN && st.allTotal === st.total ? st.checked.size >= st.allN : st.checked.size >= st.total);
   const DB_GLIST_MAX = 200;   // ［グループ］の窓に並べるグループ（DV-3 直し rv48 F8: 1万のグループでも窓を描き直すたびに止まらない）
   let dbLinkWant = null;      // ビューのリンクで開くデータベースとビュー（表を読む前に来たとき）
   const dbLive = (st) => st.info.cols.filter((c) => !c.gone && dbModelView.COLS[c.type]);
@@ -10999,19 +11009,30 @@
     for (const b of p.tabEls) b.hidden = false;
     p.more.hidden = true;
     st.hiddenViews = [];
+    // DV-3 直し2（rv49 I1）: 部品の間（.dbtabs の gap）も数え、「他 n 件」を出した後にその本当の幅で入り切るまで後ろのタブから隠す
     const wid = (el) => (el ? el.getBoundingClientRect().width : 0);
-    const avail = wid(p.tabs) - wid(p.add) - wid(p.search) - wid(p.gear);
-    const sum = p.tabEls.reduce((n, b) => n + wid(b), 0);
+    const w = new Map(p.tabEls.map((b) => [b, wid(b) + DB_TAB_GAP]));   // 隠す前に測る（隠したタブの幅は 0）
+    const avail = wid(p.tabs) - [p.add, p.search, p.gear].reduce((n, el) => n + (el ? wid(el) + DB_TAB_GAP : 0), 0);
+    const sum = p.tabEls.reduce((n, b) => n + w.get(b), 0);
     if (avail <= 0 || sum <= avail) return;
     const on = p.tabEls.find((b) => b.dataset.view === st.viewId);
-    let used = wid(on);
+    let used = w.get(on) || 0;
+    const shown = [];
     for (const b of p.tabEls) {
       if (b === on) continue;
-      if (used + wid(b) <= avail - DB_MORE_W) used += wid(b);
-      else { b.hidden = true; st.hiddenViews.push(b.dataset.view); }
+      if (used + w.get(b) <= avail - DB_MORE_W - DB_TAB_GAP) { used += w.get(b); shown.push(b); } else b.hidden = true;
     }
-    p.more.textContent = `他 ${st.hiddenViews.length} 件`;
-    p.more.hidden = !st.hiddenViews.length;
+    const paint = () => {
+      st.hiddenViews = p.tabEls.filter((b) => b.hidden).map((b) => b.dataset.view);
+      p.more.textContent = `他 ${st.hiddenViews.length} 件`;
+      p.more.hidden = !st.hiddenViews.length;
+    };
+    paint();
+    while (shown.length && used + wid(p.more) + DB_TAB_GAP > avail) {
+      const b = shown.pop();
+      b.hidden = true; used -= w.get(b);
+      paint();
+    }
   }
   window.addEventListener('resize', () => dbFitTabs(dbSt));
   function dbTabKey(ev, viewId) {
@@ -11031,7 +11052,11 @@
   function dbMoreMenu(anchor) {
     const st = dbSt;
     const views = st.hiddenViews.map((id) => st.info.views.find((v) => v.id === id)).filter(Boolean);
-    dbMenuAt(anchor, views.map((v) => ({ label: v.name, fn: () => { dbMenuClose(); dbPickView(v.id); } })), 'dbcolmenu');
+    dbMenuAt(anchor, views.map((v) => ({ label: v.name, fn: () => {
+      dbMenuClose(); dbPickView(v.id);
+      const t = dbSt === st && st.parts ? st.parts.tabEls.find((b) => b.dataset.view === v.id) : null;   // DV-3 直し2（rv49 M-a）: 選んだタブにフォーカス
+      if (t) t.focus();
+    } })), 'dbcolmenu');
   }
   // タブを引っ張って並べる（view.move の1回: V-T03）
   function dbTabDragStart(ev, viewId) {
@@ -11255,7 +11280,13 @@
     const add = document.createElement('button');
     add.type = 'button'; add.className = 'dbgadd'; add.textContent = '＋';
     add.setAttribute('aria-label', '＋ 新しい行'); add.title = '＋ 新しい行';
-    add.onclick = () => dbAddRow(null, { ...dbGroupCells(col, v.group, grp.key), gkey: grp.key });
+    // DV-3 直し2（rv49 I3）: 足した行がそのグループに入るとき（値を書いた・値の無い行のグループ）だけ、そのグループの末へ捲る。値を書かないグループ（日付の月・週・年、
+    // 書けない列）と、探している語に当たらないかもしれないときは、前のとおり表の末で探す（押したグループのほかの行を選ばない）
+    add.onclick = () => {
+      const put = dbGroupCells(col, v.group, grp.key);
+      const lands = (Object.keys(put).length > 0 || grp.key === (col.type === 'check' ? 'false' : '')) && !st.q;   // 値の無い行のグループ（チェックは「未チェック」）
+      return dbAddRow(null, { ...put, ...(lands ? { gkey: grp.key } : {}) });
+    };
     cell.append(tog, nm, ct, add);
     el.appendChild(cell);
     return el;
@@ -11584,6 +11615,12 @@
       const to = ev && ev.relatedTarget;
       if (to && isIn(to, pop)) return;
       if (dbSt === st && st.editing === ed) dbEditEnd(true);
+    });
+    // DV-3 直し2（rv49 M-b）: 選びの窓は、窓の外の部品へフォーカスが本当に動いたら閉じる（選ぶたびの描き直しで行き先の無い focusout では閉じない: rv48 F10）
+    else pop.addEventListener('focusout', (ev) => {
+      const to = ev && ev.relatedTarget;
+      if (!to || isIn(to, pop)) return;
+      if (dbSt === st && st.editing === ed) dbEditEnd(false);
     });
   }
   // 閉じる（選びの窓は選ぶたびに書いたので、ここでは書かない）。表を描き直し、セルを選ぶ（then: 'stay'・'right'・'left'）
