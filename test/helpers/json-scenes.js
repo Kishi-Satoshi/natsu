@@ -1185,6 +1185,33 @@ module.exports = {
       c.out.sum = await c.handlers['page:summarize']({}, made.id);
       c.out.after = (await c.appCall('page.get', { id: made.id })).page;
     } },
+  // 0.16.0 DX-1（計画 docs/plans/2026-11-04-160.md の決めたこと 50・R101）: データベースのページと行のページの page:summarize も断る（Claude Code を呼ばない・
+  // ページも行も書かない）。画面と同じ役 app の口でデータベースと行を作る
+  'db-summarize': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const made = await c.appCall('db.create', {});
+      // データベースの行の題名（D77 の会議の題名でない）
+      const row = await c.appCall('row.add', { db: made.id, title: '見積もり' });
+      c.out.made = made.id; c.out.row = row.id;
+      c.out.before = [(await c.appCall('page.get', { id: made.id })).page, (await c.appCall('page.get', { id: row.id })).page];
+      c.out.sum = [await c.handlers['page:summarize']({}, made.id), await c.handlers['page:summarize']({}, row.id)];
+      c.out.after = [(await c.appCall('page.get', { id: made.id })).page, (await c.appCall('page.get', { id: row.id })).page];
+    } },
+  // 0.16.0 DX-1（決めたこと 45）: 行のページのタブも起動し直して戻る（ui:get は、今ある行のタブを残し、ゴミ箱の行・ゴミ箱のデータベースの行のタブを外す）
+  'ws-row-tabs': { files: { 'settings.json': pretty(TYPICAL) },
+    act: async (c) => {
+      const keep = (await c.appCall('db.create', {})).id;
+      const gone = (await c.appCall('db.create', {})).id;
+      // データベースの行の題名（D77 の会議の題名でない）
+      const r1 = (await c.appCall('row.add', { db: keep, title: '見積もり' })).id;
+      const r2 = (await c.appCall('row.add', { db: keep, title: '発注' })).id;   // データベースの行の題名（D77 の会議の題名でない）
+      const r3 = (await c.appCall('row.add', { db: gone, title: '検収' })).id;   // データベースの行の題名（D77 の会議の題名でない）
+      await c.appCall('rows.trash', { db: keep, ids: [r2] });
+      await c.appCall('page.delete', { id: gone });
+      c.out.ids = { keep, gone, r1, r2, r3 };
+      c.out.set = await c.handlers['ui:set']({}, { tabs: { open: [`page:${r1}`, `page:${r2}`, `page:${keep}`, `page:${r3}`, 'page:rnotthere1'], active: `page:${r1}` } });
+      c.out.ui = await c.handlers['ui:get']({});
+    } },
   'ws-offscreen': { files: { 'settings.json': pretty(TYPICAL) },
     local: { [WS_FILE]: WS({ bounds: { x: 3000, y: 100, width: 1000, height: 700 } }) } },
   'ws-minimized': { files: { 'settings.json': pretty(TYPICAL) },

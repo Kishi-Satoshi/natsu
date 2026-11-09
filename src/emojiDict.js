@@ -408,6 +408,7 @@ const TABLE = {
 📁 フォルダ ふぉるだ
 📂 開いたフォルダ ひらいたふぉるだ
 🗂️ 仕切りの書類入れ しきりのしょるいいれ
+🗃️ カードの箱 かーどのはこ
 📅 カレンダー かれんだー
 🗓️ 予定表 よていひょう
 📈 上がるグラフ あがるぐらふ
@@ -551,8 +552,8 @@ const EMOJI = Object.freeze(Object.entries(TABLE).flatMap(([c, text]) => text.tr
 })));
 const BY_E = new Set(EMOJI.map((x) => x.e));
 
-// 既定のアイコン（決めたこと 36。icon が無ければ議事録は 🎙️・白紙のページは 📄）
-const DEFAULT_ICON = Object.freeze({ meeting: '🎙️', blank: '📄' });
+// 既定のアイコン（決めたこと 36。icon が無ければ議事録は 🎙️・白紙のページは 📄。0.16.0 DX-1（前提 P6）: データベースは 🗃️）
+const DEFAULT_ICON = Object.freeze({ meeting: '🎙️', blank: '📄', database: '🗃️' });
 
 // 辞書の絵文字（ちょうどその1つ）か。書記素が1つでないもの・文・辞書に無い絵文字は偽
 function isPageIcon(v) {
@@ -581,6 +582,7 @@ function findEmoji(q) {
 // 一覧の1行（か、ページ）のアイコン: icon が辞書の絵文字ならそれ、無ければ（'' も辞書に無い値も）kind の既定（決めたこと 36・38）
 function pageIconOf(entry) {
   if (entry && isPageIcon(entry.icon)) return entry.icon;
+  if (entry && entry.kind === 'database') return DEFAULT_ICON.database;
   return entry && entry.kind === 'blank' ? DEFAULT_ICON.blank : DEFAULT_ICON.meeting;
 }
 

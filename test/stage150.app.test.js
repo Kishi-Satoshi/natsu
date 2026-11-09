@@ -215,11 +215,12 @@ test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったペ�
   await l.drain();
   assert.ok(menuOf(), '右クリックで行のメニューが出ない');
   assert.strictEqual(menuOf().getAttribute('role'), 'menu');
+  // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にページを作る］の次に［中にデータベースを作る］を足した
   assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map((b) => [b.textContent, b.getAttribute('role')]),
-    [['中にページを作る', 'menuitem'], ['移動先…', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
+    [['中にページを作る', 'menuitem'], ['中にデータベースを作る', 'menuitem'], ['移動先…', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
   assert.ok(l.document.activeElement === menuOf().querySelectorAll('.mitem')[0], 'メニューの1つ目にフォーカスが無い');
   l.key({ key: 'ArrowDown' }, menuOf());
-  assert.strictEqual(l.document.activeElement.textContent, '移動先…');
+  assert.strictEqual(l.document.activeElement.textContent, '中にデータベースを作る');
   l.key({ key: 'Escape' }, menuOf());
   await l.drain();
   assert.deepStrictEqual([menuOf() === null, focused(l)], [true, 'pa2'], 'Esc で閉じて行へ戻らない');
@@ -229,14 +230,14 @@ test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったペ�
   await l.drain();
   assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [['pa1'], ['pa2']], '［中にページを作る］が行の中に作らない');
   assert.ok(menuOf() === null, '［中にページを作る］の後もメニューが残る');
-  await key(l, 'pa3', { key: 'ContextMenu' });
-  menuOf().querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });
+  await key(l, 'pa3', { key: 'ContextMenu' });   // 0.16.0 DX-1 で意図して変えた: ［中にデータベースを作る］を足したので、［新しいタブで開く］は4つ目・［削除］は5つ目
+  menuOf().querySelectorAll('.mitem')[3].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.ok($(l, 'tabbar').querySelectorAll('.tabitem').some((t) => t.dataset.key === 'page:pa3'), '［新しいタブで開く］で開かない');
   assert.strictEqual($(l, 'tabbar').querySelectorAll('.tabitem').length, 2, '新しいタブで開かない');
   // ［削除］は確かめる（この台の confirm は［キャンセル］なので消さない）
   await key(l, 'pa3', { key: 'ContextMenu' });
-  menuOf().querySelectorAll('.mitem')[3].dispatchEvent({ type: 'click' });
+  menuOf().querySelectorAll('.mitem')[4].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(l.called('pageDelete'), [], '確かめずに消した');
   assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -1753,8 +1754,9 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   rowOf(l, 'k1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
   await l.drain();
   const menu = l.document.querySelector('.treemenu');
-  assert.deepStrictEqual(menu.querySelectorAll('.mitem').map((b) => b.textContent), ['中にページを作る', '移動先…', '新しいタブで開く', '削除']);
-  menu.querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にデータベースを作る］を足した（［移動先…］は3つ目）
+  assert.deepStrictEqual(menu.querySelectorAll('.mitem').map((b) => b.textContent), ['中にページを作る', '中にデータベースを作る', '移動先…', '新しいタブで開く', '削除']);
+  menu.querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(opts(), ['', 'pa3', 'pa2', 'k2', 'pa1'], '候補が木の順でないか、自分（k1）・子孫（g1）が出る');
   const k2opt = $(l, 'moveList').querySelectorAll('.mvopt').find((e) => e.dataset.pid === 'k2');
@@ -1789,7 +1791,7 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   // ［いちばん上へ］（Enter で頭の行）→ pageMove(k1, '')
   rowOf(l, 'k1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
   await l.drain();
-  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });   // 0.16.0 DX-1 で意図して変えた: ［移動先…］は3つ目
   await l.drain();
   l.key({ key: 'Enter' }, $(l, 'moveSearch'));
   await l.drain();
@@ -1797,7 +1799,7 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   // 行のメニューから開いた窓の Esc は、その行へフォーカスを戻す
   rowOf(l, 'pa3').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
   await l.drain();
-  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[1].dispatchEvent({ type: 'click' });
+  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });   // 0.16.0 DX-1 で意図して変えた
   await l.drain();
   l.key({ key: 'Escape' }, $(l, 'moveSearch'));
   await l.drain();
@@ -1943,7 +1945,8 @@ test('PH-5・BQ7 (a)・F117: Ctrl+Shift+N で「新しいページ」（#newPop�
   assert.strictEqual(ev.defaultPrevented, true);
   assert.strictEqual(pop.hidden, false, 'Ctrl+Shift+N で開かない');
   assert.strictEqual($(l, 'newPopHead').textContent, '新しいページ');
-  assert.deepStrictEqual(items().map((b) => [b.textContent, b.getAttribute('aria-disabled')]), [['📄 白紙のページ', null], ['🎙️ 議事録（録音の前のページ）', null]]);
+  // 0.16.0 DX-1（決めたこと 43・計画の「意図して変えるテスト」）で意図して変えた: 3つ目に［🗃️ データベース］
+  assert.deepStrictEqual(items().map((b) => [b.textContent, b.getAttribute('aria-disabled')]), [['📄 白紙のページ', null], ['🎙️ 議事録（録音の前のページ）', null], ['🗃️ データベース', null]]);
   assert.ok(l.document.activeElement === items()[0], '1つ目にフォーカスが無い');
   l.key({ key: 'ArrowDown' }, $(l, 'newList'));
   assert.ok(l.document.activeElement === items()[1], '↓ で次の項目へ移らない');

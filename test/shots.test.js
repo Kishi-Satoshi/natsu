@@ -234,9 +234,11 @@ const ADDED_150 = [...NEW_150, ...RETAKEN_150];
 // DV-4 で意図して変えた: 行のページ（列の値の並びと本文）の1枚を足した
 const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light',
-  'db-relation-light', 'db-subitems-light'];   // 0.16.0 DR-1 で足した2枚（まだ基準が無い）
+  'db-relation-light', 'db-subitems-light',   // 0.16.0 DR-1 で足した2枚（まだ基準が無い）
+  'sidebar-db-light'];   // 0.16.0 DX-1 で足した1枚（まだ基準が無い）
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
-const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
+// DX-1 で Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増えるので new-pop-light（今の基準がある）を取り直す
+const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -1190,7 +1192,11 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.16.0 DR-1（決めたこと 33〜38・R98・R99）: リレーションのセルの「📄 題名」・選びの窓・［リレーション］の窓・サブアイテムの ▸ と字下げと灰色の行・「···」の［サブアイテム］・
   // 行のメニューの［サブアイテムを足す］と、その CSS。データベースの無い画面は変わらない。表の画面は今の種にリレーションの列もサブアイテムも無いので変わらない見込み。
   // 変わる画面は足した db-relation-light・db-subitems-light（NEW_160・RETAKE）。値を今の app.html に合わせた（前の値は e716c1a7…）
-  assert.strictEqual(sha, '0b49b13a5ae4d9a23322a07134237667fb87ec01056db254b3b28699d2733b84',
+  // 0.16.0 DX-1（決めたこと 42〜45）: サイドバーのデータベースの 🗃️（辞書に1つ足した）・行を一覧に入れない・データベースに［＋］と中へ落とす印が無い・行のメニューの
+  // ［中にデータベースを作る］・Ctrl+Shift+N の［🗃️ データベース］・データベースの削除の確かめ・戻した行のタブ。変わる画面は足した sidebar-db-light（NEW_160・RETAKE）と
+  // new-pop-light（RETAKEN_160・RETAKE）。アイコンの選びの「物」に 🗃️ が1つ増えるが、icon-pop の2枚は窓の頭（最近使ったものと「顔」）を撮るので変わらない見込み。
+  // 値を今の app.html に合わせた（前の値は 0b49b13a…）
+  assert.strictEqual(sha, 'ceb6d6a6101bf8bf00bfbb42685267cba1813c6505ddb6d4498762309376b24c',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

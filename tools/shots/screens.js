@@ -103,6 +103,20 @@ const OPEN_NEW = `(async () => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true, bubbles: true }));
   return 1;
 })()`;
+// 0.16.0 DX-1: サイドバーのデータベース（🗃️・▸ と［＋］が無い。一覧に混じった行は出さない）の行のメニュー（中に作る2つが無い）を開く。
+// 本物の Chromium で、データベースの行のアイコンと、行が出ていないことを確かめる（違えば投げて「撮れない」）
+const OPEN_SIDE_DB = `(async () => {
+  document.getElementById('tabBtnNotes').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const row = document.querySelector('#plist .pitem[data-pid="pd1"]');
+  if (!row || row.querySelector('.pi').textContent !== '🗃️' || row.querySelector('.padd')) throw new Error('サイドバーのデータベースの行の形が違う');
+  if (document.querySelector('#plist .pitem[data-pid="rx1"]')) throw new Error('データベースの行がサイドバーに出る');
+  row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 100));
+  const m = document.querySelector('.treemenu');
+  if (!m || [...m.querySelectorAll('.mitem')].map((b) => b.textContent).join('|') !== '移動先…|新しいタブで開く|削除') throw new Error('データベースの行のメニューが違う');
+  return 1;
+})()`;
 // 0.15.0 PH-6: 1行目のページを開いて、サイドバーの［🗑️ ゴミ箱］を押す
 const OPEN_TRASH = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -582,6 +596,8 @@ const SCREENS = [
   // 0.16.0 DR-1: リレーションのセル（📄 題名の並び）と選びの窓（2行目の「取引先」）・サブアイテムの ▾ と字下げ（足した画面。まだ基準が無い）
   { name: 'db-relation-light', page: 'app', theme: 'light', get answers() { return dbAnswers('relation'); }, act: OPEN_DB_REL },
   { name: 'db-subitems-light', page: 'app', theme: 'light', get answers() { return dbAnswers('sub'); }, act: OPEN_DB_SUB },
+  // 0.16.0 DX-1: サイドバーのデータベース（🗃️ の行と、その行のメニュー。足した画面。まだ基準が無い）
+  { name: 'sidebar-db-light', page: 'app', theme: 'light', get answers() { return sideDbAnswers(); }, act: OPEN_SIDE_DB },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -705,9 +721,11 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DV-3 で足したリスト・絞り込みの窓・グループ・ビューのタブ（「他 n 件」とタブのメニュー）の4枚（まだ基準が無い）
 // DV-4 で足した行のページ（列の値の並びと本文。まだ基準が無い）
 // DR-1 で足したリレーションとサブアイテムの2枚（まだ基準が無い）
+// DX-1 で足したサイドバーのデータベース（まだ基準が無い）と、Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増える new-pop-light（今の基準がある）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
-  'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
+  'sidebar-db-light',
+  'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -852,6 +870,19 @@ function treeAnswers() {
   return {
     'koeApp.pagesSearch': [...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
     'koeApp.uiState': { tree: { open: ['p1', 'p1a', 'p1a1', 'p1a1a'] } },
+  };
+}
+
+/** 0.16.0 DX-1: サイドバーの一覧の2つ目にデータベース（kind 'database'）。一覧の答えに行（kind 'row'）が混じっても出さない */
+function sideDbAnswers() {
+  const at = '2026-10-17T06:00:00.000Z';
+  return {
+    'koeApp.pagesSearch': [
+      { ...LIST[0], parentId: null, ord: 'i' },
+      { id: 'pd1', title: '案件の一覧', date: '2026-10-17', durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'database' },
+      { id: 'rx1', title: '見積もりの作成 1', date: '2026-10-17', createdAt: at, updatedAt: at, parentId: 'pd1', ord: 'a', kind: 'row', db: 'pd1' },
+      ...LIST.slice(1).map((p) => ({ ...p, parentId: null, ord: 'i' })),
+    ],
   };
 }
 

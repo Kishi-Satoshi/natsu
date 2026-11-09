@@ -641,3 +641,22 @@ test('DR-1: applyView のサブアイテムの木（親の無い行を並べ・�
   assert.deepStrictEqual([...new Set(lo)].sort(), ['x1', 'x2']);
   assert.strictEqual(lo.length, 2);
 });
+
+// ---------------------------------------------------------------- 0.16.0 DX-1（決めたこと 42・45・前提 P6）
+test('DX-1（前提 P6・決めたこと 42・45）: 🗃️ は辞書の「物」にあり、データベースの既定のアイコン（辞書に無い値は既定）。行のページのタブの鍵（page:r…）も覚え、形の悪い鍵は落とす', () => {
+  const D = require('../src/emojiDict');
+  const W = require('../src/winstate');
+  assert.strictEqual(D.isPageIcon('🗃️'), true, '🗃️ が辞書に無い');
+  assert.strictEqual(D.EMOJI.find((x) => x.e === '🗃️').c, 'thing');
+  assert.strictEqual(D.DEFAULT_ICON.database, '🗃️');
+  assert.strictEqual(D.pageIconOf({ kind: 'database' }), '🗃️', 'データベースの既定が 🗃️ でない');
+  assert.strictEqual(D.pageIconOf({ kind: 'database', icon: '🚀' }), '🚀');
+  for (const icon of ['', 'x', '📄📄']) assert.strictEqual(D.pageIconOf({ kind: 'database', icon }), '🗃️', String(icon));
+  assert.strictEqual(D.pageIconOf({ kind: 'blank' }), '📄');
+  assert.strictEqual(D.pageIconOf({}), '🎙️');
+  // タブの鍵（決めたこと 45）: 行の ID（r＋36 進）も覚える。形の悪い鍵は今どおり落とす
+  assert.strictEqual(W.tabKeyOk('page:rmz3k1abcd'), true, '行のタブの鍵を落とす');
+  for (const k of ['page:r', 'page:R1', 'page:x1', 'page:r../x', 'page:rA1', 'page:b1', `page:r${'a'.repeat(41)}`]) assert.strictEqual(W.tabKeyOk(k), false, k);
+  const r = W.keepTabs({ open: ['page:pa1', 'page:rb1', 'page:rgone', 'dictation'], active: 'page:rb1' }, (id) => id === 'pa1' || id === 'rb1');
+  assert.deepStrictEqual(r, { tabs: { open: ['page:pa1', 'page:rb1', 'dictation'], active: 'page:rb1' }, dropped: 1 });
+});

@@ -33,3 +33,24 @@ test('DV-2・F145（決めたこと 25・SEC2・R64）: URL のセルの値・�
   assert.deepStrictEqual(r.external, CASES.filter((c) => c[1]).map((c) => c[0]), 'shell.openExternal に渡した住所');
   for (const x of r.engineLog) assert.ok(!/example|javascript|alert|windows|someone/i.test(x), `記録に住所: ${x}`);
 });
+
+// ---------------------------------------------------------------- 0.16.0 DX-1（決めたこと 45・50・R101）
+const run = (args) => sceneRun(args, sceneTimeout(20000));
+test('DX-1（決めたこと 50・R101）: page:summarize にデータベースのページ・データベースの行のページ → 断る（Claude Code を呼ばない・ページも行も書かない）', T, async () => {
+  const r = await run(['text', '--json-scene=db-summarize']);
+  assert.match(r.made, /^p[a-z0-9]+$/);
+  assert.match(r.row, /^r[a-z0-9]+$/);
+  const NO = { ok: false, error: 'データベースのページは要約できません' };
+  assert.deepStrictEqual(r.sum, [NO, NO], 'データベースか行のページの要約を断らない');
+  for (const i of [0, 1]) assert.deepStrictEqual([r.after[i].rev, r.after[i].updatedAt, r.after[i].blocks], [r.before[i].rev, r.before[i].updatedAt, r.before[i].blocks], '断ったのに書いた');
+  assert.ok(!r.spawns.some((s) => /claude/i.test(JSON.stringify(s))), `Claude Code を呼んだ: ${JSON.stringify(r.spawns)}`);
+});
+
+test('DX-1（決めたこと 45）: 行のページのタブは起動し直しても戻る（ui:get が今ある行のタブを残す）。ゴミ箱の行・ゴミ箱のデータベースの行・無い行のタブは外し、数だけを記録に書く', T, async () => {
+  const r = await run(['text', '--json-scene=ws-row-tabs']);
+  const { keep, r1 } = r.ids;
+  assert.deepStrictEqual(r.set, { ok: true });
+  assert.deepStrictEqual(r.ui.tabs, { open: [`page:${r1}`, `page:${keep}`], active: `page:${r1}` }, '今ある行のタブを外したか、無い行のタブを残した');
+  assert.deepStrictEqual(r.engineLog.filter((l) => /無いページのタブ/.test(l)), ['画面の覚え書き: 無いページのタブを 3 個外した'], r.engineLog.join('\n'));
+  assert.ok(!r.engineLog.some((l) => Object.values(r.ids).some((id) => l.includes(id))), 'engine.log にページか行の id を書いた');
+});

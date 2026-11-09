@@ -2599,3 +2599,134 @@ test('DR-1: サブアイテム（データベースの「···」の［サブ�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- 0.16.0 DX-1（決めたこと 42・43・44・45・R36・R101〜）
+const sideRows = (l) => [...$(l, 'plist').children].filter((e) => e.dataset && e.dataset.pid);
+const sideOf = (l, id) => sideRows(l).find((e) => e.dataset.pid === id);
+const treeMenuItems = (l) => { const m = l.document.querySelector('.treemenu'); return m ? m.querySelectorAll('.mitem') : []; };
+const openTreeMenuOf = async (l, id) => { sideOf(l, id).dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(); };
+const CSN = { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true };
+const newDbId = (l, not) => l.call('pages.list', {}).map((e) => e.id).find((x) => x !== l.id && !not.includes(x) && l.call('db.get', { id: x }));
+
+test('DX-1・決めたこと 42: サイドバーのデータベースは 🗃️ の行で、▸ と［＋］が無い。データベースの行（kind: row）が一覧に混じっても出さない。ページをデータベースの真ん中へ落としても印が出ず中へ入らない（前後へは落とせる）。［移動先…］の候補にデータベースが無い', T, async () => {
+  let me = null;
+  const DB_ROW = (d) => ({ id: 'rfake01', title: '見積もり', kind: 'row', db: d, parentId: d, date: '2026-11-08', createdAt: '2026-11-08T00:00:00.000Z' });   // データベースの行の題名（D77 の会議の題名でない）
+  const l = await openDb({
+    before: (call) => ({ blank: call('page.create', {}).id }),
+    returns: { pagesSearch: async (q) => (me ? [...(await me.K.pagesSearch(q)), DB_ROW(me.id)] : []) },
+  });
+  me = l;
+  try {
+    l.fire('onPagesUpdated'); await l.drain(120);
+    const d = sideOf(l, l.id);
+    assert.ok(d, 'データベースがサイドバーに無い');
+    assert.strictEqual(d.querySelector('.pi').textContent, '🗃️', 'データベースのアイコンが 🗃️ でない');
+    assert.strictEqual(d.querySelector('.t').textContent, '無題のデータベース');
+    assert.ok(!d.classList.contains('kids') && d.getAttribute('aria-expanded') === null, 'データベースに ▸ がある');
+    assert.ok(d.querySelector('.padd') === null, 'データベースの行に［＋］（中にページを作る）がある');
+    assert.ok(sideOf(l, l.blank).querySelector('.padd'), '白紙のページの［＋］が無い');
+    assert.deepStrictEqual(sideRows(l).map((e) => e.dataset.pid), [l.blank, l.id], 'データベースの行がサイドバーに出る');
+    // 引っ張り: データベースの真ん中は印が出ず呼ばない・上の4分の1は前へ
+    for (const r of sideRows(l)) r._rect = { top: 0, height: 30 };
+    const TYPES = { types: ['application/x-natsu-page'] };
+    const over = (id, y) => { let prevented = false; sideOf(l, id).dispatchEvent({ type: 'dragover', clientY: y, dataTransfer: TYPES, preventDefault() { prevented = true; } }); return prevented; };
+    const drop = (id, y) => sideOf(l, id).dispatchEvent({ type: 'drop', clientY: y, dataTransfer: TYPES, preventDefault() {} });
+    sideOf(l, l.blank).dispatchEvent({ type: 'dragstart', target: sideOf(l, l.blank), dataTransfer: { effectAllowed: '', setData() {} } });
+    assert.strictEqual(over(l.id, 15), false, 'データベースの真ん中に落とす所を出した');
+    assert.ok(!sideRows(l).some((r) => /drop(in|before|after)/.test(r.className)), 'データベースの真ん中で印を出した');
+    drop(l.id, 15); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove'), [], 'ページをデータベースの中へ動かした');
+    sideOf(l, l.blank).dispatchEvent({ type: 'dragstart', target: sideOf(l, l.blank), dataTransfer: { effectAllowed: '', setData() {} } });
+    assert.strictEqual(over(l.id, 28), true, 'データベースの後ろに落とせない');
+    assert.ok(sideOf(l, l.id).classList.contains('dropafter'));
+    drop(l.id, 28); await l.drain(120);
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[l.blank, null, l.id]], 'データベースの後ろへ動かさない');
+    // ［移動先…］の候補（白紙のページから開く）にデータベースが無い
+    await openTreeMenuOf(l, l.blank);
+    treeMenuItems(l).find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' }); await l.drain();
+    assert.deepStrictEqual($(l, 'moveList').querySelectorAll('.mvopt').map((e) => e.dataset.pid), [''], '［移動先…］の候補にデータベースがある');
+    l.key({ key: 'Escape' }, $(l, 'moveSearch')); await l.drain();
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DX-1・決めたこと 43: Ctrl+Shift+N の「新しいページ」の3つ目に［🗃️ データベース］→ dbCreate() の1回（最上位）で、作ったデータベースを今のタブで開き、題名にフォーカス（手引き「無題のデータベース」）', T, async () => {
+  const l = await openDb();
+  try {
+    await press(l, l.document.body, CSN);
+    const items = () => $(l, 'newList').querySelectorAll('.mitem');
+    assert.deepStrictEqual(items().map((b) => b.textContent), ['📄 白紙のページ', '🎙️ 議事録（録音の前のページ）', '🗃️ データベース']);
+    await clickEl(l, items()[2], 200);
+    assert.deepStrictEqual(l.called('dbCreate').map((c) => c.args), [[]], '［データベース］が最上位の dbCreate() でない');
+    assert.strictEqual($(l, 'newPop').hidden, true);
+    const made = newDbId(l, []);
+    assert.ok(made, 'データベースができない');
+    assert.strictEqual(tabOnKey(l), `page:${made}`, '作ったデータベースを開かない');
+    assert.ok(l.document.activeElement === $(l, 'pTitle'), '題名にフォーカスが無い');
+    assert.strictEqual($(l, 'pTitle').getAttribute('data-ph'), '無題のデータベース');
+    assert.strictEqual(sideOf(l, made).querySelector('.pi').textContent, '🗃️');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DX-1・決めたこと 43: サイドバーの行のメニューに［中にデータベースを作る］（［中にページを作る］の次）→ dbCreate(行の id) で、白紙のページの本文の最後に 🗃️ の行・開いて題名にフォーカス・親の行は開く。データベースの行のメニューは中に作る2つが無い', T, async () => {
+  const l = await openDb({ before: (call) => ({ blank: call('page.create', {}).id }) });
+  try {
+    l.fire('onPagesUpdated'); await l.drain(120);
+    await openTreeMenuOf(l, l.blank);
+    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['中にページを作る', '中にデータベースを作る', '移動先…', '新しいタブで開く', '削除']);
+    await clickEl(l, treeMenuItems(l)[1], 300);
+    assert.deepStrictEqual(l.called('dbCreate').map((c) => c.args), [[l.blank]], '行の中に作らない');
+    const made = newDbId(l, []);
+    assert.ok(made, 'データベースができない');
+    assert.strictEqual(tabOnKey(l), `page:${made}`, '作ったデータベースを開かない');
+    assert.ok(l.document.activeElement === $(l, 'pTitle'), '題名にフォーカスが無い');
+    const body = l.call('page.get', { id: l.blank }).page.blocks;
+    assert.deepStrictEqual(body.map((b) => [b.type, b.page, b.inline]), [['subpage', made, undefined]], '白紙のページの本文の最後に行が無い');
+    assert.deepStrictEqual(sideRows(l).map((e) => [e.dataset.pid, e.getAttribute('aria-level')]).filter((x) => x[0] === made), [[made, '2']], '親の行が開かないか、子の段でない');
+    await openTreeMenuOf(l, l.id);
+    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['移動先…', '新しいタブで開く', '削除'], 'データベースの行のメニューに中に作る項目がある');
+    l.key({ key: 'Escape' }, l.document.querySelector('.treemenu')); await l.drain();
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DX-1・決めたこと 44・R36: データベースを消す確かめは「このデータベースと行 n 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）」（n はゴミ箱でない行。db.get の1回）。やめると消さない', T, async () => {
+  const l = await openDb({ before: (call, d) => { call('rows.trash', { db: d.id, ids: [d.rows[2]] }); } });
+  try {
+    l.fire('onPagesUpdated'); await l.drain(120);
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); return false; };
+    const n0 = l.called('dbGet').length;
+    await openTreeMenuOf(l, l.id);
+    await clickEl(l, treeMenuItems(l).find((b) => b.textContent === '削除'), 200);
+    assert.deepStrictEqual(asked, ['このデータベースと行 2 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）']);
+    assert.strictEqual(l.called('dbGet').length - n0, 1, '行の数を db.get の1回で読まない');
+    assert.deepStrictEqual(l.called('pageDelete'), [], 'やめたのに消した');
+    l.window.confirm = (m) => { asked.push(m); return true; };
+    await clickEl(l, $(l, 'pMore'), 40);
+    await clickEl(l, l.document.querySelectorAll('.mitem').find((b) => b.textContent === '削除'), 300);
+    assert.strictEqual(asked[1], asked[0], '「···」の［削除］の確かめが違う');
+    assert.deepStrictEqual(l.called('pageDelete').map((c) => c.args), [[l.id]]);
+    assert.strictEqual(l.call('db.get', { id: l.id }), null, '消えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DX-1・決めたこと 45: 起動のときに戻した行のページのタブ（選んでいないもの）は、行の題名と 📄 で出る（page.get で読む）', T, async () => {
+  let d = null;
+  const l = await openDb({
+    before: (call, x) => { d = x; },
+    returns: { uiState: () => ({ tabs: { open: [`page:${d.rows[1]}`, `page:${d.id}`], active: `page:${d.id}` } }) },
+  });
+  try {
+    await l.drain(120);
+    const tabs = $(l, 'tabbar').querySelectorAll('.tabitem');
+    const t = tabs.find((x) => x.getAttribute('data-key') === `page:${l.rows[1]}`);
+    assert.ok(t, '行のタブが戻らない');
+    assert.deepStrictEqual([t.querySelector('.tt').getAttribute('data-icon'), t.querySelector('.tt').textContent], ['📄', '発注'], '行のタブが行の題名と 📄 でない');
+    const dt = tabs.find((x) => x.getAttribute('data-key') === `page:${l.id}`);
+    assert.deepStrictEqual([dt.querySelector('.tt').getAttribute('data-icon'), dt.querySelector('.tt').textContent], ['🗃️', '無題のデータベース'], 'データベースのタブが 🗃️ と「無題のデータベース」でない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

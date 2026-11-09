@@ -2924,6 +2924,21 @@
     const j = i < 0 ? 0 : (i + (ev.shiftKey ? -1 : 1) + n) % n;
     activateTab(openTabs[j].key, { fromBar: true });
   });
+  // 0.16.0 DX-1（決めたこと 45）: 戻した行のページのタブ（選んでいないもの）は、一覧に行が無いので題名とデータベースを page.get で読む（読めなければ今の名前のまま）
+  async function learnRowTabs(keys) {
+    let got = false;
+    for (const k of keys) {
+      const id = isPageKey(k) ? k.slice(5) : '';
+      if (!/^r/.test(id) || rowPages.has(id)) continue;
+      let r = null;
+      try { r = await window.koeApp.pageGet(id); } catch (_) { r = null; }
+      if (!r || typeof r.db !== 'string' || !r.page) continue;
+      rowPages.set(id, r.db);
+      if (typeof r.page.title === 'string' && !tabTitles.has(id)) tabTitles.set(id, r.page.title);
+      got = true;
+    }
+    if (got) renderTabs();
+  }
   // 起動のときに覚えたタブを戻す（main が形の正しい鍵・あるページ・20 個までに絞って渡す。live は来ない）。
   // 0.9.0 U-1（SP3）: 前の版が覚えた settings は受けない（設定はポップアップで、起動では開かない。active が settings なら残りの最後）
   function restoreTabs(tb) {
@@ -2933,6 +2948,7 @@
     if (!open.length) return;
     openTabs = open.map((key) => ({ key }));
     const active = open.includes(tb.active) ? tb.active : open[open.length - 1];
+    learnRowTabs(open.filter((k) => k !== active));   // 0.16.0 DX-1（決めたこと 45）
     if (hasLive && readyNow() && activeTab === 'live') { openTabs.push({ key: 'live' }); activateTab(active, { save: false }); return; }   // 0.13.0 RDY-3（RD15）: 録音の前のページは覚えたタブを選ぶ
     if (hasLive) { openTabs.push({ key: 'live' }); beforeLiveTab = active; renderTabs(); return; }   // 先に記録が始まっていたら記録中のタブのまま
     activateTab(active, { save: false });
@@ -3055,7 +3071,8 @@
   let hits = [];        // 検索の窓の結果（pages はサイドバーの全部のページ）
   let palOpen = false;  // 検索の窓が開いているか（hidden を読まない: 偽 DOM によっては hidden がいつも false）
   async function refreshList() {
-    pages = await window.koeApp.pagesSearch('');
+    // 0.16.0 DX-1（決めたこと 42）: データベースの行（kind: 'row'）はサイドバーの一覧に入れない（行はデータベースの表から開く）
+    pages = (await window.koeApp.pagesSearch('')).filter((p) => !(p && p.kind === 'row'));
     // 0.10.0 L-2: 一覧に無くなった行の選びを外す。一覧が空なら［選ぶ］を出さない（選ぶ形も終える）
     $('listSelect').hidden = pages.length === 0;
     if (!pages.length && listSel.on) listSel = selStep(listSel, { type: 'toggleMode' }, []);
@@ -3806,6 +3823,7 @@
     📁 フォルダ ふぉるだ
     📂 開いたフォルダ ひらいたふぉるだ
     🗂️ 仕切りの書類入れ しきりのしょるいいれ
+    🗃️ カードの箱 かーどのはこ
     📅 カレンダー かれんだー
     🗓️ 予定表 よていひょう
     📈 上がるグラフ あがるぐらふ
@@ -3949,8 +3967,8 @@
     })));
     const BY_E = new Set(EMOJI.map((x) => x.e));
 
-    // 既定のアイコン（決めたこと 36。icon が無ければ議事録は 🎙️・白紙のページは 📄）
-    const DEFAULT_ICON = Object.freeze({ meeting: '🎙️', blank: '📄' });
+    // 既定のアイコン（決めたこと 36。icon が無ければ議事録は 🎙️・白紙のページは 📄。0.16.0 DX-1（前提 P6）: データベースは 🗃️）
+    const DEFAULT_ICON = Object.freeze({ meeting: '🎙️', blank: '📄', database: '🗃️' });
 
     // 辞書の絵文字（ちょうどその1つ）か。書記素が1つでないもの・文・辞書に無い絵文字は偽
     function isPageIcon(v) {
@@ -3979,6 +3997,7 @@
     // 一覧の1行（か、ページ）のアイコン: icon が辞書の絵文字ならそれ、無ければ（'' も辞書に無い値も）kind の既定（決めたこと 36・38）
     function pageIconOf(entry) {
       if (entry && isPageIcon(entry.icon)) return entry.icon;
+      if (entry && entry.kind === 'database') return DEFAULT_ICON.database;
       return entry && entry.kind === 'blank' ? DEFAULT_ICON.blank : DEFAULT_ICON.meeting;
     }
     return { CATS, EMOJI, DEFAULT_ICON, isPageIcon, findEmoji, pageIconOf, fold };
@@ -5217,7 +5236,7 @@
       } else { ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p); }   // 0.15.0 PH-4: 白紙のページは 📄
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.title;
       el.append(ic, t);
-      if (!listSel.on) {
+      if (!listSel.on && !isDbPage(p)) {   // 0.16.0 DX-1（決めたこと 42・R30）: データベースの中にはページを作らない
         // 行に乗せると右端に［＋］（その中に白紙のページを作る: N-09）。Tab の並びには入れない（キーボードは行のメニューの［中にページを作る］）
         const add = document.createElement('button');
         add.type = 'button'; add.className = 'padd'; add.textContent = '＋'; add.tabIndex = -1;
@@ -5244,13 +5263,17 @@
   }
   // ---------------- 0.15.0 PH-3（決めたこと 18・21・25・HR4）: 行の［＋］・行のメニュー・引っ張って動かす
   // 中にページを作る（parentId が無ければ最上位）→ 一覧を読み直して今のタブで開く（親の行は開く）
-  async function createPageIn(parentId, placeAt) {
+  // 0.16.0 DX-1（決めたこと 43）: asDb はデータベースを作る（dbCreate。本文の行の決まりと満杯の知らせは白紙のページと同じ: R30）
+  async function createPageIn(parentId, placeAt, asDb) {
     flushEdits();
     // PR-2 直し 5（R52 の3・R51 の文のとおり）: 開いている白紙のページの中に作るときは、命令の前の本文の行の数を見る（2,000 行に満たなければ行は必ず置ける: R33）
     const openHost = Boolean(parentId) && parentId === curId && isBodyPage(curPage);   // 0.16.0 R97: データベースの行の本文も
     const fullBefore = openHost && flattenBlocks(curPage.blocks).length >= BODY_ROWS_MAX;
     let r = null;
-    try { r = await (parentId ? (placeAt ? window.koeApp.pageCreate(parentId, placeAt) : window.koeApp.pageCreate(parentId)) : window.koeApp.pageCreate()); } catch (_) { r = null; }
+    try {
+      if (asDb) r = await (parentId ? window.koeApp.dbCreate(parentId) : window.koeApp.dbCreate());
+      else r = await (parentId ? (placeAt ? window.koeApp.pageCreate(parentId, placeAt) : window.koeApp.pageCreate(parentId)) : window.koeApp.pageCreate());
+    } catch (_) { r = null; }
     if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
     await refreshList();
     // PR-2 直し 4（R51）: 満杯の本文の白紙のページの中に作ったら知らせる。PR-2 直し 5（R52 の3）: 開いている親は、満杯のときだけ命令の後に開き直した本文で見る
@@ -5279,7 +5302,11 @@
     box.className = 'blockmenu treemenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ページのメニュー');
     treeMenu = { id, box };
     const run = (fn) => () => { closeTreeMenu(); fn(); };
-    menuItem(box, '中にページを作る', run(() => createPageIn(id)));
+    // 0.16.0 DX-1（決めたこと 43・R30）: ［中にデータベースを作る］は［中にページを作る］の次。データベースの行には中に作る2つを出さない
+    if (!isDbPage(crumbPage(id))) {
+      menuItem(box, '中にページを作る', run(() => createPageIn(id)));
+      menuItem(box, '中にデータベースを作る', run(() => createPageIn(id, undefined, true)));
+    }
     menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
     menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true })));
     menuItem(box, '削除', run(() => deletePageFlow(id)));
@@ -5316,7 +5343,9 @@
     const rows = treeRows();
     const idx = rows.findIndex((r) => r.id === el.dataset.pid);
     const rc = el.getBoundingClientRect();
-    return pageTreeView.pageDropSpot(rows, idx, (Number(ev && ev.clientY) || 0) - (rc.top || 0), rc.height || 30, pageDrag, treeNow());
+    const s = pageTreeView.pageDropSpot(rows, idx, (Number(ev && ev.clientY) || 0) - (rc.top || 0), rc.height || 30, pageDrag, treeNow());
+    // 0.16.0 DX-1（決めたこと 42）: データベースの中へは落とせない（真ん中は印を出さない。前後へは落とせる）
+    return s && s.afterId === undefined && isDbPage(crumbPage(s.parentId)) ? null : s;
   }
   function wireTreeDrag(el, id) {
     el.draggable = !listSel.on;
@@ -5404,7 +5433,8 @@
     const tree = treeNow();
     const no = new Set([id, ...pageTreeView.descendants(tree, id)]);   // 自分と子孫の下へは動かせない（決めたこと 5）
     const out = [];
-    const walk = (ids) => { for (const x of ids) { if (no.has(x)) continue; out.push(x); walk(tree.kids.get(x) || []); } };
+    // 0.16.0 DX-1（決めたこと 42）: データベースの中へは動かせないので、データベースは候補にしない
+    const walk = (ids) => { for (const x of ids) { if (no.has(x)) continue; if (!isDbPage(crumbPage(x))) out.push(x); walk(tree.kids.get(x) || []); } };
     walk(tree.roots);
     return out;   // どれも一覧の木の行（一覧にあるページ）
   }
@@ -5508,6 +5538,8 @@
   const NEW_ITEMS = Object.freeze([
     Object.freeze({ key: 'blank', label: '📄 白紙のページ', busy: () => false, run: async (from) => { if (!(await createPageIn())) focusVisible(from, $('newPageBtn')); } }),
     Object.freeze({ key: 'meeting', label: '🎙️ 議事録（録音の前のページ）', busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: async () => { await openReady(); focusVisible($('mtToggleBtn')); } }),
+    // 0.16.0 DX-1（決めたこと 43）: 最上位にデータベースを作って開き、題名にフォーカス（作れなければ開く前の所）
+    Object.freeze({ key: 'database', label: '🗃️ データベース', busy: () => false, run: async (from) => { if (!(await createPageIn(undefined, undefined, true))) focusVisible(from, $('newPageBtn')); } }),
   ]);
   // PH-5 直し 4（R62 M-2）: 窓の中の mousedown の既定を止めてフォーカスを残すか。左のボタンだけ（中クリックの自動の捲りを止めない）で、
   // keep（探す欄・捲る候補の箱そのもの（捲り棒）・後ろの全面）を押したときは止めない
@@ -6203,11 +6235,15 @@
   // 0.15.0 PH-6（決めたこと 30・32・F121）: 確かめの文。子があれば中のページの数（ゴミ箱に入っていない子孫）・子の無い白紙のページはその文・子の無い議事録は今の文
   const DEL_ASK_KIDS = (n) => `このページと中のページ ${n} 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）`;
   const DEL_ASK_BLANK = 'このページをゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）';
+  // 0.16.0 DX-1（決めたこと 44・R36）: データベースは行の数（ゴミ箱でない行。消す前に db.get の1回で読む）
+  const DEL_ASK_DB = (n) => `このデータベースと行 ${n} 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）`;
   async function deletePageFlow(id) {
     if (!id) return;
     const page = pages.find((p) => p && p.id === id) || (curId === id ? curPage : null);
     const kids = pageTreeView.descendants(treeNow(), id);
-    const ask = kids.length ? DEL_ASK_KIDS(kids.length) : isBlankPage(page) ? DEL_ASK_BLANK : 'この議事録を削除します。よろしいですか？';
+    let dbRows = -1;
+    if (isDbPage(page)) { try { const g = await window.koeApp.dbGet(id); dbRows = g && Number.isSafeInteger(g.rowCount) ? g.rowCount : -1; } catch (_) { dbRows = -1; } }
+    const ask = dbRows >= 0 ? DEL_ASK_DB(dbRows) : kids.length ? DEL_ASK_KIDS(kids.length) : isBlankPage(page) ? DEL_ASK_BLANK : 'この議事録を削除します。よろしいですか？';
     if (!confirm(ask)) return;
     const gone = [id, ...kids];   // PH-6（決めたこと 32・F118）: 消したら、そのページと子孫のタブを閉じる
     const from = (pages.find((p) => p && p.id === id) || {}).parentId || '';   // 0.15.0 PR-2 直し（R38）: 消す前の親

@@ -38,7 +38,8 @@ const ZOOM_STEPS = [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 const SIDEBAR = { min: 200, max: 480, width: 260 };
 const MAX_TABS = 20;
 
-const TAB_PAGE_RE = /^page:p[a-z0-9]{1,40}$/;
+// 0.16.0 DX-1（決めたこと 45）: データベースの行のページのタブ（行の ID は r＋36 進）も覚える
+const TAB_PAGE_RE = /^page:[pr][a-z0-9]{1,40}$/;
 const TAB_FIXED = ['dictation'];
 const TAB_RETIRED = 'settings';   // 0.8.0 までの設定のタブ（読むときに黙って落とす）
 // 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行の ID（ページの ID の形。タブの鍵の page: の後ろと同じ形）と、覚える数の上限

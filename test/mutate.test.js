@@ -1390,7 +1390,10 @@ const IDS_160 = [
   // 0.16.0 DV-1 で作った行
   'vw-window', 'vw-sig', 'vw-ime', 'vw-focus-keep', 'vw-del-readonly', 'vw-ctrl-d', 'vw-undo-key', 'vw-undo-view',
   // 0.16.0 DV-2 で作った行（vw-paste-grid）と DV-3 で作った行（vw-view-save）と DV-4 で作った行（vw-row-props）。表の行の順
-  'vw-url-open', 'vw-person-cand', 'vw-view-save', 'vw-row-props', 'vw-paste-grid',
+  'vw-url-open', 'vw-person-cand', 'vw-view-save', 'vw-row-props',
+  'vw-sidebar-rows', 'vw-db-summarize',   // 0.16.0 DX-1 で作った行
+  'vw-paste-grid',
+  'vw-newpop-db',   // 0.16.0 DX-1 で作った行
   // 0.16.0 DV-3 直し2（rv49 M-c・R95）で足した行（表の末: R87 の写すリンクの1行）
   'vw-ref-kind',
   'tb-row-kids-hide', 'tb-row-move-cycle', 'vw-row-kids-tree',

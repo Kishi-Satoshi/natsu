@@ -6019,6 +6019,7 @@ function restartBlockNow() {
 
 // 要約の生成 → ブロック化 → 出典付与 → 保存
 const BLANK_SUMMARY_TEXT = '白紙のページは要約できません';
+const DB_SUMMARY_TEXT = 'データベースのページは要約できません';
 async function doRunSummary(pageId) {
   // どの経路で抜けても進捗表示と録音状態を必ず解除する
   const clearUi = () => {
@@ -6046,6 +6047,8 @@ async function doRunSummary(pageId) {
   const { page } = opened;
   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・F116）: 白紙のページは要約しない（文字起こしが無い。Claude Code を呼ばず、ページも書かない）
   if (page.kind === 'blank') { clearUi(); return { ok: false, error: BLANK_SUMMARY_TEXT }; }
+  // 0.16.0 DX-1（決めたこと 50・R101）: データベースのページとデータベースの行のページも要約しない（会議の欄が無い。Claude Code を呼ばず、ページも行も書かない）
+  if (page.kind === 'database' || typeof opened.db === 'string') { clearUi(); return { ok: false, error: DB_SUMMARY_TEXT }; }
   let segments = opened.segments;   // 出典付与の直前に読み直して差し替える（下記）
   const segmentsAtStart = segments;   // 要約の材料にした配列。出典付けで今の配列と突き合わせる（#4）
   const usable = segments.filter((s) => !s.failed && !s.pending);
@@ -6915,6 +6918,17 @@ function setupIpc() {
     let ids = null;
     if (db.state() === 'ready' || db.state() === 'read-only') {
       try { ids = new Set((await db.call('pages.list', {})).map((p) => p.id)); } catch (e) { engineLog(`画面の覚え書き: 議事録の一覧を読めませんでした（${errCode(e)}）`); }
+      // 0.16.0 DX-1（決めたこと 45）: データベースの行のページのタブ（page:r…）は一覧に無いので、1つずつ読んで、ゴミ箱でない行で、データベースが一覧にあるものを残す
+      // （ゴミ箱の行・ゴミ箱のデータベースの行は外す）。読めなければ外す（無いページと同じ）
+      if (ids) {
+        for (const k of winState.tabs.open) {
+          const rid = typeof k === 'string' && /^page:r/.test(k) ? k.slice('page:'.length) : '';
+          if (!rid) continue;
+          let r = null;
+          try { r = await db.call('page.get', { id: rid }); } catch (_) { r = null; }
+          if (r && typeof r.db === 'string' && ids.has(r.db)) ids.add(rid);
+        }
+      }
     }
     const k = W.keepTabs(winState.tabs, (id) => !ids || ids.has(id));
     const dropped = k.dropped + winTabsDropped;

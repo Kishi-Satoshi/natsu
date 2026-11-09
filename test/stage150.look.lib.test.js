@@ -29,7 +29,7 @@ test('PL-1・BQ9 (a): 辞書の形（約 500・どれも書記素 1 つの RGI �
     assert.ok(/^[ぁ-ゖー]+$/.test(x.y), `よみがひらがなだけでない（外来語の長音の「ー」のほか）: ${x.e} ${x.y}`);
   }
   for (const c of D.CATS) assert.ok(D.EMOJI.filter((x) => x.c === c.key).length >= 40, `分類 ${c.label} の絵文字が少ない`);
-  assert.deepStrictEqual(D.DEFAULT_ICON, { meeting: '🎙️', blank: '📄' });
+  assert.deepStrictEqual(D.DEFAULT_ICON, { meeting: '🎙️', blank: '📄', database: '🗃️' });   // 0.16.0 DX-1（前提 P6）で意図して変えた: データベースの既定 🗃️ を足した
   for (const e of Object.values(D.DEFAULT_ICON)) assert.ok(seen.has(e), `既定のアイコン ${e} が辞書に無い`);
   assert.ok(Object.isFrozen(D.EMOJI) && Object.isFrozen(D.EMOJI[0]) && Object.isFrozen(D.CATS), '辞書を書き換えられる');
 });

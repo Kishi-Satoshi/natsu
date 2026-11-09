@@ -292,7 +292,8 @@ test('公開したのに画面から呼ばれない API がない', () => {
   // 0.16.0 DV-1 で意図して変えた: 表の画面が dbGet・dbView・rowAdd・rowSetCell・rowsSetCell・rowMove・rowsTrash を呼び始めたので外した
   // 0.16.0 DV-2 で意図して直した: 画面が呼び始めた rowsPaste・colAdd・colRename・colSetType・colRemove・colRestore・colPurge・colSetOpts・colSetFmt・viewUpdate を外した
   // 0.16.0 DV-3 で意図して直した: 画面が呼び始めた viewAdd・viewRemove・viewMove を外した（colMove は R74 で画面が呼ばない: 見出しの並べ替えはビューの並び）
-  const PENDING_APP = new Set(['dbCreate', 'colMove']);
+  // 0.16.0 DX-1 で意図して直した: 画面が呼び始めた dbCreate（Ctrl+Shift+N と行のメニュー）を外した
+  const PENDING_APP = new Set(['colMove']);
   // 0.14.0 MB-4（計画の決めたこと 70・R171）: 素の文字のメモの口 pageSetMemo は、画面がメモの行（pageSetMemoDoc）を送るようになって呼ばなくなったが、
   // 古い画面の口として残す（DB は memoDoc のあるページへの素の文字だけの直しを断る）。呼ばれなくても死んだ口と数えない
   const KEPT_APP = new Set(['pageSetMemo']);
