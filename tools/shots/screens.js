@@ -154,6 +154,8 @@ const OPEN_DB_FILTER = OPEN_DB_AT(`const errs = [];
   add.focus(); add.click();
   await new Promise((r) => setTimeout(r, 300));
   if (!inPanel()) throw new Error('並べ替えを足すとフォーカスが窓から外れる');
+  document.querySelector('#pDb .dbpanel').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));   // 窓を閉じてから（⚙ は開いている窓を閉じる）
+  if (document.querySelector('#pDb .dbpanel')) throw new Error('Esc で窓が閉じない');
   open('絞り込み');
   await new Promise((r) => setTimeout(r, 100));
   if (errs.length) throw new Error('画面のエラー: ' + errs.join(' / '));`);
