@@ -1546,6 +1546,115 @@ test('DR-1: rel.find はつなぐ先のデータベースの生きている行�
   assert.ok(!Object.hasOwn(g.page, 'rel'), 'ページの欄に入れた');
 }));
 
+// ---------------------------------------------------------------- DR-1 直し（rv51 の点検 I1・I4・M2。R106）
+test('DR-1 直し・I1（rv51）: 親アイテムの列の［新しい行を作ってつなぐ］は、新しい行を親にしてつなぐ（輪と見ない）。親のある行に2つ目の新しい親は bad-args・Ctrl+Z で新しい行も消える', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const a = rowAddA(db, d, { title: '子 一' }); const b = rowAddA(db, d, { title: '子 二' });   // D77 の会議の題名でない（データベースの行の題名）
+  const { sub } = ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub');
+  const n0 = oplogN(db);
+  const l = callTx(db, 'rel.link', { db: d, id: a, col: sub.parent, ids: [], title: '新しい親' });   // D77 の会議の題名でない（データベースの行の題名）
+  assert.strictEqual(code(l.r), 'ok', '親アイテムの列の［新しい行を作ってつなぐ］が断られた');
+  assert.strictEqual(oplogN(db), n0 + 1);
+  const added = l.r.result.added;
+  assert.deepStrictEqual([blockOf(db, added).text, blockOf(db, added).parent_id, relOf(db, a, sub.parent), relOf(db, added, sub.kids), relOf(db, added, sub.parent)],
+    ['新しい親', d, [added], [a], undefined]);
+  assert.deepStrictEqual(view(db, d, { open: [added] }).rows.map((r) => [r.title, r.depth]), [['子 二', 0], ['新しい親', 0], ['子 一', 1]], '新しい行が親の木にならない');
+  // 親のある行に、もう1つ新しい親は bad-args（何も変えない）
+  const mid = dump(db);
+  assert.strictEqual(code(call(db, 'rel.link', { db: d, id: a, col: sub.parent, ids: [], title: 'もう1つの親' })), 'bad-args', '2つ目の親');   // D77 の会議の題名でない（データベースの行の題名）
+  assert.deepStrictEqual(dump(db), mid);
+  // 親の無い行はどれも使える
+  ok(call(db, 'rel.link', { db: d, id: b, col: sub.parent, ids: [], title: '別の親' }), 'rel.link title（b）');   // D77 の会議の題名でない（データベースの行の題名）
+  // Ctrl+Z: 新しい行が消え、a の親も外れる
+  assert.strictEqual(code(revert(db, d, [l.tx]).r), 'ok');
+  assert.deepStrictEqual([blockOf(db, added), relOf(db, a, sub.parent)], [undefined, undefined]);
+}));
+
+test('DR-1 直し・I4（rv51）: 別のデータベースへの［新しい行を作ってつなぐ］の Ctrl+Z とやり直し（相手の行が消えて戻る・知らせに相手のデータベース）。やり直しで相手が 10,000 行を越えるなら too-big', T, () => withDb((db) => {
+  const { d1, d2, a1 } = twoDbs(db);
+  const col = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d2, both: true }), 'col.add').col;
+  const l = callTx(db, 'rel.link', { db: d1, id: a1, col: col.id, ids: [], title: '取引先 丙' });   // D77 の会議の題名でない（データベースの行の題名）
+  assert.strictEqual(code(l.r), 'ok');
+  const added = l.r.result.added;
+  assert.deepStrictEqual([blockOf(db, added).parent_id, relOf(db, a1, col.id), relOf(db, added, col.back)], [d2, [added], [a1]]);
+  const un = revert(db, d1, [l.tx]);
+  assert.strictEqual(code(un.r), 'ok', `Ctrl+Z: ${un.r.code}`);
+  assert.deepStrictEqual([blockOf(db, added), relOf(db, a1, col.id)], [undefined, undefined], '相手の行が残る');
+  assert.ok(un.r.changed.pageIds.includes(d2), `知らせに相手のデータベースが無い: ${un.r.changed.pageIds}`);
+  const re = revert(db, d1, [un.tx]);
+  assert.strictEqual(code(re.r), 'ok', `やり直し: ${re.r.code}`);
+  assert.deepStrictEqual([blockOf(db, added).parent_id, blockOf(db, added).trashed_at, relOf(db, a1, col.id), relOf(db, added, col.back)], [d2, null, [added], [a1]]);
+  // 相手のデータベースを 10,000 行にしてからのやり直しは too-big（何も変えない）
+  const un2 = revert(db, d1, [re.tx]);
+  assert.strictEqual(code(un2.r), 'ok');
+  db.exec('BEGIN');
+  const ins = db.prepare("insert into blocks(id,type,page_id,parent_id,ord,text,rich,attrs,fold,rev,created_at,updated_at,trashed_at) values (?,'row',?,?,?,'',null,'{}','',1,'','',null)");
+  for (let i = 0; i < LIMITS.dbRows - 2; i += 1) ins.run(`rz${i}`, `rz${i}`, d2, `zz${String(i).padStart(5, '0')}`);
+  db.exec('COMMIT');
+  const mid = dump(db);
+  assert.strictEqual(code(revert(db, d1, [un2.tx]).r), 'too-big', '相手のデータベースの 10,001 行目');
+  assert.deepStrictEqual(dump(db), mid);
+}));
+
+test('DR-1 直し・I4（rv51）: 両側のリレーションの列を足した歩みの Ctrl+Z は、相手のデータベースの対の列に値があれば stale（相手の行に持ち主の無いセルを残さない）。知らせに相手のデータベース', T, () => withDb((db) => {
+  const { d1, d2, b1 } = twoDbs(db);
+  const add = callTx(db, 'col.add', { db: d1, type: 'rel', target: d2, both: true });
+  assert.strictEqual(code(add.r), 'ok');
+  const back = add.r.result.back;
+  // 相手の列にだけある値（命令は両側に書くので、古い控えの形を DB に直に置く）
+  put(db, [{ op: 'set', id: b1, key: `cell:${back.id}`, value: ['rnone1'] }]);
+  const mid = dump(db);
+  assert.strictEqual(code(revert(db, d1, [add.tx]).r), 'stale', '相手の列に値があるのに列を消した');
+  assert.deepStrictEqual(dump(db), mid);
+  put(db, [{ op: 'set', id: b1, key: `cell:${back.id}`, value: undefined, old: ['rnone1'] }]);
+  const un = revert(db, d1, [add.tx]);
+  assert.strictEqual(code(un.r), 'ok', `edit.revert: ${un.r.code}`);
+  assert.deepStrictEqual([dbGet(db, d1).cols.some((c) => c.type === 'rel'), dbGet(db, d2).cols.some((c) => c.type === 'rel')], [false, false]);
+  assert.ok(un.r.changed.pageIds.includes(d2), `知らせに相手のデータベースが無い: ${un.r.changed.pageIds}`);
+}));
+
+test('DR-1 直し・I4（rv51）: 相手の行の題名を変える・ゴミ箱へ入れると、こちらの表の印 sig が変わる（決めたこと 34: こちらの行は変わらなくても、セルの題名をすぐ描き直す）', T, () => withDb((db) => {
+  const { d1, d2, a1, b1, b2 } = twoDbs(db);
+  const col = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d2 }), 'col.add').col;   // 片側: 相手の行には書かない
+  ok(call(db, 'rel.link', { db: d1, id: a1, col: col.id, ids: [b1] }), 'rel.link');
+  const s0 = view(db, d1).sig;
+  ok(call(db, 'row.setCell', { db: d2, id: b1, col: 'title', value: '取引先 甲 改' }), 'row.setCell');   // D77 の会議の題名でない（データベースの行の題名）
+  const s1 = view(db, d1).sig;
+  assert.notStrictEqual(s1, s0, '相手の題名を変えても印が変わらない');
+  ok(call(db, 'rows.trash', { db: d2, ids: [b2] }), 'rows.trash');
+  assert.notStrictEqual(view(db, d1).sig, s1, '相手の行をゴミ箱へ入れても印が変わらない');
+}));
+
+test('DR-1 直し・I4（rv51）: 両側のリレーションの col.add の送り直し（同じ tx）は1回目と同じ形 { col, back }', T, () => withDb((db) => {
+  const { d1, d2 } = twoDbs(db);
+  const req = { role: 'app', cmd: 'col.add', args: { db: d1, type: 'rel', target: d2, both: true }, tx: txOf('app') };
+  const first = core.call(db, req, { now, labels: {} });
+  assert.strictEqual(code(first), 'ok');
+  const again = core.call(db, req, { now, labels: {} });
+  assert.strictEqual(code(again), 'ok');
+  assert.ok(again.result.back, '送り直しの答えに back が無い');
+  assert.deepStrictEqual(again.result, first.result);
+  assert.strictEqual(dbGet(db, d2).cols.filter((c) => c.type === 'rel').length, 1, '送り直しで列が増えた');
+}));
+
+test('DR-1 直し・I4（rv51）: 列は 100 まで: 両側は相手のデータベースも 100 まで・自分への両側は2列・db.setSub は2列を数える（越えれば bad-args で何も変えない）', T, () => withDb((db) => {
+  const { d1, d2 } = twoDbs(db);
+  const fill = (d, n) => { for (let i = dbGet(db, d).cols.length; i < n; i += 1) ok(call(db, 'col.add', { db: d, type: 'text' }), `col.add ${i}`); };
+  fill(d2, LIMITS.dbCols);
+  const mid = dump(db);
+  assert.strictEqual(code(call(db, 'col.add', { db: d1, type: 'rel', target: d2, both: true })), 'bad-args', '相手のデータベースの 101 列目');
+  assert.deepStrictEqual(dump(db), mid);
+  ok(call(db, 'col.add', { db: d1, type: 'rel', target: d2 }), 'col.add 片側（相手に列を足さない）');
+  const d3 = mkDb(db);
+  fill(d3, LIMITS.dbCols - 1);
+  const mid3 = dump(db);
+  assert.strictEqual(code(call(db, 'col.add', { db: d3, type: 'rel', target: d3, both: true })), 'bad-args', '自分への両側で 101 列目');
+  assert.strictEqual(code(call(db, 'db.setSub', { db: d3, on: true })), 'bad-args', 'サブアイテムの2列で 101 列目');
+  assert.deepStrictEqual(dump(db), mid3);
+  ok(call(db, 'col.add', { db: d3, type: 'rel', target: d3 }), 'col.add 自分への列1つ（100 列目）');
+  assert.strictEqual(dbGet(db, d3).cols.length, LIMITS.dbCols);
+}));
+
 test('DR-1: preload の呼び口（relLink・relUnlink・dbSetSub・relFind・colAdd の rel・dbView の open。どれも dbCall の1回）。rel.link・rel.unlink・db.setSub は元に戻すの歩み（データベースの ID）・rel.find は読む命令', T, async () => {
   const PRE = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
   for (const cmd of ['rel.link', 'rel.unlink', 'db.setSub']) { assert.ok(UNDO_CMDS.has(cmd), cmd); assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd); }

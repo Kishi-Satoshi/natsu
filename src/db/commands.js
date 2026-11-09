@@ -1946,7 +1946,8 @@ function relEdit(db, a, ctx, add) {
       if (v.length > 1) throw refuse('bad-args');
       par.set(id, v.length ? v[0] : null);
     }
-    if (added) par.set(added, a.id);
+    // 新しい行の親: サブアイテムの列なら a（新しい行は a の子）。親アイテムの列なら無し（新しい行が a の親になる: rv51 I1・R106）
+    if (added) par.set(added, col.id === sub.kids ? a.id : null);
     for (const id of staged.keys()) {
       let p = par.get(id);
       for (let k = 0; p && k <= par.size; k += 1) { if (p === id) throw refuse('bad-args'); p = par.get(p); }
@@ -2315,7 +2316,14 @@ function dbRevert(db, a, ctx, fwd) {
     if (r && r.type === 'row') meta.push(...touchOps({ id, raw: r, attrs: JSON.parse(r.attrs || '{}') }, ctx));
   }
   applyOps(db, meta);
-  return { ops: [...back, ...meta], pageIds: [a.pageId, ...touched], result: { page: readPage(db, a.pageId) } };
+  // DR-1 直し（rv51 M2・R106）: 知らせには、相手のデータベース（両側の列の set・［新しい行を作ってつなぐ］で足した行の add と戻しの trash の相手）も入れる
+  const dbs = new Set([a.pageId]);
+  for (const o of back) {
+    if (o.op === 'set' && o.key === 'cols') dbs.add(o.id);
+    const r = o.op === 'add' ? o.row : o.op === 'trash' ? o.old : null;
+    if (isObj(r) && r.type === 'row' && typeof r.parent_id === 'string') dbs.add(r.parent_id);
+  }
+  return { ops: [...back, ...meta], pageIds: [...dbs, ...touched], result: { page: readPage(db, a.pageId) } };
 }
 
 // ---- 送り直しの答え（rv42 M3・R59: 1回目と同じ R29 の形を、今の中身と oplog の1行から作り直す。データベースが無ければ null）

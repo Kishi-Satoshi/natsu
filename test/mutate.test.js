@@ -1401,6 +1401,8 @@ const IDS_160 = [
   'vw-ref-kind',
   'tb-row-kids-hide', 'tb-row-move-cycle', 'vw-row-kids-tree',
   'tb-rel-self',   // 0.16.0 R98（M15-2）で表の末に足した行
+  // 0.16.0 DR-1 直し（rv51 I1・I4・R106）で表の末（R104 の DL-1 の5行の後）に足した行
+  'tb-sub-new-parent', 'tb-undo-rel-row', 'tb-undo-rel-max', 'tb-undo-rel-col', 'tb-rel-sig', 'tb-rel-dup', 'tb-rel-col-max', 'tb-rel-self-max', 'tb-sub-col-max',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1419,7 +1421,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）で意図して直した: 行の中の子ページの3つ（tb-row-kids-hide・tb-row-move-cycle・vw-row-kids-tree）を表の末に足した
   // 0.16.0 R98（2026-11-09 の持ち主の答え・M15）で意図して直した: 自分のデータベースへの列1つのリレーションの tb-rel-self を表の末に足した（tb- 64）
   // 0.16.0 R104（2026-11-09 の持ち主の答え M16・rv51 Q1）で意図して直した: DL-1 の5つ（tb-linked-copy・tb-linked-tabs・tb-db-title-undo・vw-sub-key・vw-rel-open-key）を表の末に足した（まだ作っていない行）
-  assert.strictEqual(rows.length, 89, '計画の 0.16.0 の表（tb- 67・vw- 22）が読めない');
+  // 0.16.0 DR-1 直し（rv51 I1・I4・R106）で意図して直した: R99 の道と I1 の直しを戻す9つを表の末に足した
+  assert.strictEqual(rows.length, 98, '計画の 0.16.0 の表（tb- 76・vw- 22）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');
