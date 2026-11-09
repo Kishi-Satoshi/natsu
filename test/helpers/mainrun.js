@@ -103,7 +103,7 @@ const { titleAt } = require('./titles');
 //     --gpu-state=<ファイル> … 起動の前に、そのファイルを取り込み先の gpu-state.json に写す
 //     --driver=<名前>=<版> … reg.exe query（表示アダプターの級）の答えの偽物。無ければ reg.exe は失敗で答える。呼んだ数を out.regCalls に
 //     --win32       … whenReady の後で process.platform を win32 と読ませ、System32 を 14.51 の偽の DLL のある一時フォルダに向ける
-//                     （--gpu-set・--old-set は既定で付く。--gpu-platform=linux で付けない）。終わりの片付けの前に元に戻す
+//                     （--gpu-set・--old-set は既定で付く。--gpu-platform=linux で付けず、Windows の機械でも linux と読ませる）。終わりの片付けの前に元に戻す
 //     --ng-ok-at-stop … 最後の区間の前に、それまでの区間が片付くのを待ち（out.liveFailed に失敗の区間の数）、FAKE_NG_OK_FILE を置く（-ng の形が起きるようになる）
 //     出力に gpuState（gpu-state.json の中身。無ければ null）・served（fake-whisper の served の行）・regCalls を足す
 //     --slow-load   … 画面の読み込みを、起動のときの照らしが済むまで終えない（読み込み中に送った知らせは画面に届かない。
@@ -2676,6 +2676,8 @@ process.on('exit', () => {
     out.spawnsBeforeVerify = spawns.length;
     out.managedRoot = managedRoot;
     if (win32Flag && !noVcRuntime) toWin32();   // 0.15.1 GV-2
+    // 0.15.1 GV-2 直し（Windows の CI の赤）: --gpu-platform=linux は、Windows の機械でも Windows 以外と読ませる（付けないだけでは本物の win32 のまま）
+    if (flagVal('--gpu-platform') === 'linux') Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     if (noVcRuntime) {
       // whenReady（トレイ・貼り付け・窓）は今の OS のまま済んだ。照らし終える前に、ランタイムの無い Windows にする
       const winDir = path.join(tmp, 'Windows-空𠮷');

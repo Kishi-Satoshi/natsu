@@ -224,7 +224,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write   # 先行版のリリースを作る・資産を置き換える（この仕事だけ）
+      contents: write   # 先行版のリリースを作る・無い資産を足す（この仕事だけ）
     env:
       SHORT: ${{ needs.build.outputs.short }}
       GH_TOKEN: ${{ github.token }}
@@ -245,14 +245,19 @@ jobs:
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
           echo "TAG=whisper-vulkan-$SHORT" >> "$GITHUB_ENV"
 
-      - name: 先行版（prerelease・latest にしない）として作るか、資産を置き換える
+      # 0.15.1 から NaTsu が取り込む資産なので置き換えない（計画 docs/plans/2026-11-04-151.md の決めたこと 43・GV-3）。作り直すと zip の中の
+      # 時刻で SHA-256 が変わり、取り込む人の全員がピンの SHA-256 の違いで止まる。同じ札に同じ名前の資産があれば止める（作り直すなら札を変える）
+      - name: 先行版（prerelease・latest にしない）として作るか、無い資産だけを足す（配っている資産は置き換えない）
         working-directory: out
         run: |
           set -euo pipefail
           BEFORE="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)"
           TITLE="$TAG（文字起こしの測り用。NaTsu の版ではない）"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$ZIP"; then
+              echo "::error::$TAG には $ZIP がもうある。0.15.1 から NaTsu が取り込む資産なので置き換えない（作り直すなら札を変える）"; exit 1
+            fi
+            gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --title "$TITLE" --notes-file notes.md
           else
             gh release create "$TAG" "$ZIP" "$ZIP.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title "$TITLE" --notes-file notes.md

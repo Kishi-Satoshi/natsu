@@ -21,6 +21,11 @@
  *     5. 負の確かめ: 同じ whisper を、-m を英数字以外の絶対パスのままで起動し、落ちる（か /health が
  *        来ない）ことを見る。200 になったら、RF1 を試せていない。
  *     0.10.0 LS-3（D59）: 要約のエンジンを外したので、確かめるのは文字起こしのエンジンと VAD だけ。
+ *     0.15.1 GV-3（計画 docs/plans/2026-11-04-151.md・D126）: 取り込むエンジンは GPU 版の組（Vulkan）。4 の前に、置いた組の whisper.dll・ggml-vulkan.dll の
+ *     バイトの中に mainlib.GPU_LOG_MARKS の書式の字（計画の G15）があることを見る（配る whisper が、アプリの見分けが読む字を出すか）。4 は
+ *     GPU の形（アプリと同じ引数）と -ng の形（mainlib.noGpuArgs）の2回起こし、GPU の形の標準エラーを mainlib.gpuLogState に通した答えが
+ *     none か gpu（GPU の無い作業機では none の見込み。init-failed・lost でない）で use gpu の値が 1、-ng の形は use gpu の値が 0 であることを見る。
+ *     形ごとに「形・見分けの答え・use gpu の値・/health・無音の /inference」の1行を出す。
  *     落としたエンジンを起動するのは Windows だけ。ほかの OS では 1〜3 だけをして、NG で終わる。
  *
  * 結果は1行ずつ OK／NG で出し、1つでも NG なら終了コード 1。
@@ -39,7 +44,7 @@ const { execFileSync, spawn } = require('child_process');
 const { MANIFEST, hostOf } = require('../src/engine-manifest');
 const { fetchFile, hget, parseContentRange } = require('../src/engine-fetch');
 const { listZip, readEntry } = require('../src/zipread');
-const { engineSpawnPlan, silentWav, vcRuntimeVersions, vcRuntimeIssue } = require('../src/mainlib');
+const { engineSpawnPlan, silentWav, vcRuntimeVersions, vcRuntimeIssue, GPU_LOG_MARKS, gpuLogState, noGpuArgs } = require('../src/mainlib');
 const { fakeRequest } = require('../test/helpers/fake-net');
 
 const UA = `NaTsu/${require('../package.json').version} (engine-smoke)`;
@@ -61,7 +66,7 @@ const SMALL = Object.freeze({
   }),
 });
 
-const PORT = { whisper: 18990, negative: 18992 };
+const PORT = { whisper: 18990, negative: 18992, ng: 18994 };   // ng: 0.15.1 GV-3 の -ng の形
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (line) => console.log(line);
@@ -295,7 +300,8 @@ function httpCall(port, method, urlPath, { body = null, type = null, timeoutMs =
 function startChild(exe, args, cwd) {
   const child = spawn(exe, args, { cwd, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
   let tail = '';
-  child.stderr.on('data', (b) => { tail = (tail + b.toString('utf8')).slice(-3000); });
+  let all = '';   // 0.15.1 GV-3: 見分けのために頭から（256KB まで）
+  child.stderr.on('data', (b) => { tail = (tail + b.toString('utf8')).slice(-3000); if (all.length < 262144) all += b.toString('utf8'); });
   child.ended = null;
   child.exited = new Promise((resolve) => {
     const end = (r) => { if (!child.ended) { child.ended = r; resolve(r); } };
@@ -303,6 +309,7 @@ function startChild(exe, args, cwd) {
     child.on('error', (e) => end({ code: null, error: e }));
   });
   child.tail = () => tail;
+  child.all = () => all;
   return child;
 }
 
@@ -355,24 +362,54 @@ async function inference(port, rf = 'json') {
 const whisperArgs = (model, vad, port) => ['-m', model, '--host', '127.0.0.1', '--port', String(port), '-t', '2', '-l', 'ja', '-sns',
   '--vad', '--vad-model', vad];
 
-async function smokeWhisper(p) {
-  const name = 'whisper（相対パス・日本語の作業フォルダ）';
-  const plan = engineSpawnPlan(p.whisperExe, whisperArgs(p.tiny, p.vad, PORT.whisper), { whisper: true });
+// 0.15.1 GV-3: form は 'gpu'（アプリの GPU の形 = 今の引数）か 'ng'（CPU の形 = 引数の終わりに -ng）
+async function smokeWhisper(p, form = 'gpu') {
+  const label = form === 'ng' ? '-ng の形' : 'GPU の形';
+  const name = `whisper（${label}・相対パス・日本語の作業フォルダ）`;
+  const port = form === 'ng' ? PORT.ng : PORT.whisper;
+  const args = whisperArgs(p.tiny, p.vad, port);
+  const plan = engineSpawnPlan(p.whisperExe, form === 'ng' ? noGpuArgs(args) : args, { whisper: true });
   if (plan.problem) return ng(name, `engineSpawnPlan が起動を止めた: ${plan.problem}`);
-  log(`whisper 起動: ${p.whisperExe} ${plan.args.join(' ')}（作業フォルダ: ${plan.cwd}）`);
+  log(`whisper 起動（${label}）: ${p.whisperExe} ${plan.args.join(' ')}（作業フォルダ: ${plan.cwd}）`);
   const child = startChild(p.whisperExe, plan.args, plan.cwd);
+  const res = { health: '来ない', inference: '来ない' };
   try {
-    const h = await waitHealth(PORT.whisper, child, 60000);
+    const h = await waitHealth(port, child, 60000);
     if (!h.ok) return ng(name, healthText(h));
-    const inf = await inference(PORT.whisper);   // ここで VAD のモデルが読まれる
+    res.health = '200';
+    const inf = await inference(port);   // ここで VAD のモデルが読まれる
     if (!inf.ok) return ng(name, inf.why);
-    const vj = await inference(PORT.whisper, 'verbose_json');   // 0.12.0 SP-3b: 文ごとの時刻の答えの形
-    return vj.ok ? ok(name, `/health が 200・${inf.why}・verbose_json: ${vj.why}`) : ng(name, `verbose_json: ${vj.why}`);
+    res.inference = '200';
+    const vj = await inference(port, 'verbose_json');   // 0.12.0 SP-3b: 文ごとの時刻の答えの形
+    if (!vj.ok) return ng(name, `verbose_json: ${vj.why}`);
+    // 0.15.1 GV-3（F165）: 見分けの答えと use gpu の値（GPU の形は none か gpu で 1、-ng の形は 0）
+    const lines = child.all().split(/\r?\n/);
+    const g = gpuLogState(lines);
+    const useGpu = ((lines.find((l) => l.includes('use gpu    = ')) || '').match(/use gpu {4}= (\d+)/) || [])[1] || 'なし';
+    log(`形の結果: ${label}・見分け ${g.state}${g.device ? `（${g.device}）` : ''}・use gpu ${useGpu}・/health ${res.health}・無音の /inference ${res.inference}`);
+    if (form === 'gpu' && !['none', 'gpu'].includes(g.state)) return ng(name, `GPU の形の見分けが ${g.state}（none か gpu でない）`);
+    if (useGpu !== (form === 'ng' ? '0' : '1')) return ng(name, `use gpu の値が ${useGpu}（${form === 'ng' ? '0' : '1'} でない）`);
+    return ok(name, `/health が 200・${inf.why}・verbose_json: ${vj.why}・見分け ${g.state}・use gpu ${useGpu}`);
   } catch (e) {
     return ng(name, errText(e));
   } finally {
-    await stopChild('whisper', child);
+    await stopChild(`whisper（${label}）`, child);
   }
+}
+
+// 0.15.1 GV-3（F165・VR16）: 置いた組の DLL のバイトの中に、見分けの書式の字（mainlib.GPU_LOG_MARKS.formats。計画の G15）がそろっているか
+async function smokeGpuMarks(p) {
+  const name = '書式の字（GPU_LOG_MARKS）';
+  const dir = path.dirname(p.whisperExe);
+  const seen = [];
+  for (const [dll, fmts] of Object.entries(GPU_LOG_MARKS.formats)) {
+    let buf;
+    try { buf = fs.readFileSync(path.join(dir, dll)); } catch (e) { return ng(name, `${dll} を読めない ${errText(e)}`); }
+    const missing = fmts.filter((f) => !buf.includes(Buffer.from(f, 'latin1')));
+    if (missing.length) return ng(name, `${dll} に ${missing.map((f) => JSON.stringify(f)).join('・')} が無い`);
+    seen.push(`${dll} ${fmts.length} つ`);
+  }
+  return ok(name, `${seen.join('・')}の書式の字が DLL の中にある`);
 }
 
 // 負の確かめ: 同じ whisper を、-m を英数字以外の絶対パスのままで起動する（アプリの相対化を通さない）。
@@ -413,12 +450,14 @@ async function start() {
     rs.push(report(ng('置き場所', errText(e))));
     return rs;
   }
+  rs.push(report(await smokeGpuMarks(placed)));   // 0.15.1 GV-3
   if (process.platform !== 'win32') {
     rs.push(report(ng('起動', 'エンジンの起動は Windows でだけ試す（ほかの OS では落としたエンジンを実行しない）')));
     return rs;
   }
-  const relative = report(await smokeWhisper(placed));
+  const relative = report(await smokeWhisper(placed, 'gpu'));
   rs.push(relative);
+  rs.push(report(await smokeWhisper(placed, 'ng')));   // 0.15.1 GV-3: -ng の形
   rs.push(report(await smokeWhisperAbsolute(placed, relative.ok)));
   return rs;
 }
@@ -445,4 +484,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { checkPin, resumeCheck, watchRequests, placeZip, smokeWhisper, smokeWhisperAbsolute, SMALL, PORT, main };
+module.exports = { checkPin, resumeCheck, watchRequests, placeZip, smokeWhisper, smokeWhisperAbsolute, smokeGpuMarks, SMALL, PORT, main };

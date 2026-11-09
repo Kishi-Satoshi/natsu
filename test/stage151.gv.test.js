@@ -540,3 +540,14 @@ test('GV-2・F172: 記録の新しい行（「文字起こしの計算:」）に
   }
   assert.strictEqual(calc(await scene('gpu')).length, 1, '会議の区間 5 で行は1つ');
 });
+
+// ---------------------------------------------------------------- GV-3（engine-smoke は Windows の CI でだけ回る。ここでは確かめる中身を文字で固定する）
+test('GV-3・F165: engine-smoke は GPU の形と -ng の形の両方で起こし、見分けの答え・use gpu の値・DLL の中の書式の字（GPU_LOG_MARKS）を見る', () => {
+  const s = fs.readFileSync(path.join(__dirname, '..', 'tools', 'engine-smoke.js'), 'utf8');
+  const st = s.slice(s.indexOf('async function start()'));
+  const body = st.slice(0, st.indexOf('\n}'));
+  assert.ok(/rs\.push\(report\(await smokeGpuMarks\(/.test(body), 'start() で DLL の中の書式の字を見ていない');
+  assert.ok(/await smokeWhisper\(placed, 'gpu'\)/.test(body) && /await smokeWhisper\(placed, 'ng'\)/.test(body), 'start() で2つの形を起こしていない');
+  assert.ok(s.includes('GPU_LOG_MARKS.formats') && s.includes('gpuLogState(') && s.includes('noGpuArgs('), '見分け・書式・-ng をアプリの部品で作っていない');
+  assert.ok(s.includes("['none', 'gpu'].includes(") && s.includes("use gpu    = "), '見分けの答えと use gpu の値を見ていない');
+});
