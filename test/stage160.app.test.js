@@ -1086,8 +1086,8 @@ test('DV-3: ビューのタブの［＋］（表・リスト・名前）→ view
     t2().dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(40);
     await clickEl(l, item(l, 'リンクを写す'));
     const copied = l.called('copy').map((c) => c.args[0]);
-    const date = l.call('page.get', { id: l.id }).page.date;
-    assert.deepStrictEqual(copied, [`NaTsu の議事録「無題」（${date}）https://example.invalid/open#p=${l.id}&a=v:${v2}`]);
+    // R87（2026-11-09 の持ち主の答え）で意図して直した: データベースのビューは「NaTsu の「題名」 住所」（議事録と書かない・日付なし）
+    assert.deepStrictEqual(copied, [`NaTsu の「無題のデータベース」 https://example.invalid/open#p=${l.id}&a=v:${v2}`]);
     assert.strictEqual($(l, 'toast').textContent, 'リンクを写しました。');
     // 削除: 確かめ（断れば消さない）
     const asked = [];
@@ -1739,6 +1739,36 @@ test('DV-2 直し（2026-11-08 の持ち主の答え）: ユーザーの候補�
   try {
     await clickEl(l, cellOf(l, l.rows[1], l.c9), 80);
     assert.deepStrictEqual(l.called('pagesActionView').map((c) => c.args), [[{ q: '', assignee: '', noPrivate: true }]]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ================================================================ R87（2026-11-09 の持ち主の答え「議事録のときだけ「議事録」と書き、ほかは「NaTsu の「題名」」にする（おすすめ）」）
+test('R87: 写すリンクの1行は、議事録だけ「NaTsu の議事録「題名」（日付）住所」、白紙のページ・データベース・行・ビューは「NaTsu の「題名」 住所」（無題はそれぞれの名前）', T, async () => {
+  const at = HTML.indexOf('  const REF_UNTITLED = ');
+  const end = HTML.indexOf('\n  }\n', HTML.indexOf('  function pageRefLine(', at)) + 4;
+  const ref = new Function(`${HTML.slice(at, end)}\nreturn pageRefLine;`)();   // eslint-disable-line no-new-func
+  const B = 'https://example.invalid/open#p=';
+  // 利用者が付け直した題名（D77。1行に寄せるかだけを見る）
+  assert.strictEqual(ref({ id: 'pm1', title: '週次\n定例', date: '2026-10-20' }, B), `NaTsu の議事録「週次 定例」（2026-10-20）${B}pm1`);
+  assert.strictEqual(ref({ id: 'pm1', title: '', date: '2026-10-20' }, B), `NaTsu の議事録「無題」（2026-10-20）${B}pm1`);
+  // 白紙のページの題名（D77 の会議の題名でない）
+  assert.strictEqual(ref({ id: 'pb1', kind: 'blank', title: '資料', date: '2026-10-20' }, B), `NaTsu の「資料」 ${B}pb1`);
+  // 白紙のページの題名（D77 の会議の題名でない）
+  assert.strictEqual(ref({ id: 'pb1', kind: 'blank', title: ' ' }, B), `NaTsu の「無題のページ」 ${B}pb1`);
+  assert.strictEqual(ref({ id: 'pd1', kind: 'database', title: '' }, B), `NaTsu の「無題のデータベース」 ${B}pd1`);
+  assert.strictEqual(ref({ id: 'r1', kind: 'row', title: '' }, B), `NaTsu の「無題のページ」 ${B}r1`);
+  // 画面: データベースのページの「···」の［リンクを写す］・選んだ行の［リンクを写す］
+  const l = await openDb();
+  try {
+    // データベースの題名（D77 の会議の題名でない）
+    l.call('page.setTitle', { id: l.id, title: '案件' });
+    l.fire('onPageOpen', l.id); await l.drain(80);
+    $(l, 'pMore').click(); await l.drain(20);
+    await clickEl(l, $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === 'リンクを写す'));
+    const ck = dataRows(l)[1].querySelector('.dbcheck'); ck.checked = true; ck.dispatchEvent({ type: 'change' }); await l.drain(20);
+    await clickEl(l, box(l).querySelector('.dbselbar').querySelectorAll('button').find((b) => b.textContent === 'リンクを写す'));
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]), [`NaTsu の「案件」 ${B}${l.id}`, `NaTsu の「発注」 ${B}${l.rows[1]}`]);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

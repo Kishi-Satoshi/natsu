@@ -5814,7 +5814,12 @@
     return said ? 'none' : 'empty';
   }
   let mainMaking = new Set();   // main が今作っている要約のページ（summary:running）
+  // 0.16.0（2026-11-09 の持ち主の答え「議事録のときだけ「議事録」と書き、ほかは「NaTsu の「題名」」にする（おすすめ）」・R87）: 議事録でないページ
+  // （白紙のページ・データベース・データベースの行。ビューのリンクもこの1行に &a=v:… を足す）は「NaTsu の「題名」 住所」（日付なし。無題はそのページの無題の名前）
+  const REF_UNTITLED = Object.freeze({ blank: '無題のページ', database: '無題のデータベース', row: '無題のページ' });
   function pageRefLine(page, base) {
+    const kind = page && typeof page.kind === 'string' && Object.hasOwn(REF_UNTITLED, page.kind) ? page.kind : '';
+    if (kind) return `NaTsu の「${String(page.title || '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim() || REF_UNTITLED[kind]}」 ${base}${page.id}`;
     const title = String((page && page.title) || '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim() || '無題';
     return `NaTsu の議事録「${title}」（${String((page && page.date) || '')}）${base}${page.id}`;
   }
@@ -10233,7 +10238,7 @@
     const base = await linkBaseNow();
     if (!base) { toast('リンクを写せませんでした。'); return; }
     const lines = [...st.checked].map((id) => st.known.get(id)).filter(Boolean)
-      .map((row) => pageRefLine({ id: row.id, title: row.title, date: String(row.createdAt || '').slice(0, 10) }, base));
+      .map((row) => pageRefLine({ id: row.id, title: row.title, kind: 'row' }, base));   // R87: データベースの行は「NaTsu の「題名」」
     if (!lines.length) return;
     await window.koeApp.copy(lines.join('\n')); toast('リンクを写しました。');
   }
