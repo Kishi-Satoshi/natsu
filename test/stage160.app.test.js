@@ -2730,3 +2730,57 @@ test('DX-1・決めたこと 45: 起動のときに戻した行のページの�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- 0.16.0 DX-2（決めたこと 44・46・R98 (1)・R102）
+const palType = async (l, q) => { $(l, 'searchBox').value = q; $(l, 'searchBox').dispatchEvent({ type: 'input' }); await l.clock.advance(300); await l.drain(120); };   // 打つと 220 ミリ秒後に探す（偽の時計）
+const palItems = (l) => $(l, 'palList').querySelectorAll('.pitem');
+
+test('DX-2・決めたこと 46: 検索の窓に行の当たりが「📄 題名」・2行目「場所: 🗃️ データベース名 ・ 日付」と抜き出しで出て、押すと行のページを今のタブで開く。ゴミ箱の行は出ない', T, async () => {
+  const l = await openDb({ before: (call, d) => { call('page.setTitle', { id: d.id, title: '案件' }); call('rows.trash', { db: d.id, ids: [d.rows[2]] }); } });   // データベースの題名（D77 の会議の題名でない）
+  try {
+    l.fire('onPagesUpdated'); await l.drain(120);
+    $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+    await palType(l, 'メモ');
+    const date = l.call('pages.list', { q: 'メモ 0' }).find((e) => e.id === l.rows[0]).date;
+    assert.match(date, /^\d{4}-\d{2}-\d{2}$/);
+    const got = palItems(l).map((e) => [e.dataset.pid, e.querySelector('.pi').textContent, e.querySelector('.t').textContent, e.querySelector('.m').textContent, (e.querySelector('.snip') || {}).textContent]);
+    assert.deepStrictEqual(got, [[l.rows[0], '📄', '見積もり', `場所: 🗃️ 案件 ・ ${date}`, 'メモ 0'], [l.rows[1], '📄', '発注', `場所: 🗃️ 案件 ・ ${date}`, 'メモ 1']], 'ゴミ箱の行が出るか、行の当たりの形が違う');
+    // データベースのページそのものは題名で当たり、2行目は日付だけ（長さ・要約なしを出さない）
+    await palType(l, '案件');
+    const dbDate = l.call('pages.list', {}).find((e) => e.id === l.id).date;
+    assert.deepStrictEqual(palItems(l).map((e) => [e.dataset.pid, e.querySelector('.pi').textContent, e.querySelector('.m').textContent]), [[l.id, '🗃️', dbDate]], 'データベースの2行目が日付だけでない');
+    await palType(l, 'メモ');
+    await clickEl(l, palItems(l)[1], 200);
+    assert.strictEqual(tabOnKey(l), `page:${l.rows[1]}`, '行のページを開かない');
+    assert.strictEqual($(l, 'pTitle').textContent, '発注');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DX-2・決めたこと 44・R98 (1): 行をゴミ箱へ入れると［ゴミ箱］の窓に「行 題名（データベース名）」・まとめて消した行は1つのまとまり（「ほかの行 n」）。［戻す］で元の並びに戻り、開いている表も描き直す。データベースを消して戻すと行も見える', T, async () => {
+  const l = await openDb({ titles: ['見積もり', '発注', '検収', '請求'], before: (call, d) => { call('page.setTitle', { id: d.id, title: '案件' }); } });   // データベースの行の題名（D77 の会議の題名でない）
+  try {
+    const [r0, r1, r2] = l.rows;
+    l.call('rows.trash', { db: l.id, ids: [r0, r1] });
+    l.call('rows.trash', { db: l.id, ids: [r2] });
+    l.fire('onPagesUpdated'); await l.drain(200);
+    await l.K.pagesTrash(); l.fire('onPagesUpdated'); await l.drain(120);
+    assert.strictEqual($(l, 'tabBtnTrash').hidden, false, '［ゴミ箱］が出ない');
+    assert.deepStrictEqual(dataRows(l).map((r) => r.dataset.id), [l.rows[3]]);
+    await clickEl(l, $(l, 'tabBtnTrash'), 80);
+    const rowsOfTrash = () => $(l, 'trashList').querySelectorAll('.tprow').map((e) => [e.dataset.pid, e.querySelector('.tpt').textContent, e.querySelector('.tpm').textContent.replace(/^[^・]*/, ''), e.querySelector('button').getAttribute('aria-label')]);
+    assert.deepStrictEqual(rowsOfTrash(), [[r2, '行 検収（案件）', '', '『検収』を戻す'], [r0, '行 見積もり（案件）', '・ほかの行 1', '『見積もり』を戻す']], '行のまとまりの形が違う');
+    await clickEl(l, $(l, 'trashList').querySelectorAll('.tprow')[1].querySelector('button'), 300);
+    assert.deepStrictEqual(l.called('pageRestore').map((c) => c.args), [[r0]]);
+    assert.deepStrictEqual(dataRows(l).map((r) => r.dataset.id), [r0, r1, l.rows[3]], '戻した行が元の並びで表に出ない');
+    assert.deepStrictEqual(rowsOfTrash().map((x) => x[0]), [r2]);
+    // データベースを消して戻すと、行（ゴミ箱に入れていない行）も見える
+    l.window.confirm = () => true;
+    await l.K.pageDelete(l.id); l.fire('onPagesUpdated'); await l.drain(200);
+    assert.deepStrictEqual(rowsOfTrash().map((x) => x[0]), [l.id], 'ゴミ箱のデータベースの行が窓に出る');
+    await clickEl(l, $(l, 'trashList').querySelectorAll('.tprow')[0].querySelector('button'), 300);
+    l.fire('onPageOpen', l.id); await l.drain(200);
+    assert.deepStrictEqual(dataRows(l).map((r) => r.dataset.id), [r0, r1, l.rows[3]], 'データベースを戻しても行が見えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

@@ -96,6 +96,9 @@ const HOT_QUERIES = Object.freeze({
   dbAllRows: "select id, attrs, trashed_at from blocks where type = 'row' and parent_id = ?",
   dbOrds: "select id, ord from blocks where type = 'row' and parent_id = ?",
   dbRowCount: "select count(*) as c from blocks where type = 'row' and parent_id = ? and trashed_at is null",
+  // 0.16.0 DX-2（決めたこと 44）: ゴミ箱の行（［ゴミ箱］の窓のまとまり）と、1つのまとまり（同じデータベース・同じ時刻）の行
+  trashedRows: "select id, parent_id, ord, text, trashed_at from blocks where type = 'row' and trashed_at is not null",
+  trashedRowsAt: "select id, trashed_at from blocks where type = 'row' and parent_id = ? and trashed_at = ? order by ord, id",
   dbLastOrd: "select max(ord) as m from blocks where type = 'row' and parent_id = ?",
   dbRow: 'select id, type, parent_id, ord, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
   pageBlocks: 'select id, type, text, rich, attrs, ord, parent_id from blocks where page_id = ? and id <> ? order by ord',
@@ -341,7 +344,27 @@ function searchView(db) {
   return {
     ids: rows.map((r) => r.id),
     entryOf: (id) => (byId.has(id) ? entryFor(db, cache, byId.get(id)) : null),
+    rowsOf: (cands) => rowHits(db, rows, cands),   // 0.16.0 DX-2（決めたこと 46）
   };
+}
+// 0.16.0 DX-2（決めたこと 46・R102）: 検索に当たった行（一覧の外の ID）のうち、生きている行（ゴミ箱でない行で、データベースもゴミ箱でなく見える所）を
+// 一覧の1行の形 { id, title, kind: 'row', db, dbTitle, date } にする。並びはデータベースの一覧の並び・行の並びの鍵の順。texts は抜き出しに使うセルの文字
+function rowHits(db, rows, cands) {
+  if (!cands.length) return [];
+  const scope = rowScope(db, rows);
+  const at = new Map(rows.map((r, i) => [r.id, i]));
+  const out = [];
+  for (const id of cands) {
+    const info = scope.row(id);
+    if (!info || !info.live) continue;
+    const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+    const d = dbOf(db, info.db);
+    const v = rowView(r);
+    out.push({ id, at: at.has(info.db) ? at.get(info.db) : rows.length, ord: r.ord, texts: DM.foldCells(d ? d.cols : [], v.cells).split('\n'),
+      entry: { id, title: r.text, kind: 'row', db: info.db, dbTitle: info.dbTitle, date: localDate(new Date(r.created_at)) } });
+  }
+  out.sort((x, y) => x.at - y.at || cmpStr(x.ord, y.ord));
+  return out;
 }
 
 // 一覧の1行（0.10.0 R-2: MCP の読み手が絞った行だけを1行にする。覚えは接続ごとなので、呼び出しごとに開く読み手では空から）
@@ -1114,6 +1137,7 @@ function pageRestore(db, a, ctx) {
   const rows = pageRowsOf(db);
   const tree = PT.pageTree(rows);
   const me = tree.byId.get(a.id);
+  if (!me && isRowId(db, a.id)) return rowsRestore(db, a, ctx, rows);   // 0.16.0 DX-2（決めたこと 44）: ゴミ箱の［戻す］の行
   if (!me) throw refuse('bad-args');
   if (isLive(me.attrs)) throw refuse('bad-args');   // PH-2 直し（R17）: 録音中の写しはゴミ箱から戻さない（写しの正本は録音のメモリと下書き）
   if (me.trashedAt === null) return { ops: [], pageIds: [], result: listPages(db) };   // ゴミ箱に無い（ほかの窓で戻した）
@@ -1145,6 +1169,22 @@ function pageRestore(db, a, ctx) {
   return { ops, pageIds: body ? [a.id, me.parentId] : [a.id], result: listPages(db) };
 }
 
+// 0.16.0 DX-2（決めたこと 44・R98 (1)・R102）: 行のまとまり（同じデータベース・同じ時刻に消した行）を、元の並びの鍵のまま戻す（1つの命令・oplog の1行。
+// 元に戻すの歩みにはしない: ページの［戻す］と同じ）。データベースがゴミ箱・見えない所なら bad-args・戻すと 10,000 行を越えるなら too-big（決めたこと 7）
+function rowsRestore(db, a, ctx, rows) {
+  const r = db.prepare(HOT_QUERIES.dbRow).get(a.id);
+  const d = dbOf(db, r.parent_id);
+  const up = d ? rowScope(db, rows).page(d.id) : null;
+  if (!d || (up && !up.live)) throw refuse('bad-args');
+  if (r.trashed_at === null || r.trashed_at === undefined) return { ops: [], pageIds: [], result: listPages(db) };   // ゴミ箱に無い（ほかの窓で戻した）
+  const group = db.prepare(HOT_QUERIES.trashedRowsAt).all(d.id, r.trashed_at);
+  if (db.prepare(HOT_QUERIES.dbRowCount).get(d.id).c + group.length > LIMITS.dbRows) throw refuse('too-big');
+  const at = ctx.now().toISOString();
+  const ops = group.map((x) => ({ op: 'restore', id: x.id, at, old: x.trashed_at }));
+  applyOps(db, ops);
+  return { ops, pageIds: [d.id, ...group.map((x) => x.id)], result: listPages(db) };
+}
+
 // ゴミ箱の頭（一緒に消したまとまりの頭だけ。消した新しい順・200 まで: 決めたこと 32）→ [{ id, title, kind?, icon?, trashedAt, count }]
 const TRASH_MAX = 200;
 function trashHeads(db) {
@@ -1152,8 +1192,26 @@ function trashHeads(db) {
   const tree = PT.pageTree(rows);   // 木は1回だけ作る（R11）。親は木の親（壊れた輪の行は最上位: R14）
   const heads = rows.filter((r) => r.trashedAt !== null && !isLive(r.attrs))
     .filter((r) => { const up = tree.byId.get(tree.parent.get(r.id)); return !up || up.trashedAt !== r.trashedAt; });
-  heads.sort((x, y) => (x.trashedAt < y.trashedAt ? 1 : x.trashedAt > y.trashedAt ? -1 : 0));
-  return heads.slice(0, TRASH_MAX).map((r) => {
+  // 0.16.0 DX-2（決めたこと 44・R98 (1)・R102）: 行のまとまり（同じデータベース・同じ時刻に消した行。頭は並びの鍵の一番前）。データベースがゴミ箱・見えない所の行は出さない
+  const groups = new Map();
+  for (const r of db.prepare(HOT_QUERIES.trashedRows).all()) {
+    const k = `${r.parent_id}\u0001${r.trashed_at}`;
+    const g = groups.get(k);
+    if (!g) groups.set(k, { head: r, n: 1 });
+    else { g.n += 1; if (cmpStr(r.ord, g.head.ord) < 0 || (r.ord === g.head.ord && r.id < g.head.id)) g.head = r; }
+  }
+  const scope = groups.size ? rowScope(db, rows) : null;
+  const rowHeads = [];
+  for (const { head, n } of groups.values()) {
+    const d = tree.byId.get(head.parent_id);
+    const up = d ? scope.page(d.id) : null;
+    if (!d || d.trashedAt !== null || !isDbPage(d.attrs) || (up && !up.live)) continue;
+    rowHeads.push({ row: true, id: head.id, title: head.text, db: d.id, dbTitle: d.title, trashedAt: head.trashed_at, n });
+  }
+  const all = [...heads, ...rowHeads];
+  all.sort((x, y) => (x.trashedAt < y.trashedAt ? 1 : x.trashedAt > y.trashedAt ? -1 : 0));
+  return all.slice(0, TRASH_MAX).map((r) => {
+    if (r.row) return { id: r.id, title: r.title, kind: 'row', db: r.db, dbTitle: r.dbTitle, trashedAt: r.trashedAt, count: r.n - 1 };
     const out = { id: r.id, title: r.title };
     if (r.attrs.kind === 'blank') out.kind = 'blank';
     if (typeof r.attrs.icon === 'string' && r.attrs.icon) out.icon = r.attrs.icon;

@@ -5089,7 +5089,8 @@
   // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
   function rowTitle(p) {
     // PH-6・PH-7 直し（2026-11-04 の持ち主の答え「日付だけにする」・F116）: 白紙のページは日付だけ（長さ・要約なし・種類は会議の欄）
-    if (isBlankPage(p)) return String(p.date || '');
+    // 0.16.0 DX-2（R102）: データベースと、検索に当たったデータベースの行も日付だけ（長さ・要約なしは会議の欄）
+    if (isBlankPage(p) || isDbPage(p) || isRowPage(p)) return String(p.date || '');
     const parts = [String(p.date || ''), fmtDur(Number(p.durationSec) || 0)];
     if (!p.hasSummary) parts.push('要約なし');
     // 0.11.0 V-1（P12）: 種類は選べる鍵のときだけ（決まらなかった・前の版の一般・その他は出さない）
@@ -5744,7 +5745,7 @@
       el.className = 'pitem' + (p.id === curId ? ' sel' : '');
       const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p);   // 0.15.0 PL-3（決めたこと 33・38）: ページのアイコン
       const pb = document.createElement('div'); pb.className = 'pb';
-      const t = document.createElement('div'); t.className = 't'; t.textContent = p.title;
+      const t = document.createElement('div'); t.className = 't'; t.textContent = isRowPage(p) ? oneLine(p.title) || blankUntitled() : p.title;   // 0.16.0 DX-2: 無題の行は「無題のページ」
       const m = document.createElement('div'); m.className = 'm';
       // 2行目は灰色の文字だけ（赤い「要約なし」・青いタイプの札はやめた）。並びはサイドバーの行の title と同じ rowTitle
       // （要約なしはタイプより前＝左。1行に収まらない分は右端から切れる）
@@ -5752,6 +5753,8 @@
       // 0.15.0 PH-7（決めたこと 33・F122）: 子ページは「場所: 親 / 子 ・ 」を今の文の前に（最上位のページは今と同じ文）
       const place = searchPlace(p.id);
       if (place) s1.textContent = `場所: ${place} ・ ${s1.textContent}`;
+      // 0.16.0 DX-2（決めたこと 46）: データベースの行は「場所: 🗃️ データベース名 ・ 」（無題は「無題のデータベース」）
+      else if (isRowPage(p)) s1.textContent = `場所: 🗃️ ${oneLine(p.dbTitle) || '無題のデータベース'} ・ ${s1.textContent}`;
       m.appendChild(s1);
       pb.append(t, m);
       if (p.snippet) {
@@ -6300,11 +6303,12 @@
       row.className = 'tprow'; row.setAttribute('role', 'listitem'); row.dataset.pid = h.id;
       const body = document.createElement('div'); body.className = 'tpb';
       const t = document.createElement('div'); t.className = 'tpt';
-      const name = oneLine(h.title) || (isBlankPage(h) ? blankUntitled() : '(無題の議事録)');
-      t.textContent = `${pageEmoji(h)} ${name}`;
+      const isRow = isRowPage(h);   // 0.16.0 DX-2（決めたこと 44）: 行のまとまり（頭の行）
+      const name = oneLine(h.title) || (isBlankPage(h) || isRow ? blankUntitled() : '(無題の議事録)');
+      t.textContent = isRow ? `行 ${name}（${oneLine(h.dbTitle) || '無題のデータベース'}）` : `${pageEmoji(h)} ${name}`;
       const m = document.createElement('div'); m.className = 'tpm';
       const n = Number(h.count) || 0;
-      m.textContent = `${trashTime(h.trashedAt)}${n > 0 ? `・中のページ ${n}` : ''}`;
+      m.textContent = `${trashTime(h.trashedAt)}${n > 0 ? (isRow ? `・ほかの行 ${n}` : `・中のページ ${n}`) : ''}`;
       body.append(t, m);
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'ghost'; b.textContent = '戻す';
@@ -6342,6 +6346,15 @@
     if (bad) { toast(TRASH_BACK_BAD); return; }
     toast(TRASH_BACK);
     await refreshList();
+    if (isRowPage(h)) {
+      // 0.16.0 DX-2（決めたこと 44）: 行を戻したら、開いているそのデータベースの表を読み直す（行はサイドバーに無いので、木の行へは移らない）
+      const from = trashFrom;
+      if (dbSt && dbSt.id === h.db) await dbReread(dbSt);
+      await refreshTrash();
+      if (trashOn) renderTrash(i);
+      else focusAlive(from, $('tabBtnSettings'));   // 空になって窓を閉じたら、窓を開いた所へ
+      return;
+    }
     const parent = (pages.find((p) => p && p.id === h.id) || {}).parentId || '';
     // R38: 開いている白紙のページの子を戻したら、DB が同じ命令で本文に行を戻したので開き直して描く。R51: 満杯の本文なら行を置けず一度知らせる
     const fresh = Boolean(parent) && curId === parent && isBlankPage(curPage) ? await openPage(curId) : false;

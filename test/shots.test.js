@@ -235,7 +235,8 @@ const ADDED_150 = [...NEW_150, ...RETAKEN_150];
 const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light',
   'db-relation-light', 'db-subitems-light',   // 0.16.0 DR-1 で足した2枚（まだ基準が無い）
-  'sidebar-db-light'];   // 0.16.0 DX-1 で足した1枚（まだ基準が無い）
+  'sidebar-db-light',   // 0.16.0 DX-1 で足した1枚（まだ基準が無い）
+  'trash-pop-rows-light'];   // 0.16.0 DX-2 で足した1枚（まだ基準が無い）
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
 // DX-1 で Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増えるので new-pop-light（今の基準がある）を取り直す
 const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light'];
@@ -1196,7 +1197,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // ［中にデータベースを作る］・Ctrl+Shift+N の［🗃️ データベース］・データベースの削除の確かめ・戻した行のタブ。変わる画面は足した sidebar-db-light（NEW_160・RETAKE）と
   // new-pop-light（RETAKEN_160・RETAKE）。アイコンの選びの「物」に 🗃️ が1つ増えるが、icon-pop の2枚は窓の頭（最近使ったものと「顔」）を撮るので変わらない見込み。
   // 値を今の app.html に合わせた（前の値は 0b49b13a…）
-  assert.strictEqual(sha, 'ceb6d6a6101bf8bf00bfbb42685267cba1813c6505ddb6d4498762309376b24c',
+  // 0.16.0 DX-2（決めたこと 44・46・R102）: 検索の窓のデータベースの行の当たり（「場所: 🗃️ …」）とデータベースの2行目（日付だけ）・［ゴミ箱］の窓の行のまとまり（「行 題名（データベース名）」・
+  // 「ほかの行 n」）と［戻す］の後の表の読み直し。変わる画面は足した trash-pop-rows-light（NEW_160・RETAKE）。今の種の検索とゴミ箱の画面にデータベースは無いので変わらない。
+  // 値を今の app.html に合わせた（前の値は ceb6d6a6…）
+  assert.strictEqual(sha, '4b033cb54faeb6c47f878646b05fe18efb1acdcf4595bc651d82488e042625ab',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

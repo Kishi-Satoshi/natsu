@@ -125,7 +125,8 @@ test('DS-2・F135・RF17: 行が1万あっても、pages.list・listedRows・木
     ['slots', () => ok(call(db, 'pages.typeSlots', { since: '2000-01-01' }, 'main'), 'pages.typeSlots')],
     ['waits', () => ok(call(db, 'pages.summaryWaits', {}, 'main'), 'pages.summaryWaits')],
     ['actions', () => ok(call(db, 'pages.actionView', {}), 'pages.actionView')],
-    ['trash', () => ok(call(db, 'pages.trash', {}), 'pages.trash')],
+    // 0.16.0 DX-2（決めたこと 44）で意図して直した: ゴミ箱の行のまとまりは pages.trash に出る（kind: 'row'）ので、ページの頭だけを比べ、行は下で見る
+    ['trash', () => ok(call(db, 'pages.trash', {}), 'pages.trash').filter((h) => h.kind !== 'row')],
     ['mcp', () => tools.callTool('list_meetings', {}, { sqlite, dataDir: path.dirname(t.file), now: () => new Date('2026-11-07T00:00:00.000Z') }).text],
   ];
   const before = Object.fromEntries(READERS.map(([k, read]) => [k, read()]));
@@ -144,6 +145,7 @@ test('DS-2・F135・RF17: 行が1万あっても、pages.list・listedRows・木
     if (Array.isArray(before[k]) || typeof before[k] === 'string') assert.strictEqual(after[k].length, before[k].length, `${k} の数が行で変わった`);
     assert.deepStrictEqual(after[k], before[k], `${k} が行で変わった`);
   }
+  assert.deepStrictEqual(ok(call(db, 'pages.trash', {}), 'pages.trash').filter((h) => h.kind === 'row').map((h) => [h.id, h.count]), [['r5', 0]], 'ゴミ箱の行のまとまりが出ない');
   // サイドバーの木（一覧の行から作る）に行は出ない（前の版の描き方も同じ一覧を読む: RF17）
   const tree = PT.pageTree(after.list);
   assert.ok(!tree.byId.has('r0') && !(tree.kids.get('pdb') || []).length, '木に行が出た');
@@ -1565,3 +1567,103 @@ test('DR-1: preload の呼び口（relLink・relUnlink・dbSetSub・relFind・co
   ]);
   for (const m of port.sent) if (['rel.find', 'db.view'].includes(m.cmd)) assert.strictEqual(m.tx, undefined, m.cmd); else assert.match(m.tx, /^a:/, m.cmd);
 });
+
+// ---------------------------------------------------------------- 0.16.0 DX-2（決めたこと 44・46・R98 (1)・R102）
+const ld = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+// 案件（テキスト・ステータスの列）と行 4 つ（r3 は本文に1行）、ゴミ箱のデータベース（行 1 つ）
+function dx2Seed(db) {
+  const d = ok(call(db, 'db.create', {}), 'db.create').id;
+  ok(call(db, 'page.setTitle', { id: d, title: '案件' }), 'setTitle');   // データベースと行の題名（D77 の会議の題名でない）
+  const memo = ok(call(db, 'col.add', { db: d, type: 'text', name: 'メモ' }), 'col.add').col.id;
+  const st = ok(call(db, 'col.add', { db: d, type: 'status', name: '状態' }), 'col.add').col;
+  const doing = st.opts.find((o) => o.name === '進行中').id;
+  // データベースの行の題名（D77 の会議の題名でない）
+  const r1 = ok(call(db, 'row.add', { db: d, title: '見積もりの作成', cells: { [memo]: '倉庫の鍵を確かめる' } }), 'row.add').id;   // データベースと行の題名（D77 の会議の題名でない）
+  const r2 = ok(call(db, 'row.add', { db: d, title: '発注', cells: { [st.id]: doing } }), 'row.add').id;   // データベースと行の題名（D77 の会議の題名でない）
+  const r3 = ok(call(db, 'row.add', { db: d, title: '検収' }), 'row.add').id;   // データベースと行の題名（D77 の会議の題名でない）
+  const r4 = ok(call(db, 'row.add', { db: d, title: '見積もりの返事' }), 'row.add').id;   // データベースと行の題名（D77 の会議の題名でない）
+  const b = ok(call(db, 'block.insert', { pageId: r3, afterBlockId: '', type: 'paragraph' }), 'block.insert').blockId;
+  ok(call(db, 'block.update', { pageId: r3, blockId: b, patch: { text: '納品書の控えを箱にしまう' } }), 'block.update');
+  at(); ok(call(db, 'rows.trash', { db: d, ids: [r4] }), 'rows.trash');   // 消した時刻はまとまりの印なので、命令ごとに時計を進める
+  const g = ok(call(db, 'db.create', {}), 'db.create').id;
+  ok(call(db, 'page.setTitle', { id: g, title: '古い案件' }), 'setTitle');   // データベースと行の題名（D77 の会議の題名でない）
+  const r5 = ok(call(db, 'row.add', { db: g, title: '見積もりの古い行' }), 'row.add').id;   // データベースと行の題名（D77 の会議の題名でない）
+  ok(call(db, 'page.delete', { id: g }), 'page.delete');
+  return { d, g, r1, r2, r3, r4, r5, memo, st };
+}
+
+test('DX-2・決めたこと 46: pages.list の q に行の題名・テキストのセル・選択肢の名前・行の本文の当たりが kind: row の行で出る（db・dbTitle・date。ページの当たりの後ろ・データベースの並びと行の並びの順）。ゴミ箱の行・ゴミ箱のデータベースの行・空の q の一覧には出ない', T, () => withDb((db) => {
+  const s = dx2Seed(db);
+  const list = (q) => ok(call(db, 'pages.list', { q }), 'pages.list');
+  const rowsIn = (q) => list(q).filter((e) => e.kind === 'row');
+  const r1 = db.prepare('select created_at from blocks where id = ?').get(s.r1).created_at;
+  assert.deepStrictEqual(rowsIn('見積もり'), [{ id: s.r1, title: '見積もりの作成', kind: 'row', db: s.d, dbTitle: '案件', date: ld(r1) }], '題名の当たりの行が違うか、ゴミ箱の行・ゴミ箱のデータベースの行が出る');   // データベースと行の題名（D77 の会議の題名でない）
+  assert.deepStrictEqual(rowsIn('倉庫の鍵').map((e) => [e.id, e.snippet]), [[s.r1, '倉庫の鍵を確かめる']], 'テキストのセルの当たりの抜き出しが違う');
+  assert.deepStrictEqual(rowsIn('進行中').map((e) => [e.id, e.snippet]), [[s.r2, '進行中']], '選択肢の名前で当たらない');
+  assert.deepStrictEqual(rowsIn('納品書の控え').map((e) => [e.id, e.snippet]), [[s.r3, '納品書の控えを箱にしまう']], '行の本文で当たらない');
+  assert.deepStrictEqual(rowsIn('箱').map((e) => e.id), [s.r3], '1字の語（LIKE の道）で行の本文に当たらない');
+  // データベースのページそのものは題名で当たる（今のページと同じ・行より前）
+  assert.deepStrictEqual(list('案件').map((e) => [e.id, e.kind]), [[s.d, 'database']]);
+  // 空の問い（サイドバーの一覧）には行が出ない
+  assert.ok(!list('').some((e) => e.kind === 'row'), '一覧に行が出る');
+  // 並び: ページの当たりの後ろに、データベースの並び（一覧の順）・行の並びの鍵の順
+  ok(call(db, 'block.insert', { pageId: s.r2, afterBlockId: '', type: 'paragraph' }), 'block.insert');
+  const b2 = ok(call(db, 'page.get', { id: s.r2 }), 'page.get').page.blocks[0].id;
+  ok(call(db, 'block.update', { pageId: s.r2, blockId: b2, patch: { text: '見積もりを待つ' } }), 'block.update');
+  assert.deepStrictEqual(rowsIn('見積もり').map((e) => e.id), [s.r1, s.r2], '行の並びの鍵の順でない');
+  // 行をゴミ箱へ入れると出ない・データベースを戻すと、その行が出る
+  ok(call(db, 'rows.trash', { db: s.d, ids: [s.r1] }), 'rows.trash');
+  assert.deepStrictEqual(rowsIn('見積もり').map((e) => e.id), [s.r2]);
+  ok(call(db, 'page.restore', { id: s.g }), 'page.restore');
+  assert.deepStrictEqual(rowsIn('見積もり').map((e) => e.id), [s.r2, s.r5].sort((a, b) => list('').findIndex((x) => x.id === (a === s.r2 ? s.d : s.g)) - list('').findIndex((x) => x.id === (b === s.r2 ? s.d : s.g))), 'データベースを戻しても行が出ない');
+}));
+
+test('DX-2・決めたこと 44・R98 (1): pages.trash に行のまとまり（同じデータベース・同じ時刻。頭は並びの鍵の一番前）が kind: row で出る（db・dbTitle・count はほかの行の数）。page.restore に行の ID で、そのまとまりだけを元の並びの鍵のまま戻す（oplog の1行）。ゴミ箱のデータベースの行は出ず、戻せない', T, () => withDb((db) => {
+  const s = dx2Seed(db);
+  at(); ok(call(db, 'rows.trash', { db: s.d, ids: [s.r2, s.r1] }), 'rows.trash');
+  at(); ok(call(db, 'rows.trash', { db: s.d, ids: [s.r3] }), 'rows.trash');
+  const heads = () => ok(call(db, 'pages.trash', {}), 'pages.trash');
+  const rowHeads = () => heads().filter((h) => h.kind === 'row').map((h) => [h.id, h.title, h.db, h.dbTitle, h.count]);
+  assert.deepStrictEqual(rowHeads(), [[s.r3, '検収', s.d, '案件', 0], [s.r1, '見積もりの作成', s.d, '案件', 1], [s.r4, '見積もりの返事', s.d, '案件', 0]], '行のまとまりが違う（ゴミ箱のデータベースの行が出るか）');
+  assert.ok(heads().some((h) => h.id === s.g && h.kind !== 'row'), 'ゴミ箱のデータベースが出ない');
+  const all = heads().map((h) => h.trashedAt);
+  assert.deepStrictEqual(all, [...all].sort().reverse(), '消した新しい順でない');
+  const ord = (id) => ({ ...db.prepare('select ord, trashed_at from blocks where id = ?').get(id) });
+  const before = [ord(s.r1).ord, ord(s.r2).ord];
+  const n0 = db.prepare('select count(*) as c from oplog').get().c;
+  ok(call(db, 'page.restore', { id: s.r1 }), 'page.restore');
+  assert.strictEqual(db.prepare('select count(*) as c from oplog').get().c - n0, 1, 'oplog の1行でない');
+  assert.deepStrictEqual([ord(s.r1), ord(s.r2)], [{ ord: before[0], trashed_at: null }, { ord: before[1], trashed_at: null }], 'まとまりが元の鍵のまま戻らない');
+  assert.ok(ord(s.r3).trashed_at && ord(s.r4).trashed_at, 'ほかのまとまりも戻した');
+  assert.deepStrictEqual(rowHeads().map((h) => h[0]), [s.r3, s.r4]);
+  const view = ok(call(db, 'db.view', { id: s.d, viewId: 'v1', from: 0, count: 50 }), 'db.view');
+  assert.deepStrictEqual(view.rows.map((r) => r.id), [s.r1, s.r2], '表に戻らない');
+  // ゴミ箱のデータベースの行: 窓に出ず、戻せない
+  const t2 = ok(call(db, 'row.add', { db: s.d, title: '片付け' }), 'row.add').id;   // データベースの行の題名（D77 の会議の題名でない）
+  at(); ok(call(db, 'rows.trash', { db: s.d, ids: [t2] }), 'rows.trash');
+  at(); ok(call(db, 'page.delete', { id: s.d }), 'page.delete');
+  assert.deepStrictEqual(rowHeads(), [], 'ゴミ箱のデータベースの行が出る');
+  assert.strictEqual(call(db, 'page.restore', { id: t2 }).code, 'bad-args', 'ゴミ箱のデータベースの行を戻せた');
+  // データベースを戻すと、ゴミ箱に入れていなかった行が見える（消した行はゴミ箱のまま）
+  ok(call(db, 'page.restore', { id: s.d }), 'page.restore');
+  assert.deepStrictEqual(ok(call(db, 'db.view', { id: s.d, viewId: 'v1', from: 0, count: 50 }), 'db.view').rows.map((r) => r.id), [s.r1, s.r2]);
+  assert.deepStrictEqual(rowHeads().map((h) => h[0]), [t2, s.r3, s.r4]);
+  // 無い行・生きている行は bad-args か何もしない
+  assert.strictEqual(call(db, 'page.restore', { id: 'rnothere1' }).code, 'bad-args');
+  const n1 = db.prepare('select count(*) as c from oplog').get().c;
+  ok(call(db, 'page.restore', { id: s.r1 }), 'page.restore');
+  assert.strictEqual(ord(s.r1).trashed_at, null);
+  assert.ok(db.prepare('select count(*) as c from oplog').get().c - n1 <= 1);
+}));
+
+test('DX-2・決めたこと 7: 行を戻すと 10,000 行を越えるまとまりは戻さない（too-big）', T, () => withDb((db) => {
+  const d = ok(call(db, 'db.create', {}), 'db.create').id;
+  // データベースの行の題名（D77 の会議の題名でない）
+  const a = ok(call(db, 'row.add', { db: d, title: '戻す行' }), 'row.add').id;   // データベースと行の題名（D77 の会議の題名でない）
+  ok(call(db, 'rows.trash', { db: d, ids: [a] }), 'rows.trash');
+  const list = [];
+  for (let i = 0; i < 10000; i += 1) list.push({ op: 'add', id: `rz${i}`, row: ops.rowBlock({ id: `rz${i}`, db: d, ord: `z${String(i).padStart(5, '0')}`, title: `行 ${i}`, cells: {}, by: { c: 'me', u: 'me' }, no: 10 + i, at: at() }) });   // データベースの行の題名（D77 の会議の題名でない）
+  put(db, list);
+  assert.strictEqual(call(db, 'page.restore', { id: a }).code, 'too-big', '1万1行目を戻した');
+  assert.ok(db.prepare('select trashed_at from blocks where id = ?').get(a).trashed_at, '戻した');
+}));

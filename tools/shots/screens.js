@@ -117,6 +117,16 @@ const OPEN_SIDE_DB = `(async () => {
   if (!m || [...m.querySelectorAll('.mitem')].map((b) => b.textContent).join('|') !== '移動先…|新しいタブで開く|削除') throw new Error('データベースの行のメニューが違う');
   return 1;
 })()`;
+// 0.16.0 DX-2: OPEN_TRASH と同じに［ゴミ箱］を開き、本物の Chromium で行のまとまりの2行の文を確かめる（違えば投げて「撮れない」）
+const OPEN_TRASH_ROWS = `(async () => {
+  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('tabBtnTrash').click();
+  await new Promise((r) => setTimeout(r, 100));
+  const t = [...document.querySelectorAll('#trashList .tprow')].map((e) => e.querySelector('.tpt').textContent + '|' + e.querySelector('.tpm').textContent.replace(/^[^・]*/, ''));
+  if (t[0] !== '行 見積もりの作成 3（案件の一覧）|・ほかの行 2' || t[1] !== '行 検収の段取り 9（案件の一覧）|') throw new Error('ゴミ箱の行のまとまりの文が違う: ' + t.join(' / '));
+  return 1;
+})()`;
 // 0.15.0 PH-6: 1行目のページを開いて、サイドバーの［🗑️ ゴミ箱］を押す
 const OPEN_TRASH = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -598,6 +608,8 @@ const SCREENS = [
   { name: 'db-subitems-light', page: 'app', theme: 'light', get answers() { return dbAnswers('sub'); }, act: OPEN_DB_SUB },
   // 0.16.0 DX-1: サイドバーのデータベース（🗃️ の行と、その行のメニュー。足した画面。まだ基準が無い）
   { name: 'sidebar-db-light', page: 'app', theme: 'light', get answers() { return sideDbAnswers(); }, act: OPEN_SIDE_DB },
+  // 0.16.0 DX-2: ［ゴミ箱］の窓の行のまとまり（「行 題名（データベース名）」・「ほかの行 n」。足した画面。まだ基準が無い）
+  { name: 'trash-pop-rows-light', page: 'app', theme: 'light', get answers() { return trashRowsAnswers(); }, act: OPEN_TRASH_ROWS },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -722,9 +734,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DV-4 で足した行のページ（列の値の並びと本文。まだ基準が無い）
 // DR-1 で足したリレーションとサブアイテムの2枚（まだ基準が無い）
 // DX-1 で足したサイドバーのデータベース（まだ基準が無い）と、Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増える new-pop-light（今の基準がある）
+// DX-2 で足した［ゴミ箱］の窓の行のまとまり（まだ基準が無い）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
-  'sidebar-db-light',
+  'sidebar-db-light', 'trash-pop-rows-light',
   'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -1036,6 +1049,15 @@ function trashAnswers() {
   return { 'koeApp.pagesTrash': [
     { id: 'pt1', title: '去年の計画', kind: 'blank', trashedAt: '2026-10-17T05:10:00.000Z', count: 3 },
     { id: 'pt2', title: lib.meetingTitleAt('2026-10-02T01:00:00.000Z', JST_MIN), trashedAt: '2026-10-16T08:30:00.000Z', count: 0 },
+  ] };
+}
+
+/** 0.16.0 DX-2: ゴミ箱の頭に行のまとまり（DB の pages.trash の形。行は kind 'row' と db・dbTitle・count はほかの行の数）と、白紙のページ・議事録 */
+function trashRowsAnswers() {
+  return { 'koeApp.pagesTrash': [
+    { id: 'rt1', title: '見積もりの作成 3', kind: 'row', db: 'pd1', dbTitle: '案件の一覧', trashedAt: '2026-10-17T06:20:00.000Z', count: 2 },
+    { id: 'rt4', title: '検収の段取り 9', kind: 'row', db: 'pd1', dbTitle: '案件の一覧', trashedAt: '2026-10-17T06:00:00.000Z', count: 0 },
+    ...trashAnswers()['koeApp.pagesTrash'],
   ] };
 }
 

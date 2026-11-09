@@ -71,7 +71,7 @@ function run(db, p, matchSql, likeSql) {
   return p.kind === 'match' ? db.prepare(matchSql).all(p.query) : db.prepare(likeSql).all(p.pattern);
 }
 
-function searchList(db, q, { ids, entryOf }) {
+function searchList(db, q, { ids, entryOf, rowsOf }) {
   const p = plan(q);
   if (!p) return ids.map(entryOf).filter(Boolean);   // 畳んで空の問いは全部（今の searchIndex と同じ）
   const f = fold(q);
@@ -95,6 +95,18 @@ function searchList(db, q, { ids, entryOf }) {
     const b = firstBlock.get(id);
     if (b) { out.push({ ...entry, snippet: R.snippetOf(b.text, f) }); continue; }
     if (rowHit.has(id)) out.push({ ...entry, snippet: R.snippetOf(memoOf.get(id), f) });
+  }
+  // 0.16.0 DX-2（決めたこと 46・R102）: 一覧の外の当たり（データベースの行。行の型は row で is_page は 0）のうち、生きている行を後ろに。
+  // 題名に当たれば抜き出し無し・行そのもの（セル）の当たりはセルの文字・本文の当たりはその文から抜き出す
+  if (typeof rowsOf === 'function') {
+    const listed = new Set(ids);
+    for (const r of rowsOf([...firstBlock.keys()].filter((id) => !listed.has(id)))) {
+      if (searchFold(r.entry.title).includes(f)) { out.push(r.entry); continue; }
+      const b = firstBlock.get(r.id);
+      const own = Object.hasOwn(JSON.parse(b.attrs || '{}'), 'cells');
+      const text = own ? r.texts.find((t) => searchFold(t).includes(f)) || '' : b.text;
+      out.push({ ...r.entry, snippet: R.snippetOf(text, f) });
+    }
   }
   return out;
 }
