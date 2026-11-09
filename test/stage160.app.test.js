@@ -1908,3 +1908,256 @@ test('DV-3 直し（rv48 F7・F8・F9）: タブは縮めず1行（CSS）・［�
     assert.deepStrictEqual(s.errors.map(fmt), []);
   } finally { s.done(); }
 });
+
+// ================================================================ DV-4（決めたこと 26・51・R49・2026-11-09 の持ち主の承認 R90〜）
+const openBtn = (l, rowId) => cellOf(l, rowId, 'title').querySelector('.dbopen');
+const props = (l) => $(l, 'pProps').querySelectorAll('.dbprop');
+const propOf = (l, name) => props(l).find((p) => p.querySelector('.k').textContent === name);
+const propV = (l, name) => propOf(l, name).querySelector('.dbpropv');
+const crumbUps = (l) => $(l, 'crumb').querySelectorAll('.cseg').map((b) => b.querySelector('.cst').textContent);
+const crumbNow = (l) => [$(l, 'crumb').querySelector('.ci').textContent, $(l, 'crumb').querySelector('.ct').textContent];
+const tabKeys = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => t.getAttribute('data-key'));
+const tabOnKey = (l) => ($(l, 'tabbar').querySelector('.tabitem.active') || { getAttribute: () => '' }).getAttribute('data-key');
+const backToDb = async (l) => { await clickEl(l, $(l, 'crumb').querySelector('.cseg'), 200); };
+
+test('DV-4: 題名の［開く］で今のタブに行のページ（Ctrl+クリックで新しいタブ）。頭は 📄 と題名（無題は「無題のページ」）・パンくず「… / データベース / 📄 行」・会議の種類と3つのタブと表が無い', T, async () => {
+  // データベースの題名（D77 の会議の題名でない）
+  const l = await openDb({ before: (call, d) => { call('page.setTitle', { id: d.id, title: '案件' }); return { r3: call('row.add', { db: d.id }).id }; } });
+  try {
+    const [r0, r1] = l.rows;
+    const b = openBtn(l, r0);
+    assert.ok(b, '題名のセルに［開く］が無い');
+    assert.deepStrictEqual([b.tagName.toLowerCase(), b.getAttribute('aria-label'), b.title], ['button', '開く', '開く']);
+    assert.strictEqual(cellOf(l, r0, 'title').textContent, '見積もり', '［開く］の文字がセルの文字に混ざる（見せる文字は CSS の content）');
+    const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+    assert.strictEqual(S.declsFor(rules, '.dbopen::before', { at: '' }).content, 'attr(aria-label)', '［開く］の見せる文字が「開く」でない');
+    const n = tabKeys(l).length;
+    await clickEl(l, b, 200);
+    assert.deepStrictEqual([tabKeys(l).length, tabOnKey(l)], [n, `page:${r0}`], '今のタブで開かない');
+    assert.ok(!tabKeys(l).includes(`page:${l.id}`), 'データベースのタブが残った（今のタブで開かない）');
+    assert.deepStrictEqual(l.called('rowSetCell'), [], '［開く］で題名を書いた');
+    assert.strictEqual(box(l).hidden, true, '行のページに表が出る');
+    assert.ok($(l, 'pageWrap').classList.contains('blank') && !$(l, 'pageWrap').classList.contains('db'), '3つのタブを隠す印が無い');
+    assert.strictEqual($(l, 'pTypeRow').style.display, 'none', '会議の種類の行が出る');
+    assert.deepStrictEqual([$(l, 'pIcon').textContent, $(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['📄', '見積もり', '無題のページ']);
+    assert.deepStrictEqual([...$(l, 'pActs').children].map((x) => x.id), ['pMore', 'pMenu'], '［要約を生成］が出る');
+    assert.deepStrictEqual(crumbUps(l), ['案件']);
+    assert.deepStrictEqual(crumbNow(l), ['📄', '見積もり']);
+    // パンくずのデータベースの段で戻る
+    await backToDb(l);
+    assert.deepStrictEqual([box(l).hidden, tabOnKey(l), tabKeys(l).length], [false, `page:${l.id}`, n]);
+    // Ctrl+クリックで新しいタブ
+    openBtn(l, r1).dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain(200);
+    assert.deepStrictEqual([tabKeys(l).length, tabOnKey(l)], [n + 1, `page:${r1}`], 'Ctrl+クリックで新しいタブに開かない');
+    assert.ok(tabKeys(l).includes(`page:${l.id}`));
+    assert.strictEqual($(l, 'pTitle').textContent, '発注');
+    // 無題の行はリンクから開いても「無題のページ」（タブも）
+    l.fire('onOpenLink', { id: l.r3, anchor: '' }); await l.drain(200);
+    assert.deepStrictEqual(crumbNow(l), ['📄', '無題のページ']);
+    assert.strictEqual($(l, 'tabbar').querySelector('.tabitem.active .tt').textContent, '無題のページ');
+    assert.strictEqual($(l, 'tabbar').querySelector('.tabitem.active .tt').getAttribute('data-icon'), '📄');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-4・vw-row-props: 行のページの列の値の並び（データベースの列の順に名前と値）。押すと表と同じ書き手（文字・数値・チェック・選択・選択肢を足す・暦）・書けない列は灰色で書き手が無い。題名を変えると表の題名も変わる', T, async () => {
+  const l = await openDb({ before: withTypes });
+  try {
+    const r0 = l.rows[0];
+    l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
+    assert.deepStrictEqual(crumbUps(l), ['無題のデータベース'], '無題のデータベースの段の名前');
+    assert.deepStrictEqual(props(l).map((p) => p.querySelector('.k').textContent),
+      ['メモ', '金額', '済み', '作った日', '優先度', 'タグ', '状態', '期日', '担当', '資料', 'メール', '電話', '番号', '作った人'], '列の値の並びが無い・列の順でない');
+    assert.deepStrictEqual(['メモ', '金額', '済み', '優先度', '期日', '担当', '資料', '電話', '作った人'].map((k) => propV(l, k).textContent),
+      ['メモ 0', '100', '✓', '高', '2026/11/04', '経理係', 'https://example.com/a', '03-0000-0000', '自分']);
+    assert.deepStrictEqual(props(l).filter((p) => p.querySelector('.dbpropv').classList.contains('ro')).map((p) => p.querySelector('.k').textContent), ['作った日', '番号', '作った人'], '書けない列の灰色の印');
+    for (const p of props(l)) {
+      const v = p.querySelector('.dbpropv');
+      assert.strictEqual(v.tagName.toLowerCase() === 'button', !v.classList.contains('ro'), `${p.querySelector('.k').textContent} の値の部品`);
+      if (v.tagName.toLowerCase() === 'button') assert.strictEqual(v.getAttribute('aria-labelledby'), `${p.querySelector('.k').id} ${v.id}`, '値のボタンの名前が列の名前と値でない');
+    }
+    const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+    assert.strictEqual(S.declsFor(rules, '.dbpropv.ro', { at: '' }).color, 'var(--muted)', '書けない列が灰色でない');
+    // 書けない列は押しても書き手が無い
+    await clickEl(l, propV(l, '作った日'), 60);
+    assert.ok($(l, 'pProps').querySelector('.dbedit, .dbpick') === null, '書けない列に書き手が出た');
+    // 文字（Esc でやめる・Enter で書く・フォーカスは値へ戻る）
+    await clickEl(l, propV(l, 'メモ'), 60);
+    let inp = $(l, 'pProps').querySelector('.dbedit');
+    assert.ok(inp && active(l) === inp, '文字の書き手が出ない');
+    assert.deepStrictEqual([inp.value, inp.getAttribute('aria-label')], ['メモ 0', 'メモ']);
+    inp.value = 'やめた'; await press(l, inp, { key: 'Escape' });
+    assert.deepStrictEqual([l.called('rowSetCell').length, propV(l, 'メモ').textContent], [0, 'メモ 0']);
+    await clickEl(l, propV(l, 'メモ'), 60);
+    inp = $(l, 'pProps').querySelector('.dbedit');
+    inp.value = '書き直した';
+    await press(l, inp, { key: 'Enter', isComposing: true });
+    assert.strictEqual(l.called('rowSetCell').length, 0, '変換確定の Enter で書いた');
+    await press(l, inp, { key: 'Enter' });
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args), [[l.id, r0, l.c1, '書き直した']]);
+    assert.strictEqual(propV(l, 'メモ').textContent, '書き直した');
+    assert.ok(active(l) === propV(l, 'メモ'), '書いた後のフォーカスが値に無い');
+    // 数値: 読めない文字は断って一言
+    await clickEl(l, propV(l, '金額'), 60);
+    inp = $(l, 'pProps').querySelector('.dbedit'); inp.value = '約 3';
+    await press(l, inp, { key: 'Enter' });
+    assert.deepStrictEqual([$(l, 'toast').textContent, l.called('rowSetCell').length, propV(l, '金額').textContent], ['この列の値として読めませんでした。', 1, '100']);
+    // チェックは押すと切り替え
+    await clickEl(l, propV(l, '済み'), 100);
+    assert.deepStrictEqual([cellsIn(l, r0).cells[l.c3], propV(l, '済み').textContent], [undefined, '']);
+    // 選択（表と同じ選びの窓）
+    await clickEl(l, propV(l, '優先度'), 60);
+    assert.ok($(l, 'pProps').querySelector('.dbpick'), '選択の書き手が出ない');
+    await clickEl(l, $(l, 'pProps').querySelectorAll('.dbpick .dbopt').find((x) => x.textContent === '低'), 120);
+    assert.strictEqual(cellsIn(l, r0).cells[l.c5], l.o5[1].id);
+    assert.ok($(l, 'pProps').querySelector('.dbpick') === null, '選んでも窓が閉じない');
+    assert.strictEqual(propV(l, '優先度').textContent, '低');
+    // 複数選択に新しい選択肢を足す（col.setOpts の答えの ID で書く）
+    await clickEl(l, propV(l, 'タグ'), 60);
+    const q = $(l, 'pProps').querySelector('.dbpick input');
+    q.value = '急ぎ'; q.dispatchEvent({ type: 'input' });
+    await clickEl(l, $(l, 'pProps').querySelector('.dbpick .dbnew'), 200);
+    const made = colIn(l, l.c6).opts.find((o) => o.name === '急ぎ');
+    assert.ok(made, '選択肢を足さない');
+    assert.deepStrictEqual(cellsIn(l, r0).cells[l.c6], [made.id]);
+    await press(l, $(l, 'pProps').querySelector('.dbpick input'), { key: 'Escape' });
+    assert.ok($(l, 'pProps').querySelector('.dbpick') === null);
+    assert.strictEqual(propV(l, 'タグ').textContent, '急ぎ');
+    // 暦
+    await clickEl(l, propV(l, '期日'), 60);
+    const dt = $(l, 'pProps').querySelector('.dbdatein');
+    assert.ok(dt, '暦が出ない');
+    dt.value = '2026-11-20';
+    await press(l, dt, { key: 'Enter' });
+    assert.deepStrictEqual(cellsIn(l, r0).cells[l.c8], { start: '2026-11-20' });
+    assert.strictEqual(propV(l, '期日').textContent, '2026/11/20');
+    // セルの歩みはデータベースの歩み（表で書いたのと同じ）
+    assert.ok(l.steps.length > 0 && l.steps.filter((s) => /^(row|col)\./.test(s.cmd)).every((s) => s.pageId === l.id), '列の値の歩みがデータベースの歩みでない');
+    // 題名を変えると、パンくずと表の題名も変わる
+    $(l, 'pTitle').textContent = '見積もりの改訂';
+    $(l, 'pTitle').dispatchEvent({ type: 'blur' }); await l.drain(100);
+    assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [[r0, '見積もりの改訂']]);
+    assert.strictEqual(cellsIn(l, r0).title, '見積もりの改訂');
+    assert.deepStrictEqual(crumbNow(l), ['📄', '見積もりの改訂']);
+    await backToDb(l);
+    assert.strictEqual(cellOf(l, r0, 'title').textContent, '見積もりの改訂', '表の題名が変わらない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-4: 行のページの本文は白紙のページの部品（手引き・Enter で分ける）。本文の Ctrl+Z は行の要約の欄の歩み（edit.revert の pageId は行）。/ の選びに［ページ］を出さない（R92: 持ち主に問う）', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const b = call('block.insert', { pageId: d.rows[1], afterBlockId: '', type: 'paragraph' }).blockId;
+    call('block.update', { pageId: d.rows[1], blockId: b, patch: { text: '本文の一行' } });
+    return { b };
+  } });
+  try {
+    const [r0, r1] = l.rows;
+    l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
+    assert.strictEqual($(l, 'pNote').querySelector('.bodyph').textContent, 'ここに書く（/ で行の型を選べます）', '空の本文の手引きが無い');
+    assert.strictEqual($(l, 'pNote').querySelectorAll('.cites, .cbadge').length, 0);
+    l.fire('onOpenLink', { id: r1, anchor: '' }); await l.drain(200);
+    const t = $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === l.b).querySelector('.txt');
+    assert.strictEqual(t.textContent, '本文の一行');
+    t.focus(); l.caret.set(t, 2);
+    l.key({ key: 'Enter', code: 'Enter' }, t);
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('blockSplit').map((c) => c.args.slice(0, 2)), [[r1, l.b]]);
+    assert.strictEqual(l.call('page.get', { id: r1 }).page.blocks.length, 2, 'DB が行の本文の分割を受けない');
+    assert.deepStrictEqual(l.steps.map((s) => [s.cmd, s.pageId]), [['block.split', r1]], '本文の歩みが行の ID でない');
+    l.key({ key: 'z', code: 'KeyZ', ctrlKey: true }, l.document.activeElement);
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('editRevert').map((c) => c.args), [[r1, [l.steps[0].step]]], '本文の Ctrl+Z が行の要約の欄の歩みでない');
+    assert.strictEqual(l.call('page.get', { id: r1 }).page.blocks.length, 1, 'Ctrl+Z で戻らない');
+    // / の選びに［ページ］が無い（行の中に子ページは作れない: R92）
+    const t2 = $(l, 'pNote').querySelector('.blk .txt');
+    t2.focus(); t2.textContent = '/'; l.caret.set(t2, 1); t2.dispatchEvent({ type: 'input' }); await l.drain();
+    const sm = $(l, 'pNote').querySelector('.slashmenu');
+    assert.ok(sm, '/ の選びが開かない');
+    assert.ok(!sm.querySelectorAll('.sopt').some((o) => o.textContent === 'ページ'), '行の本文の / に［ページ］が出る');
+    assert.deepStrictEqual(l.called('pageCreate'), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-4: 選んだセルの Space で行のページ（今のタブ）。Shift+F10・ContextMenu・行の右クリック・⋮⋮ で行のメニュー［開く］［新しいタブで開く］［リンクを写す］［削除］。近道の表に Space・Ctrl+C・Ctrl+V の行', T, async () => {
+  const l = await openDb();
+  try {
+    const [r0, r1, r2] = l.rows;
+    const n = tabKeys(l).length;
+    await selectOnly(l, r1, l.c1);
+    const sp = await press(l, active(l), { key: ' ', code: 'Space' });
+    assert.ok(sp.defaultPrevented, 'Space を止めない');
+    assert.deepStrictEqual([tabKeys(l).length, tabOnKey(l), $(l, 'pTitle').textContent], [n, `page:${r1}`, '発注'], 'Space で今のタブに行のページを開かない');
+    await backToDb(l);
+    // Shift+F10
+    await selectOnly(l, r1, l.c1);
+    const f10 = await press(l, active(l), { key: 'F10', code: 'F10', shiftKey: true });
+    assert.ok(f10.defaultPrevented);
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['開く', '新しいタブで開く', 'リンクを写す', '削除']);
+    assert.ok(active(l) === items(l)[0], 'メニューの最初の項目にフォーカスが無い');
+    await press(l, menu(l), { key: 'Escape' });
+    assert.ok(menu(l) === null && active(l) === cellOf(l, r1, l.c1), 'Esc で閉じてセルへ戻らない');
+    // ContextMenu キー →［リンクを写す］
+    await press(l, active(l), { key: 'ContextMenu', code: 'ContextMenu' });
+    assert.ok(menu(l), 'ContextMenu キーで行のメニューが出ない');
+    await clickEl(l, item(l, 'リンクを写す'), 100);
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]).slice(-1), [`NaTsu の「発注」 https://example.invalid/open#p=${r1}`]);
+    assert.ok(menu(l) === null);
+    // 行の右クリック →［新しいタブで開く］
+    let stopped = false;
+    dataRows(l).find((r) => r.dataset.id === r2).dispatchEvent({ type: 'contextmenu', clientX: 4, clientY: 4, preventDefault: () => { stopped = true; } }); await l.drain(40);
+    assert.ok(stopped && menu(l), '右クリックで行のメニューが出ない（本物のメニューを止めない）');
+    await clickEl(l, item(l, '新しいタブで開く'), 200);
+    assert.deepStrictEqual([tabKeys(l).length, tabOnKey(l), $(l, 'pTitle').textContent], [n + 1, `page:${r2}`, '検収']);
+    await clickEl(l, $(l, 'tabbar').querySelectorAll('.tabitem').find((x) => x.getAttribute('data-key') === `page:${l.id}`), 200);
+    // ⋮⋮ →［開く］（今のタブ）
+    await clickEl(l, dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbgrip'), 40);
+    assert.ok(menu(l), '⋮⋮ を押して行のメニューが出ない');
+    await clickEl(l, item(l, '開く'), 200);
+    assert.deepStrictEqual([tabKeys(l).length, tabOnKey(l)], [n + 1, `page:${r0}`]);
+    await backToDb(l);
+    // ⋮⋮ →［削除］: 確かめずに rowsTrash の1回と知らせ
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); return true; };
+    await clickEl(l, dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbgrip'), 40);
+    await clickEl(l, item(l, '削除'), 200);
+    assert.deepStrictEqual([asked, l.called('rowsTrash').map((c) => c.args)], [[], [[l.id, [r0]]]]);
+    assert.strictEqual($(l, 'toast').textContent, '行 1 件をゴミ箱に入れました（Ctrl+Z で戻せます）');
+    assert.ok(!dataRows(l).some((r) => r.dataset.id === r0), '消した行が残る');
+    // 近道の表（src/shortcuts.js と画面の写し）
+    const SC = require('../src/shortcuts.js').SHORTCUTS;
+    const where = 'データベースの表のセルを選んでいるとき';
+    for (const [keys, what] of [['Space', '行のページを開く'], ['Ctrl+C', '選んだセルの値を写す'], ['Ctrl+V・Ctrl+Shift+V', '選んだセルに貼る（何行何列かは右下へ埋める）']]) {
+      assert.ok(SC.some((r) => r.keys === keys && r.what === what && r.where === where), `近道の表に ${keys} の行が無い`);
+    }
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DV-4: 行のページの「···」は［リンクを写す］・見た目・［削除］（［コピー］［移動先…］は無い）。［削除］は確かめずに rowsTrash の1回 → データベースのページへ戻って知らせ・Ctrl+Z で戻る', T, async () => {
+  const l = await openDb();
+  try {
+    const r0 = l.rows[0];
+    await clickEl(l, openBtn(l, r0), 200);
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    const labels = $(l, 'pMenu').querySelectorAll('.mitem').map((b) => b.textContent);
+    assert.ok(labels[0] === 'リンクを写す' && labels[labels.length - 1] === '削除', JSON.stringify(labels));
+    assert.ok(labels.includes('全幅') && !labels.includes('コピー') && !labels.includes('移動先…'), JSON.stringify(labels));
+    await clickEl(l, $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === 'リンクを写す'), 100);
+    assert.deepStrictEqual(l.called('copy').map((c) => c.args[0]).slice(-1), [`NaTsu の「見積もり」 https://example.invalid/open#p=${r0}`]);
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); return true; };
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    await clickEl(l, $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === '削除'), 300);
+    assert.deepStrictEqual([asked, l.called('rowsTrash').map((c) => c.args), l.called('pageDelete')], [[], [[l.id, [r0]]], []]);
+    assert.deepStrictEqual([tabOnKey(l), box(l).hidden], [`page:${l.id}`, false], 'データベースのページへ戻らない');
+    assert.ok(!tabKeys(l).includes(`page:${r0}`), '消した行のタブが残る');
+    assert.strictEqual($(l, 'toast').textContent, '行 1 件をゴミ箱に入れました（Ctrl+Z で戻せます）');
+    assert.ok(!dataRows(l).some((r) => r.dataset.id === r0));
+    await press(l, grid(l), { key: 'z', code: 'KeyZ', ctrlKey: true });
+    assert.strictEqual(l.called('editRevert').length, 1, 'Ctrl+Z で戻さない');
+    assert.ok(dataRows(l).some((r) => r.dataset.id === r0), 'Ctrl+Z で行が戻らない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

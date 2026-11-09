@@ -968,7 +968,8 @@ test('EK-5（決めたこと 37・BQ8）: Ctrl+Shift+N は行の近道でない�
   assert.strictEqual(K({ ctrlKey: true, code: 'KeyW', key: 'w' }), null, 'Ctrl+W は行の近道でない（窓の受け口）');
   for (const r of SC.SHORTCUTS) {
     if (/Ctrl\+Shift\+N\b/.test(r.keys)) assert.deepStrictEqual([r.keys, r.where, r.codes], ['Ctrl+Shift+N', '窓のどこでも', []], `Ctrl+Shift+N の行: ${r.keys}`);
-    assert.ok(!/Space/.test(r.keys) && !/音声入力/.test(r.what), `音声入力のキーの行: ${r.keys}`);
+    // 0.16.0 DV-4 で意図して直した: 表の「Space（行のページを開く）」の行ができたので、音声入力のキー（修飾キーと Space）だけを見る（意図「全体の音声入力のキーを表に入れない」は残す）
+    assert.ok(!/\+Space/.test(r.keys) && !/音声入力/.test(r.what), `音声入力のキーの行: ${r.keys}`);
   }
 });
 

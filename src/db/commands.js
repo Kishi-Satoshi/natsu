@@ -1953,6 +1953,10 @@ const DEFS = {
       // 2026-10-28 の点検 6（NR42）: 読んだページをそのまま使う（readPage と同じ形。読み直さない）
       const page = l ? l.page : null;
       if (page) R.markShortBlocks(page.blocks);
+      // 0.16.0 DV-4（R91）: データベースの行なら、答えにデータベースの ID（db）を添える（画面が行のページと分かり、列とパンくずを読む）。
+      // ページの欄には入れない（ページを書き戻す命令が行の attrs に書かないように）
+      const me = page ? db.prepare(HOT_QUERIES.dbRow).get(a.id) : null;
+      if (me && me.type === 'row') return { result: { page: forView(page, ctx.labels), segments: readSegments(db, a.id), db: me.parent_id } };
       return { result: page ? { page: forView(page, ctx.labels), segments: readSegments(db, a.id) } : null };
     } },
 

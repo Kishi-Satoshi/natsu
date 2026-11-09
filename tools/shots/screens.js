@@ -163,6 +163,16 @@ const OPEN_DB_VIEWS = OPEN_DB_AT(`const shown = [...document.querySelectorAll('#
   if (Math.max(...shown) > Math.min(...shown) + 1) throw new Error('タブの高さが揃わない（名前が折り返している）: ' + shown.join(','));
   if (document.querySelector('#pDb .dbtabmore').hidden) throw new Error('入り切らないタブがあるのに「他 n 件」が出ない');
   document.querySelector('#pDb .dbtab[aria-selected="true"]').click();`);
+// 0.16.0 DV-4: 1行目の題名のセルの［開く］で行のページ（列の値の並びと本文）。本物の Chromium で列の値の並び・パンくず・画面のエラーを確かめ、崩れていれば「撮れない」
+const OPEN_DB_ROW = OPEN_DB_AT(`const errs = [];
+  window.addEventListener('error', (e) => errs.push(String(e.message)));
+  window.addEventListener('unhandledrejection', (e) => errs.push(String((e.reason && e.reason.message) || e.reason)));
+  document.querySelector('#pDb .dbrow .dbopen').click();
+  await new Promise((r) => setTimeout(r, 500));
+  if (document.querySelectorAll('#pProps .dbprop').length !== 6) throw new Error('行のページに列の値の並びが無い');
+  if (!document.querySelector('#pageWrap.row') || !document.getElementById('pDb').hidden) throw new Error('行のページの形でない');
+  if ([...document.querySelectorAll('#crumb .cseg .cst')].map((x) => x.textContent).join('/') !== '案件の一覧') throw new Error('パンくずにデータベースの段が無い');
+  if (errs.length) throw new Error('画面のエラー: ' + errs.join(' / '));`);
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -522,6 +532,7 @@ const SCREENS = [
   { name: 'db-filter-light', page: 'app', theme: 'light', get answers() { return dbAnswers('filter'); }, act: OPEN_DB_FILTER },
   { name: 'db-group-light', page: 'app', theme: 'light', get answers() { return dbAnswers('group'); }, act: OPEN_DB_PLAIN },
   { name: 'db-views-light', page: 'app', theme: 'light', get answers() { return dbAnswers('views'); }, act: OPEN_DB_VIEWS },
+  { name: 'db-row-page-light', page: 'app', theme: 'light', get answers() { return dbAnswers('row'); }, act: OPEN_DB_ROW },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -643,8 +654,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 近道の表に「データベースの表のセルを選んでいるとき」の行が増える設定の4枚（settings-shortcuts-light と［一般］の3枚。今の基準がある）
 // DV-2 で足した列のメニュー・選択肢の選び・暦の3枚（まだ基準が無い）
 // DV-3 で足したリスト・絞り込みの窓・グループ・ビューのタブ（「他 n 件」とタブのメニュー）の4枚（まだ基準が無い）
+// DV-4 で足した行のページ（列の値の並びと本文。まだ基準が無い）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
-  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light',
+  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light',
   'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -798,6 +810,7 @@ function treeAnswers() {
  * 金額（数値の円）・期日（日付）・済み（チェック）・資料（URL）の7種類。表の読み（db.view）は 20 行と下の集計（全件・合計・チェック済みの割合）
  */
 // 0.16.0 DV-3: kind で見本のビューを替える（list: リスト・filter: 入れ子の絞り込み・group: ステータスでまとめる・views: タブ 12 個）
+// 0.16.0 DV-4: row は 1行目（r1）の行のページの page.get の答えも（「koeApp.pageGet:r1」。本文は見本の3行）
 function dbAnswers(kind = '') {
   const at = '2026-10-17T00:00:00.000Z';
   const page = { id: 'pd1', kind: 'database', title: '案件の一覧', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [] };
@@ -834,6 +847,11 @@ function dbAnswers(kind = '') {
     'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] },
     'koeApp.dbGet': { id: 'pd1', title: page.title, cols, views, rowCount: 20 },
     'koeApp.dbView': { total: 20, shown: 20, rows: grouped, groups, agg: { title: 20, c3: sum, c5: (rows.filter((r) => r.cells.c5).length / 20) * 100 }, sig: '1.20.shots' },
+    ...(kind === 'row' ? { 'koeApp.pageGet:r1': { db: 'pd1', segments: [], page: { id: 'r1', title: rows[0].title, cells: rows[0].cells, by: rows[0].by, no: 1, createdAt: at, updatedAt: at, blocks: [
+      { id: 'q1', type: 'heading', level: 2, text: '進め方', citeState: 'manual', cites: [] },
+      { id: 'q2', type: 'todo', text: '先方に単価を確かめる', checked: false, citeState: 'manual', cites: [] },
+      { id: 'q3', type: 'paragraph', text: '前回の見積もりとの差を書き足す。', citeState: 'manual', cites: [] },
+    ] } } } : {}),
   };
 }
 

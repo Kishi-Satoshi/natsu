@@ -6,6 +6,7 @@
 // 全体の音声入力のキーは設定の［音声入力ホットキー］なので、この表に入れない（設定の表の下に一言）。
 // 0.15.0 PH-5（計画 docs/plans/2026-11-03-150.md の決めたこと 20・26・28・BQ7 (a)）: Ctrl+Shift+N（新しいページの選び）・Ctrl+Shift+U（親のページへ）と、サイドバーのページの一覧のキーの行を足した。
 // 0.16.0 DV-1（計画 docs/plans/2026-11-04-160.md の決めたこと 51）: データベースの表のセルを選んでいるときのキーの行を足した。
+// 0.16.0 DV-4（2026-11-09 の持ち主の承認・R90）: 同じ所の Ctrl+C・Ctrl+V・Ctrl+Shift+V（DV-2 で作ったキー）と Space（行のページを開く）の行を足した。
 // 画面（app.html）はこの表を写す（test/stage140.app.test.js が同じ行かを照らす）。
 
 const SHORTCUTS = Object.freeze([
@@ -69,6 +70,9 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Enter', what: 'セルを書く（書いている間は Enter で決める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Esc', what: 'セルの選びをやめる（書いている間は、書いた文字を捨てる）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Delete・Backspace', what: '選んだセルを空にする（書けるセルだけ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Ctrl+C', what: '選んだセルの値を写す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Ctrl+V・Ctrl+Shift+V', what: '選んだセルに貼る（何行何列かは右下へ埋める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Space', what: '行のページを開く', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Z', what: '元に戻す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
 ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));

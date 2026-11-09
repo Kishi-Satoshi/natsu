@@ -108,12 +108,15 @@ function boot() {
     const tables = new Map();   // webContents.id → { answers, pending, last }
     ipcMain.on('shots:apis', (e) => { e.returnValue = { apis: names, now: SH.FIXED_NOW }; });
     ipcMain.on('shots:send', () => {});
-    ipcMain.handle('shots:call', async (e, key) => {
+    // 0.16.0 DV-4: 「<橋>.<名前>:<最初の引数>」の答えがあれば先に使う（行のページの画面は page.get の答えを ID で替える）
+    ipcMain.handle('shots:call', async (e, key, first) => {
       const t = tables.get(e.sender.id);
       if (!t) return { ok: true };
       t.pending += 1;
       t.last = Date.now();
       try {
+        const own = typeof first === 'string' ? `${key}:${first}` : '';
+        if (own && Object.prototype.hasOwnProperty.call(t.answers, own)) return t.answers[own];
         return Object.prototype.hasOwnProperty.call(t.answers, key) ? t.answers[key] : { ok: true };
       } finally { t.pending -= 1; t.last = Date.now(); }
     });

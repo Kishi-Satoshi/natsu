@@ -1157,3 +1157,17 @@ test('DV-3 直し（rv48 F11・R88）: ビューの ID は使い直さない（�
   colAdd(db, d, 'text', 'メモ');
   assert.strictEqual(ok(call(db, 'view.add', { db: d }), 'view.add').view.id, 'v4');
 }));
+
+// ================================================================ DV-4（決めたこと 26・R90〜）
+test('DV-4（R91）: page.get の行の答えにデータベースの ID（db）を添える（ページの欄には入れない）。ページ・データベースの答えには db が無い', T, () => withDb((db) => {
+  const d = ok(call(db, 'db.create', {}), 'db.create').id;
+  // データベースの行の題名（D77 の会議の題名でない）
+  const r = rowAddA(db, d, { title: '行の題名' });
+  const got = ok(call(db, 'page.get', { id: r }), 'page.get');
+  assert.strictEqual(got.db, d, '行の答えにデータベースの ID が無い');
+  assert.ok(!Object.hasOwn(got.page, 'db') && !Object.hasOwn(got.page, 'kind'), 'ページの欄に db・kind を入れた（書き戻すと行の attrs に入る）');
+  assert.strictEqual(got.page.title, '行の題名');
+  assert.ok(!Object.hasOwn(ok(call(db, 'page.get', { id: d }), 'page.get'), 'db'), 'データベースの答えに db がある');
+  assert.ok(!Object.hasOwn(ok(call(db, 'page.get', { id: 'pa1' }), 'page.get'), 'db'), '議事録の答えに db がある');
+  assert.ok(!Object.hasOwn(JSON.parse(blockOf(db, r).attrs), 'db'));
+}));

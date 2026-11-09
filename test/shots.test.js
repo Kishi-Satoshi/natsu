@@ -231,8 +231,9 @@ const ADDED_150 = [...NEW_150, ...RETAKEN_150];
 // DV-1 でデータベースの表の明暗と拡大 200% の3枚を足した（NEW_160。足した画面で、まだ基準が無い）
 // DV-2 で列のメニュー・選択肢の選び・暦の3枚を足した（同じく、まだ基準が無い）
 // DV-3 で意図して変えた: リスト・絞り込みの窓・グループ・ビューのタブの4枚を足した
+// DV-4 で意図して変えた: 行のページ（列の値の並びと本文）の1枚を足した
 const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
-  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light'];
+  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light'];
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
 const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
@@ -464,7 +465,7 @@ test('F11: 拡大の画面は、撮る前に窓の中の幅が「窓の幅 ÷ �
 test('G2: 画面ごとの答えの名前も、本物の preload.js にあるものだけ', { timeout: 5000 }, () => {
   const names = SH.apiNamesOf(read('src/preload.js'));
   for (const s of SH.SCREENS) for (const key of Object.keys(s.answers || {})) {
-    const [bridge, fn] = key.split('.');
+    const [bridge, fn] = key.replace(/:[^:]*$/, '').split('.');   // 0.16.0 DV-4 で意図して変えた: 「<橋>.<名前>:<最初の引数>」の答え（tools/shots/main.js）も名前は本物の preload.js にあるもの
     assert.ok(names[bridge] && names[bridge].includes(fn), `${s.name}: ${key}`);
   }
 });
@@ -1177,7 +1178,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.16.0 R87（2026-11-09 の持ち主の答え）: 写すリンクの1行（議事録でないページは「NaTsu の「題名」」。<script> の中だけ）。値を今の app.html に合わせた（前の値は b1227f31…）
   // 0.16.0 DV-3 直し（rv48・R88・R89）: 設定の窓の NodeList・フォーカスを戻す・タブのキーと1行の CSS（.dbtab の flex: none・nowrap）・暦の mousedown と focusout・
   // グループの［＋］・［グループ］の窓の 200。変わる画面は db-views-light（タブが縮まず「他 n 件」）と db-filter-light（並べ替えを足した後に絞り込みの窓）。値を今の app.html に合わせた（前の値は 292cd7c7…）
-  assert.strictEqual(sha, '6585989c0613547119d0f2db00a3115b4e5203a3d3417299f769de16f5e4aad3',
+  // 0.16.0 DV-4（決めたこと 26・R90〜R93）: 行のページ（列の値の並び・本文・パンくず）・題名のセルの［開く］（行に乗ったときと選んだセルで見せる）・行のメニュー・近道の表の3行。
+  // 変わる画面は db-row-page-light（新）と近道の表の設定の4枚（RETAKE にある）。表の画面は［開く］が隠れていて変わらない見込み（選んだセルは状態の列）。値を今の app.html に合わせた（前の値は 6585989c…）
+  assert.strictEqual(sha, '31ee75091c47bddb93bc0ff9e98d020d5b481cb6f25b33f73a02bcd2dd4dc43b',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -356,6 +356,13 @@
   .dbcell.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
   .dbcell[aria-selected="true"] { background: var(--hover); }
   .dbcell[aria-selected="true"]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* 0.16.0 DV-4（決めたこと 26・R90）: 題名のセルの［開く］（行に乗ったときと選んだセルで見せる。見せる文字は aria-label の「開く」） */
+  .dbcell[data-col="title"] { position: relative; }
+  .dbopen { position: absolute; right: 4px; top: 4px; visibility: hidden; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--muted); font: inherit; font-size: 12px; line-height: 18px; padding: 0 6px; cursor: pointer; }
+  .dbopen::before { content: attr(aria-label); }
+  .dbrow:hover .dbopen, .dbcell[aria-selected="true"] .dbopen { visibility: visible; }
+  .dbopen:hover { background: var(--hover); color: var(--text); }
+  .dbopen:focus-visible { outline: 2px solid var(--accent); }
   .dbcell[aria-readonly="true"] { color: var(--muted); }
   .dblead { flex: none; width: 52px; display: flex; align-items: center; gap: 4px; padding-left: 4px; box-sizing: border-box; }
   .dbgrip { cursor: grab; color: var(--muted); opacity: 0; user-select: none; }
@@ -677,6 +684,15 @@
   .prop .k { flex: none; width: 160px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prop .k .ic { display: inline-block; }
   .prop .v { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+  /* 0.16.0 DV-4（決めたこと 26）: 行のページの列の値の並び。書ける値はボタン（押すと表と同じ書き手）、書けない値は灰色 */
+  .dbprops { margin-top: 4px; }
+  .dbprop { position: relative; }
+  .dbpropv { font: inherit; text-align: left; border: 0; background: none; padding: 4px 6px; border-radius: 6px; min-height: 28px; cursor: pointer; }
+  button.dbpropv:hover { background: var(--hover); }
+  button.dbpropv:focus-visible { outline: 2px solid var(--accent); }
+  .dbpropv.ro { color: var(--muted); cursor: default; }
+  .dbprop .dbedit { flex: 1; }
+  .dbprop .dbpick { top: 100%; left: 168px; }
   #pTypeRow .v { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   #pTypeRow .hint { font-size: 12px; color: var(--muted); }
   /* 0.11.0 V-1: 録音中の種類の行の下の灰色の一言（決めたこと 10）と、メモ欄の上の手引き（決めたこと 9。見出しごとに1行） */
@@ -2025,6 +2041,8 @@
   let curId = null;
   let curPage = null;
   let curSegs = [];
+  let rpSt = null;   // 0.16.0 DV-4: 開いている行のページの列の値の並び（窓のメモリ。下の「行のページ」の節）
+  const rowPages = new Map();   // 0.16.0 DV-4（R91）: この窓で開いたデータベースの行のページ（行の ID → データベースの ID。タブ・パンくずが行と分かるため）
   let filter = 'all';
   let mtypes = [];
   let mselectable = []; // 0.11.0 V-5: プルダウンの種類の並び（main の meetingType.SELECTABLE。群の見出しは作らない）
@@ -2133,6 +2151,9 @@
     { keys: 'Enter', what: 'セルを書く（書いている間は Enter で決める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Esc', what: 'セルの選びをやめる（書いている間は、書いた文字を捨てる）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Delete・Backspace', what: '選んだセルを空にする（書けるセルだけ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Ctrl+C', what: '選んだセルの値を写す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Ctrl+V・Ctrl+Shift+V', what: '選んだセルに貼る（何行何列かは右下へ埋める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Space', what: '行のページを開く', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Ctrl+Z', what: '元に戻す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
@@ -2540,9 +2561,12 @@
   const isPageKey = (k) => typeof k === 'string' && k.startsWith('page:') && k.length > 5;
   const hasTab = (k) => openTabs.some((t) => t.key === k);
   // 0.15.0 PL-3: ページのタブのアイコン（一覧の行か開いているページ。無ければ既定）
-  function tabIcon(id) { return pageEmoji(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null)); }
+  function tabIcon(id) {
+    if (rowPages.has(id)) return pageEmoji({ kind: 'row', db: rowPages.get(id) });   // 0.16.0 DV-4: 行のページは 📄
+    return pageEmoji(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null));
+  }
   function tabLabel(k) {
-    if (isPageKey(k)) return tabTitles.get(k.slice(5)) || '議事録';
+    if (isPageKey(k)) return tabTitles.get(k.slice(5)) || (rowPages.has(k.slice(5)) ? blankUntitled() : '議事録');   // 0.16.0 DV-4: 無題の行は「無題のページ」
     if (k === 'live') return readyNow() ? '新しい議事録' : mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';   // 0.13.0 RDY-2（RT1）: 録音の前のページ
     return { dictation: '音声入力' }[k] || k;
   }
@@ -2631,7 +2655,7 @@
     if (isPageKey(k)) {
       const id = k.slice(5);
       icon = pageEmoji(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null));   // 0.15.0 PH-4: 白紙のページは 📄
-      title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || '議事録';
+      title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || (rowPages.has(id) ? blankUntitled() : '議事録');   // 0.16.0 DV-4
     } else if (k === 'dictation') { icon = '🎤'; title = '音声入力'; }
     else if (k === 'live') { icon = '🎙️'; title = readyNow() ? '新しい議事録' : '記録中の会議'; }
     const c = $('crumb');
@@ -2660,12 +2684,17 @@
   let crumbSig = '';   // PH-5 直し 2（R56 M-1）: 描いた段の形（ページ・アイコン・題名・隠れた段）
   function renderCrumbPath(id) {
     const c = $('crumb');
-    const ups = id ? pageTreeView.crumbsOf(treeNow(), id) : [];   // 祖先はどれも一覧の木の行（一覧にあるページ）
+    // 0.16.0 DV-4（決めたこと 26・R90）: データベースの行のページは、データベースの祖先とデータベースの後ろに今の行（データベースが一覧に無ければ段は無い）
+    const host = id && rowPages.has(id) ? rowPages.get(id) : '';
+    const ups = !id ? [] : host ? (crumbPage(host) ? [...pageTreeView.crumbsOf(treeNow(), host), host] : []) : pageTreeView.crumbsOf(treeNow(), id);   // 祖先はどれも一覧の木の行（一覧にあるページ）
     const hide = ups.length + 1 > CRUMB_MAX ? ups.slice(1, -1) : [];
     const shown = hide.length ? [ups[0], '', ups[ups.length - 1]] : ups;
     // PH-5 直し 2（R56 M-1）: 一覧を読み直すたび（行の保存・ほかの窓の変更）にも呼ばれるので、段の形が同じなら描き直さない（「…」の一覧とフォーカスを残す）。
     // 変わったら描き直し、段（か「…」の一覧）にあったフォーカスは同じ段へ戻す
-    const seg = (a) => (a ? [a, pageEmoji(crumbPage(a)), oneLine(crumbPage(a).title)] : '');
+    // DV-4: データベースの段の題名は列とビューの答え（db.get）の題名（無題は「無題のデータベース」。一覧の1行の無題の名前は議事録の名前のため）
+    const hostInfo = !host ? null : rpSt && rpSt.id === host && rpSt.info ? rpSt.info : dbSt && dbSt.id === host && dbSt.info ? dbSt.info : null;
+    const name = (a) => (a === host && hostInfo ? oneLine(hostInfo.title) || dbUntitled() : oneLine(crumbPage(a).title));
+    const seg = (a) => (a ? [a, pageEmoji(crumbPage(a)), name(a)] : '');
     const sig = JSON.stringify([shown.map(seg), hide.map(seg)]);
     if (sig === crumbSig) return;
     crumbSig = sig;
@@ -2680,9 +2709,9 @@
       b.type = 'button';
       if (a) {
         const p = crumbPage(a);
-        b.className = 'cseg'; b.dataset.crumb = 'up'; b.dataset.pid = a; b.title = oneLine(p.title);
+        b.className = 'cseg'; b.dataset.crumb = 'up'; b.dataset.pid = a; b.title = name(a);
         const ic = document.createElement('span'); ic.className = 'csi'; ic.textContent = pageEmoji(p);
-        const t = document.createElement('span'); t.className = 'cst'; t.textContent = oneLine(p.title);
+        const t = document.createElement('span'); t.className = 'cst'; t.textContent = name(a);
         b.append(ic, t);
         b.onclick = () => openPageTab(a);
       } else {
@@ -5238,7 +5267,7 @@
   // ［コピー］・出典は今と1文字も同じ。白紙のページの子は本文の子ページの行と #bodyKids（決めたこと 55）
   function renderKids() {
     const box = $('pKids');
-    const on = Boolean(curPage) && !isBlankPage(curPage) && pane === 'note' && activeTab === `page:${curId}`;
+    const on = Boolean(curPage) && !isBodyPage(curPage) && pane === 'note' && activeTab === `page:${curId}`;   // 0.16.0 DV-4: 行のページにも無い
     const kids = on ? (treeNow().kids.get(curId) || []).filter((id) => crumbPage(id)) : [];
     box.textContent = '';
     box.hidden = !kids.length;
@@ -5715,6 +5744,9 @@
       await refreshList();
       return false;
     }
+    // 0.16.0 DV-4（R91）: データベースの行（答えに db）は、画面のページに kind 'row' とデータベースの ID を付ける（DB へは送らない）
+    const rowDb = typeof r.db === 'string' && r.page ? r.db : '';
+    if (rowDb) rowPages.set(id, rowDb);
     // 読んでいる間に記録中のタブや別のページのタブへ移っていたら、そのタブの下に描かない（題名だけ覚える）
     if (activeTab === 'live' || (isPageKey(activeTab) && activeTab !== `page:${id}`)) {
       if (r.page && typeof r.page.title === 'string') tabTitles.set(id, r.page.title);
@@ -5722,6 +5754,7 @@
     }
     if (curId !== id) peekOpen = new Map();   // 0.13.1 NR16・NR18: 画面だけの開け閉めはページを替えると消える
     curId = id; curPage = r.page; curSegs = r.segments;
+    if (rowDb) Object.assign(curPage, { kind: 'row', db: rowDb });
     if (typeof curPage.title === 'string') tabTitles.set(id, curPage.title);
     pane = curPage.blocks.length ? 'note' : 'script';
     revealInTree(id);   // 0.15.0 PH-3（HR5）: 開いたページの祖先を開いて、サイドバーの行を見せる
@@ -5788,8 +5821,13 @@
   // 0.15.0 PH-4（決めたこと 24・36）: 白紙のページ（ページの kind が 'blank'。一覧の行の kind も同じ）。アイコンは今は既定だけ（議事録 🎙️・白紙のページ 📄。選べるのは PL-3）
   // （描く関数は script の上の方からも呼ばれるので、どれも巻き上がる関数の宣言にする）
   function isBlankPage(p) { return Boolean(p && typeof p === 'object' && p.kind === 'blank'); }
+  // 0.16.0 DV-4（決めたこと 26・R91）: データベースの行のページ（openPage が page.get の答えの db から付けた kind 'row' と db。DB の欄ではない）
+  function isRowPage(p) { return Boolean(p && typeof p === 'object' && p.kind === 'row' && typeof p.db === 'string' && p.db); }
+  // 本文を白紙のページの部品で書くページ（白紙のページとデータベースの行）
+  function isBodyPage(p) { return isBlankPage(p) || isRowPage(p); }
   // 0.15.0 PL-3（決めたこと 36・38）: どこのアイコンも一覧の1行（かページ）の icon と kind から pageIconOf の1つで決める（辞書に無い値・無い値は既定）
-  function pageEmoji(p) { return emojiView.pageIconOf(p); }
+  // 0.16.0 DV-4（R92）: データベースの行のページは 📄（アイコンは選べない）
+  function pageEmoji(p) { return emojiView.pageIconOf(isRowPage(p) ? { kind: 'blank' } : p); }
   function blankUntitled() { return '無題のページ'; }   // 無題の白紙のページの名前と題名の欄の手引き（議事録の「(無題の議事録)」は変えない）
   // 0.10.0 LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵。src/mainlib.js の summaryLock の写し（repo が同じ表を両方に当てる）。
   // 上から順に見て、最初に当たった行の符号（鍵なしは ''）。making は画面の［要約を生成］の最中と、main が知らせる自動の要約の最中
@@ -5918,8 +5956,11 @@
     renderWave();   // 0.9.3 M-6: 保存したページには波を出さない
     // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・BQ2 (a)）: 白紙のページは頭がアイコン（📄）と題名だけで、その下が本文
     // （会議の種類の行・プロパティ・［AI 要約］［メモ］［文字起こし］のタブ・［要約を生成］を出さない）
-    const blank = isBlankPage(curPage);
+    // 0.16.0 DV-4（決めたこと 26・R90）: データベースの行のページも頭（📄 と題名）と本文は白紙のページと同じ形。頭の下に列の値の並び（#pProps）
+    const rowp = isRowPage(curPage);
+    const blank = isBlankPage(curPage) || rowp;
     $('pageWrap').classList.toggle('blank', blank);
+    $('pageWrap').classList.toggle('row', rowp);
     // 0.16.0 DV-1（決めたこと 1・50）: データベースのページは頭（アイコンと題名）と表だけ（会議の種類の行・プロパティ・3つのタブ・［要約を生成］を出さない）
     const dbp = isDbPage(curPage);
     $('pageWrap').classList.toggle('db', dbp);
@@ -5995,7 +6036,7 @@
     if (sumBtn && summarizing.has(curId)) { sumBtn.disabled = true; sumBtn.textContent = '生成中…'; }
     // コピーは、いま開いているタブの中身を写す。議事録タブなら議事録、
     // 文字起こしタブなら文字起こし、メモタブならメモ。
-    if (!dbp) mk('コピー', async () => {   // 0.16.0 DV-1: データベースのページは写す本文が無い
+    if (!dbp && !rowp) mk('コピー', async () => {   // 0.16.0 DV-1: データベースのページは写す本文が無い（DV-4: 行のページの「···」にも無い: R90）
       let text = ''; let what = '';
       if (pane === 'script') {
         // 空にした行（実質の削除）は写さない
@@ -6032,10 +6073,10 @@
         if (!base) { toast('リンクを写せませんでした。'); return; }
         await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
       }, false, true);
-      mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない
+      if (!rowp) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
       lookMenuItems(mk);   // 0.15.0 PL-3（決めたこと 40）: 見た目（議事録にも白紙のページにも。録音中の写しには出さない: R71）
     }
-    mk('削除', () => deletePageFlow(curId), false, true);
+    mk('削除', () => (rowp ? rowPageTrash() : deletePageFlow(curId)), false, true);   // 0.16.0 DV-4（R90）: 行は確かめずに rows.trash へ
 
     renderBlocks();
     renderScript();
@@ -6188,7 +6229,7 @@
   let iconPop = null;   // 開いているとき { id, at }
   let iconPopOn = false;
   const iconOpts = () => [...$('iconList').querySelectorAll('.icopt')];
-  function iconLocked() { return !curPage || isLiveCopy(curPage); }   // 巻き上がる宣言（renderPage から呼ぶ）。記録中のタブ・録音の前のページでは curPage が null（showLive）
+  function iconLocked() { return !curPage || isLiveCopy(curPage) || isRowPage(curPage); }   // 0.16.0 DV-4（R92）: 行のページのアイコンは 📄 のまま   // 巻き上がる宣言（renderPage から呼ぶ）。記録中のタブ・録音の前のページでは curPage が null（showLive）
   function syncIconBtn() {
     const b = $('pIcon');
     if (iconLocked()) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
@@ -9353,7 +9394,7 @@
   const SLASH_PAGE = Object.freeze({ id: 'page', label: 'ページ', md: [], words: ['ぺーじ', 'page'] });
   function slashPageHits(q, el) {
     const k = keyOfEl(el);
-    if (!k || isMemoKey(k) || k !== curId) return [];
+    if (!k || isMemoKey(k) || k !== curId || isRowPage(curPage)) return [];   // 0.16.0 DV-4（R92）: 行の中には子ページを作れない（DB の page.create が断る。持ち主に問う）
     if (!q) return [{ id: SLASH_PAGE.id, group: 'types' }];
     return slashHit(SLASH_PAGE, q) ? [{ id: SLASH_PAGE.id, group: '' }] : [];
   }
@@ -9914,6 +9955,7 @@
     grip.className = 'dbgrip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
     grip.draggable = true;
     grip.ondragstart = (ev) => dbDragStart(ev, row.id);
+    grip.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbRowMenu(row.id, dbCellEl(row.id, 'title') || grip); };   // 0.16.0 DV-4: ⋮⋮ を押すと行のメニュー
     const ck = document.createElement('input');
     ck.type = 'checkbox'; ck.className = 'dbcheck';
     ck.tabIndex = -1;   // DV-1 直し（rv44 F9）: 行のチェックは Tab で止めない（表は1つの Tab の止まり。押して選ぶ）
@@ -9941,6 +9983,7 @@
     el.ondragover = (ev) => dbDragOver(ev, el);
     el.ondragleave = () => el.classList.remove('dropbefore', 'dropafter');
     el.ondrop = (ev) => dbDrop(ev, el);
+    el.oncontextmenu = (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); dbRowMenu(row.id, dbCellEl(row.id, 'title') || el); };   // 0.16.0 DV-4: 行の右クリックで行のメニュー
     return el;
   }
   const dbRowName = (row) => dbModelView.fmtCell({ id: 'title', name: '', type: 'title' }, dbModelView.cellValue(row, { id: 'title', type: 'title' }), {});
@@ -10095,6 +10138,9 @@
     if (k === 'Home') return ctrl ? go(0, 0) : go(ri, 0);
     if (k === 'End') return ctrl ? go(st.shown - 1, cols.length - 1) : go(ri, cols.length - 1);
     if (k === 'Escape') { ev.preventDefault(); dbSelect(null); return; }
+    // 0.16.0 DV-4（決めたこと 51・R49・R90）: Space で行のページ（今のタブ）・Shift+F10 と ContextMenu で行のメニュー
+    if (k === ' ' && !ctrl && !ev.altKey && !ev.shiftKey) { ev.preventDefault(); ev.stopPropagation(); dbOpenRow(rowId, false); return; }
+    if ((k === 'F10' && ev.shiftKey && !ctrl && !ev.altKey) || k === 'ContextMenu') { ev.preventDefault(); ev.stopPropagation(); dbRowMenu(rowId, dbCellEl(rowId, colId)); return; }
     const col = st.info.cols.find((c) => c.id === colId);
     if (k === 'Enter' && !ctrl) { ev.preventDefault(); dbOpenWriter(rowId, colId); return; }
     if ((k === 'Delete' || k === 'Backspace') && !ctrl) {
@@ -10379,6 +10425,232 @@
     pruneMarks();
     if (dbSt === st) await dbLoad(true);
   }
+  // ================= 0.16.0 DV-4: 行を開く・行のメニュー・行のページ =================
+  // 計画 docs/plans/2026-11-04-160.md の決めたこと 26・51・R49・R90〜R93。題名のセルの［開く］（Ctrl+クリックで新しいタブ）・選んだセルの Space で、
+  // 今のタブに行のページを開く。行のメニュー（行の右クリック・⋮⋮ を押す・選んだセルの Shift+F10／ContextMenu）は［開く］［新しいタブで開く］［リンクを写す］［削除］。
+  // 行のページは頭（📄 と題名）・列の値の並び（#pProps。押すと表と同じ書き手）・本文（白紙のページの部品。歩みは行の要約の欄 bookKey(<行>, 'note')）
+  const DB_OPEN = '開く';
+  const DB_TRASHED = (n) => `行 ${n} 件をゴミ箱に入れました（Ctrl+Z で戻せます）`;
+  function dbOpenBtn(rowId) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'dbopen'; b.tabIndex = -1;   // キーでは Space で開く（決めたこと 51）。見せる文字は CSS の content（aria-label）
+    b.setAttribute('aria-label', DB_OPEN); b.title = DB_OPEN;
+    b.onclick = (ev) => {
+      if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();   // セルを押した（書き手を開く）にしない
+      dbOpenRow(rowId, Boolean(ev && (ev.ctrlKey || ev.metaKey)));
+    };
+    return b;
+  }
+  // 行のページを開く（newTab: 新しいタブ。行のタブの鍵を起動し直しても戻すのは DX-1: この版の窓の間だけ）
+  function dbOpenRow(rowId, newTab) {
+    const st = dbSt;
+    if (!st || !rowId) return null;
+    dbMenuClose();
+    rowPages.set(rowId, st.id);
+    return openPageTab(rowId, { newTab: Boolean(newTab) });
+  }
+  // 行のメニュー（anchor の下に置き、Esc で anchor へ戻る）
+  function dbRowMenu(rowId, anchor) {
+    const st = dbSt;
+    if (!st || !anchor) return null;
+    if (st.menu && st.menu.dataset.row === rowId) return st.menu;   // 本物の窓は Shift+F10 の後に contextmenu も来る（開いたまま）
+    dbEditEnd(true);
+    const m = dbMenuAt(anchor, [
+      { label: '開く', fn: () => dbOpenRow(rowId, false) },
+      { label: '新しいタブで開く', fn: () => dbOpenRow(rowId, true) },
+      { label: 'リンクを写す', fn: () => { dbMenuClose(); dbCopyRowLink(rowId); if (anchor.isConnected !== false) anchor.focus(); } },
+      { label: '削除', fn: () => { dbMenuClose(); dbTrashRow(rowId); } },
+    ], 'dbrowmenu');
+    m.dataset.row = rowId;
+    return m;
+  }
+  async function dbCopyRowLink(rowId) {
+    const st = dbSt;
+    const row = st && st.known.get(rowId);
+    if (!row) return;
+    const base = await linkBaseNow();
+    if (!base) { toast('リンクを写せませんでした。'); return; }
+    await window.koeApp.copy(pageRefLine({ id: row.id, title: row.title, kind: 'row' }, base)); toast('リンクを写しました。');   // R87
+  }
+  // 1つの行をゴミ箱へ（確かめない: 決めたこと 28）
+  async function dbTrashRow(rowId) {
+    const st = dbSt;
+    if (!st) return;
+    const r = await dbWrite(() => window.koeApp.rowsTrash(st.id, [rowId]));
+    if (!r || dbSt !== st) return;
+    st.checked.delete(rowId);
+    if (st.sel && st.sel.row === rowId) st.sel = null;
+    dbPaintBar();
+    st.parts.grid.focus();
+    toast(DB_TRASHED(r.trashed));
+  }
+  // 行のページの「···」の［削除］: 確かめずにゴミ箱へ入れ、今のタブにデータベースのページを開いて知らせる（Ctrl+Z はデータベースの歩み）
+  async function rowPageTrash() {
+    const page = curPage;
+    if (!isRowPage(page)) return;
+    const dbId = page.db; const rowId = page.id;
+    if (rpSt && rpSt.editing) await rpEditEnd(rpSt, true);
+    let r = null;
+    try { r = await inFlight(window.koeApp.rowsTrash(dbId, [rowId])); }
+    catch (e) { toast(`変更を保存できませんでした: ${String((e && (e.code || e.message)) || 'internal')}`); return; }
+    await openPageTab(dbId);
+    closeTabsOf([rowId]);   // 同じ行のほかのタブ
+    toast(DB_TRASHED(r.trashed));
+  }
+  // ---- 行のページの列の値の並び（決めたこと 26: 列の名前と値。データベースの列の順で、消した列と題名の列のほかは全部（ビューで隠した列も）: R93）
+  // st は表の窓のメモリと同じ形の欄（id: データベースの ID・info・known）を持ち、表の書き手（dbWriterInto・dbTyped・dbAddOpt）をそのまま使う
+  const rpRowOf = (p) => ({ id: p.id, title: p.title, cells: p.cells && typeof p.cells === 'object' ? p.cells : {}, createdAt: p.createdAt, updatedAt: p.updatedAt,
+    by: p.by && typeof p.by === 'object' ? p.by : {}, ...(Number.isSafeInteger(p.no) ? { no: p.no } : {}) });
+  const rpValEl = (colId) => [...$('pProps').querySelectorAll('.dbpropv')].find((v) => v.dataset.col === colId) || null;
+  function rpShow() {
+    const page = curPage;
+    if (!rpSt || rpSt.row !== page.id || rpSt.id !== page.db) {
+      if (rpSt && rpSt.editing) rpEditEnd(rpSt, false);
+      rpSt = { rowPage: true, id: page.db, row: page.id, info: null, known: new Map(), editing: null, loading: false };
+      $('pProps').textContent = '';
+    }
+    const st = rpSt;
+    if (!st.editing) st.known.set(page.id, rpRowOf(page));
+    if (st.info) { rpPaint(st); return; }
+    if (st.loading) return;
+    st.loading = true;
+    Promise.resolve().then(() => window.koeApp.dbGet(st.id)).catch(() => null).then((info) => {
+      st.loading = false;
+      if (rpSt !== st || !info || !Array.isArray(info.cols)) return;
+      st.info = info;
+      rpPaint(st);
+      renderCrumb();   // パンくずのデータベースの段の題名
+    });
+  }
+  function rpPaint(st) {
+    const box = $('pProps');
+    if (rpSt !== st || !st.info || st.editing) return;   // 書いている間は描き直さない（閉じるときに描く）
+    const a = document.activeElement;
+    const had = a && isIn(a, box) && a.dataset ? a.dataset.col || '' : '';
+    box.textContent = '';
+    const row = st.known.get(st.row);
+    if (!row) return;
+    const list = document.createElement('div');
+    list.className = 'dbprops';
+    for (const col of st.info.cols) {
+      if (col.gone || col.type === 'title') continue;
+      list.appendChild(rpPropEl(st, col, row));
+    }
+    box.appendChild(list);
+    const back = had ? rpValEl(had) : null;
+    if (back) back.focus();
+  }
+  // 1つの列の行（.prop の .k に列の名前、.v に値。書ける列はボタンで、名前は列の名前と値。書けない列は灰色の文字）
+  function rpPropEl(st, col, row) {
+    const r = document.createElement('div');
+    r.className = 'prop dbprop'; r.dataset.col = col.id;
+    const k = document.createElement('span');
+    k.className = 'k'; k.id = `rpk-${col.id}`; k.textContent = col.name;
+    const on = dbWritable(col);
+    const v = document.createElement(on ? 'button' : 'span');
+    v.className = on ? 'v dbpropv' : 'v dbpropv ro'; v.id = `rpv-${col.id}`; v.dataset.col = col.id;
+    if (on) {
+      v.type = 'button';
+      v.setAttribute('aria-labelledby', `${k.id} ${v.id}`);
+      v.onclick = () => rpOpenWriter(st, col.id);
+    }
+    const x = dbModelView.cellValue(row, col);
+    const text = dbModelView.fmtCell(col, x, { rowsById: st.known });
+    if (x !== null && ['url', 'email', 'phone'].includes(col.type)) {   // 値の文字を押すと開く・写す（表と同じ: SEC2）
+      const a = document.createElement('span');
+      a.className = 'dblink'; a.textContent = text;
+      a.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbOpenValue(col, String(x)); };
+      v.appendChild(a);
+    } else v.textContent = text;
+    r.append(k, v);
+    return r;
+  }
+  // 押した列の書き手（文字・数値・URL などは1行の欄、チェックは切り替え、選択肢・ユーザー・日付は表と同じ窓）
+  function rpOpenWriter(st, colId) {
+    if (rpSt !== st) return;
+    if (st.editing) rpEditEnd(st, true);
+    const col = dbColOf(st, colId);
+    const row = st.known.get(st.row);
+    const v = rpValEl(colId);
+    if (!col || !row || !v || !dbWritable(col)) return;
+    if (col.type === 'check') { rpWrite(st, () => window.koeApp.rowSetCell(st.id, st.row, colId, dbModelView.cellValue(row, col) === true ? null : true)); return; }
+    if (dbEditable(col)) {
+      const was = dbModelView.cellValue(row, col);
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.className = 'dbedit';
+      inp.value = was === null ? '' : String(was);
+      inp.setAttribute('aria-label', col.name);
+      const ed = { col: colId, inp, was: inp.value };
+      st.editing = ed;
+      v.hidden = true;
+      v.parentNode.appendChild(inp);
+      inp.onkeydown = (ev) => {
+        if (imeEnter(ev)) return;
+        if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); rpEditEnd(st, true); return; }
+        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); rpEditEnd(st, false); }
+      };
+      inp.onblur = () => { if (st.editing === ed) rpEditEnd(st, true); };
+      inp.focus();
+      return;
+    }
+    const pop = document.createElement('div');
+    pop.className = 'dbpick';
+    v.parentNode.appendChild(pop);
+    const ed = { col: colId, pick: pop };
+    st.editing = ed;
+    const write = (x) => rpWrite(st, () => window.koeApp.rowSetCell(st.id, st.row, colId, x));
+    const close = () => { if (st.editing === ed) rpEditEnd(st, false); };
+    dbWriterInto(st, pop, col, dbModelView.cellValue(row, col), write, close, ed);
+    pop.addEventListener('mousedown', (ev) => { const t = ev && ev.target; if (t && t.closest && !t.closest('input, button, select, textarea')) ev.preventDefault(); });   // 表と同じ（rv48 F2）
+    if (col.type === 'date') pop.addEventListener('focusout', (ev) => {   // 暦は窓の外へ動いたら決める（表と同じ: R82・rv48 F10）
+      const to = ev && ev.relatedTarget;
+      if (to && isIn(to, pop)) return;
+      if (st.editing === ed) rpEditEnd(st, true);
+    });
+  }
+  // 書き手を閉じる（save: 1行の欄は打った値を、暦は決めた値を書く）。描き直して、その列の値へフォーカスを戻す
+  async function rpEditEnd(st, save) {
+    const ed = st.editing;
+    if (!ed) return;
+    st.editing = null;
+    if (ed.pick) {
+      if (ed.pick.parentNode) ed.pick.parentNode.removeChild(ed.pick);
+      if (save && ed.commit) await ed.commit();
+    } else {
+      const value = String(ed.inp.value).replace(/[\r\n\t]+/g, ' ');
+      const typed = dbTyped(st, ed.col, value);
+      if (ed.inp.parentNode) ed.inp.parentNode.removeChild(ed.inp);
+      if (save && value !== ed.was && typed.bad) toast(DB_UNREAD);   // 書かずに、前の値のまま
+      if (save && value !== ed.was && !typed.bad) await rpWrite(st, () => window.koeApp.rowSetCell(st.id, st.row, ed.col, typed.value));
+    }
+    if (rpSt !== st || st.editing) return;
+    rpPaint(st);
+    const v = rpValEl(ed.col);
+    if (v) v.focus();
+  }
+  // 書く命令を送り、行と列を読み直して描く（断られたら一言。答えを返す）。歩みは命令の args.db でデータベースの歩み（表と同じ）
+  async function rpWrite(st, send) {
+    let r = null;
+    try { r = await inFlight(send()); }
+    catch (e) {
+      const code = String((e && (e.code || e.message)) || 'internal');
+      toast(code === 'too-big' ? DB_ROWS_FULL : `変更を保存できませんでした: ${code}`);
+      return null;
+    }
+    if (rpSt === st) await rpReload(st);
+    return r;
+  }
+  async function rpReload(st) {
+    let g = null; let info = null;
+    try { [g, info] = await Promise.all([window.koeApp.pageGet(st.row), window.koeApp.dbGet(st.id)]); } catch (_) { return; }
+    if (rpSt !== st) return;
+    if (info && Array.isArray(info.cols)) st.info = info;
+    if (g && g.page && isRowPage(curPage) && curPage.id === st.row) {
+      Object.assign(curPage, { cells: g.page.cells, by: g.page.by, updatedAt: g.page.updatedAt, rev: g.page.rev });   // 題名と本文は今のまま（書いている途中を消さない）
+      st.known.set(st.row, rpRowOf(curPage));
+    }
+    rpPaint(st);
+  }
   // ================= 0.16.0 DV-2: 列のメニューとセルの書き手 =================
   // 計画 docs/plans/2026-11-04-160.md の決めたこと 10〜14・25・52・R63〜。列の見出しを押すと列のメニュー、右端の［＋］で列を足す。
   // セルは種類ごとの書き手（1行の文字・数値・選択肢の選び・ユーザーの名前・暦・チェックの切り替え）。他人の文字（列・選択肢・人の名前）は textContent だけ。
@@ -10413,7 +10685,11 @@
     const v = dbModelView.cellValue(row, col);
     const text = dbModelView.fmtCell(col, v, { rowsById: st.known });
     cell.textContent = '';
-    if (v === null || !['url', 'email', 'phone'].includes(col.type)) { cell.textContent = text; return; }
+    if (v === null || !['url', 'email', 'phone'].includes(col.type)) {
+      cell.textContent = text;
+      if (col.type === 'title') cell.appendChild(dbOpenBtn(row.id));   // 0.16.0 DV-4（決めたこと 26・R90）: 題名のセルの［開く］
+      return;
+    }
     const a = document.createElement('span');
     a.className = 'dblink'; a.textContent = text;
     a.onclick = (ev) => { ev.stopPropagation(); dbOpenValue(col, String(v)); };
@@ -10536,11 +10812,12 @@
     dbMenuAt(anchor, Object.keys(DB_FMT_LABEL).map((f) => ({ label: DB_FMT_LABEL[f], on: now === f, fn: () => { dbMenuClose(); if (f !== now) dbWrite(() => window.koeApp.colSetFmt(st.id, col.id, { fmt: f })); } })), 'dbcolmenu');
   }
   // 選択肢を足す（DB が ID を振り直すことがある: 答えの列を返す）
-  async function dbAddOpt(col, name) {
-    const st = dbSt;
+  // 0.16.0 DV-4: 行のページの選びの窓からも（st は行のページの窓のメモリ。書いた後は行のページを読み直す）
+  async function dbAddOpt(col, name, st = dbSt) {
     let out;
     try { out = dbModelView.addOpt(col, name); } catch (_) { toast('変更を保存できませんでした: bad-args'); return null; }
-    const r = await dbWrite(() => window.koeApp.colSetOpts(st.id, col.id, out.col.opts, col.type === 'status' ? out.col.groups : undefined));
+    const send = () => window.koeApp.colSetOpts(st.id, col.id, out.col.opts, col.type === 'status' ? out.col.groups : undefined);
+    const r = st && st.rowPage ? await rpWrite(st, send) : await dbWrite(send);
     return r && r.col ? r.col : null;
   }
   // 選択肢の色（選択肢を選んでから色）
@@ -11437,7 +11714,7 @@
         try { dbModelView.cellOf(col, [name]); } catch (_) { toast(DB_UNREAD); return; }   // DV-2 直し（rv46 M2）: 名前は 1〜50 字（DB と同じ照らし）
         inp.value = ''; if (!val.includes(name)) await pick(name); return;
       }
-      const got = await dbAddOpt(cur, name);   // 答えの列（R56）
+      const got = await dbAddOpt(cur, name, st);   // 答えの列（R56）
       if (!got) return;
       cur = got;
       const o = (got.opts || []).find((x) => dbModelView.foldName(x.name) === dbModelView.foldName(name));
@@ -11620,7 +11897,7 @@
     }
     if (pid !== curId || !curPage || !page || page.id !== curId) return;   // 決めたこと 41: 送ったページがもう開いていなければ描かない
     applyRows({
-      key: pid, box: $('pNote'), memo: isBlankPage(curPage), old: curPage.blocks,   // 0.15.0 PH-4: 白紙のページの本文は書いた順（memo と同じ）
+      key: pid, box: $('pNote'), memo: isBodyPage(curPage), old: curPage.blocks,   // 0.15.0 PH-4: 白紙のページの本文は書いた順（memo と同じ。0.16.0 DV-4: 行の本文も）
       lock: summaryLockView(curPage, { live: isLiveCopy(curPage), making: summarizing.has(curId) || mainMaking.has(curId), segments: curSegs }),
       set: (blocks) => {
         curPage.blocks = blocks;
@@ -13367,7 +13644,7 @@
       }
 
       // 出典チップ（0.15.0 PH-4: 白紙のページの本文には出典が無いので札を出さない）
-      if ((b.type === 'bullet' || b.type === 'todo') && !isBlankPage(curPage)) {
+      if ((b.type === 'bullet' || b.type === 'todo') && !isBodyPage(curPage)) {
         const wrap = document.createElement('span'); wrap.className = 'cites';
         tail.appendChild(wrap);
         el.appendChild(tail);
@@ -13491,7 +13768,7 @@
       const n = document.createElement('div'); n.className = 'note'; n.textContent = curPage.summaryError;
       box.appendChild(n);
     }
-    if (isBlankPage(curPage)) { renderBodyRows(box); return; }   // 0.15.0 PH-4: 白紙のページの本文
+    if (isBodyPage(curPage)) { renderBodyRows(box); return; }   // 0.15.0 PH-4: 白紙のページの本文（0.16.0 DV-4: 行のページの本文も）
     if (!curPage.blocks.length) {
       const d = document.createElement('div'); d.className = 'empty';
       d.innerHTML = lock ? '<div class="big">要約はまだありません</div>' : '<div class="big">要約はまだありません</div>右上の［要約を生成］で作成できます。';
@@ -13528,7 +13805,7 @@
   // 本文の最初の行へ（行が無ければテキストの行を足してフォーカス）。題名の Enter と手引きから
   function startBody() {
     const pid = curId;
-    if (!pid || !isBlankPage(curPage)) return null;
+    if (!pid || !isBodyPage(curPage)) return null;
     const first = editRows($('pNote'))[0];
     if (first && first._txt) { first._txt.focus(); setCaret(first._txt, 0); return null; }
     return stepGroup(() => editAnswer(pid, () => rowApi(pid).blockInsert(pid, '', 'paragraph'), (x) => ({ focus: x.blockId, caret: 0 })));
@@ -13626,6 +13903,8 @@
   // 「🔗 出典 x/y」だけ描き直したいので、renderPage から切り出してある。
   // 行は「アイコン・名前・値」（.prop の .k に「アイコン 名前」、.v に値。第1b回 N4）
   function renderProps() {
+    if (isRowPage(curPage)) { rpShow(); return; }   // 0.16.0 DV-4（決めたこと 26）: 行のページは列の値の並び（書いている間は描き直さない）
+    rpSt = null;
     const props = $('pProps'); props.textContent = '';
     if (isBlankPage(curPage) || isDbPage(curPage)) return;   // 0.15.0 PH-4（BQ2 (a)）: 白紙のページにプロパティは無い（0.16.0 DV-1: データベースのページも）
     // 名前の欄のアイコンは灰色の .ic に包む（k.textContent は今と同じ「🔗 出典」。第1b2回 P-2）
@@ -13682,6 +13961,7 @@
     flushSegEdit();
     flushMemo();   // 0.14.0 MB-4: メモの行（録音中と録音の前の欄も）
     if (dbSt && dbSt.editing) dbEditEnd(true);   // 0.16.0 DV-1: 書いているセル
+    if (rpSt && rpSt.editing) rpEditEnd(rpSt, true);   // 0.16.0 DV-4: 行のページで書いている列の値
     if (!pid || !curPage) return;
     commitTitle(pid);
     for (const t of $('pNote').querySelectorAll('.blk .txt')) if (typeof t._commit === 'function') t._commit(pid);
@@ -13707,7 +13987,7 @@
   // 0.11.0 V-4（P15 (a)・D79）: 自動のページで題名を直したら main に判定を聞き、今の種類と違えば種類の横に一言（種類も要約も変えない）
   async function askTitleType(pid, title) {
     // PH-4 直し（R29 (2)・BQ2 (a)）: 白紙のページに会議の種類は無いので聞かない
-    if (!curPage || isBlankPage(curPage) || pid !== curId || pageTypeKey(curPage) || typeof window.koeApp.metaDetectType !== 'function') return;
+    if (!curPage || isBodyPage(curPage) || pid !== curId || pageTypeKey(curPage) || typeof window.koeApp.metaDetectType !== 'function') return;
     let r = null;
     try { r = await window.koeApp.metaDetectType(pid, title); } catch (_) { r = null; }
     if (!curPage || pid !== curId || pageTypeKey(curPage)) return;
@@ -14004,7 +14284,7 @@
     if (imeEnter(e)) return;
     if (e.key === 'Enter') {
       e.preventDefault();
-      const blank = isBlankPage(curPage);
+      const blank = isBodyPage(curPage);   // 0.16.0 DV-4: 行のページも
       $('pTitle').blur();
       if (blank) startBody();   // 0.15.0 PH-4: 白紙のページは題名の Enter で本文へ（行が無ければ最初の行を足す）
     }
@@ -14811,6 +15091,7 @@
       page.title = curPage.title;
       page.memo = curPage.memo;
       page.memoDoc = curPage.memoDoc;   // 0.14.0 MB-4: メモの行も
+      if (isRowPage(curPage) && curPage.id === page.id) Object.assign(page, { kind: 'row', db: curPage.db });   // 0.16.0 DV-4: 行のページの印は画面のもの
     }
     curPage = page; curSegs = segments; renderPage();
     if (typeof page.title === 'string') { tabTitles.set(page.id, page.title); renderTabs(); }
