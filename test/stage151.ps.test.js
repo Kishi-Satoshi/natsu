@@ -1234,3 +1234,224 @@ test('PS-5: ヘルプと README の新しい節は Notion の名前と文を写�
   const t = [PAGE_TREE(), readmeScreens(), fs.readFileSync(path.join(ROOT, 'help', 'articles', 'start', 'overview.md'), 'utf8')].join('\n');
   for (const w of ['Notion', 'notion', 'ノーション', 'リンクをコピー', '名前の変更', '新規ページ', 'チームスペース', 'サイドバーの整理']) assert.ok(!t.includes(w), `${w} がある`);
 });
+
+// ================================================================ PS-4 直し（2026-11-09 の 106f3ef..6027f9d の点検・R44）
+// 押している間の一覧の読み直し: 本物の DB の口は数ミリ秒で返るので、page.setTitle と一覧の読み直しは mouseup より先に終わる（ここでは偽の口がすぐ返す）
+// l.key は事象の種類を替えられる（行の受け口の次に document の受け口を呼ぶ: 本物の泡立ちの順）
+const pressDown = (l, el) => { l.key({ type: 'mousedown', button: 0 }, el); };
+const pressUp = async (l, el) => { l.key({ type: 'mouseup', button: 0 }, el); el.dispatchEvent({ type: 'click' }); await l.drain(); };
+
+test('PS-4 直し・F163（R44）: 名前を変えている間にサイドバーの別の行を押すと、page.setTitle と一覧の読み直し（と pages:updated）が mouseup より先に返っても、押している間は行を作り直さず、押した行が開く。離した後に一覧を描き直す', T, async () => {
+  const r0 = renamable();
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  const row4 = uRow(l, 'pg4');
+  l.key(CSR, uRow(l, 'pg5')); await l.drain();
+  const box = renameBox(l);
+  box.value = '押している間の名前';
+  pressDown(l, row4);
+  row4.focus();
+  box.dispatchEvent({ type: 'blur' });
+  await l.drain();   // 偽の口はすぐ返す: page.setTitle と一覧の読み直しは mouseup より先に終わる
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pg5', '押している間の名前']]);
+  assert.ok(l.called('pagesSearch').length >= 2, '名前を決めた後に一覧を読み直さない');
+  l.fire('onPagesUpdated'); await l.drain();   // main の知らせも押している間に来る
+  assert.ok(uRow(l, 'pg4') === row4 && row4.parentNode === $(l, 'plist'), '押している間に一覧の行を作り直した（押した行の click が来ない）');
+  assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, '押している間の名前');
+  await pressUp(l, row4);
+  assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]), ['pg4'], '押した行のページが開かない');
+  await l.clock.advance(0); await l.drain();   // 離した後（mouseup の後の時限 0）に描き直す
+  assert.ok(uRow(l, 'pg4') !== row4, '離した後も一覧を描き直さない');
+  assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, '押している間の名前');
+  assert.strictEqual(uRow(l, 'pg5').draggable, true);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し（R44）: 押している間に届いた一覧の変わり（ほかの窓・Claude）は、押した所が行でなくても、離した後に描く', T, async () => {
+  const names = new Map();
+  const list = () => ULIST().map((p) => (names.has(p.id) ? { ...p, title: names.get(p.id) } : p));
+  const l = await bootUi({ list });
+  const t3 = uRow(l, 'pg3').querySelector('.t').textContent;
+  pressDown(l, $(l, 'privHead'));
+  names.set('pg3', 'ほかの窓で替えた名前');
+  l.fire('onPagesUpdated'); await l.drain();
+  assert.strictEqual(uRow(l, 'pg3').querySelector('.t').textContent, t3, '押している間に描き直した');
+  l.key({ type: 'mouseup', button: 0 }, $(l, 'privHead'));
+  await l.clock.advance(0); await l.drain();
+  assert.strictEqual(uRow(l, 'pg3').querySelector('.t').textContent, 'ほかの窓で替えた名前', '離した後に描き直さない');
+  // 引っ張りが始まったとき（mouseup が来ない）も待ちを解く
+  pressDown(l, uRow(l, 'pg3'));
+  names.set('pg3', '引っ張りの間に替えた名前');
+  l.fire('onPagesUpdated'); await l.drain();
+  l.key({ type: 'dragstart' }, uRow(l, 'pg3'));
+  await l.clock.advance(0); await l.drain();
+  assert.strictEqual(uRow(l, 'pg3').querySelector('.t').textContent, '引っ張りの間に替えた名前', '引っ張りが始まっても描き直さない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し・F164（R44）: ライブラリでも同じ（名前を変えている間に別の行を押す → 押している間は表を作り直さず、押した行がライブラリのタブに開く）', T, async () => {
+  const r0 = renamable();
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  await openLib(l);
+  const row4 = libRow(l, 'pg4');
+  l.key(CSR, libRow(l, 'pg5')); await l.drain();
+  const box = $(l, 'libRows').querySelector('input.pren');
+  box.value = 'ライブラリで押している間の名前';
+  pressDown(l, row4);
+  row4.focus();
+  box.dispatchEvent({ type: 'blur' });
+  await l.drain();
+  l.fire('onPagesUpdated'); await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pg5', 'ライブラリで押している間の名前']]);
+  assert.ok(libRow(l, 'pg4') === row4 && row4.parentNode === $(l, 'libRows'), '押している間にライブラリの行を作り直した');
+  await pressUp(l, row4);
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg4'], '押した行がライブラリのタブに開かない');
+  await l.clock.advance(0); await l.drain();
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し・F163（R44）: 欄の外を押した blur で決めた名前を断られたら、押している間でもその場で元の名前に戻す（行は作り直さない）', T, async () => {
+  const r0 = renamable({ fail: true });
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  const old = uRow(l, 'pg5').querySelector('.t').textContent;
+  const row4 = uRow(l, 'pg4');
+  l.key(CSR, uRow(l, 'pg5')); await l.drain();
+  const box = renameBox(l);
+  box.value = '断られる名前';
+  pressDown(l, row4);
+  box.dispatchEvent({ type: 'blur' });
+  await l.drain();
+  assert.strictEqual($(l, 'toast').textContent, '名前を変えられませんでした。');
+  assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, old, '断られたのに行が新しい名前のまま');
+  assert.ok(uRow(l, 'pg4') === row4, '押している間に一覧の行を作り直した');
+  await pressUp(l, row4);
+  await l.clock.advance(0); await l.drain();
+  assert.strictEqual(uRow(l, 'pg5').querySelector('.t').textContent, old);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し・F164（R44）: ライブラリの行から開くと（押す・Enter・Ctrl+Enter・中クリック）、フォーカスは開いたページのタブへ（ライブラリは隠れる）。中クリックは新しいタブ', T, async () => {
+  const l = await bootUi();
+  await openLib(l);
+  const tabEl = (key) => $(l, 'tabbar').querySelector(`[data-key="${key}"]`);
+  libRow(l, 'pg3').focus();
+  l.key({ key: 'Enter' }, libRow(l, 'pg3')); await l.drain();
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg3']);
+  assert.ok(l.document.activeElement === tabEl('page:pg3'), 'Enter で開いたページのタブにフォーカスが無い');
+  await openLib(l);
+  libRow(l, 'pg2').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg3', 'page:pg2']);
+  assert.ok(l.document.activeElement === tabEl('page:pg2'), '押して開いたページのタブにフォーカスが無い');
+  await openLib(l);
+  l.key({ key: 'Enter', ctrlKey: true }, libRow(l, 'pg1')); await l.drain();
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg3', 'page:pg2', 'library', 'page:pg1']);
+  assert.ok(l.document.activeElement === tabEl('page:pg1'), 'Ctrl+Enter で開いたページのタブにフォーカスが無い');
+  tabEl('library').dispatchEvent({ type: 'click' }); await l.drain();
+  libRow(l, 'pg4').dispatchEvent({ type: 'auxclick', button: 1, preventDefault() {} }); await l.drain();
+  assert.deepStrictEqual(tabKeysOf(l), ['page:pg3', 'page:pg2', 'library', 'page:pg1', 'page:pg4'], '中クリックが新しいタブに開かない（ライブラリのタブを替えた）');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し・F164（R44）: ライブラリの行のメニューの［移動先…］は、Esc でライブラリの行へ戻る。閉じた親の中へ動かすと、ライブラリでも親を開いてその行へ戻る', T, async () => {
+  const moved = new Map();
+  const list = () => ULIST().map((p) => (moved.has(p.id) ? { ...p, parentId: moved.get(p.id) } : p));
+  const l = await bootUi({ list, returns: { pageMove: (id, parentId) => { moved.set(id, parentId); return list(); } } });
+  await openLib(l);
+  const toMove = async () => {
+    l.key({ key: 'F10', shiftKey: true }, libRow(l, 'pg5')); await l.drain();
+    await press(l, rowItems(l).find((b) => b.textContent === '移動先…'));
+    assert.strictEqual($(l, 'movePop').hidden, false);
+  };
+  await toMove();
+  l.key({ key: 'Escape' }, $(l, 'moveSearch')); await l.drain();
+  assert.strictEqual($(l, 'movePop').hidden, true);
+  assert.ok(l.document.activeElement === libRow(l, 'pg5'), '［移動先…］の Esc でライブラリの行へ戻らない（サイドバーの行へ行った）');
+  await toMove();
+  assert.ok(!libIds(l).includes('  k1'), 'pg6 が初めから開いている');
+  await press(l, $(l, 'moveList').children.find((e) => e.dataset.pid === 'pg6'));
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageMove').map((c) => c.args.slice(0, 2)), [['pg5', 'pg6']]);
+  assert.ok(libRow(l, 'pg5') && l.document.activeElement === libRow(l, 'pg5'), '動かした行へ戻らない（閉じた親を開かない）');
+  assert.strictEqual(libRow(l, 'pg5').getAttribute('aria-level'), '2');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し・F164（R44）: 並べ替えの矢印（↑・↓）は CSS の代わりの文を空にして読み上げの名前に入れない（向きは aria-sort）', T, () => {
+  const html = fs.readFileSync(APP, 'utf8');
+  assert.ok(html.includes(`.lib-head [aria-sort="ascending"] .lib-col::after { content: ' ↑' / ""; }`), '↑ の代わりの文が空でない');
+  assert.ok(html.includes(`.lib-head [aria-sort="descending"] .lib-col::after { content: ' ↓' / ""; }`), '↓ の代わりの文が空でない');
+  assert.ok(!/content: ' [↑↓]';/.test(html), '矢印を読み上げの名前に入れる規則が残っている');
+});
+
+test('PS-4 直し・F164（R44）: サイドバーの選ぶ形の間も、ライブラリの行のメニュー（Shift+F10・右クリック）と Ctrl+Shift+R は効く（選ぶ形はサイドバーだけ）', T, async () => {
+  const r0 = renamable();
+  const l = await bootUi({ list: r0.list, returns: r0.returns });
+  await press(l, $(l, 'listSelect'));
+  assert.strictEqual($(l, 'selBar').hidden, false, '選ぶ形に入らない');
+  await openLib(l);
+  l.key({ key: 'F10', shiftKey: true }, libRow(l, 'pg5')); await l.drain();
+  assert.ok(rowMenu(l), '選ぶ形の間はライブラリの行のメニューが開かない');
+  l.key({ key: 'Escape' }, rowMenu(l)); await l.drain();
+  libRow(l, 'pg5').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain();
+  assert.ok(rowMenu(l), '選ぶ形の間はライブラリの行の右クリックでメニューが開かない');
+  l.key({ key: 'Escape' }, rowMenu(l)); await l.drain();
+  l.key(CSR, libRow(l, 'pg5')); await l.drain();
+  const box = $(l, 'libRows').querySelector('input.pren');
+  assert.ok(box, '選ぶ形の間はライブラリの行で名前を変えられない');
+  box.value = '選ぶ形の間の名前';
+  l.key({ key: 'Enter' }, box); await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pg5', '選ぶ形の間の名前']]);
+  // サイドバーの行（チェックボックスの行）は今どおり止める
+  l.key(CSR, uRow(l, 'pg4')); await l.drain();
+  assert.ok($(l, 'plist').querySelector('input.pren') === null, '選ぶ形のサイドバーの行に名前の欄が出た');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し・F164: 探している間（木を崩した行）は ▸ も aria-expanded も出さず、→ は開かず ← は親へ移らない。Home は最初の行・End は最後の行', T, async () => {
+  const l = await bootUi();
+  await openLib(l);
+  await typeQ(l, '11/6');
+  assert.deepStrictEqual(libRows(l).map((r) => r.dataset.pid).sort(), ['k1', 'k2', 'pg6']);
+  const r6 = libRow(l, 'pg6');
+  assert.strictEqual(r6.hasAttribute('aria-expanded'), false, '探している間に aria-expanded を出した');
+  const tw = r6.querySelector('.lib-tw');
+  assert.strictEqual(tw.textContent, '', '探している間に ▸ を出した');
+  tw.dispatchEvent({ type: 'click', stopPropagation() {} }); await l.drain();
+  const before = libRows(l).map((r) => r.dataset.pid);
+  r6.focus();
+  l.key({ key: 'ArrowRight' }, r6); await l.drain();
+  assert.deepStrictEqual(libRows(l).map((r) => r.dataset.pid), before, '探している間の → で行が変わった');
+  assert.ok(l.document.activeElement === libRow(l, 'pg6'), '探している間の → でフォーカスが動いた');
+  libRow(l, 'k1').focus();
+  l.key({ key: 'ArrowLeft' }, libRow(l, 'k1')); await l.drain();
+  assert.ok(l.document.activeElement === libRow(l, 'k1'), '探している間の ← で親へ移った');
+  await typeQ(l, '');
+  assert.ok(!libIds(l).includes('  k1'), '探している間の → で行を開いた（探すのをやめると開いている）');
+  libRow(l, 'pg4').focus();
+  l.key({ key: 'Home' }, libRow(l, 'pg4')); await l.drain();
+  assert.ok(l.document.activeElement === libRows(l)[0], 'Home で最初の行へ移らない');
+  l.key({ key: 'End' }, libRows(l)[0]); await l.drain();
+  assert.ok(l.document.activeElement === libRows(l)[libRows(l).length - 1], 'End で最後の行へ移らない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('PS-4 直し・F164: ライブラリで名前を変えている間に一覧を読み直しても（pages:updated）、欄は打った字のままフォーカスを持って残る。ページが無くなるとライブラリは「当てはまるページはありません」だけ', T, async () => {
+  const r0 = renamable();
+  let empty = false;
+  const l = await bootUi({ list: () => (empty ? [] : r0.list()), returns: r0.returns });
+  await openLib(l);
+  l.key(CSR, libRow(l, 'pg5')); await l.drain();
+  let box = $(l, 'libRows').querySelector('input.pren');
+  box.value = '打ちかけ';   // input の事象の前に読み直しが来ても、欄の今の字を持って作り直す
+  l.fire('onPagesUpdated'); await l.drain();
+  box = $(l, 'libRows').querySelector('input.pren');
+  assert.ok(box && box.parentNode === libRow(l, 'pg5').querySelector('.t'), '読み直しで名前の欄が消えた');
+  assert.strictEqual(box.value, '打ちかけ');
+  assert.ok(l.document.activeElement === box, '読み直しで名前の欄のフォーカスが外れた');
+  l.key({ key: 'Escape' }, box); await l.drain();
+  assert.strictEqual(l.called('pageSetTitle').length, 0);
+  empty = true;
+  l.fire('onPagesUpdated'); await l.drain();
+  assert.strictEqual(libRows(l).length, 0, 'ページが無くなってもライブラリに行が残る');
+  assert.strictEqual($(l, 'libEmpty').hidden, false, 'ページが無いのに「当てはまるページはありません」が出ない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});

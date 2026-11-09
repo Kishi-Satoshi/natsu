@@ -243,8 +243,8 @@
   .lib-head { color: var(--muted); font-size: 12px; }
   .lib-col { height: 28px; padding: 0 4px; border: none; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
   .lib-col:hover { background: var(--hover); color: var(--text); }
-  .lib-head [aria-sort="ascending"] .lib-col::after { content: ' ↑'; }
-  .lib-head [aria-sort="descending"] .lib-col::after { content: ' ↓'; }
+  .lib-head [aria-sort="ascending"] .lib-col::after { content: ' ↑' / ""; }   /* 0.15.1 PS-4 直し（R44）: 矢印は読み上げの名前に入れない（向きは aria-sort） */
+  .lib-head [aria-sort="descending"] .lib-col::after { content: ' ↓' / ""; }
   .lib-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
   .lib-time { flex: none; width: 160px; padding: 0 8px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
   .lib-row { cursor: pointer; border-radius: 6px; }
@@ -2696,7 +2696,7 @@
       else if (!o.newTab && at >= 0 && isPageKey(activeTab)) openTabs[at] = { key };
       else openTabs.push({ key });
     }
-    return activateTab(key, { reload: o.reload !== false, before });
+    return activateTab(key, { reload: o.reload !== false, before, focus: Boolean(o.focus) });
   }
   // 一覧の行から開く。Ctrl+クリック・中クリックは新しいタブ（Enter・Space は今のタブ）
   function openFromList(id, ev) {
@@ -2863,8 +2863,27 @@
   // 検索の欄の打鍵・絞り込み・担当のチップは refreshResults を直接呼ぶ（窓が閉じていても）。
   let hits = [];        // 検索の窓の結果（pages はサイドバーの全部のページ）
   let palOpen = false;  // 検索の窓が開いているか（hidden を読まない: 偽 DOM によっては hidden がいつも false）
+  // 0.15.1 PS-4 直し（R44）: マウスのボタンを押している間（mousedown から mouseup の後の click・auxclick まで）は、一覧を読み直しても描き直さない。
+  // 名前の欄の外の行を押すと、欄の blur の後の page.setTitle と一覧の読み直し（と main の pages:updated）が mouseup より先に返ることがあり（DB の口は数ミリ秒）、
+  // 押した行を作り直すと click が来ない（R43 の続き）。離した後（mouseup の後の時限 0。click はその前に届く）・引っ張りが始まった・窓のフォーカスが外れた・
+  // 押してから 5 秒で待ちを解く
+  let pressHeld = false;
+  let pressWaits = [];
+  let pressTimer = 0;
+  const pressFree = () => (pressHeld ? new Promise((r) => { pressWaits.push(r); }) : Promise.resolve());
+  const pressEnd = () => {
+    if (!pressHeld) return;
+    pressHeld = false;
+    clearTimeout(pressTimer);
+    setTimeout(() => { const w = pressWaits; pressWaits = []; for (const f of w) f(); }, 0);
+  };
+  document.addEventListener('mousedown', () => { pressHeld = true; clearTimeout(pressTimer); pressTimer = setTimeout(pressEnd, 5000); }, true);
+  document.addEventListener('mouseup', pressEnd, true);
+  document.addEventListener('dragstart', pressEnd, true);
+  window.addEventListener('blur', pressEnd);
   async function refreshList() {
     pages = await window.koeApp.pagesSearch('');
+    await pressFree();   // 0.15.1 PS-4 直し（R44）: 押している間は描き直さない
     // 0.10.0 L-2: 一覧に無くなった行の選びを外す。一覧が空なら［選ぶ］を出さない（選ぶ形も終える）
     paintPrivMenu();   // 0.15.1 PS-2: ページが無いときは［ページを選ぶ］を灰色に
     if (!pages.length && listSel.on) listSel = selStep(listSel, { type: 'toggleMode' }, []);
@@ -4295,7 +4314,7 @@
     closeTreeMenu();
     const where = o.where === 'library' ? 'library' : 'tree';
     const row = rowOf(where, id);
-    if (!row || listSel.on) return;
+    if (!row || (listSel.on && where === 'tree')) return;   // 0.15.1 PS-4 直し（R44）: 選ぶ形はサイドバーだけ（ライブラリの行のメニューは止めない）
     const box = document.createElement('div');
     box.className = 'blockmenu treemenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ページのメニュー');
     treeMenu = { id, box, where };
@@ -4303,7 +4322,7 @@
     const kbd = (b, shown, aria) => { b.setAttribute('data-kbd', shown); b.setAttribute('aria-keyshortcuts', aria); return b; };   // 右に灰色の近道（CSS の attr）
     menuItem(box, 'リンクを写す', () => { closeTreeMenu(true); copyRowLink(id); });   // 0.15.1 PS-3 直し 2（R43）: 写した後のフォーカスは行へ
     kbd(menuItem(box, '名前を変える', run(() => startRename(id, where))), 'Ctrl+Shift+R', 'Control+Shift+R');
-    menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
+    menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id, where })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
     menuItem(box, '中にページを作る', run(() => createPageIn(id)));
     kbd(menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true }))), 'Ctrl+Enter', 'Control+Enter');
     menuItem(box, '削除', run(() => deletePageFlow(id)));
@@ -4357,7 +4376,7 @@
   // 名前の欄から行へ渡さないキー（木の動き）。ほかのキー（Ctrl+W・Ctrl+Tab・Ctrl+P・Ctrl+\ など）は窓の近道へ届く
   const RENAME_TREE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', ' ', 'F10', 'ContextMenu', 'Escape']);
   function startRename(id, where = 'tree') {
-    if (listSel.on) return false;   // 選ぶ形の間は何もしない（チェックボックスの行に欄を出さない）
+    if (listSel.on && where === 'tree') return false;   // 選ぶ形の間はサイドバーの行に欄を出さない（チェックボックスの行。ライブラリの行は止めない: R44）
     if (renameEd) commitRename(renameEd);
     const p = pages.find((x) => x && x.id === id);
     if (!p || !rowOf(where, id)) return false;
@@ -4414,8 +4433,9 @@
     const typed = sideSectionView.oneLineTitle(ed.input ? ed.input.value : ed.value);
     // 持ち主の答え（2026-11-08）「ページの頂と同じく、元の名前に戻す（おすすめ）」: 空にして決めたら元の名前に戻し、何も書かない（ページの頭の題名と同じ）
     const v = typed === '' ? ed.old : typed;
-    if (o.inPlace && ed.input && ed.input.parentNode) {
-      ed.input.parentNode.textContent = v;
+    const cell = o.inPlace && ed.input ? ed.input.parentNode : null;
+    if (cell) {
+      cell.textContent = v;
       const row = rowOf(ed.where, ed.id);
       if (row) row.draggable = ed.where === 'tree' && !listSel.on;
     } else {
@@ -4426,7 +4446,13 @@
     if (v === ed.old) return;
     let ok = true;
     try { const r = await window.koeApp.pageSetTitle(ed.id, v); if (r && r.ok === false) ok = false; } catch (_) { ok = false; }
-    if (!ok) { toast('名前を変えられませんでした。'); renderList(); return; }
+    if (!ok) {
+      toast('名前を変えられませんでした。');
+      if (cell) cell.textContent = ed.old;   // 0.15.1 PS-4 直し（R44）: その場で元の名前に戻し、作り直すのは押し終えてから
+      await pressFree();
+      renderList();
+      return;
+    }
     // 開いているページはタブの名前とページの頭の題名も（題名を書いている途中なら頭はそのまま）。頭の題名と同じく、会議の種類の一言も聞く（0.11.0 V-4）
     if (curPage && curId === ed.id) {
       curPage.title = v;
@@ -4449,6 +4475,7 @@
   // 行はサイドバーの木と同じ一覧（DB の listedRows。ゴミ箱・録音中の写し・録音の前のページは無い）。並べ替えと探すは sideSection.libraryRows（兄弟の中で・木を崩さない）。
   // 題名（他人の文字）は textContent だけ（0.14.0 EB-6）。表示の数（決めたこと 23）はライブラリには効かない（いつも全部）
   const lib = { col: '', dir: 'asc', q: '', open: new Set(), focus: '' };
+  let libShown = [];   // 今描いているライブラリの行（sideSection.libraryRows の答え）
   const libSource = () => pages;
   const libRowEl = (id) => [...$('libRows').children].find((e) => e.dataset && e.dataset.pid === id) || null;
   function libRowsOf(src) {
@@ -4467,6 +4494,7 @@
       $(id).parentNode.setAttribute('aria-sort', lib.col === col ? (lib.dir === 'asc' ? 'ascending' : 'descending') : 'none');
     }
     const { rows, byId } = libRowsOf(libSource());
+    libShown = rows;   // 0.15.1 PS-4 直し（R44）: キーは描いた行で動く（キーごとに並べ直さない）
     $('libEmpty').hidden = rows.length > 0;
     const now = Date.now();
     const ids = rows.map((r) => r.id);
@@ -4519,14 +4547,22 @@
     renderLibrary();
   }
   // 行を押す・Enter は今のタブ（ライブラリのタブがそのページに替わる）・Ctrl+押す・Ctrl+Enter・中クリックは新しいタブ（決めたこと 36・PR13）
+  // 0.15.1 PS-4 直し（R44）: 開くとライブラリが隠れるので、フォーカスは開いたページのタブへ（行は無くなる）
   function openFromLibrary(id, ev) {
     const newTab = Boolean(ev) && Boolean(ev.ctrlKey || ev.metaKey || ev.button === 1);
-    return newTab ? openPageTab(id, { newTab: true }) : openPageTab(id, { replaceKey: 'library' });
+    return newTab ? openPageTab(id, { newTab: true, focus: true }) : openPageTab(id, { replaceKey: 'library', focus: true });
+  }
+  // ［移動先…］で閉じた親の中へ動かしたら、ライブラリでも祖先を開いて行を出す（サイドバーの revealInTree と同じ）
+  function revealInLibrary(id) {
+    if (lib.q) return false;
+    let changed = false;
+    for (const a of pageTreeView.crumbsOf(treeNow(), id)) if (!lib.open.has(a)) { lib.open.add(a); changed = true; }
+    return changed;
   }
   // 行のキー（木の決まり: ↑↓・Home・End・→←・Enter・Ctrl+Enter・Shift+F10 とメニューのキー）。Ctrl+Shift+R は document の受け口（名前を変える）
   function libKey(ev, id) {
     if (imeEnter(ev)) return;
-    const { rows } = libRowsOf(libSource());
+    const rows = libShown;
     const i = rows.findIndex((r) => r.id === id);
     if (i < 0) return;
     const r = rows[i];
@@ -4677,7 +4713,7 @@
     if (!id || !crumbPage(id)) return;
     closeNewPop();
     const fa = o.from || null;
-    movePop = { id, from: fa && typeof fa.focus === 'function' ? fa : null, tree: o.tree || '', cands: moveCands(id), rows: [], at: 0 };
+    movePop = { id, from: fa && typeof fa.focus === 'function' ? fa : null, tree: o.tree || '', where: o.where === 'library' ? 'library' : 'tree', cands: moveCands(id), rows: [], at: 0 };
     $('moveSearch').value = '';
     $('movePop').hidden = false;
     renderMoveList();
@@ -4691,7 +4727,7 @@
     $('moveList').textContent = '';
     $('moveSearch').removeAttribute('aria-activedescendant');
     if (!back) return;
-    if (m.tree) { focusTreeRow(m.tree); return; }
+    if (m.tree) { focusRowOf(m.where, m.tree); return; }   // 0.15.1 PS-4 直し（R44）: 開いた行（サイドバーかライブラリ）へ
     const body = document.body;
     const alive = m.from && (!body || typeof body.contains !== 'function' || body.contains(m.from));
     if (alive) m.from.focus();
@@ -4751,7 +4787,8 @@
     await movePageTo(m.id, target);
     // PH-5 直し 4（R62。R58 の片づけを取り下げる）: 木の行から開いたら、動かした行へフォーカスを戻す。閉じた親・子の無い親の中へ動かすと、一覧を描き直したときに
     // 動かした行が隠れて一番近い見えている祖先（新しい親）へフォーカスが移るので、祖先を開いて描き直した後に戻す
-    if (m.tree) focusTreeRow(m.id);
+    if (m.tree && m.where === 'library') { if (revealInLibrary(m.id)) renderLibrary(); focusLibRow(m.id); }   // 0.15.1 PS-4 直し（R44）
+    else if (m.tree) focusTreeRow(m.id);
   }
   $('moveSearch').oninput = () => { if (movePop) { movePop.at = 0; renderMoveList(); } };
   $('moveSearch').onkeydown = (ev) => {
