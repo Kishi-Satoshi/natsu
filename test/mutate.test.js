@@ -1417,10 +1417,12 @@ const IDS_151 = [
   // 0.15.1 GV-1（計画の「変異の表」の gv- の行の順に。PC の中の文字起こしを GPU 版に: D126）
   'gv-pin-id', 'gv-pin-vulkan', 'gv-cand-current', 'gv-cleanup-keep', 'gv-consent', 'gv-update-auto', 'gv-log-fail', 'gv-log-lost',
   'gv-plan-manual', 'gv-plan-mark', 'gv-plan-driver', 'gv-state-norm', 'gv-ng-args', 'gv-log-path',
+  // 0.15.1 GV-2（表の行の順に）
+  'gv-rt-bundled', 'gv-rt-prev', 'gv-silent-cpu', 'gv-crash-cpu', 'gv-resend-cpu', 'gv-trying', 'gv-ng-noloop',
 ];
 // 0.15.1 GV-1（計画の「変異の表」の gv- の決まり）: GV-1〜GV-3 の間は、まだ作っていないタスクの gv- の行を除いて表と比べる（ND-5 の前の BUILT_151 と同じ形）。
 // タスクを作るたびに減らし、GV-4 で表の全部（111）に戻す（この並びを消す）
-const GV_TODO_151 = ['gv-rt-bundled', 'gv-rt-prev', 'gv-silent-cpu', 'gv-crash-cpu', 'gv-resend-cpu', 'gv-trying', 'gv-ng-noloop', 'gv-wf-clobber', 'gv-help-fallback'];
+const GV_TODO_151 = ['gv-wf-clobber', 'gv-help-fallback'];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
 const GONE_151 = [

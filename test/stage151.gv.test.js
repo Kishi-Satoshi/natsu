@@ -379,3 +379,164 @@ test('GV-1・F172: gpuLogLine（決めたこと 55 の4つの形。理由の符�
   }
   assert.strictEqual(L('gpu', { device: '', version: '' }), '文字起こしの計算: GPU（不明・ドライバ 不明）');
 });
+
+// ---------------------------------------------------------------- GV-2（main の場面。mainrun と偽の whisper の GPU の型: F165〜F170・F172・F173・F175・F176）
+const { execScene } = require('./helpers/scene-slots');
+const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
+const DRIVER = 'Intel(R) Iris(R) Xe Graphics=32.0.101.7085';
+const runG = (args, env = {}) => new Promise((resolve, reject) => {
+  execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', ...env }, maxBuffer: 1 << 25, timeout: 90000 },
+    (err, stdout, stderr) => {
+      if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
+      resolve(JSON.parse(stdout.trim().split('\n').pop()));
+    });
+});
+const stateFile = (st) => { const f = path.join(tmp(), 'gpu-state.json'); fs.writeFileSync(f, JSON.stringify({ schema: 1, driver: '', bad: null, trying: null, ...st })); return f; };
+const G = ['text', '--managed', '--gpu-set', `--driver=${DRIVER}`];
+const SCENES = {
+  base: () => runG(['text', '--managed', '--win32']),
+  gpu: () => runG([...G, '--segs=5'], { FAKE_GPU: 'gpu' }),
+  none: () => runG([...G], { FAKE_GPU: 'none' }),
+  initFailed: () => runG([...G], { FAKE_GPU: 'init-failed' }),
+  exitEarly: () => runG([...G], { FAKE_GPU: 'exit-before-ready' }),
+  lost: () => runG([...G, '--segs=3'], { FAKE_GPU: 'lost-after:2' }),
+  lostSlow: () => runG([...G, '--segs=3', '--after-retry'], { FAKE_GPU: 'lost-after:2', FAKE_NG_START_MS: '3000', NATSU_TEST_LOCAL_TIME_SCALE: '0.004' }),
+  noStart: () => runG([...G, '--segs=3', '--ng-ok-at-stop', '--after-retry'], { FAKE_GPU: 'exit-before-ready', FAKE_NG: 'exit-before-ready' }),
+  trying: () => runG([...G, `--gpu-state=${stateFile({ driver: DRIVER, trying: DRIVER })}`], { FAKE_GPU: 'gpu' }),
+  driver: () => runG([...G, `--gpu-state=${stateFile({ driver: 'Intel(R) Iris(R) Xe Graphics=31.0.101.5000', bad: { why: 'lost', code: 9, at: '2026-11-01T00:00:00.000Z' } })}`], { FAKE_GPU: 'gpu' }),
+  oldYes: () => runG(['text', '--managed', '--old-set', `--driver=${DRIVER}`], { FAKE_GPU: 'gpu' }),
+  oldNone: () => runG(['text', '--managed', '--old-set', '--old-consent=none', `--driver=${DRIVER}`], { FAKE_GPU: 'gpu' }),
+  oldPaused: () => runG(['text', '--managed', '--old-set', '--old-consent=paused', `--driver=${DRIVER}`], { FAKE_GPU: 'gpu' }),
+  rtGpu: () => runG([...G, '--no-vc-runtime'], { FAKE_GPU: 'gpu' }),
+  rtOld: () => runG(['text', '--managed', '--old-set', '--no-vc-runtime', `--driver=${DRIVER}`], { FAKE_GPU: 'gpu' }),
+  manualWin: () => runG(['text', '--win32', `--driver=${DRIVER}`], { FAKE_GPU: 'none' }),
+  gpuLinux: () => runG([...G, '--gpu-platform=linux'], { FAKE_GPU: 'none' }),
+};
+const memo = {};
+const scene = (k) => (memo[k] || (memo[k] = SCENES[k]()));
+const ST = { timeout: 180000 };
+const calc = (r) => r.engineLog.filter((l) => l.startsWith('文字起こしの計算:'));
+const SWITCH = (why, code) => `文字起こしの計算: CPU に切り替えました（理由 ${why}・ドライバ 32.0.101.7085${code === undefined ? '' : `・終了コード ${code}`}）。このドライバの版では次から CPU で動かします`;
+const GPU_LINE = '文字起こしの計算: GPU（Intel(R) Iris(R) Xe Graphics・ドライバ 32.0.101.7085）';
+const masked = (args) => args.map((a, i) => (args[i - 1] === '--port' ? '<port>' : a));
+const segsOf = (r) => r.pages[0].segments.map((x) => [x.text, Boolean(x.failed)]);
+const noGpuNotice = (r) => assert.deepStrictEqual(r.notices.filter((n) => /GPU|CPU|Vulkan|-ng/.test(n)), [], '知らせを増やした');
+
+test('GV-2・F165: GPU で動く（今と同じ exe の作業フォルダと引数で起こし、記録に1行。試している印は最初の答えの後に消える）', ST, async () => {
+  const [r, b] = await Promise.all([scene('gpu'), scene('base')]);
+  assert.strictEqual(r.spawns.length, 1, JSON.stringify(r.spawns));
+  const s = r.spawns[0];
+  assert.ok(!s.args.includes('-ng'));
+  assert.deepStrictEqual(masked(s.args), masked(b.spawns[0].args), '引数が今の起こし方と違う');
+  assert.strictEqual(path.basename(s.cwd), 'whisper-1.0.0-vk');
+  assert.strictEqual(path.dirname(s.cmd), s.cwd);
+  assert.deepStrictEqual(calc(r), [GPU_LINE]);
+  assert.deepStrictEqual([r.gpuState.trying, r.gpuState.bad], [null, null]);
+  assert.ok(r.served.length >= 5 && r.served.every((l) => l.startsWith('served ng=false')), JSON.stringify(r.served));
+  assert.ok(segsOf(r).length === 5 && segsOf(r).every(([t, f]) => t && !f), JSON.stringify(segsOf(r)));
+  assert.strictEqual(r.regCalls, 2, 'ドライバの鍵は起動ごとに1回（reg.exe の問い 2 つ）');
+});
+test('GV-2・F165: 黙って CPU で動く GPU の形（none・init-failed・exit-before-ready）は止めて、同じ exe を -ng で起こし直す。起動し直すと -ng を直に起こす', ST, async () => {
+  for (const [k, why, code] of [['none', 'none'], ['initFailed', 'init-failed'], ['exitEarly', 'start-failed', 5]]) {
+    const r = await scene(k);
+    assert.strictEqual(r.spawns.length, 2, `${k}: ${JSON.stringify(r.spawns)}`);
+    const [g, c] = r.spawns;
+    assert.deepStrictEqual([g.cmd, g.cwd], [c.cmd, c.cwd], k);
+    assert.deepStrictEqual(c.args, [...g.args, '-ng'], k);
+    assert.deepStrictEqual(calc(r), [SWITCH(why, code)], k);
+    assert.deepStrictEqual([r.gpuState.driver, r.gpuState.bad.why, r.gpuState.bad.code, r.gpuState.trying], [DRIVER, why, code === undefined ? null : code, null], k);
+    assert.ok(r.served.length >= 2 && r.served.every((l) => l.startsWith('served ng=true')), `${k}: ${JSON.stringify(r.served)}`);
+    assert.ok(segsOf(r).every(([t, f]) => t && !f), k);
+  }
+  // 起動し直す（前の起動の印のまま）: GPU の形を起こさず -ng の形を直に。記録に「前に GPU を使えませんでした」の1行
+  const prev = (await scene('none')).gpuState;
+  const again = await runG([...G, `--gpu-state=${stateFile(prev)}`], { FAKE_GPU: 'none' });
+  assert.ok(again.spawns.length === 1 && again.spawns[0].args.includes('-ng'), JSON.stringify(again.spawns));
+  assert.deepStrictEqual(calc(again), ['文字起こしの計算: CPU（このドライバの版では前に GPU を使えませんでした: 理由 none）']);
+});
+test('GV-2・F166: 会議の途中で GPU の形が落ちる（その区間は -ng の形を起こしてから送り直されて文字になる・後の区間は -ng の形・知らせは増えない）', ST, async () => {
+  const r = await scene('lost');
+  assert.deepStrictEqual(r.spawns.map((x) => x.args.includes('-ng')), [false, true]);
+  assert.deepStrictEqual(r.served, ['served ng=false #1', 'served ng=false #2', 'served ng=true #1', 'served ng=true #2']);
+  assert.deepStrictEqual(segsOf(r), [['本日の議題は進捗の確認です。区間1', false], ['本日の議題は進捗の確認です。区間C1', false], ['本日の議題は進捗の確認です。区間C2', false]]);
+  assert.deepStrictEqual(calc(r), [GPU_LINE, SWITCH('lost', 9)]);
+  assert.deepStrictEqual([r.gpuState.bad.why, r.gpuState.bad.code], ['lost', 9]);
+  assert.deepStrictEqual(r.notices, (await scene('gpu')).notices, '知らせが増えた');
+  // -ng の形の起動が遅く、区間の待ち時間が足りない: その区間は音声を残して文字起こし待ちに残り、締めの送り直しで文字になる（区間の数と文が落ちない）
+  const s = await scene('lostSlow');
+  assert.ok(s.engineLog.some((l) => l.startsWith('手元の文字起こしの失敗: s2')), JSON.stringify(s.engineLog.filter((l) => /失敗/.test(l))));
+  assert.strictEqual(s.pages[0].segments.length, 3);
+  assert.ok(s.afterRetry.segments.length === 3 && s.afterRetry.segments.every((x) => x.text && !x.failed), JSON.stringify(s.afterRetry.segments));
+  noGpuNotice(s);
+});
+test('GV-2・F176: -ng でも起きない（GPU の形の起動はこの起動の中で1回だけ・区間は音声を残して文字起こし待ち・直った後に文字になる・知らせと記録の形は増えない）', ST, async () => {
+  const r = await scene('noStart');
+  assert.strictEqual(r.spawns.filter((x) => !x.args.includes('-ng')).length, 1, JSON.stringify(r.spawns.map((x) => x.args.includes('-ng'))));
+  assert.ok(!r.spawns[0].args.includes('-ng') && r.spawns.slice(1).every((x) => x.args.includes('-ng')) && r.spawns.length >= 3);
+  assert.ok(r.liveFailed >= 1, `会議の間に失敗した区間が無い: ${r.liveFailed}`);
+  assert.ok(r.afterRetry.segments.length === 3 && r.afterRetry.segments.every((x) => x.text && !x.failed), JSON.stringify(r.afterRetry.segments));
+  assert.deepStrictEqual(calc(r), [SWITCH('start-failed', 5)]);
+  noGpuNotice(r);
+});
+test('GV-2・F167: 試している印が残っている起動（GPU の形を起こさず -ng の形・印 left-trying・試している印を消す・記録に1行）', ST, async () => {
+  const r = await scene('trying');
+  assert.ok(r.spawns.length === 1 && r.spawns[0].args.includes('-ng'), JSON.stringify(r.spawns));
+  assert.deepStrictEqual([r.gpuState.driver, r.gpuState.bad.why, r.gpuState.trying], [DRIVER, 'left-trying', null]);
+  assert.deepStrictEqual(calc(r), [SWITCH('left-trying')]);
+});
+test('GV-2・F168: ドライバの版が変わった起動（前の鍵の印を外して GPU の形を試し、記録に「ドライバの版が変わったので」。GPU で動けば印は無い）', ST, async () => {
+  const r = await scene('driver');
+  assert.ok(r.spawns.length === 1 && !r.spawns[0].args.includes('-ng'), JSON.stringify(r.spawns));
+  assert.deepStrictEqual(calc(r), ['文字起こしの計算: ドライバの版が変わったので、GPU をもう一度試します（31.0.101.5000 → 32.0.101.7085）', GPU_LINE]);
+  assert.deepStrictEqual([r.gpuState.driver, r.gpuState.bad, r.gpuState.trying], [DRIVER, null, null]);
+});
+test('GV-2・F169・F170・F173: 前から取り込んだ PC（記録中は係が待ち、前の組が今の引数で答える。手が空いたら GPU 版の組で起こし直し、片付けで前の置き場所が消える。同意なし・一時停止は取らない）', ST, async () => {
+  const r = await scene('oldYes');
+  assert.deepStrictEqual(r.hitsAtStop, [], '記録中に取った');
+  assert.strictEqual(r.gpuStateAtStop, false, '前の組で gpu-state.json を作った');
+  const firstVk = r.oldSet.spawns.findIndex((x) => x.dir === 'whisper-1.0.0-vk');
+  assert.ok(firstVk > 0, JSON.stringify(r.oldSet.spawns));
+  assert.ok(r.oldSet.spawns.slice(0, firstVk).every((x) => x.dir === 'whisper-1.0.0' && !x.ng), JSON.stringify(r.oldSet.spawns));
+  assert.ok(segsOf(r).every(([t, f]) => t && !f));
+  assert.deepStrictEqual(r.oldSet.hits, ['whisper-engine']);
+  assert.ok(!r.oldSet.spawns[firstVk].ng);
+  assert.deepStrictEqual([r.oldSet.oldDir, r.oldSet.newDir], [false, true]);
+  assert.ok(r.oldSet.engineLog.includes(GPU_LINE), JSON.stringify(r.oldSet.engineLog.filter((l) => l.startsWith('文字起こしの計算'))));
+  for (const k of ['oldNone', 'oldPaused']) {
+    const o = await scene(k);
+    assert.deepStrictEqual(o.oldSet.hits, [], k);
+    assert.ok(o.oldSet.spawns.length >= 1 && o.oldSet.spawns.every((x) => x.dir === 'whisper-1.0.0' && !x.ng), k);
+    assert.deepStrictEqual([o.oldSet.oldDir, o.gpuState], [true, null], k);
+    assert.strictEqual(o.regCalls, 0, k);
+  }
+});
+test('GV-2・F175: ランタイムの無い PC（GPU 版の組は起きて案内を出さない・前の組は今どおり止めて同じ案内）', ST, async () => {
+  const r = await scene('rtGpu');
+  assert.deepStrictEqual([r.start.ok, r.test.ok], [true, true], JSON.stringify([r.start, r.test]));
+  assert.strictEqual(r.engineFetchStatus.runtime, null);
+  assert.strictEqual(r.engineStatus.whisper, '');
+  assert.ok(!r.engineLog.some((l) => /Visual C\+\+ ランタイム/.test(l)), JSON.stringify(r.engineLog.filter((l) => /ランタイム/.test(l))));
+  assert.ok(r.spawns.length >= 1 && r.spawns.every((x) => path.basename(x.cwd) === 'whisper-1.0.0-vk'));
+  const o = await scene('rtOld');
+  const msg = M.vcRuntimeIssue({}, { whisper: true }).message;
+  assert.strictEqual(o.engineStatus.whisper, msg);
+  assert.deepStrictEqual([o.start.ok, o.start.error], [false, msg]);
+  assert.deepStrictEqual(o.spawns, [], 'ランタイムの無い PC で前の組を起動した');
+});
+test('GV-2・F173: 変わらない人（詳細設定のパス・印の無いピン・Windows 以外）は -ng を足さず、gpu-state.json を作らず、reg.exe を呼ばない', ST, async () => {
+  for (const k of ['base', 'manualWin', 'gpuLinux']) {
+    const r = await scene(k);
+    assert.ok(r.spawns.length >= 1 && r.spawns.every((x) => !x.args.includes('-ng')), `${k}: ${JSON.stringify(r.spawns)}`);
+    assert.deepStrictEqual([r.gpuState, r.regCalls, calc(r)], [null, 0, []], k);
+  }
+});
+test('GV-2・F172: 記録の新しい行（「文字起こしの計算:」）にパスの形・利用者名が無く、区間ごとに書かない', ST, async () => {
+  for (const k of ['gpu', 'none', 'lost', 'noStart', 'trying', 'driver']) {
+    const r = await scene(k);
+    for (const l of calc(r)) {
+      assert.ok(!/[\\/]|:\\/.test(l) && !/日本語𠮷|取込𠮷/.test(l), `${k}: ${l}`);
+      assert.ok(Object.values(M.GPU_WHY).some((w) => l.includes(w)) || l.includes('GPU（') || l.includes('ドライバの版が変わった'), l);
+    }
+  }
+  assert.strictEqual(calc(await scene('gpu')).length, 1, '会議の区間 5 で行は1つ');
+});

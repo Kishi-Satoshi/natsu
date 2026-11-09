@@ -94,6 +94,18 @@ const { titleAt } = require('./titles');
 //                     その番号で出す偽の子にし、その前に whisper.dll を消す）。同意済みで偽のサーバーを開いたままにし、
 //                     main が照らし直して使うのをやめ、取り直してから使い直すのを見る（第0b回 Task 14・RF3）
 //     --crash-ok    … --crash と同じ落ち方だが、ファイルはそのまま（照らし直して合う: ランタイムの案内のまま、組は使い続ける）
+//   0.15.1 GV-2（計画 docs/plans/2026-11-04-151.md の Task GV-2・D126。偽の whisper の GPU の型は fake-whisper.js の FAKE_GPU・FAKE_NG）:
+//     --gpu-set     … --managed と組む。取り込んだ組を GPU 版の組に見立てる（engine-small の vk: 印 vulkan・runtime のある試験のピン）
+//     --old-set     … --managed と組む。前のピンの組（印の無い engine-small）だけがそろった PC。main のピンは GPU 版の組（エンジンだけ違う）。
+//                     engine-small の GPU 版の偽のサーバーは開いたまま。起動のときの自動の取り込み（10 秒後の時計）は走らせずに覚え、会議を始めた直後に呼ぶ
+//                     （記録中は係が待つ）。写した後に、切り替えて GPU 版の組を起こすのを待ち、トレイの［エンジンを停止］と見回りで片付けを回して out.oldSet に
+//     --old-consent=yes|none|paused … --old-set の installed.json の同意（既定 yes）
+//     --gpu-state=<ファイル> … 起動の前に、そのファイルを取り込み先の gpu-state.json に写す
+//     --driver=<名前>=<版> … reg.exe query（表示アダプターの級）の答えの偽物。無ければ reg.exe は失敗で答える。呼んだ数を out.regCalls に
+//     --win32       … whenReady の後で process.platform を win32 と読ませ、System32 を 14.51 の偽の DLL のある一時フォルダに向ける
+//                     （--gpu-set・--old-set は既定で付く。--gpu-platform=linux で付けない）。終わりの片付けの前に元に戻す
+//     --ng-ok-at-stop … 最後の区間の前に、それまでの区間が片付くのを待ち（out.liveFailed に失敗の区間の数）、FAKE_NG_OK_FILE を置く（-ng の形が起きるようになる）
+//     出力に gpuState（gpu-state.json の中身。無ければ null）・served（fake-whisper の served の行）・regCalls を足す
 //     --slow-load   … 画面の読み込みを、起動のときの照らしが済むまで終えない（読み込み中に送った知らせは画面に届かない。
 //                     main は読み終えてから送る: noticeMainWin）
 //     --json-scene=名前 … 第1a回の保存の守りの場面（helpers/json-scenes.js）。readyResolve() の直後に分かれ、場面が済んだら出力して終える。
@@ -626,6 +638,17 @@ const autoStopFlag = flagVal('--auto-stop');
 const autoStopMinFlag = Number(flagVal('--auto-stop-min')) || 0;
 const segCount = Number((flags.find((f) => f.startsWith('--segs=')) || `--segs=${relaySeq ? relaySeq.length : 2}`).slice(7)) || 2;
 const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--managed-tamper') ? 'tamper' : '');
+// 0.15.1 GV-2（頭の注釈）
+const gpuSet = flags.includes('--gpu-set');
+const oldSet = flags.includes('--old-set');
+const oldConsent = flagVal('--old-consent') || 'yes';
+const gpuStateIn = flagVal('--gpu-state');
+const driverFlag = flagVal('--driver');
+const win32Flag = flags.includes('--win32') || ((gpuSet || oldSet) && flagVal('--gpu-platform') !== 'linux');
+const ngOkAtStop = flags.includes('--ng-ok-at-stop');
+if (ngOkAtStop) process.env.FAKE_NG_OK_FILE = path.join(os.tmpdir(), `natsu-ngok-${process.pid}`);
+const regCalls = [];
+let autoFetchFn = null;   // --old-set: 起動のときの自動の取り込みの時計（走らせずに覚える）
 const recoverMode = flags.includes('--recover');
 // 0.13.2 LN-1（LR14）: --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えだけを ms 遅らせる（呼んだ印 call を残した後、DB へ渡す前に待つ。
 // CI が混んで DB の書き込みが遅れた形。試験の台の中だけで、src/ には足さない）
@@ -1159,6 +1182,7 @@ process.on('exit', () => {
     return [k, { text: read(CLAUDE_CONFIG), backups, backupTexts: Object.fromEntries(backups.map((n) => [n, read(n)])), others: names.filter((n) => n !== CLAUDE_CONFIG && !isBk(n)) }];
   }));
   let managedExe = '';
+  const managedExes = new Set();   // 0.15.1 GV-2: 偽の whisper で起こす取り込んだ exe（--old-set は前の組と GPU 版の組の2つ）
   let managedRoot = '';
   let managedMods = null;
   let fetchSet = null;   // 開いたままの engine-small の偽のサーバー（--fetch・--repair）
@@ -1167,16 +1191,20 @@ process.on('exit', () => {
     const I = require(path.join(ROOT, 'src', 'engine-install.js'));
     const realManifest = require(path.join(ROOT, 'src', 'engine-manifest.js'));
     const { smallSet } = require('./engine-small');
-    const set = await smallSet();
+    const set = await smallSet({ vk: gpuSet && !oldSet });   // 0.15.1 GV-2: --gpu-set は GPU 版の組に見立てる
     if (serveSet) fetchSet = set;   // 取り直しを見る: 偽のサーバーは終わるまで開いておく
     else await set.close();   // 通信はしない（中身だけ使う）
+    // 0.15.1 GV-2（--old-set）: main のピンは GPU 版の組。偽のサーバーは開いたまま（起動のときの自動の取り込みが取る）
+    const vkSet = oldSet ? await smallSet({ vk: true }) : null;
+    if (vkSet) fetchSet = vkSet;
     // 文字起こしのモデルは大きさの床（50MB）を超える疎のファイル（モデルは大きさと更新時刻で照らすので中身は見ない）。
     // VAD は本物の名前にして、モデルの隣の自動の発見（resolveVadModel）が取り込んだ models の中で効くかを見る
-    const items = set.manifest.items.map((it) => {
+    const shape = (list) => list.map((it) => {
       if (it.id === 'whisper-model') return { ...it, size: 51 * 1024 * 1024 };
       if (it.id === 'whisper-vad') return { ...it, dest: 'models/ggml-silero-v6.2.0.bin' };
       return it;
     });
+    const items = shape(set.manifest.items);
     managedRoot = path.join(localAppData, 'natsu', 'engine');
     const home = { supported: true, root: managedRoot, reason: '' };
     // 組は文字起こしだけ（0.10.0 LS-3 で要約の組を外した）
@@ -1199,7 +1227,15 @@ process.on('exit', () => {
       }
       I.recordInstalled(home, it, { file: out });
     }
-    managedExe = path.join(managedRoot, 'whisper-1.0.0', 'whisper-server.exe');
+    managedExe = path.join(managedRoot, gpuSet && !oldSet ? 'whisper-1.0.0-vk' : 'whisper-1.0.0', 'whisper-server.exe');
+    managedExes.add(managedExe);
+    if (oldSet) {
+      managedExes.add(path.join(managedRoot, 'whisper-1.0.0-vk', 'whisper-server.exe'));
+      const instFile = path.join(managedRoot, 'installed.json');
+      I.setActive(home, { schema: 1, items }, 'whisper');
+      I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: oldConsent !== 'none', userPaused: oldConsent === 'paused' });
+    }
+    if (gpuStateIn) fs.copyFileSync(gpuStateIn, path.join(managedRoot, 'gpu-state.json'));
     const tamper = (dir, name) => {
       const dll = path.join(managedRoot, dir, name);
       fs.writeFileSync(dll, Buffer.alloc(fs.statSync(dll).size, 7));   // 大きさは同じ・中身だけ違う
@@ -1229,8 +1265,8 @@ process.on('exit', () => {
       install: { ...I, engineRoot: () => home,
         verifyCandidates: verifyThrows ? async () => { verifyCalls += 1; throw new Error('照らしの試験の失敗𠮷'); }
           : async (...a) => { verifyCalls += 1; await holdVerifyForRecover(); return I.verifyCandidates(...a); },
-        ...(serveSet ? { makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) } : {}) },
-      manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items }) },
+        ...(serveSet || oldSet ? { makeRunner: (deps) => I.makeRunner({ ...deps, fetchOpts: { requireHttps: false }, statfs: async () => ({ bavail: 1e6, bsize: 1e6 }) }) } : {}) },
+      manifest: { ...realManifest, MANIFEST: Object.freeze({ schema: 1, items: oldSet ? shape(vkSet.manifest.items) : items }) },
     };
   }
   // 0.10.0 LS-4（--retired-sum）: 0.9.x の要約の組（小さな表）を置き、retireSum をその表で呼ぶ
@@ -2008,10 +2044,10 @@ process.on('exit', () => {
         kids.push(k);
         return k;
       }
-      if (cmd === exe || (withSum && cmd === FAKE_SUM) || (managedExe && cmd === managedExe)) {
+      if (cmd === exe || (withSum && cmd === FAKE_SUM) || (managedExe && cmd === managedExe) || managedExes.has(cmd)) {
         spawns.push({ cmd, args, cwd: (opts && opts.cwd) || '' });
         // 取り込んだ exe（中身は試験のバイト列）の代わりに、偽の whisper を node で起動する
-        const js = managedExe && cmd === managedExe ? FAKE : cmd;
+        const js = (managedExe && cmd === managedExe) || managedExes.has(cmd) ? FAKE : cmd;
         const o = { ...opts, env: childEnv(opts && opts.env) };
         const k = /\.js$/i.test(js) ? realSpawn(process.execPath, [js, ...args], o) : realSpawn(js, args, o);
         kids.push(k);
@@ -2024,6 +2060,15 @@ process.on('exit', () => {
     },
     execFile(_cmd, _args, _opts, cb) {
       const done = typeof _opts === 'function' ? _opts : cb;
+      // 0.15.1 GV-2: reg.exe query（表示アダプターの級）。--driver=<名前>=<版> の答え（無ければ失敗）
+      if (/(^|[\\/])reg(\.exe)?$/i.test(String(_cmd)) && Array.isArray(_args) && _args[0] === 'query' && /\{4d36e968-e325-11ce-bfc1-08002be10318\}/i.test(String(_args[1]))) {
+        regCalls.push(_args.slice());
+        const m = /^(.*)=([^=]*)$/.exec(driverFlag || '');
+        const v = _args[_args.indexOf('/v') + 1];
+        const text = m ? `\r\n${String(_args[1]).replace(/^HKLM\\/i, 'HKEY_LOCAL_MACHINE\\')}\\0000\r\n    ${v}    REG_SZ    ${v === 'DriverDesc' ? m[1] : m[2]}\r\n\r\nEnd of search: 1 match(es) found.\r\n` : '';
+        if (done) setImmediate(() => (m ? done(null, text, '') : done(new Error('ERROR: The system was unable to find the specified registry key or value.'), '', '')));
+        return anyProxy();
+      }
       if (/(^|[\\/])xdotool$/.test(String(_cmd))) pasteSims.push(_args);   // 0.14.0 EK-6: 貼り付けの真似（Linux）
       if (/(^|[\\/])osascript$/.test(String(_cmd)) && Array.isArray(_args) && String(_args[_args.length - 1]).includes('keystroke "v"')) pasteSims.push(_args);   // 同じ（macOS）
       // 0.14.0 EK-6 直し（R193）: Windows の貼り付けの真似（常駐が書けないときの SendKeys の PowerShell）。本物と同じく誤り無しで答える（'ok'）
@@ -2056,6 +2101,16 @@ process.on('exit', () => {
     }
     return k;
   };
+  // 0.15.1 GV-2: 出力に足す GPU の写し（gpu-state.json・偽の whisper の served の行・reg.exe を呼んだ数）
+  const gpuOut = () => {
+    const f = managedRoot ? path.join(managedRoot, 'gpu-state.json') : '';
+    let gpuState = null;
+    try { gpuState = f && fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null; } catch (_) { gpuState = 'broken'; }
+    let served = [];
+    try { served = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('served')); } catch (_) { served = []; }
+    return { gpuState, served, regCalls: regCalls.length };
+  };
+  const stopEnginesFromTrayItem = () => { const it = trayItems.find((x) => x && /^エンジンを停止/.test(x.label)); if (it) it.click(); };
   // いま動いているエンジンの子（本物の node の子で、まだ終わっていない）の数
   const liveEngines = () => kids.filter((k) => k.exitCode === null && k.signalCode === null).length;
   // 断った後に本体の窓の閉じるボタンを押す（quitting が立ったままなら確かめを飛ばして閉じる: closeConfirm）。
@@ -2263,6 +2318,14 @@ process.on('exit', () => {
   };
   let keptTicksCalled = 0;
   const keptTick = async () => { keptTicksCalled += 1; for (const t of keptTicks) await t(); };
+  // 0.15.1 GV-2（--old-set）: 起動のときの自動の取り込み（main の 10 秒後の時計）は走らせずに覚える（会議を始めた直後に呼ぶ）
+  if (oldSet) {
+    const st3 = global.setTimeout;
+    global.setTimeout = function (fn, ms, ...a) {
+      if (fn && String(fn).includes('start({ auto: true })')) { autoFetchFn = fn; return st3.call(this, () => {}, 0); }
+      return st3.call(this, fn, ms, ...a);
+    };
+  }
   // 0.9.3 M-2: 会議の検出の見張りの起こし直し（restartMicWatch）は、ms を覚えて 5ms 後に本当に呼ぶ（30 秒・2 分・10 分を待たない）
   if (micSteps) {
     const st0 = global.setTimeout;
@@ -2350,6 +2413,7 @@ process.on('exit', () => {
   const dbState = () => (dbClient ? dbClient.state() : 'none');
   // 終わるときは DB の客を閉じてから（子の close でチェックポイントして natsu.db を離す）。結果はもう書いてある
   const exitClean = async (code) => {
+    Object.defineProperty(process, 'platform', { value: REAL_PLATFORM, configurable: true });   // 0.15.1 GV-2: --win32 の後も片付けは今の OS で
     try { if (dbClient) await dbClient.close({ timeoutMs: 2000 }); } catch (_) { /* 閉じられなくても終える */ }
     // 0.13.0（ED-7 の全体のテストの赤で見つけた: 0.12.0 の SP-3a・F25 の出力の JSON が 120155 文字目で切れた）: 管（pipe）の標準出力は書き切れない分を
     // 後で書くので、書き終わる前に process.exit すると、親が混んで読むのが遅いときに出力が切れる。先に書いた分が出たのを待ってから終える
@@ -2595,12 +2659,23 @@ process.on('exit', () => {
     process.stdout.write(`\n${JSON.stringify(out)}\n`);
     await exitClean(0);
   }
+  // 0.15.1 GV-2（--win32）: whenReady の後で Windows と読ませ、System32 を 14.51 の偽の DLL のある一時フォルダに向ける
+  function toWin32() {
+    const s32 = path.join(tmp, 'Windows-GPU𠮷', 'System32');
+    fs.mkdirSync(s32, { recursive: true });
+    for (const d of ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll']) fs.writeFileSync(path.join(s32, d), peWithVersion(14, 51, 36247, 0));
+    process.env.SystemRoot = path.dirname(s32);
+    process.env.windir = path.dirname(s32);
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  }
+  if (win32Flag && !managedMode) { await ipcReadyP; toWin32(); }
   if (managedMode) {
     // 照らしは本物のファイルの読み（イベントループを回す）。受け口を付けた手番の直後のマイクロタスクの今は、まだ照らし終えていない
     await ipcReadyP;
     out.statusChecking = handlers['engine:status']();
     out.spawnsBeforeVerify = spawns.length;
     out.managedRoot = managedRoot;
+    if (win32Flag && !noVcRuntime) toWin32();   // 0.15.1 GV-2
     if (noVcRuntime) {
       // whenReady（トレイ・貼り付け・窓）は今の OS のまま済んだ。照らし終える前に、ランタイムの無い Windows にする
       const winDir = path.join(tmp, 'Windows-空𠮷');
@@ -3060,6 +3135,7 @@ process.on('exit', () => {
       out.engineStatusAfterInstall = handlers['engine:status']();
       out.spawnsAfterInstall = spawns.slice();
     }
+    if (gpuSet || oldSet) Object.assign(out, gpuOut());   // 0.15.1 GV-2
     // 終わりの片付け（一時フォルダを消す）は今の OS のままで行う
     Object.defineProperty(process, 'platform', { value: REAL_PLATFORM, configurable: true });
     const elog = path.join(userData, 'engine.log');
@@ -3340,6 +3416,7 @@ process.on('exit', () => {
   // 始める前に DB の用意（ready・read-only か down）を待つ（--no-db-wait なら待たない。DB の用意の前の会議を試す場合）
   if (!flags.includes('--no-db-wait')) await waitFor(() => !['none', 'starting', 'migrating'].includes(dbState()), 15000);
   out.start = await handlers['meeting:toggle']();
+  if (oldSet && autoFetchFn) { autoFetchFn(); await sleep(50); }   // 0.15.1 GV-2: 記録中に起動のときの自動の取り込みを始める（係は記録が終わるまで待つ）
   // 0.9.0 B-2（--no-whisper-after-start）: 始めた直後に偽のモデルを消す（engineValid(whisperEng) が偽になる）
   if (noWhisperAfterStart) {
     if (process.env.NATSU_E2E_MODEL) throw new Error('--no-whisper-after-start は NATSU_E2E_MODEL と組めない（本物のモデルを消さない）');
@@ -3665,6 +3742,17 @@ process.on('exit', () => {
       const st = handlers['meeting:status']();
       out.retried = { stt: st.stt, segments: segSnap(st.segments) };
     }
+    // 0.15.1 GV-2: --ng-ok-at-stop（それまでの区間が片付いてから -ng の形を起きるようにする）・--old-set（記録中の取り込みと印のファイル）
+    if (last && ngOkAtStop) {
+      await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
+      out.liveFailed = (handlers['meeting:status']().segments || []).filter((x) => x.failed).length;
+      fs.writeFileSync(process.env.FAKE_NG_OK_FILE, 'ok');
+    }
+    if (last && oldSet) {
+      await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
+      out.hitsAtStop = fetchSet.hits().map((h) => h.id);
+      out.gpuStateAtStop = fs.existsSync(path.join(managedRoot, 'gpu-state.json'));
+    }
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
     if (last && skipAtStop) {   // 0.9.4 S-3: 1 区間が文字になったら、残りを後回しにする
@@ -3914,6 +4002,23 @@ process.on('exit', () => {
     out.pages = out.pages.map((p, i) => ({ ...(pagesBefore[i] || {}), ...p }));
   }
   if (restartDuring) Object.assign(out, { relaunches, relaunchDb, applyCalls });
+  // 0.15.1 GV-2（--old-set）: 写した後、係が GPU 版の組を取り、手が空いたら切り替えて起こすのを待ち、トレイの［エンジンを停止］と見回りで片付けを回す
+  if (oldSet) {
+    const vkExe = path.join(managedRoot, 'whisper-1.0.0-vk', 'whisper-server.exe');
+    if (oldConsent === 'yes') {
+      await waitFor(() => spawns.some((x) => x.cmd === vkExe), 20000);
+      await waitFor(() => elogLines().some((l) => l.startsWith('文字起こしの計算: GPU')), 10000);
+      await sleep(200);
+      stopEnginesFromTrayItem();
+      await sleep(100);
+      for (const t of ticks) t();
+      await waitFor(() => !fs.existsSync(path.join(managedRoot, 'whisper-1.0.0')), 10000);
+    } else await sleep(800);
+    out.oldSet = { hits: fetchSet.hits().map((h) => h.id), spawns: spawns.map((x) => ({ dir: path.basename(path.dirname(x.cmd)), ng: x.args.includes('-ng') })),
+      oldDir: fs.existsSync(path.join(managedRoot, 'whisper-1.0.0')), newDir: fs.existsSync(path.join(managedRoot, 'whisper-1.0.0-vk')), engineLog: elogLines() };
+    await fetchSet.close();
+  }
+  if (gpuSet || oldSet || win32Flag || driverFlag) Object.assign(out, gpuOut());
   // 第1d2回 M-3: 写した後の見回り・戻り・ログイン
   const pagesNow = () => store.listPages().map((p) => {
     const page = store.getPage(p.id);

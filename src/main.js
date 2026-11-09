@@ -778,7 +778,8 @@ function engineSpawnArgs(eng) {
   if (settings.suppressNst) args.push('-sns');
   const vad = settings.useVad ? resolveVadModel() : '';
   if (vad) args.push('--vad', '--vad-model', vad);
-  return args;
+  // 0.15.1 GV-2（D126・決めたこと 49）: CPU の形は今と同じ引数の終わりに -ng を1つ足すだけ（GPU の形と plain は今と1字も同じ）
+  return gpuRun.use === 'cpu' ? lib.noGpuArgs(args) : args;
 }
 // 詳細設定の実行ファイルとモデルが両方空なら、取り込んだエンジン（第0b回）。片方でも入っていれば今までどおり手の設定。
 // 取り込んだ側は、照らし終えた組（managed）が無ければパスは空
@@ -875,6 +876,9 @@ function readFileHead(file, max = 4 * 1048576) {
 }
 function engineRuntimeIssue(eng) {
   if (process.platform !== 'win32') return RUNTIME_OK;
+  // 0.15.1 GV-2（D126・決めたこと 48）: 取り込んだ GPU 版の組（今のピンの runtime: 'bundled' の印。前の組には付かない）は Visual C++ ランタイムを
+  // つながないので照らさない（記録の行も書かない）。前の組（上流の CPU 版）と詳細設定の手のパスは今のまま照らす
+  if (!manualGroup(eng) && managed.whisper && managed.whisper.runtime === 'bundled') return RUNTIME_OK;
   const key = `whisper|${engineExe(eng)}`;
   if (!runtimeIssueCache.has(key)) {
     runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(engineExe(eng)), system32Dir(), readFileHead), { whisper: true }));
@@ -892,6 +896,8 @@ function forgetRuntimeIssues() {
 // Windows 以外・取り込めない PC は null
 function managedRuntimeIssue() {
   if (process.platform !== 'win32' || !ENGINE_HOME.supported) return null;
+  // 0.15.1 GV-2（決めたこと 48）: 取り込む組（今のピン）が Visual C++ ランタイムを使わなければ、取り込む前の欄に案内を出さない
+  if (MANIFEST.items.some((i) => i.group === 'whisper' && i.kind === 'zip' && i.runtime === 'bundled')) return null;
   const exe = engineInstall.layout(ENGINE_HOME.root, MANIFEST).whisper.exe;
   const key = `whisper|${exe}`;
   if (!runtimeIssueCache.has(key)) runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(exe), system32Dir(), readFileHead), { whisper: true }));
@@ -919,6 +925,107 @@ function portInUse(port, tries = 5) {
     }
     return true;
   })();
+}
+
+// ---------------------------------------------------------------- 0.15.1 GV-2（D126）: 取り込んだ GPU 版の組を GPU の形で起こす・確かめる・落ちたら黙って CPU の形
+// 選び（mainlib.gpuPlan）は起動のときに読んだ印（gpuBoot）とドライバの鍵で決め、この起動の中で GPU の形をやめたら（gpuFellBack）次の起動まで戻らない。
+// 印のファイルは %LOCALAPPDATA%\natsu\engine\gpu-state.json（mainlib.normGpuState の形。jsonfile で読み書きし、書けなくても止めない）。
+// 記録の行は mainlib.gpuLogLine の4つの形だけ（パス・利用者名を入れない。GPU の形を起こすたびに1行・切り替えるたびに1行）
+const GPU_CLASS_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}';
+let gpuRun = { use: 'plain', why: '', device: '', driver: '', version: '' };   // 今の（次に起こす）プロセスの形。画面には渡さない
+let gpuBoot = null;          // この起動で読んだ印（null はまだ読んでいない）
+let gpuBootDone = false;     // 起動の最初の選びの後始末（前の起動の試している印・ドライバの替わり）を済ませた
+let gpuDriverP = null;       // この起動で1回だけ読むドライバの鍵（Promise<{ key, version }>）
+let gpuFellBack = false;     // この起動の中で GPU の形をやめた（CPU の形へ切り替えた）
+let gpuMarkedLogged = false; // 印があるので CPU の形にした行を書いた（起動ごとに1回）
+let gpuTrying = false;       // gpu-state.json に試している印を書いてある（最初の答えで消す）
+const gpuStateFile = () => path.join(ENGINE_HOME.root, 'gpu-state.json');
+function gpuReadState() {
+  try {
+    const r = J.loadJsonFile(gpuStateFile(), { maxBytes: J.SMALL_MAX, keep: 3 });
+    return lib.normGpuState(r.state === 'ok' ? r.value : null).state;
+  } catch (_) { return lib.normGpuState(null).state; }
+}
+// 印のファイルを読み直して change を当てて書く（書けなくても止めない: 次の起動でまた試すだけ）
+function gpuWriteState(change) {
+  try { J.writeJsonFile(gpuStateFile(), { ...gpuReadState(), ...change, schema: 1 }, { onFsyncUnsupported: noteFsyncOnce }); } catch (_) { /* 書けなくても続ける */ }
+}
+function gpuDriverOnce() {
+  if (!gpuDriverP) {
+    const ask = (v) => new Promise((resolve) => {
+      try {
+        execFile('reg.exe', ['query', GPU_CLASS_KEY, '/s', '/v', v], { windowsHide: true, timeout: 5000 }, (_e, out) => resolve(typeof out === 'string' ? out : String(out || '')));
+      } catch (_) { resolve(''); }
+    });
+    gpuDriverP = Promise.all([ask('DriverDesc'), ask('DriverVersion')]).then(([a, b]) => lib.driverKeyOf(`${a}\n${b}`), () => lib.driverKeyOf(''));
+  }
+  return gpuDriverP;
+}
+// この起動の次のプロセスの形を決める（startEngine が spawn の前に呼ぶ）。GPU の形を選べない組・PC は plain（reg.exe も印も読まない）
+async function gpuDecide(eng) {
+  const cand = managed.whisper;
+  const manual = manualGroup(eng);
+  if (eng !== whisperEng || process.platform !== 'win32' || manual || !cand || !cand.vulkan) {
+    gpuRun = { use: 'plain', why: '', device: '', driver: '', version: '' };
+    return;
+  }
+  const drv = await gpuDriverOnce();
+  if (!gpuBoot) gpuBoot = gpuReadState();
+  const plan = lib.gpuPlan({ platform: process.platform, manual, vulkan: true, driver: drv.key, state: gpuBoot });
+  if (!gpuBootDone) {
+    gpuBootDone = true;
+    if (plan.why === 'left-trying') {
+      // 前の起動が GPU の形を試している間に、アプリか PC ごと止まった: その鍵に印を付けて CPU の形から始める
+      const key = gpuBoot.trying;
+      gpuWriteState({ driver: key, bad: { why: 'left-trying', code: null, at: new Date().toISOString() }, trying: null });
+      engineLog(lib.gpuLogLine('switch', { why: 'left-trying', version: lib.driverVersionOf(key) }));
+      gpuMarkedLogged = true;
+    } else if (plan.retry) {
+      // ドライバの版が変わった: 前の鍵の印を外して、もう一度 GPU の形を試す
+      engineLog(lib.gpuLogLine('driver', { prev: lib.driverVersionOf(gpuBoot.driver), version: drv.version }));
+      gpuWriteState({ driver: drv.key, bad: null, trying: null });
+    }
+  }
+  if (gpuFellBack) {   // この起動の中で GPU の形をやめた（-ng の形が起きなくても、GPU の形をもう一度起こさない）
+    gpuRun = { use: 'cpu', why: gpuRun.why, device: '', driver: drv.key, version: drv.version };
+    return;
+  }
+  gpuRun = { use: plan.use, why: plan.why, device: '', driver: drv.key, version: drv.version };
+  if (plan.use === 'cpu' && !gpuMarkedLogged) {
+    gpuMarkedLogged = true;
+    engineLog(lib.gpuLogLine('marked', { why: plan.why }));
+  }
+}
+// GPU の形をやめて CPU の形へ（理由 why・終了コード code）。そのドライバの鍵に印を付け、記録に1行。この起動の中では戻らない
+function gpuFallBack(why, code = null) {
+  gpuFellBack = true;
+  gpuTrying = false;
+  gpuWriteState({ driver: gpuRun.driver, bad: { why, code: Number.isSafeInteger(code) ? code : null, at: new Date().toISOString() }, trying: null });
+  engineLog(lib.gpuLogLine('switch', { why, code, version: gpuRun.version }));
+  gpuRun = { ...gpuRun, use: 'cpu', why, device: '' };
+}
+// GPU の形で最初の答えが返った（区間か起動テスト）: 試している印を消す
+function gpuAnswered() {
+  if (!gpuTrying || gpuRun.use !== 'gpu') return;
+  gpuTrying = false;
+  gpuWriteState({ trying: null });
+}
+// GPU の形の標準エラーから、見分けの印の行だけを持つ（文は持たない）
+const gpuMarkLine = (l) => {
+  const K = lib.GPU_LOG_MARKS;
+  return l.startsWith(K.using) || l.startsWith(K.failed) || l.startsWith(K.noGpu) || l.startsWith(K.device) || K.lost.some((m) => l.includes(m));
+};
+// 止めて、前のプロセスが終わる（ポートを離す）のを待つ形にする（restartWhisperAfterLate と同じ）
+function stopEngineAndWait(eng) {
+  const p = eng.proc;
+  stopEngine(eng);
+  if (p) {
+    eng.exitWait = new Promise((resolve) => {
+      if (p.exitCode !== null && p.exitCode !== undefined) { resolve(); return; }
+      const t = setTimeout(resolve, 5000);
+      try { p.once('exit', () => { clearTimeout(t); resolve(); }); } catch (_) { clearTimeout(t); resolve(); }
+    });
+  }
 }
 
 // 起動は非同期（ポートの空きを見てから spawn する）。戻り値の Promise は spawn まで
@@ -952,6 +1059,12 @@ function startEngine(eng) {
     if (quitting) return;
     if (eng.proc) return;
     eng.sig = engineSignature(eng);
+    // 0.15.1 GV-2（D126）: このプロセスの形（GPU の形・CPU の形（-ng）・plain）。GPU の形は起こす直前に試している印を書く
+    await gpuDecide(eng);
+    if (quitting || eng.proc) return;
+    eng.form = gpuRun.use;
+    eng.gpuLines = []; eng.gpuPart = ''; eng.exitCode = null; eng.spawned = (eng.spawned || 0) + 1;
+    if (eng.form === 'gpu') { gpuWriteState({ trying: gpuRun.driver }); gpuTrying = true; }
     // cwd = exe のフォルダ。英数字以外のモデルのパスはそこからの相対で渡す（RF1）。
     // ggml が cwd の ggml-*.dll を読むので、別のエンジンのフォルダで起動しない（RF11）
     const plan = engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: eng === whisperEng });
@@ -977,6 +1090,12 @@ function startEngine(eng) {
     p.stderr.on('data', (d) => {
       if (eng.proc !== p) return;
       eng.stderrTail = (eng.stderrTail + d.toString()).slice(-1500);
+      // 0.15.1 GV-2: GPU の形は準備までの行から、見分けの印の行だけを持つ（50 行まで）
+      if (eng.form === 'gpu' && !eng.ready) {
+        const parts = (eng.gpuPart + d.toString()).split(/\r?\n/);
+        eng.gpuPart = parts.pop().slice(-2000);
+        for (const l of parts) if (gpuMarkLine(l) && eng.gpuLines.length < 50) eng.gpuLines.push(l);
+      }
     });
     p.on('error', (e) => {
       if (eng.proc !== p) return;
@@ -985,6 +1104,10 @@ function startEngine(eng) {
     });
     p.on('exit', (code) => {
       if (eng.proc !== p) return;
+      eng.exitCode = code;
+      // 0.15.1 GV-2（決めたこと 50・53）: GPU の形が落ちた（NaTsu が止めたのでない）: 印を付けて、次の頼みから CPU の形。
+      // 準備の前なら start-failed、動いている間なら lost（ここで決めるので、落ちた後すぐの次の頼みも GPU の形を起こさない）
+      if (!quitting && !eng.stopping && eng.form === 'gpu' && !gpuFellBack) gpuFallBack(eng.ready ? 'lost' : 'start-failed', code);
       if (!quitting && !eng.stopping) {
         const tail = eng.stderrTail.split('\n').filter(Boolean).slice(-3).join(' / ');
         // 0xC0000135（ランタイムかファイルが無い）などは、何をすればよいかの案内を足す（RF3・RF4）
@@ -1031,9 +1154,23 @@ function ensureEngineReady(eng) {
   if (eng.ready && eng.proc) return Promise.resolve(true);
   if (eng.readyPromise) return eng.readyPromise;
   const self = (async () => {
+    // 0.15.1 GV-2（決めたこと 50）: GPU の形が使えなければ、同じ待ちの中で CPU の形（-ng）を起こして、もう一度 90 秒待つ（1回だけ）
+    const r = await readyOnce(eng);
+    return r === 'cpu' ? (await readyOnce(eng)) === true : r;
+  })().finally(() => { if (eng.readyPromise === self) eng.readyPromise = null; });   // 再起動後の新しい待ちを消さない
+  eng.readyPromise = self;
+  return self;
+}
+// 起こして準備（/health）を待つ → true | false | 'cpu'（GPU の形をやめた。CPU の形で待ち直す）
+async function readyOnce(eng) {
+  {
+    const seq0 = eng.spawned || 0;
     if (!eng.proc) await startEngine(eng);
     let p = eng.proc;
-    if (!p) return false;
+    const gpuForm = eng.form === 'gpu' && ((eng.spawned || 0) !== seq0 || Boolean(p));
+    const gpuFail = (why, code = null) => { gpuFallBack(why, code); stopEngineAndWait(eng); eng.lastError = ''; return 'cpu'; };
+    // 0.15.1 GV-2: 起こした GPU の形が、待ち始める前にもう落ちていた（落ちたときに exit の受け口が印を付けた）。CPU の形で待ち直す
+    if (!p) return gpuForm && gpuFellBack && !quitting ? 'cpu' : false;
     // 「/」は見ない。エンジンはモデル読み込み中でも「/」に 200 を
     // 返すことがあり、準備完了と誤認して直後の推論が 503 になる（実機で発生）。
     // /health は読み込み中 503・完了で 200 を返す。エンドポイントを持たない
@@ -1042,12 +1179,24 @@ function ensureEngineReady(eng) {
     const deadline = Date.now() + ENGINE_READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
       // 待っている間に再起動されていたら、新しいプロセスを待ち直す（#57）
-      if (eng.proc !== p) { if (!eng.proc) return false; p = eng.proc; }
+      if (eng.proc !== p) {
+        if (!eng.proc) return gpuForm && gpuFellBack && !quitting ? 'cpu' : false;   // 0.15.1 GV-2: GPU の形が準備の前に落ちた（exit の受け口が印を付けた）
+        p = eng.proc;
+      }
       try {
         const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
         // 応答を待つ間に再起動されていたら、その応答は古い（または他の）プロセスのもの
         if (eng.proc !== p) continue;
-        if (res.ok || res.status === 404) { eng.ready = true; return true; }
+        if (res.ok || res.status === 404) {
+          // 0.15.1 GV-2（決めたこと 50）: GPU の形は、準備までの記録の行で本当に GPU で動いたかを見る。gpu でなければ止めて CPU の形へ
+          if (gpuForm && eng.form === 'gpu') {
+            const g = lib.gpuLogState(eng.gpuLines);
+            if (g.state !== 'gpu') return gpuFail(g.state);
+            gpuRun = { ...gpuRun, device: g.device };
+            engineLog(lib.gpuLogLine('gpu', { device: g.device, version: gpuRun.version }));
+          }
+          eng.ready = true; return true;
+        }
       } catch (e) {
         // 接続先の URL 自体が組み立てられない（ポートが不正）なら、90秒待っても
         // 直らない。「起動中」と区別して設定の問題だと分かる文で返す。
@@ -1065,10 +1214,9 @@ function ensureEngineReady(eng) {
       const tail = eng.stderrTail.split('\n').filter(Boolean).slice(-3).join(' / ');
       eng.lastError = `${eng.name}の起動がタイムアウトしました${tail ? `: ${tail}` : '（モデル読み込み中の可能性）'}`;
     }
+    if (gpuForm && eng.form === 'gpu' && eng.proc === p && !quitting) return gpuFail('start-failed');   // 0.15.1 GV-2: GPU の形の時間切れ
     return false;
-  })().finally(() => { if (eng.readyPromise === self) eng.readyPromise = null; });   // 再起動後の新しい待ちを消さない
-  eng.readyPromise = self;
-  return self;
+  }
 }
 
 function restartEnginesIfNeeded() {
@@ -1479,6 +1627,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     touchEngine(whisperEng);
     let res;
     for (;;) {
+      const gpuProc = whisperEng.form === 'gpu' ? whisperEng.proc : null;   // 0.15.1 GV-2: GPU の形に送ったか
       try {
         const sent = Date.now();
         try {
@@ -1493,6 +1642,16 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
         // 失敗の符号を cause に持たせる（engine.log の「手元の文字起こしの失敗」の行が読む: 第1d回 A-14。文は 0.9.4 S-2 の localErrorText）
         if (!code || resent) throw new Error(localErrorText(e, { resent }), { cause: (e && e.cause) || e });
         resent = true;
+        // 0.15.1 GV-2（決めたこと 53・VR10）: GPU の形が落ちたと分かれば、CPU の形（-ng）が起きるのを待ってから送り直す（区間の待ち時間の中で。
+        // 起きない・時間が足りなければ、今どおり失敗の区間として音声を残す）
+        if (gpuProc) {
+          const left = () => Math.max(0, deadline - Date.now());
+          await new Promise((r) => { const t0 = Date.now(); const tick = () => (whisperEng.proc !== gpuProc || Date.now() - t0 > Math.min(3000, left()) ? r() : setTimeout(tick, 20)); tick(); });
+          if (whisperEng.proc !== gpuProc && gpuFellBack) {
+            const ok2 = await Promise.race([ensureEngineReady(whisperEng), new Promise((r) => setTimeout(() => r(false), left()))]);
+            if (!ok2) throw new Error(localErrorText(e, { resent }), { cause: (e && e.cause) || e });
+          }
+        }
         // 記録の頭は「文字起こし:」にしない（認識ヒントのやり直しの行だけが使う。transcribe.e2e.test.js がその頭で見る）
         engineLog(`文字起こしの接続: エンジンとの接続が切れたため、同じ区間をもう一度送りました（${code}・音声 ${sec} 秒）`);
       }
@@ -1503,6 +1662,7 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
       try { detail = JSON.parse(res.body)?.error || ''; } catch (_) { /* noop */ }
       throw new Error(`文字起こしエンジンエラー (${res.status})${detail ? `: ${detail}` : ''}`);
     }
+    gpuAnswered();   // 0.15.1 GV-2: GPU の形の最初の答え（試している印を消す）
     const data = JSON.parse(res.body);
     // 古い whisper-server（1.7.6・1.8.0）は WAV を読めないとき 200 のまま {"error": …} を返す。
     // 空の文として扱うと区間ごと黙って消えるので、失敗として残す（後で文字起こしし直せる）
@@ -2744,6 +2904,7 @@ async function probeInference() {
     if (!(res.status >= 200 && res.status <= 299)) return `文字起こしを試せませんでした（${res.status}${data?.error ? `: ${data.error}` : ''}）`;
     if (!data || typeof data !== 'object') return '文字起こしエンジンの返事を読めませんでした';
     if (data.error) return `文字起こしを試せませんでした: ${data.error}`;
+    gpuAnswered();   // 0.15.1 GV-2: 起動テストの答えも最初の答え
     return '';
   } catch (e) {
     return `文字起こしを試せませんでした: ${localErrorText(e)}`;
