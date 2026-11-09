@@ -560,7 +560,8 @@ function opsMatch(db, ops, { pageId, dbId } = {}) {
 // データベースのページの set（cols）だけ。ID の列の次の番号 nextNo（消しても詰めない: 決めたこと 29）・ビュー（見た目の設定: 決めたこと 47）・
 // 行の最終更新日時と更新者（戻すのも書き込みなので、edit.revert が今の時刻と自分で書き直す）は戻さず、照らさない
 const DB_NO_REVERT = Object.freeze(['nextNo', 'views', 'updatedAt', 'by', 'seq']);   // seq: 振った列と選択肢の ID の数（使い直さない: R56）
-const isDbRow = (r, dbId) => isObj(r) && r.type === 'row' && r.parent_id === dbId;
+// 0.16.0 DR-1: ［新しい行を作ってつなぐ］は相手のデータベースに行を足す（同じ歩み）ので、どのデータベースの行でも戻す（ページの行・本文の行は戻さない）
+const isDbRow = (r) => isObj(r) && r.type === 'row' && typeof r.parent_id === 'string' && r.parent_id !== '';
 function invertDbOps(ops, dbId) {
   const out = [];
   for (const o of [...ops].reverse()) {

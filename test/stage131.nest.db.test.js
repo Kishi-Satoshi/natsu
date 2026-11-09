@@ -475,10 +475,11 @@ function loadPreload() {
 // 0.15.0 PL-2（計画 docs/plans/2026-11-03-150.md の Task PL-2）で意図して直した: page.setIcon・page.setLook を足して 35（照らしは同じ）
 // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」）で意図して直した: データベース・行・列・ビューの 22 の命令を足して 57（照らしは同じ）
 // 0.16.0 DV-2（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」・R63）で意図して直した: 種類を変える前に数を見る読む命令 col.typeCheck を足して 58（照らしは同じ）
+// 0.16.0 DR-1（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」・R99）で意図して直した: リレーションとサブアイテムの命令 rel.link・rel.unlink・db.setSub・rel.find を足して 62（照らしは今の役 app の命令と同じ集まり）
 test('NE-2: preload の APP_COMMANDS（58）は役 app の命令と同じ集まり。koeApp.blockIndent などは dbCall の1回で tx が付く。足した引数が無ければ今の形を送る。json-backend に block.indent は unknown-cmd', T, async () => {
   const { exposed, p, SRC } = loadPreload();
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 58);
+  assert.strictEqual(names.length, 62);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const k = exposed.koeApp;
   k.blockIndent('pa1', 'b2', 'in'); k.blockSetOpen('pa1', 't', false); k.blockSetOpenAll('pa1', true);

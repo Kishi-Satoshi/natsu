@@ -301,6 +301,7 @@ function withTree(e, row) {
   e.parentId = row.parentId ?? null;
   e.ord = row.ord;
   if (row.attrs && row.attrs.kind === 'blank') e.kind = 'blank';
+  if (row.attrs && row.attrs.kind === 'database') e.kind = 'database';   // 0.16.0 DR-1: リレーションの列のつなぐ先を選ぶ窓（DX-1 のサイドバーの 🗃️ も）
   if (row.attrs && typeof row.attrs.icon === 'string' && row.attrs.icon) e.icon = row.attrs.icon;
   if (row.inRow) e.inRow = { ...row.inRow };   // 0.16.0 R97: データベースの行の中のページ（一番近い行・その題名・データベース・その題名）
   return e;
@@ -1578,12 +1579,26 @@ const dbDone = (db, d, ops, result, rows = []) => { applyOps(db, ops); return { 
 const viewOf = (d, id) => d.views.find((v) => v.id === id);
 const normView = (d, v) => DV.normalizeView(v, d.cols).view;
 // 表の印 sig（決めたこと 30: データベースのページの rev と、行の数と、行の rev から作る。同じ中身なら同じ印で、画面は描き直さない）
-function sigOf(d, rows) {
+function sigOf(d, rows, more = '') {
   const h = crypto.createHash('sha1');
   for (const r of rows) h.update(`${r.id}:${r.rev}\n`);
+  if (more) h.update(more);
   return `${d.rev}.${rows.length}.${h.digest('hex').slice(0, 16)}`;
 }
 
+// 0.16.0 DR-1（決めたこと 34）: ほかのデータベースへのリレーションの列があれば、その相手の行の題名・ゴミ箱が変わっても印を変える（相手のデータベースのページの rev と
+// 行の rev・ゴミ箱。自分のデータベースへの列は自分の行の印に入っている）
+function relSig(db, d) {
+  const dbs = [...new Set(d.cols.filter((c) => c.type === 'rel' && !c.gone && c.db !== d.id).map((c) => c.db))].sort(cmpStr);
+  if (!dbs.length) return '';
+  const parts = [];
+  for (const id of dbs) {
+    const p = db.prepare(HOT_QUERIES.pageRow).get(id);
+    parts.push(`${id}:${p ? `${p.rev}:${p.trashed_at || ''}` : '-'}`);
+    for (const r of db.prepare("select id, rev, trashed_at from blocks where type = 'row' and parent_id = ? order by id").all(id)) parts.push(`${r.id}:${r.rev}:${r.trashed_at || ''}`);
+  }
+  return parts.join('\n');
+}
 // データベースを作る（決めたこと 1・43。親は一覧に出るページで、データベースでない。白紙のページの中なら本文の最後に子ページの行: page.create と同じ）→ { page, id }
 function dbCreate(db, a, ctx) {
   const rows = pageRowsOf(db);
@@ -1621,7 +1636,8 @@ function dbViewRead(db, a, ctx) {
   const v = normView(d, raw);
   const stored = db.prepare(HOT_QUERIES.dbRows).all(d.id);
   const list = stored.map(rowView);
-  const out = DV.applyView(list, v, d.cols, { now: ctx.now().getTime(), q: a.q });
+  const sub = subOf(d);   // 0.16.0 DR-1: サブアイテムの木（開いた行は画面の窓のメモリ: 決めたこと 38）
+  const out = DV.applyView(list, v, d.cols, { now: ctx.now().getTime(), q: a.q, ...(sub ? { sub, open: a.open || [] } : {}) });
   const shown = new Set(v.props.filter((p) => p.show).map((p) => p.col));
   const byId = new Map(list.map((r) => [r.id, r]));
   const rows = out.order.slice(a.from, a.from + a.count).map((o) => {
@@ -1629,10 +1645,13 @@ function dbViewRead(db, a, ctx) {
     const cells = {};
     for (const [k, x] of Object.entries(r.cells)) if (shown.has(k)) cells[k] = x;
     const one = { ...r, cells, depth: o.depth, hasKids: o.hasKids };
+    if (o.dim) one.dim = true;
     if (o.g !== undefined) one.g = o.g;
     return one;
   });
-  return { result: { total: out.total, shown: out.shown, rows, groups: out.groups, agg: out.agg, sig: sigOf(d, stored) } };
+  // DR-1（決めたこと 34）: 返す行のリレーションのセルの相手の題名（ゴミ箱の行・ゴミ箱のデータベースの行は入れない: 値は残る）
+  const rel = relTitlesOf(db, rows.flatMap((r) => relIdsIn(d.cols, r.cells, shown)));
+  return { result: { total: out.total, shown: out.shown, rows, groups: out.groups, agg: out.agg, rel, sig: sigOf(d, stored, relSig(db, d)) } };
 }
 
 // 行を足す（決めたこと 24・29: ID の列の番号は nextNo から振って詰めない・作成者は命令の actor・行は 10,000 まで）→ { id, row }
@@ -1681,10 +1700,13 @@ function rowMove(db, a) {
   return dbDone(db, d, [{ op: 'move', id: r.id, ord, old: r.ord }], { row: { ...rowView(r.raw), ord } }, [r.id]);
 }
 // 行をゴミ箱へ（決めたこと 28。確かめは画面が出さない）→ { trashed }
+// 0.16.0 DR-1（R98 (1)・M15-1）: サブアイテムの入ったデータベースでは、子のある行の子孫の生きている行も同じ命令（同じ時刻）でゴミ箱へ。答えの数は子孫も数える
 function rowsTrash(db, a, ctx) {
   const d = mustDb(db, a.db);
   const at = ctx.now().toISOString();
-  const ops = [...new Set(a.ids)].map((id) => liveRow(db, d, id)).map((r) => ({ op: 'trash', id: r.id, at, old: r.raw.trashed_at ?? null }));
+  const picked = [...new Set(a.ids)].map((id) => liveRow(db, d, id));
+  const extra = subKidsOf(db, d, picked.map((r) => r.id)).map((id) => liveRow(db, d, id));
+  const ops = [...picked, ...extra].map((r) => ({ op: 'trash', id: r.id, at, old: r.raw.trashed_at ?? null }));
   return dbDone(db, d, ops, { trashed: ops.length }, ops.map((o) => o.id));
 }
 // 何行何列かの貼り付け（DQ7 (a)・決めたこと 52・R35）: ビューの見えている並びで、選んだセルから右下へ。足りない行は足し（絞り込みの値を入れる）、
@@ -1754,20 +1776,214 @@ function rowsPaste(db, a, ctx, dry = false) {
   return dbDone(db, d, ops, st);
 }
 
+// ---- リレーションとサブアイテム（0.16.0 DR-1。決めたこと 33〜38・R98）
+// サブアイテムの列（{ parent, kids }。どちらも生きているリレーションの列のときだけ）| null
+function subOf(d) {
+  const s = isObj(d.attrs.sub) ? d.attrs.sub : null;
+  if (!s) return null;
+  const p = colIn(d.cols, s.parent); const k = colIn(d.cols, s.kids);
+  return p && k && !p.gone && !k.gone && p.type === 'rel' && k.type === 'rel' ? { parent: p.id, kids: k.id } : null;
+}
+// 生きている行の親（親アイテムの列の1つ目）の Map
+function subParents(db, d, pcol) {
+  const out = new Map();
+  for (const r of db.prepare("select id, json_extract(attrs, '$.cells.\"' || ? || '\"') as p from blocks where type = 'row' and parent_id = ? and trashed_at is null").all(pcol, d.id)) {
+    let p = null;
+    try { const v = r.p ? JSON.parse(r.p) : null; p = Array.isArray(v) && typeof v[0] === 'string' ? v[0] : null; } catch (_) { p = null; }
+    out.set(r.id, p);
+  }
+  return out;
+}
+// ids の行の子孫の生きている行（ids に無いもの。木の順）
+function subKidsOf(db, d, ids) {
+  const sub = subOf(d);
+  if (!sub) return [];
+  const kids = new Map();
+  for (const [id, p] of subParents(db, d, sub.parent)) if (p && p !== id) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(id); }
+  const seen = new Set(ids);
+  const out = [];
+  const stack = [...ids];
+  while (stack.length) {
+    for (const k of kids.get(stack.pop()) || []) if (!seen.has(k)) { seen.add(k); out.push(k); stack.push(k); }
+  }
+  return out;
+}
+// リレーションの列の相手（つなぐ先のデータベース t と、値を写す相手の列 bcol）。両側なら対の列（相手の back がこの列のときだけ）、
+// 自分のデータベースへの列1つ（back が無い）は自分の列（行どうしが互いを指す: R98 (2)）、ほかは null（片側）。soft: つなぐ先が無くても投げない
+function relPeer(db, d, col, soft = false) {
+  const t = col.db === d.id ? d : dbOf(db, col.db);
+  if (!t) { if (soft) return null; throw refuse('bad-args'); }
+  if (col.back !== undefined) {
+    const b = colIn(t.cols, col.back);
+    return { t, bcol: b && !b.gone && b.type === 'rel' && b.db === d.id && b.back === col.id ? b : null };
+  }
+  return { t, bcol: t === d ? col : null };
+}
+// リレーションの行を足す・外す（rel.link・rel.unlink）。両側・自分への列1つは相手の行のセルも同じ命令で書く（決めたこと 33・R98 (2)）。
+// title（足すときだけ）: つなぐ先に新しい行を作ってつなぐ（［新しい行を作ってつなぐ］・［サブアイテムを足す］）。
+// サブアイテムの列は、親は1つ・輪にしない（決めたこと 37）。セルは 100 まで（相手のセルも）→ { cell, added? }
+function relEdit(db, a, ctx, add) {
+  const d = mustDb(db, a.db);
+  const col = liveCol(d, a.col);
+  if (col.type !== 'rel' || (!add && a.title !== undefined)) throw refuse('bad-args');
+  const { t, bcol } = relPeer(db, d, col);
+  const staged = new Map();
+  const stage = (dd, id) => {
+    if (!staged.has(id)) { const r = liveRow(db, dd, id); staged.set(id, { r, cells: { ...r.cells }, mine: dd === d }); }
+    return staged.get(id);
+  };
+  const putId = (e, colId, id) => {
+    const was = Array.isArray(e.cells[colId]) ? e.cells[colId] : [];
+    const next = add ? (was.includes(id) ? was : [...was, id]) : was.filter((x) => x !== id);
+    if (next.length) e.cells[colId] = next; else delete e.cells[colId];
+  };
+  const me = stage(d, a.id);
+  const ops = [];
+  for (const id of [...new Set(a.ids)]) {
+    const o = stage(t, id);
+    putId(me, col.id, id);
+    if (bcol) putId(o, bcol.id, a.id);
+  }
+  let added = null;
+  if (add && a.title !== undefined) {
+    if (db.prepare(HOT_QUERIES.dbRowCount).get(t.id).c >= LIMITS.dbRows) throw refuse('too-big');
+    added = newRowId(db, ctx.now);
+    const no = Number.isSafeInteger(t.attrs.nextNo) && t.attrs.nextNo > 0 ? t.attrs.nextNo : 1;
+    const who = whoOf(ctx);
+    const cells = bcol ? { [bcol.id]: [a.id] } : {};
+    ops.push({ op: 'add', id: added, row: rowBlock({ id: added, db: t.id, ord: rowOrd(db, t.id), title: a.title, cells, by: { c: who, u: who }, no, at: ctx.now().toISOString() }) },
+      { op: 'set', id: t.id, key: 'nextNo', value: no + 1, old: t.attrs.nextNo });
+    if (a.id === added) throw refuse('bad-args');
+    putId(me, col.id, added);
+  }
+  // サブアイテム: 親は1つ・輪にしない（行の親の木を歩く: 0.15.0 の canMoveUnder と同じ考え）
+  const sub = t === d ? subOf(d) : null;
+  if (sub && bcol && (col.id === sub.parent || col.id === sub.kids)) {
+    const par = subParents(db, d, sub.parent);
+    for (const [id, e] of staged) {
+      const v = Array.isArray(e.cells[sub.parent]) ? e.cells[sub.parent] : [];
+      if (v.length > 1) throw refuse('bad-args');
+      par.set(id, v.length ? v[0] : null);
+    }
+    if (added) par.set(added, a.id);
+    for (const id of staged.keys()) {
+      let p = par.get(id);
+      for (let k = 0; p && k <= par.size; k += 1) { if (p === id) throw refuse('bad-args'); p = par.get(p); }
+    }
+  }
+  // セルを照らし（100 まで・重なり無し）、変わった行ごとにセルの set と行を書いた印
+  const changed = [];
+  for (const [id, e] of staged) {
+    const one = [];
+    // この行の列（自分のデータベースの行は col と、自分への列なら対の列・相手のデータベースの行は対の列だけ）
+    const mineCols = e.mine ? (bcol && t === d && bcol !== col ? [col, bcol] : [col]) : (bcol ? [bcol] : []);
+    for (const c of mineCols) {
+      const next = Object.hasOwn(e.cells, c.id) ? e.cells[c.id] : null;
+      if (next !== null) { try { DM.cellOf(c, next); } catch (_) { throw refuse('bad-args'); } }
+      one.push(...cellOps(e.r, c, next));
+    }
+    if (!one.length) continue;
+    ops.push(...one, ...touchOps(e.r, ctx));
+    changed.push(id);
+  }
+  if (!changed.length && !added) return { ops: [], pageIds: [], result: { cell: me.cells[col.id] || [] } };
+  applyOps(db, ops);
+  return { ops, pageIds: [d.id, ...(t === d ? [] : [t.id]), ...changed, ...(added ? [added] : [])], result: { cell: me.cells[col.id] || [], ...(added ? { added } : {}) } };
+}
+// サブアイテムを入れる・外す（決めたこと 37: 入れると同じデータベースへの両側のリレーションの列「親アイテム」「サブアイテム」を足し、attrs.sub に2つの ID。
+// 外すと attrs.sub だけ消して列は残す）→ { sub? }
+function dbSetSub(db, a) {
+  const d = mustDb(db, a.db);
+  const now = subOf(d);
+  if (a.on && now) return { ops: [], pageIds: [], result: { sub: now } };
+  if (!a.on) {
+    if (!isObj(d.attrs.sub)) return { ops: [], pageIds: [], result: {} };
+    return dbDone(db, d, [{ op: 'set', id: d.id, key: 'sub', value: undefined, old: d.attrs.sub }], {});
+  }
+  if (d.cols.length + 2 > LIMITS.dbCols) throw refuse('bad-args');
+  const p = { ...DM.newCol('rel', '親アイテム', d.cols), db: d.id };
+  const k = { ...DM.newCol('rel', 'サブアイテム', [...d.cols, p]), db: d.id };
+  const f = freshIds(d, [...d.cols, p, k]);
+  const n = f.cols.length;
+  const pid = f.cols[n - 2].id; const kid = f.cols[n - 1].id;
+  const cols = [...f.cols.slice(0, -2), { ...f.cols[n - 2], back: kid }, { ...f.cols[n - 1], back: pid }];
+  const sub = { parent: pid, kids: kid };
+  return dbDone(db, d, [dbSet(d, 'cols', cols), ...f.ops.slice(1), { op: 'set', id: d.id, key: 'sub', value: sub, old: d.attrs.sub }], { sub });
+}
+// リレーションの相手の行の題名（生きている行で、データベースもゴミ箱でないものだけ: 決めたこと 34）→ { <行の ID>: { title, icon? } }
+function relTitlesOf(db, ids) {
+  const out = {};
+  const live = new Map();
+  for (const id of ids) {
+    if (Object.hasOwn(out, id)) continue;
+    const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+    if (!r || r.type !== 'row' || r.trashed_at !== null) continue;
+    if (!live.has(r.parent_id)) live.set(r.parent_id, Boolean(dbOf(db, r.parent_id)));
+    if (!live.get(r.parent_id)) continue;
+    const one = { title: r.text || '' };
+    const attrs = JSON.parse(r.attrs || '{}');
+    if (typeof attrs.icon === 'string' && attrs.icon) one.icon = attrs.icon;
+    out[id] = one;
+  }
+  return out;
+}
+// 行のセルのうち、生きているリレーションの列の行の ID
+function relIdsIn(cols, cells, only) {
+  const out = [];
+  for (const c of cols) if (c.type === 'rel' && !c.gone && (!only || only.has(c.id)) && Array.isArray(cells[c.id])) out.push(...cells[c.id]);
+  return out;
+}
+// つなぐ先のデータベースの行を探す（選びの窓: 題名で・ひらがなとカタカナを寄せる・並びの鍵の順に 200 まで）→ { rows: [{ id, title, icon? }], total }
+const kanaFold = (s) => searchFold(s).replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));   // カタカナをひらがなに（src/emojiDict.js と同じ寄せ方）
+function relFind(db, a) {
+  const t = mustDb(db, a.db);
+  const q = a.q ? kanaFold(a.q) : '';
+  const all = db.prepare(HOT_QUERIES.dbRows).all(t.id).sort((x, y) => cmpStr(x.ord, y.ord) || cmpStr(x.id, y.id));
+  const hits = q ? all.filter((r) => kanaFold(r.text || '').includes(q)) : all;
+  const rows = hits.slice(0, DB_VIEW_MAX).map((r) => {
+    const one = { id: r.id, title: r.text || '' };
+    const attrs = JSON.parse(r.attrs || '{}');
+    if (typeof attrs.icon === 'string' && attrs.icon) one.icon = attrs.icon;
+    return one;
+  });
+  return { result: { rows, total: hits.length } };
+}
+
 // ---- 列（決めたこと 13・R32〜R34）
 // 列を足す（名前が重なれば「名前 2」: dbModel.newCol。after は列の並びの置き場: '' は頭・無ければ末尾。列は消した列も入れて 100 まで）→ { col }
+// 0.16.0 DR-1（決めたこと 33）: リレーションの列は target（つなぐ先のデータベース。自分も）を必ず渡す。both なら相手のデータベースにも対の列を足し、
+// 互いの back に相手の列の ID を書く（1つの命令）。対の列の名前は、このデータベースの題名（無題・使えない名前なら種類の名前）
 function colAdd(db, a) {
   const d = mustDb(db, a.db);
-  if (a.type === 'rel') throw refuse('bad-args');   // リレーションの列は DR-1（つなぐ先を選んで足す）
-  if (d.cols.length >= LIMITS.dbCols) throw refuse('bad-args');
+  if ((a.type === 'rel') !== (a.target !== undefined) || (a.both !== undefined && a.type !== 'rel')) throw refuse('bad-args');
+  const t = a.type !== 'rel' ? null : a.target === d.id ? d : mustDb(db, a.target);
+  const self = t === d;
+  if (d.cols.length + (a.both && self ? 2 : 1) > LIMITS.dbCols || (a.both && !self && t.cols.length >= LIMITS.dbCols)) throw refuse('bad-args');
   let col;
   try { col = DM.newCol(a.type, a.name, d.cols); } catch (_) { throw refuse('bad-args'); }
+  if (t) col = { ...col, db: t.id };
   const cols = [...d.cols];
   const i = a.after === undefined ? cols.length : a.after === '' ? 0 : cols.findIndex((c) => c.id === a.after) + 1;
   if (i < 0 || (a.after && i === 0)) throw refuse('bad-args');
   cols.splice(i, 0, col);
-  const f = freshIds(d, cols);   // 列の ID は使い直さない（R56）
-  return dbDone(db, d, f.ops, { col: f.cols[i] });
+  if (!a.both) {
+    const f = freshIds(d, cols);   // 列の ID は使い直さない（R56）
+    return dbDone(db, d, f.ops, { col: f.cols[i] });
+  }
+  const peerName = (list) => { try { return DM.newCol('rel', self ? undefined : (d.title || '').trim() || undefined, list); } catch (_) { return DM.newCol('rel', undefined, list); } };
+  if (self) {
+    cols.push({ ...peerName(cols), db: d.id });
+    const f = freshIds(d, cols);
+    const a1 = f.cols[i]; const b1 = f.cols[f.cols.length - 1];
+    const out = f.cols.map((c) => (c === a1 ? { ...c, back: b1.id } : c === b1 ? { ...c, back: a1.id } : c));
+    return dbDone(db, d, [dbSet(d, 'cols', out), ...f.ops.slice(1)], { col: out[i], back: out[out.length - 1] });
+  }
+  const fa = freshIds(d, cols);
+  const fb = freshIds(t, [...t.cols, { ...peerName(t.cols), db: d.id }]);
+  const mine = { ...fa.cols[i], back: fb.cols[fb.cols.length - 1].id };
+  const theirs = { ...fb.cols[fb.cols.length - 1], back: mine.id };
+  const ops = [dbSet(d, 'cols', fa.cols.map((c, k) => (k === i ? mine : c))), ...fa.ops.slice(1), dbSet(t, 'cols', [...fb.cols.slice(0, -1), theirs]), ...fb.ops.slice(1)];
+  return dbDone(db, d, ops, { col: mine, back: theirs }, [t.id]);
 }
 // 列を置き換えた並び（照らしてから）
 function colsWith(d, col) {
@@ -1844,7 +2060,18 @@ function colRemove(db, a) {
   if (!col || col.type === 'title') throw refuse('bad-args');   // 題名の列は消せない（J-18）
   if (col.gone) return { ops: [], pageIds: [], result: { col } };
   const next = { ...col, gone: true };
-  return dbDone(db, d, [dbSet(d, 'cols', d.cols.map((c) => (c.id === col.id ? next : c)))], { col: next });
+  const ops = [dbSet(d, 'cols', d.cols.map((c) => (c.id === col.id ? next : c)))];
+  // 0.16.0 DR-1（決めたこと 36）: 両側のリレーションの片方を消すと、相手の列は片側のリレーションに戻る（相手の値は消さない。同じ命令で Ctrl+Z も一緒）
+  const peer = col.type === 'rel' ? relPeer(db, d, col, true) : null;
+  if (peer && peer.bcol && peer.bcol !== col) {
+    const t = peer.t === d ? { ...d, attrs: { ...d.attrs, cols: ops[0].value }, cols: ops[0].value } : peer.t;
+    const lone = { ...peer.bcol };
+    delete lone.back;
+    const set = dbSet(t, 'cols', t.cols.map((c) => (c.id === lone.id ? lone : c)));
+    if (peer.t === d) ops[0] = { ...set, old: d.attrs.cols }; else ops.push(set);
+    return dbDone(db, d, ops, { col: next }, peer.t === d ? [] : [peer.t.id]);
+  }
+  return dbDone(db, d, ops, { col: next });
 }
 function colRestore(db, a) {
   const d = mustDb(db, a.db);
@@ -1972,18 +2199,19 @@ function dbRevert(db, a, ctx, fwd) {
   const body = db.prepare('select count(*) as c from blocks where page_id = ? and id <> ?');
   if (back.some((o) => o.op === 'trash' && isObj(o.old) && body.get(o.id, o.id).c > 0)) throw refuse('stale');
   // 戻すと消える列（足した列の戻し）に値のある行があれば戻さない（ゴミ箱の行も。行に持ち主の無いセルを残さない: rv42 I2・R57）
+  // 0.16.0 DR-1: 両側のリレーションの列は相手のデータベースの列も同じ歩み（o.id はそのデータベース）
   for (const o of back) {
-    if (o.op !== 'set' || o.id !== a.pageId || o.key !== 'cols' || !Array.isArray(o.value) || !Array.isArray(o.old)) continue;
+    if (o.op !== 'set' || o.key !== 'cols' || !Array.isArray(o.value) || !Array.isArray(o.old)) continue;
     const keep = new Set(o.value.map((c) => c && c.id));
     const lost = o.old.map((c) => c && c.id).filter((id) => !keep.has(id));
-    if (lost.length && db.prepare(HOT_QUERIES.dbAllRows).all(a.pageId).some((r) => { const c = JSON.parse(r.attrs || '{}').cells; return isObj(c) && lost.some((id) => Object.hasOwn(c, id)); })) throw refuse('stale');
+    if (lost.length && db.prepare(HOT_QUERIES.dbAllRows).all(o.id).some((r) => { const c = JSON.parse(r.attrs || '{}').cells; return isObj(c) && lost.some((id) => Object.hasOwn(c, id)); })) throw refuse('stale');
   }
   applyOps(db, back);
   // 戻すと消える選択肢（足した選択肢の戻し）を、戻した後も持つ行があれば戻さない（ゴミ箱の行も。行に持ち主の無い選択肢の ID を残さない: rv44 F5・R72）。
   // 同じ歩みで行のセルも戻る（貼り付けで足した選択肢と行）ので、当てた後に見る（断れば命令ごと戻る）
   const lostOpts = [];
   for (const o of back) {
-    if (o.op !== 'set' || o.id !== a.pageId || o.key !== 'cols' || !Array.isArray(o.value) || !Array.isArray(o.old)) continue;
+    if (o.op !== 'set' || o.key !== 'cols' || !Array.isArray(o.value) || !Array.isArray(o.old)) continue;
     const after = new Map(o.value.filter(isObj).map((c) => [c.id, c]));
     for (const c of o.old) {
       const n = isObj(c) ? after.get(c.id) : null;
@@ -1996,8 +2224,9 @@ function dbRevert(db, a, ctx, fwd) {
     const c = JSON.parse(r.attrs || '{}').cells;
     return isObj(c) && lostOpts.some(([col, id]) => c[col] === id || (Array.isArray(c[col]) && c[col].includes(id)));
   })) throw refuse('stale');
-  // 行を戻す・やり直すでも、1つのデータベースの行は 10,000 まで（rv42 M1・R58。越えれば何も変えない）
-  if (back.some((o) => o.op === 'restore' || o.op === 'add') && db.prepare(HOT_QUERIES.dbRowCount).get(a.pageId).c > LIMITS.dbRows) throw refuse('too-big');
+  // 行を戻す・やり直すでも、1つのデータベースの行は 10,000 まで（rv42 M1・R58。越えれば何も変えない。DR-1: ［新しい行を作ってつなぐ］の相手のデータベースも）
+  const grown = new Set(back.filter((o) => o.op === 'restore' || o.op === 'add').map((o) => (o.op === 'add' && isObj(o.row) ? o.row.parent_id : a.pageId)));
+  for (const id of grown) if (db.prepare(HOT_QUERIES.dbRowCount).get(id).c > LIMITS.dbRows) throw refuse('too-big');
   const touched = [...new Set(back.filter((o) => o.op === 'text' || (o.op === 'set' && o.key.startsWith('cell:'))).map((o) => o.id))];
   const meta = [];
   for (const id of touched) {
@@ -2021,7 +2250,14 @@ function dupNewId(row, key) {
   return got ? got.id : null;
 }
 const DUP = {
-  'col.add': (db, a, row) => { const d = dupDb(db, a); const id = dupNewId(row, 'cols'); const col = d && id ? colIn(d.cols, id) : null; return col ? { col } : null; },
+  'col.add': (db, a, row) => {
+    const d = dupDb(db, a); const id = dupNewId(row, 'cols'); const col = d && id ? colIn(d.cols, id) : null;
+    if (!col) return null;
+    if (!a.both) return { col };
+    const t = col.db === d.id ? d : dbOf(db, col.db);   // DR-1: 両側なら対の列も（1回目と同じ形）
+    const back = t ? colIn(t.cols, col.back) : null;
+    return back ? { col, back } : null;
+  },
   'col.setType': (db, a, row) => {
     const got = dupCol(db, a);
     return got ? { ...got, emptied: dupOps(row).filter((o) => o && o.op === 'set' && o.key === `cell:${a.col}` && (o.value === undefined || o.value === null)).length } : null;
@@ -2066,7 +2302,13 @@ const DEFS = {
       // 0.16.0 DV-4（R91）: データベースの行なら、答えにデータベースの ID（db）を添える（画面が行のページと分かり、列とパンくずを読む）。
       // ページの欄には入れない（ページを書き戻す命令が行の attrs に書かないように）
       const me = page ? db.prepare(HOT_QUERIES.dbRow).get(a.id) : null;
-      if (me && me.type === 'row') return { result: { page: forView(page, ctx.labels), segments: readSegments(db, a.id), db: me.parent_id } };
+      if (me && me.type === 'row') {
+        // 0.16.0 DR-1（決めたこと 34）: 列の値の並びのリレーションの相手の題名（rel。生きている行だけ）
+        const host = dbOf(db, me.parent_id);
+        const cells = JSON.parse(me.attrs || '{}').cells;
+        const rel = host && isObj(cells) ? relTitlesOf(db, relIdsIn(host.cols, cells)) : {};
+        return { result: { page: forView(page, ctx.labels), segments: readSegments(db, a.id), db: me.parent_id, rel } };
+      }
       return { result: page ? { page: forView(page, ctx.labels), segments: readSegments(db, a.id) } : null };
     } },
 
@@ -2565,7 +2807,15 @@ const DEFS = {
       return add ? { page: readPage(db, add.id), id: add.id } : null;
     } },
   'db.get': { roles: ['app'], write: false, args: { id: 'id' }, run: (db, a) => ({ result: dbGetOf(db, a.id) }) },
-  'db.view': { roles: ['app'], write: false, args: { id: 'id', viewId: 'id', from: 'int', count: 'int', q: 'short?' }, run: dbViewRead },
+  'db.view': { roles: ['app'], write: false, args: { id: 'id', viewId: 'id', from: 'int', count: 'int', q: 'short?', open: 'ids?' }, run: dbViewRead },
+  // 0.16.0 DR-1（決めたこと 33〜38・R98）: リレーションの行を足す・外す・サブアイテムを入れる・外す（データベースの歩み）・つなぐ先の行を探す（読む）
+  'rel.link': { roles: ['app'], write: true, args: { db: 'id', id: 'id', col: 'id', ids: 'ids', title: 'title?' }, pageOf: dbOfArgs, run: (db, a, ctx) => relEdit(db, a, ctx, true),
+    dupResult: (db, a, row) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); const c = r ? JSON.parse(r.attrs || '{}').cells : null; const add = dupOps(row).find((o) => o && o.op === 'add'); return r ? { cell: (isObj(c) && c[a.col]) || [], ...(add ? { added: add.id } : {}) } : null; } },
+  'rel.unlink': { roles: ['app'], write: true, args: { db: 'id', id: 'id', col: 'id', ids: 'ids' }, pageOf: dbOfArgs, run: (db, a, ctx) => relEdit(db, a, ctx, false),
+    dupResult: (db, a) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); const c = r ? JSON.parse(r.attrs || '{}').cells : null; return r ? { cell: (isObj(c) && c[a.col]) || [] } : null; } },
+  'db.setSub': { roles: ['app'], write: true, args: { db: 'id', on: 'bool' }, pageOf: dbOfArgs, run: dbSetSub,
+    dupResult: (db, a) => { const d = dupDb(db, a); const s = d ? subOf(d) : null; return d ? (s ? { sub: s } : {}) : null; } },
+  'rel.find': { roles: ['app'], write: false, args: { db: 'id', q: 'short?' }, run: relFind },
   'row.add': { roles: ['app'], write: true, args: { db: 'id', afterId: 'idOrEmpty?', cells: 'cellsArg?', title: 'title?' }, pageOf: dbOfArgs,
     run: rowAdd,
     dupResult: (db, _a, row) => {
@@ -2583,7 +2833,7 @@ const DEFS = {
   'rows.trash': { roles: ['app'], write: true, args: { db: 'id', ids: 'ids' }, pageOf: dbOfArgs, run: rowsTrash,
     dupResult: (_db, _a, row) => ({ trashed: JSON.parse(row.ops || '[]').length }) },
   'rows.paste': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', at: 'cellRef', grid: 'pasteGrid' }, pageOf: dbOfArgs, run: rowsPaste, dupResult: DUP['rows.paste'] },
-  'col.add': { roles: ['app'], write: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?' }, pageOf: dbOfArgs, run: colAdd, dupResult: DUP['col.add'] },
+  'col.add': { roles: ['app'], write: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?', target: 'id?', both: 'bool?' }, pageOf: dbOfArgs, run: colAdd, dupResult: DUP['col.add'] },
   'col.rename': { roles: ['app'], write: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: dupCol },
   'col.setType': { roles: ['app'], write: true, args: { db: 'id', col: 'id', type: 'colType' }, pageOf: dbOfArgs, run: colSetType, dupResult: DUP['col.setType'] },
   'col.typeCheck': { roles: ['app'], write: false, args: { db: 'id', col: 'id', type: 'colType' }, run: colTypeCheck },

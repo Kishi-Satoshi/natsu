@@ -187,6 +187,33 @@ const OPEN_DB_ROW = OPEN_DB_AT(`const errs = [];
   if (!document.querySelector('#pageWrap.row') || !document.getElementById('pDb').hidden) throw new Error('行のページの形でない');
   if ([...document.querySelectorAll('#crumb .cseg .cst')].map((x) => x.textContent).join('/') !== '案件の一覧') throw new Error('パンくずにデータベースの段が無い');
   if (errs.length) throw new Error('画面のエラー: ' + errs.join(' / '));`);
+// 0.16.0 DR-1: リレーションのセルの「📄 題名」と選びの窓。本物の Chromium で並び・窓の欄・画面のエラーを確かめ、崩れていれば「撮れない」
+const OPEN_DB_REL = OPEN_DB_AT(`const errs = [];
+  window.addEventListener('error', (e) => errs.push(String(e.message)));
+  window.addEventListener('unhandledrejection', (e) => errs.push(String((e.reason && e.reason.message) || e.reason)));
+  const chips = [...cell(1, 'c7').querySelectorAll('.dbrel')].map((x) => x.textContent);
+  if (chips.join('/') !== '📄 南の印刷所/📄 東の運送') throw new Error('リレーションのセルの並びが違う: ' + chips.join('/'));
+  if (cell(1, 'c7').scrollHeight > cell(1, 'c7').clientHeight + 2) throw new Error('リレーションのセルが折り返している');
+  const r = cell(1, 'c7').getBoundingClientRect();
+  cell(1, 'c7').dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.right - 4, clientY: r.top + 4 }));
+  await new Promise((res) => setTimeout(res, 300));
+  const q = document.querySelector('#pDb .dbpick input');
+  if (!q || q.getAttribute('aria-label') !== '行を探す') throw new Error('選びの窓が出ない');
+  if (document.querySelectorAll('#pDb .dbpick .dbopt').length !== 4) throw new Error('選びの窓の行が違う');
+  if (errs.length) throw new Error('画面のエラー: ' + errs.join(' / '));`);
+// 0.16.0 DR-1: サブアイテムの1行目の ▸ を押して開き（▾）、字下げを本物の Chromium で確かめる
+const OPEN_DB_SUB = OPEN_DB_AT(`const errs = [];
+  window.addEventListener('error', (e) => errs.push(String(e.message)));
+  const tog = document.querySelector('#pDb .dbrow .dbsubtog');
+  if (!tog) throw new Error('サブアイテムの ▸ が無い');
+  tog.click();
+  await new Promise((res) => setTimeout(res, 300));
+  const t = document.querySelector('#pDb .dbrow .dbsubtog');
+  if (t.getAttribute('aria-expanded') !== 'true') throw new Error('▸ を押しても開かない');
+  const x0 = cell(0, 'title').getBoundingClientRect().left + parseFloat(getComputedStyle(cell(0, 'title')).paddingLeft);
+  const x1 = cell(1, 'title').getBoundingClientRect().left + parseFloat(getComputedStyle(cell(1, 'title')).paddingLeft);
+  if (!(x1 > x0 - 26 + 10)) throw new Error('子が字下げされない: ' + x0 + ' ' + x1);
+  if (errs.length) throw new Error('画面のエラー: ' + errs.join(' / '));`);
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
@@ -547,6 +574,9 @@ const SCREENS = [
   { name: 'db-group-light', page: 'app', theme: 'light', get answers() { return dbAnswers('group'); }, act: OPEN_DB_PLAIN },
   { name: 'db-views-light', page: 'app', theme: 'light', get answers() { return dbAnswers('views'); }, act: OPEN_DB_VIEWS },
   { name: 'db-row-page-light', page: 'app', theme: 'light', get answers() { return dbAnswers('row'); }, act: OPEN_DB_ROW },
+  // 0.16.0 DR-1: リレーションのセル（📄 題名の並び）と選びの窓（2行目の「取引先」）・サブアイテムの ▾ と字下げ（足した画面。まだ基準が無い）
+  { name: 'db-relation-light', page: 'app', theme: 'light', get answers() { return dbAnswers('relation'); }, act: OPEN_DB_REL },
+  { name: 'db-subitems-light', page: 'app', theme: 'light', get answers() { return dbAnswers('sub'); }, act: OPEN_DB_SUB },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -669,8 +699,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DV-2 で足した列のメニュー・選択肢の選び・暦の3枚（まだ基準が無い）
 // DV-3 で足したリスト・絞り込みの窓・グループ・ビューのタブ（「他 n 件」とタブのメニュー）の4枚（まだ基準が無い）
 // DV-4 で足した行のページ（列の値の並びと本文。まだ基準が無い）
+// DR-1 で足したリレーションとサブアイテムの2枚（まだ基準が無い）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
-  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light',
+  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
   'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -838,6 +869,9 @@ function dbAnswers(kind = '') {
     { id: 'c5', name: '済み', type: 'check' },
     { id: 'c6', name: '資料', type: 'url' },
   ];
+  // 0.16.0 DR-1: リレーション（取引先のデータベースへ）・サブアイテム（親アイテム・サブアイテムの列）
+  if (kind === 'relation') cols.splice(1, 0, { id: 'c7', name: '取引先', type: 'rel', db: 'pd2' });
+  if (kind === 'sub') cols.push({ id: 'c8', name: '親アイテム', type: 'rel', db: 'pd1', back: 'c9' }, { id: 'c9', name: 'サブアイテム', type: 'rel', db: 'pd1', back: 'c8' });
   const view = { id: 'v1', name: '表', layout: 'table', props: cols.map((c) => ({ col: c.id, show: true, wrap: false })), sort: [], filter: null, group: null,
     agg: { title: 'count', c3: 'sum', c5: 'checkedPct' } };
   if (kind === 'list') Object.assign(view, { name: '一覧', layout: 'list', props: cols.map((c) => ({ col: c.id, show: ['title', 'c1', 'c2', 'c4'].includes(c.id), wrap: false })), agg: {} });
@@ -852,6 +886,16 @@ function dbAnswers(kind = '') {
       ...(i % 3 === 2 ? { c5: true } : {}), ...(i % 4 === 0 ? { c6: `https://example.com/doc/${i + 1}` } : {}) },
     depth: 0, hasKids: false,
   }));
+  const PARTNERS = { rb1: { title: '北の工務店' }, rb2: { title: '南の印刷所' }, rb3: { title: '東の運送' } };
+  if (kind === 'relation') rows.forEach((r, i) => { r.cells.c7 = [['rb1'], ['rb2', 'rb3'], ['rb3'], []][i % 4]; if (!r.cells.c7.length) delete r.cells.c7; });
+  // サブアイテム: r1 の子は r2・r3（r3 の子は r4）、r5 の子は r6。開いた r1・r3 の子を段を下げて並べる（r5 は閉じている）
+  let subRows = null;
+  if (kind === 'sub') {
+    const par = { r2: 'r1', r3: 'r1', r4: 'r3', r6: 'r5' };
+    for (const r of rows) { if (par[r.id]) r.cells.c8 = [par[r.id]]; const ks = Object.keys(par).filter((k) => par[k] === r.id); if (ks.length) r.cells.c9 = ks; }
+    const at2 = (id, depth, hasKids) => ({ ...rows.find((r) => r.id === id), depth, hasKids });
+    subRows = [at2('r1', 0, true), at2('r2', 1, false), at2('r3', 1, true), at2('r4', 2, false), at2('r5', 0, true), ...rows.slice(6).map((r) => ({ ...r }))];
+  }
   const sum = rows.reduce((n, r) => n + r.cells.c3, 0);
   // グループ: ステータスの3つのまとまりの順に並べ、g にまとまりの番号
   const grouped = kind === 'group' ? [0, 1, 2].flatMap((g) => rows.filter((r) => r.cells.c2 === `o${g + 1}`).map((r) => ({ ...r, g }))) : rows;
@@ -859,8 +903,10 @@ function dbAnswers(kind = '') {
   const row = { id: 'pd1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'database' };
   return {
     'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] },
-    'koeApp.dbGet': { id: 'pd1', title: page.title, cols, views, rowCount: 20 },
-    'koeApp.dbView': { total: 20, shown: 20, rows: grouped, groups, agg: { title: 20, c3: sum, c5: (rows.filter((r) => r.cells.c5).length / 20) * 100 }, sig: '1.20.shots' },
+    'koeApp.dbGet': { id: 'pd1', title: page.title, cols, views, rowCount: 20, ...(kind === 'sub' ? { sub: { parent: 'c8', kids: 'c9' } } : {}) },
+    'koeApp.dbView': { total: 20, shown: subRows ? subRows.length : 20, rows: subRows || grouped, groups, agg: { title: 20, c3: sum, c5: (rows.filter((r) => r.cells.c5).length / 20) * 100 },
+      ...(kind === 'relation' ? { rel: PARTNERS } : kind === 'sub' ? { rel: Object.fromEntries(rows.map((r) => [r.id, { title: r.title }])) } : {}), sig: '1.20.shots' },
+    ...(kind === 'relation' ? { 'koeApp.relFind': { rows: Object.entries(PARTNERS).map(([id, r]) => ({ id, ...r })), total: 3 } } : {}),
     ...(kind === 'row' ? { 'koeApp.pageGet:r1': { db: 'pd1', segments: [], page: { id: 'r1', title: rows[0].title, cells: rows[0].cells, by: rows[0].by, no: 1, createdAt: at, updatedAt: at, blocks: [
       { id: 'q1', type: 'heading', level: 2, text: '進め方', citeState: 'manual', cites: [] },
       { id: 'q2', type: 'todo', text: '先方に単価を確かめる', checked: false, citeState: 'manual', cites: [] },

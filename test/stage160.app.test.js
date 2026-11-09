@@ -488,7 +488,8 @@ test('DV-2: 列のメニューの項目（決めたこと 13・画面の文）�
     const plus = box(l).querySelector('.dbcoladd');
     assert.deepStrictEqual([plus.textContent, plus.getAttribute('aria-label'), plus.title], ['＋', '列を足す', '列を足す']);
     await clickEl(l, plus);
-    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['テキスト', '数値', '選択', '複数選択', 'ステータス', '日付', 'ユーザー', 'チェック', 'URL', 'メール', '電話']);
+    // 0.16.0 DR-1（R99）で意図して直した: 末に［リレーション］（つなぐデータベースを選んで足す）
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['テキスト', '数値', '選択', '複数選択', 'ステータス', '日付', 'ユーザー', 'チェック', 'URL', 'メール', '電話', 'リレーション']);
     await clickEl(l, item(l, '日付'), 120);
     assert.deepStrictEqual(l.called('colAdd').map((c) => c.args)[2], [l.id, 'date']);
     assert.strictEqual(heads(l).slice(-1)[0], '日付', '足した列が右端に出ない');
@@ -2443,6 +2444,158 @@ test('R97・決めたこと 28: 行をゴミ箱へ入れると、行の中の子
     assert.ok(!has(), '行をゴミ箱へ入れても子が一覧に残る');
     await press(l, grid(l), { key: 'z', code: 'KeyZ', ctrlKey: true }); await l.drain(200);
     assert.ok(has(), 'Ctrl+Z で行を戻しても子が見えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ================================================================ DR-1: リレーションとサブアイテム（計画の Task DR-1・決めたこと 33〜38・R98）
+// つなぐ先のデータベース（取引先）と両側のリレーションの列。データベース・行の名前は作った物
+const relDb = (o = {}) => openDb({ ...o, before: (call, s) => {
+  const d2 = call('db.create', {}).id;
+  call('page.setTitle', { id: d2, title: '取引先' });   // D77 の会議の題名でない（データベースの行の題名）
+  const b1 = call('row.add', { db: d2, title: '取引先 甲' }).id;   // D77 の会議の題名でない（データベースの行の題名）
+  const b2 = call('row.add', { db: d2, title: '取引先 乙' }).id;   // D77 の会議の題名でない（データベースの行の題名）
+  const b3 = call('row.add', { db: d2, title: 'カイギシツ' }).id;   // D77 の会議の題名でない（データベースの行の題名）
+  const rc = o.noCol ? null : call('col.add', { db: s.id, type: 'rel', name: 'つなぐ', target: d2, both: true }).col.id;
+  if (rc) call('rel.link', { db: s.id, id: s.rows[0], col: rc, ids: [b1, b2] });
+  return { d2, b1, b2, b3, rc };
+} });
+const chips = (l, rowId, col) => cellOf(l, rowId, col).querySelectorAll('.dbrel').map((x) => x.textContent);
+const pickOpts = (l) => (picker(l) ? picker(l).querySelectorAll('.dbopt') : []);
+
+test('DR-1: 右端の［＋］の［リレーション］で「つなぐデータベース」の窓（相手のデータベースにも列を作るのチェック・データベースの名前の並び）→ colAdd の1回（target・both）', T, async () => {
+  const l = await relDb({ noCol: true });
+  try {
+    await clickEl(l, box(l).querySelector('.dbcoladd'), 40);
+    assert.ok(items(l).some((b) => b.textContent === 'リレーション'), '［＋］に［リレーション］が無い');
+    await clickEl(l, item(l, 'リレーション'), 60);
+    assert.strictEqual(menu(l).querySelector('.dbmenuhead').textContent, 'つなぐデータベース');
+    const ck = menu(l).querySelector('input.dbrelboth');
+    assert.ok(ck && ck.closest('label').textContent === '相手のデータベースにも列を作る', '相手のデータベースにも列を作るのチェックが無い');
+    assert.deepStrictEqual(items(l).map((b) => b.textContent).sort(), ['取引先', '無題のデータベース'].sort());
+    ck.checked = true;
+    await clickEl(l, item(l, '取引先'), 200);
+    assert.deepStrictEqual(l.called('colAdd').map((c) => c.args), [[l.id, 'rel', undefined, undefined, { target: l.d2, both: true }]]);
+    const info = l.call('db.get', { id: l.id });
+    const col = info.cols.find((c) => c.type === 'rel');
+    assert.ok(col && col.db === l.d2 && col.back, '両側のリレーションの列ができない');
+    assert.ok(box(l).querySelector('.dbcolh') && box(l).querySelectorAll('.dbcolh').some((h) => h.dataset.col === col.id), '足した列が表に出ない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DR-1: リレーションのセルは「📄 題名」の並び（押すと相手の行が今のタブで開く）・相手の行をゴミ箱へ入れると出ない（値は残る）', T, async () => {
+  const l = await relDb();
+  try {
+    const [r0] = l.rows;
+    assert.deepStrictEqual(chips(l, r0, l.rc), ['📄 取引先 甲', '📄 取引先 乙']);
+    assert.strictEqual(cellOf(l, r0, l.rc).getAttribute('aria-readonly'), null, 'リレーションのセルが書けない印');
+    const n = tabKeys(l).length;
+    await clickEl(l, cellOf(l, r0, l.rc).querySelectorAll('.dbrel')[0], 200);
+    assert.deepStrictEqual([tabKeys(l).length, tabOnKey(l), $(l, 'pTitle').textContent], [n, `page:${l.b1}`, '取引先 甲'], '押した行が開かない');
+    assert.ok(picker(l) === null, '押して選びの窓が開いた');
+    l.call('rows.trash', { db: l.d2, ids: [l.b2] });
+    l.fire('onPageOpen', l.id); await l.drain(200);
+    assert.deepStrictEqual(chips(l, r0, l.rc), ['📄 取引先 甲'], 'ゴミ箱の行がセルに出る');
+    assert.deepStrictEqual(cellsIn(l, r0).cells[l.rc], [l.b1, l.b2], '値が消えた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DR-1: 選びの窓（「行を探す」・ひらがなとカタカナを寄せる・押すとつなぐ／もう一度で外す・［新しい行を作ってつなぐ］・Esc でセルへ）。行のページの列の値でも同じ窓', T, async () => {
+  const l = await relDb();
+  try {
+    const r1 = l.rows[1];
+    await clickEl(l, cellOf(l, r1, l.rc), 200);
+    const q = picker(l) && picker(l).querySelector('input');
+    assert.ok(q && q.getAttribute('aria-label') === '行を探す' && q.getAttribute('placeholder') === '行を探す', '「行を探す」の欄が無い');
+    assert.deepStrictEqual(pickOpts(l).map((b) => [b.textContent, b.getAttribute('aria-selected')]), [
+      ['📄 取引先 甲', 'false'], ['📄 取引先 乙', 'false'], ['📄 カイギシツ', 'false'], ['新しい行を作ってつなぐ', 'false']]);
+    await clickEl(l, pickOpts(l)[0], 200);
+    assert.deepStrictEqual(l.called('relLink').map((c) => c.args), [[l.id, r1, l.rc, [l.b1]]]);
+    assert.strictEqual(pickOpts(l)[0].getAttribute('aria-selected'), 'true', '選んだ印が付かない');
+    await clickEl(l, pickOpts(l)[0], 200);
+    assert.deepStrictEqual(l.called('relUnlink').map((c) => c.args), [[l.id, r1, l.rc, [l.b1]]]);
+    q.value = 'かいぎ'; q.dispatchEvent({ type: 'input' }); await l.drain(100);
+    assert.deepStrictEqual(pickOpts(l).map((b) => b.textContent), ['📄 カイギシツ', '新しい行を作ってつなぐ']);
+    q.value = '新しい取引先'; q.dispatchEvent({ type: 'input' }); await l.drain(100);
+    await clickEl(l, pickOpts(l).find((b) => b.textContent === '新しい行を作ってつなぐ'), 300);
+    assert.deepStrictEqual(l.called('relLink').map((c) => c.args).slice(-1), [[l.id, r1, l.rc, [], '新しい取引先']]);
+    const made = cellsIn(l, r1).cells[l.rc];
+    assert.strictEqual(made.length, 1);
+    assert.strictEqual(l.call('page.get', { id: made[0] }).page.title, '新しい取引先');
+    await press(l, picker(l).querySelector('input'), { key: 'Escape' });
+    assert.ok(picker(l) === null && active(l) === cellOf(l, r1, l.rc), 'Esc で閉じてセルへ戻らない');
+    assert.deepStrictEqual(chips(l, r1, l.rc), ['📄 新しい取引先']);
+    // 行のページの列の値（📄 の並び・押すと同じ窓）
+    await clickEl(l, openBtn(l, l.rows[0]), 200);
+    const pv = $(l, 'pProps').querySelectorAll('.dbpropv').find((v) => v.dataset.col === l.rc);
+    assert.deepStrictEqual(pv.querySelectorAll('.dbrel').map((x) => x.textContent), ['📄 取引先 甲', '📄 取引先 乙']);
+    await clickEl(l, pv, 200);
+    const pp = $(l, 'pProps').querySelector('.dbpick');
+    assert.ok(pp && pp.querySelector('input').getAttribute('aria-label') === '行を探す', '行のページで選びの窓が出ない');
+    await clickEl(l, pp.querySelectorAll('.dbopt')[1], 200);
+    assert.deepStrictEqual(l.called('relUnlink').map((c) => c.args).slice(-1), [[l.id, l.rows[0], l.rc, [l.b2]]]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('DR-1: サブアイテム（データベースの「···」の［サブアイテム］・行のメニュー［サブアイテムを足す］・▸ で開け閉め・字下げ・輪は「その行の中へは入れられません」・子孫ごと消した数の知らせ・当たった子の親は灰色）', T, async () => {
+  const l = await openDb();
+  try {
+    const [r0, r1] = l.rows;
+    await clickEl(l, dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbgrip'), 40);
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['開く', '新しいタブで開く', 'リンクを写す', '削除'], '入れる前に［サブアイテムを足す］がある');
+    await press(l, menu(l), { key: 'Escape' });
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    const subItem = () => $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === 'サブアイテム');
+    assert.ok(subItem() && subItem().getAttribute('role') === 'menuitemcheckbox' && subItem().getAttribute('aria-checked') === 'false', '［サブアイテム］が無い');
+    await clickEl(l, subItem(), 300);
+    assert.deepStrictEqual(l.called('dbSetSub').map((c) => c.args), [[l.id, true]]);
+    const sub = l.call('db.get', { id: l.id }).sub;
+    assert.ok(sub, 'サブアイテムが入らない');
+    assert.ok(['親アイテム', 'サブアイテム'].every((n) => box(l).querySelectorAll('.dbcolbtn').some((b) => b.textContent === n)), '2つの列が表に出ない');
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    assert.strictEqual(subItem().getAttribute('aria-checked'), 'true');
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    // 行のメニュー［サブアイテムを足す］: 新しい子を作って親を開き、子の題名を書く
+    await clickEl(l, dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbgrip'), 40);
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['開く', '新しいタブで開く', 'リンクを写す', 'サブアイテムを足す', '削除']);
+    await clickEl(l, item(l, 'サブアイテムを足す'), 400);
+    assert.deepStrictEqual(l.called('relLink').map((c) => c.args), [[l.id, r0, sub.kids, [], '']]);
+    const kid = l.call('db.get', { id: l.id }) && cellsIn(l, r0).cells[sub.kids][0];
+    assert.deepStrictEqual(dataRows(l).map((r) => r.dataset.id).slice(0, 2), [r0, kid], '子が親のすぐ後ろに出ない');
+    const tog = cellOf(l, r0, 'title').querySelector('.dbsubtog');
+    assert.ok(tog && tog.getAttribute('aria-label') === '見積もり' && tog.getAttribute('aria-expanded') === 'true', '親の ▾ が無い');
+    assert.strictEqual(cellOf(l, r0, 'title').textContent, '見積もり', '▸ が題名の文字に混ざる');
+    assert.strictEqual(dataRows(l).find((r) => r.dataset.id === kid).style.getPropertyValue('--dbdepth'), '1', '子が字下げされない');
+    assert.ok(editor(l) && editor(l).closest('.dbrow').dataset.id === kid, '子の題名を書き始めない');
+    editor(l).value = '子の行'; await press(l, editor(l), { key: 'Enter' });
+    assert.strictEqual(l.call('page.get', { id: kid }).page.title, '子の行');
+    // ▸ で閉じる（開いた行は画面のメモリ。db.view の open）
+    await clickEl(l, cellOf(l, r0, 'title').querySelector('.dbsubtog'), 200);
+    assert.ok(!dataRows(l).some((r) => r.dataset.id === kid), '閉じても子が出る');
+    assert.strictEqual(cellOf(l, r0, 'title').querySelector('.dbsubtog').getAttribute('aria-expanded'), 'false');
+    await clickEl(l, cellOf(l, r0, 'title').querySelector('.dbsubtog'), 200);
+    assert.ok(dataRows(l).some((r) => r.dataset.id === kid));
+    assert.deepStrictEqual(views(l).slice(-1)[0].slice(5), [[r0]], 'db.view に開いた行を渡さない');
+    // 輪: 親の親アイテムに子を入れる → 一言
+    await clickEl(l, cellOf(l, r0, sub.parent), 200);
+    await clickEl(l, pickOpts(l).find((b) => b.textContent === '📄 子の行'), 300);
+    assert.strictEqual($(l, 'toast').textContent, 'その行の中へは入れられません');
+    await press(l, picker(l).querySelector('input'), { key: 'Escape' });
+    // 絞り込みに当たった子の親は灰色
+    l.call('view.update', { db: l.id, viewId: 'v1', patch: { filter: { op: 'and', items: [{ col: 'title', cmp: 'contains', value: '子の' }] } } });
+    l.fire('onPageOpen', l.id); await l.drain(200);
+    assert.deepStrictEqual(dataRows(l).map((r) => [r.dataset.id, r.classList.contains('dbdim')]), [[r0, true], [kid, false]], '当たった子の親が灰色で出ない');
+    l.call('view.update', { db: l.id, viewId: 'v1', patch: { filter: null } });
+    l.fire('onPageOpen', l.id); await l.drain(200);
+    // 子孫ごとゴミ箱へ: 知らせの数に子も
+    await clickEl(l, dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbgrip'), 40);
+    await clickEl(l, item(l, '削除'), 300);
+    assert.strictEqual($(l, 'toast').textContent, '行 2 件をゴミ箱に入れました（Ctrl+Z で戻せます）');
+    assert.ok(!dataRows(l).some((r) => r.dataset.id === r0 || r.dataset.id === kid));
+    assert.ok(dataRows(l).some((r) => r.dataset.id === r1));
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

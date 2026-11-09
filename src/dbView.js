@@ -384,16 +384,32 @@ function normalizeView(v, cols) {
 }
 
 // ---------------------------------------------------------------- ビューを当てる（決めたこと 30）
-// rows（ゴミ箱でない行）→ { order: [{ id, depth, hasKids, g? }], groups: [{ key, count, hidden? }] | null, agg, total }
+// rows（ゴミ箱でない行）→ { order: [{ id, depth, hasKids, dim?, g? }], groups: [{ key, count, hidden? }] | null, agg, total }
+// opts.sub: { parent: 親アイテムの列の ID }（サブアイテムの入ったデータベース: 0.16.0 DR-1）・opts.open: 開いた行の ID の並び（ビューごとの窓のメモリ）
 function applyView(rows, view, cols, opts = {}) {
   const byId = colMap(cols);
   const live = liveCols(cols);
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const memo = new Map();
-  let list = (Array.isArray(rows) ? rows : []).filter((r) => matchTree(view && view.filter, r, byId, now, memo));
+  const all = Array.isArray(rows) ? rows : [];
+  let list = all.filter((r) => matchTree(view && view.filter, r, byId, now, memo));
   const q = typeof opts.q === 'string' ? searchFold(opts.q) : '';
   // 欄ごとに寄せて \u0001 でつなぐ（欄をまたいで当たらない: DS-1 直し F3。行の検索の欄 fold と同じ形）
   if (q) list = list.filter((r) => [r.title || '', ...DM.foldCells(live, r.cells).split('\n')].map(searchFold).join('\u0001').includes(q));
+  const narrowed = list.length !== all.length;
+  const pcol = isObj(opts.sub) && typeof opts.sub.parent === 'string' ? byId.get(opts.sub.parent) : null;
+  // 0.16.0 DR-1（決めたこと 38・R98 (3)）: 絞り込み・検索に当たった子の親（当たらない）も、どこにあるかが分かるように灰色（dim）で並べる
+  let dim = null;
+  if (pcol && narrowed && !(view && view.group)) {
+    const rowOf = new Map(all.map((r) => [r.id, r]));
+    const hit = new Set(list.map((r) => r.id));
+    dim = new Set();
+    for (const r of list) {
+      let p = subParent(r, pcol);
+      for (let k = 0; p && rowOf.has(p) && !hit.has(p) && !dim.has(p) && k < all.length; k += 1) { dim.add(p); p = subParent(rowOf.get(p), pcol); }
+    }
+    list = all.filter((r) => hit.has(r.id) || dim.has(r.id));
+  }
   // 並べ替え（重ねた列の順。同じなら並びの鍵）。並べ替えの無いビューは並びの鍵の順（手で並べる: 決めたこと 17）
   const sorts = (view && Array.isArray(view.sort) ? view.sort : []).map((s) => ({ col: byId.get(s.col), dir: s.dir })).filter((s) => s.col);
   if (sorts.length) {
@@ -409,15 +425,20 @@ function applyView(rows, view, cols, opts = {}) {
   } else {
     list = [...list].sort(byOrd);
   }
-  // 集計は絞り込んだ後の行で数える
+  // 集計は絞り込んだ後の行で数える（灰色の親は数えない）
+  const counted = dim ? list.filter((r) => !dim.has(r.id)) : list;
   const agg = {};
   for (const [k, kind] of Object.entries((view && view.agg) || {})) {
     const col = byId.get(k);
-    if (col) agg[k] = aggregate(col, list.map((r) => DM.cellValue(r, col)), kind);
+    if (col) agg[k] = aggregate(col, counted.map((r) => DM.cellValue(r, col)), kind);
   }
   const g = view && view.group;
   const gcol = g ? byId.get(g.col) : null;
   // total は絞り込んだ行の数、shown は並べる行の数（グループでは1つの行がいくつものグループに出る・隠したグループの行は出ない。窓は shown で切る: DS-1 直し F2）
+  if (!gcol && pcol) {
+    const order = subTree(list, pcol, dim, new Set(Array.isArray(opts.open) ? opts.open : []));
+    return { order, groups: null, agg, total: counted.length, shown: order.length };
+  }
   if (!gcol) return { order: list.map((r) => ({ id: r.id, depth: 0, hasKids: false })), groups: null, agg, total: list.length, shown: list.length };
   // グループ: 鍵ごとに行を分ける（複数選択とユーザーは、どの値のグループにも行が出る）
   const members = new Map();
@@ -443,6 +464,48 @@ function applyView(rows, view, cols, opts = {}) {
     for (const r of rs) order.push({ id: r.id, depth: 0, hasKids: false, g: at });
   }
   return { order, groups, agg, total: list.length, shown: order.length };
+}
+
+// ---------------------------------------------------------------- サブアイテムの木（0.16.0 DR-1。決めたこと 38・R98 (3)）
+// 行の親（親アイテムの列の1つ目の ID）
+function subParent(r, pcol) {
+  const v = DM.cellValue(r, pcol);
+  return Array.isArray(v) && typeof v[0] === 'string' ? v[0] : null;
+}
+// 並べた行（並べ替えた後）→ 木の順の [{ id, depth, hasKids, dim? }]。親が並びに無い行は最上位。子は親のすぐ後ろに、並びの順（並べ替えは同じ親の中で効く）。
+// 閉じた行（open に無い）の子は出さない。絞り込みのとき（dim がある）は、当たった行と灰色の親を全部開いて出す（どこにあるかが分かるように）。
+// 輪になった値（古い控えなど）でも、1つの行は1度だけ
+function subTree(list, pcol, dim, open) {
+  const ids = new Set(list.map((r) => r.id));
+  const kids = new Map();
+  const roots = [];
+  for (const r of list) {
+    const p = subParent(r, pcol);
+    if (p && p !== r.id && ids.has(p)) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r.id); } else roots.push(r.id);
+  }
+  // 親をたどっても最上位に着かない行（輪の中）は、並びの順で最初の行を最上位にする
+  const reached = new Set();
+  const reach = (start) => { const st = [start]; while (st.length) { const id = st.pop(); if (reached.has(id)) continue; reached.add(id); for (const k of kids.get(id) || []) st.push(k); } };
+  for (const id of roots) reach(id);
+  for (const r of list) if (!reached.has(r.id)) { roots.push(r.id); reach(r.id); }
+  const out = [];
+  const seen = new Set();
+  const walk = (start) => {
+    const stack = [{ id: start, depth: 0 }];
+    while (stack.length) {
+      const { id, depth } = stack.pop();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const ks = (kids.get(id) || []).filter((k) => !seen.has(k));
+      const one = { id, depth, hasKids: ks.length > 0 };
+      if (dim && dim.has(id)) one.dim = true;
+      out.push(one);
+      if (!ks.length || (!dim && !open.has(id))) continue;
+      for (let i = ks.length - 1; i >= 0; i -= 1) stack.push({ id: ks[i], depth: depth + 1 });
+    }
+  };
+  for (const id of roots) walk(id);
+  return out;
 }
 
 // ---------------------------------------------------------------- 新しい行の値（0.16.0 DS-3。決めたこと 24・52）

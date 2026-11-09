@@ -364,6 +364,19 @@
   .dbopen:hover { background: var(--hover); color: var(--text); }
   .dbopen:focus-visible { outline: 2px solid var(--accent); }
   .dbcell[aria-readonly="true"] { color: var(--muted); }
+  /* 0.16.0 DR-1（決めたこと 34・38）: リレーションのセルの「📄 題名」（押すと開く）・サブアイテムの ▸／▾（字は content: セルの文字は題名のまま）と段の字下げ・
+     絞り込みに当たった子の親（灰色）・リレーションの列を足す窓のチェック */
+  .dbrel { display: inline-block; margin-right: 8px; text-decoration: underline; text-decoration-color: var(--line); cursor: pointer; }
+  .dbrel:hover { text-decoration-color: currentColor; }
+  .dbrow { --dbdepth: 0; }   /* 段は行の style の --dbdepth（サブアイテムの子） */
+  .dbrow .dbcell[data-col="title"] { padding-left: calc(8px + var(--dbdepth, 0) * 20px); }
+  .dbsubtog { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; width: 18px; padding: 0; margin-left: -18px; cursor: pointer; }
+  .dbsubtog::before { content: '▸'; }
+  .dbsubtog[aria-expanded="true"]::before { content: '▾'; }
+  .dbsubtog:focus-visible { outline: 2px solid var(--accent); }
+  .dbcell[data-col="title"]:has(.dbsubtog) { padding-left: calc(26px + var(--dbdepth, 0) * 20px); }
+  .dbrow.dbdim .dbcell { color: var(--muted); }
+  .dbrelbothl { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 13px; }
   .dblead { flex: none; width: 52px; display: flex; align-items: center; gap: 4px; padding-left: 4px; box-sizing: border-box; }
   .dbgrip { cursor: grab; color: var(--muted); opacity: 0; user-select: none; }
   .dbrow:hover .dbgrip { opacity: 1; }
@@ -4879,16 +4892,32 @@
     }
 
     // ---------------------------------------------------------------- ビューを当てる（決めたこと 30）
-    // rows（ゴミ箱でない行）→ { order: [{ id, depth, hasKids, g? }], groups: [{ key, count, hidden? }] | null, agg, total }
+    // rows（ゴミ箱でない行）→ { order: [{ id, depth, hasKids, dim?, g? }], groups: [{ key, count, hidden? }] | null, agg, total }
+    // opts.sub: { parent: 親アイテムの列の ID }（サブアイテムの入ったデータベース: 0.16.0 DR-1）・opts.open: 開いた行の ID の並び（ビューごとの窓のメモリ）
     function applyView(rows, view, cols, opts = {}) {
       const byId = colMap(cols);
       const live = liveCols(cols);
       const now = Number.isFinite(opts.now) ? opts.now : Date.now();
       const memo = new Map();
-      let list = (Array.isArray(rows) ? rows : []).filter((r) => matchTree(view && view.filter, r, byId, now, memo));
+      const all = Array.isArray(rows) ? rows : [];
+      let list = all.filter((r) => matchTree(view && view.filter, r, byId, now, memo));
       const q = typeof opts.q === 'string' ? searchFold(opts.q) : '';
       // 欄ごとに寄せて \u0001 でつなぐ（欄をまたいで当たらない: DS-1 直し F3。行の検索の欄 fold と同じ形）
       if (q) list = list.filter((r) => [r.title || '', ...DM.foldCells(live, r.cells).split('\n')].map(searchFold).join('\u0001').includes(q));
+      const narrowed = list.length !== all.length;
+      const pcol = isObj(opts.sub) && typeof opts.sub.parent === 'string' ? byId.get(opts.sub.parent) : null;
+      // 0.16.0 DR-1（決めたこと 38・R98 (3)）: 絞り込み・検索に当たった子の親（当たらない）も、どこにあるかが分かるように灰色（dim）で並べる
+      let dim = null;
+      if (pcol && narrowed && !(view && view.group)) {
+        const rowOf = new Map(all.map((r) => [r.id, r]));
+        const hit = new Set(list.map((r) => r.id));
+        dim = new Set();
+        for (const r of list) {
+          let p = subParent(r, pcol);
+          for (let k = 0; p && rowOf.has(p) && !hit.has(p) && !dim.has(p) && k < all.length; k += 1) { dim.add(p); p = subParent(rowOf.get(p), pcol); }
+        }
+        list = all.filter((r) => hit.has(r.id) || dim.has(r.id));
+      }
       // 並べ替え（重ねた列の順。同じなら並びの鍵）。並べ替えの無いビューは並びの鍵の順（手で並べる: 決めたこと 17）
       const sorts = (view && Array.isArray(view.sort) ? view.sort : []).map((s) => ({ col: byId.get(s.col), dir: s.dir })).filter((s) => s.col);
       if (sorts.length) {
@@ -4904,15 +4933,20 @@
       } else {
         list = [...list].sort(byOrd);
       }
-      // 集計は絞り込んだ後の行で数える
+      // 集計は絞り込んだ後の行で数える（灰色の親は数えない）
+      const counted = dim ? list.filter((r) => !dim.has(r.id)) : list;
       const agg = {};
       for (const [k, kind] of Object.entries((view && view.agg) || {})) {
         const col = byId.get(k);
-        if (col) agg[k] = aggregate(col, list.map((r) => DM.cellValue(r, col)), kind);
+        if (col) agg[k] = aggregate(col, counted.map((r) => DM.cellValue(r, col)), kind);
       }
       const g = view && view.group;
       const gcol = g ? byId.get(g.col) : null;
       // total は絞り込んだ行の数、shown は並べる行の数（グループでは1つの行がいくつものグループに出る・隠したグループの行は出ない。窓は shown で切る: DS-1 直し F2）
+      if (!gcol && pcol) {
+        const order = subTree(list, pcol, dim, new Set(Array.isArray(opts.open) ? opts.open : []));
+        return { order, groups: null, agg, total: counted.length, shown: order.length };
+      }
       if (!gcol) return { order: list.map((r) => ({ id: r.id, depth: 0, hasKids: false })), groups: null, agg, total: list.length, shown: list.length };
       // グループ: 鍵ごとに行を分ける（複数選択とユーザーは、どの値のグループにも行が出る）
       const members = new Map();
@@ -4938,6 +4972,48 @@
         for (const r of rs) order.push({ id: r.id, depth: 0, hasKids: false, g: at });
       }
       return { order, groups, agg, total: list.length, shown: order.length };
+    }
+
+    // ---------------------------------------------------------------- サブアイテムの木（0.16.0 DR-1。決めたこと 38・R98 (3)）
+    // 行の親（親アイテムの列の1つ目の ID）
+    function subParent(r, pcol) {
+      const v = DM.cellValue(r, pcol);
+      return Array.isArray(v) && typeof v[0] === 'string' ? v[0] : null;
+    }
+    // 並べた行（並べ替えた後）→ 木の順の [{ id, depth, hasKids, dim? }]。親が並びに無い行は最上位。子は親のすぐ後ろに、並びの順（並べ替えは同じ親の中で効く）。
+    // 閉じた行（open に無い）の子は出さない。絞り込みのとき（dim がある）は、当たった行と灰色の親を全部開いて出す（どこにあるかが分かるように）。
+    // 輪になった値（古い控えなど）でも、1つの行は1度だけ
+    function subTree(list, pcol, dim, open) {
+      const ids = new Set(list.map((r) => r.id));
+      const kids = new Map();
+      const roots = [];
+      for (const r of list) {
+        const p = subParent(r, pcol);
+        if (p && p !== r.id && ids.has(p)) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r.id); } else roots.push(r.id);
+      }
+      // 親をたどっても最上位に着かない行（輪の中）は、並びの順で最初の行を最上位にする
+      const reached = new Set();
+      const reach = (start) => { const st = [start]; while (st.length) { const id = st.pop(); if (reached.has(id)) continue; reached.add(id); for (const k of kids.get(id) || []) st.push(k); } };
+      for (const id of roots) reach(id);
+      for (const r of list) if (!reached.has(r.id)) { roots.push(r.id); reach(r.id); }
+      const out = [];
+      const seen = new Set();
+      const walk = (start) => {
+        const stack = [{ id: start, depth: 0 }];
+        while (stack.length) {
+          const { id, depth } = stack.pop();
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const ks = (kids.get(id) || []).filter((k) => !seen.has(k));
+          const one = { id, depth, hasKids: ks.length > 0 };
+          if (dim && dim.has(id)) one.dim = true;
+          out.push(one);
+          if (!ks.length || (!dim && !open.has(id))) continue;
+          for (let i = ks.length - 1; i >= 0; i -= 1) stack.push({ id: ks[i], depth: depth + 1 });
+        }
+      };
+      for (const id of roots) walk(id);
+      return out;
     }
 
     // ---------------------------------------------------------------- 新しい行の値（0.16.0 DS-3。決めたこと 24・52）
@@ -5785,7 +5861,7 @@
     }
     if (curId !== id) peekOpen = new Map();   // 0.13.1 NR16・NR18: 画面だけの開け閉めはページを替えると消える
     curId = id; curPage = r.page; curSegs = r.segments;
-    if (rowDb) Object.assign(curPage, { kind: 'row', db: rowDb });
+    if (rowDb) Object.assign(curPage, { kind: 'row', db: rowDb, rel: r.rel && typeof r.rel === 'object' ? r.rel : {} });   // 0.16.0 DR-1: リレーションの相手の題名
     if (typeof curPage.title === 'string') tabTitles.set(id, curPage.title);
     pane = curPage.blocks.length ? 'note' : 'script';
     revealInTree(id);   // 0.15.0 PH-3（HR5）: 開いたページの祖先を開いて、サイドバーの行を見せる
@@ -6104,6 +6180,11 @@
         if (!base) { toast('リンクを写せませんでした。'); return; }
         await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
       }, false, true);
+      if (dbp) {   // 0.16.0 DR-1（決めたこと 37）: データベースの［サブアイテム］（入れる・外す。印は表の列とビューを読んだ後に dbPaint が付ける）
+        const sb = mk(DB_SUB, () => dbSubSet(!(dbSt && dbSt.id === curId && dbSt.info && dbSt.info.sub)), false, true);
+        sb.setAttribute('role', 'menuitemcheckbox'); sb.dataset.sub = '1';
+        sb.setAttribute('aria-checked', dbSt && dbSt.id === curId && dbSt.info && dbSt.info.sub ? 'true' : 'false');
+      }
       if (!rowp) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
       lookMenuItems(mk);   // 0.15.0 PL-3（決めたこと 40）: 見た目（議事録にも白紙のページにも。録音中の写しには出さない: R71）
     }
@@ -9792,7 +9873,8 @@
         const count = j - k + 1;
         k = j + 1;
         let r;
-        try { r = await window.koeApp.dbView(st.id, st.viewId, from, count, ...(st.q ? [st.q] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 中の検索の語（決めたこと 22）
+        const open = st.info && st.info.sub ? [...dbSubOpen(st)] : [];   // 0.16.0 DR-1: 開いたサブアイテムの行（決めたこと 38）
+        try { r = await window.koeApp.dbView(st.id, st.viewId, from, count, ...(st.q || open.length ? [st.q, ...(open.length ? [open] : [])] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 中の検索の語（決めたこと 22）
         if (dbSt !== st || st.seq !== seq) return;
         if (!r) { st.check = true; if (fresh || !st.painted) dbPaintRows(); return; }   // 断られた: 表は前のまま（次の読みで確かめる）
         if (r.sig !== st.sig) {
@@ -9809,6 +9891,7 @@
           if (dbSt !== st || st.seq !== seq) return;
         }
         r.rows.forEach((row, n) => {
+          row._rel = r.rel && typeof r.rel === 'object' ? r.rel : {};   // 0.16.0 DR-1: リレーションの相手の題名（この読みの答え）
           if (!st.rows.has(from + n) && dbDrawn(st, dbRowLine(st, from + n))) fresh = true;   // 描いた窓の外の行は覚えるだけ（窓の端に近づいたら描く: rv44 F3）
           st.rows.set(from + n, row);
           st.known.set(row.id, row);
@@ -9919,6 +10002,7 @@
     add.onclick = () => dbAddRow(null);
     box.appendChild(add);
     st.parts = { tabs, bar, sc, grid, head, all, top, body, bottom, foot };
+    for (const b of $('pMenu').querySelectorAll('.mitem')) if (b.dataset.sub === '1') b.setAttribute('aria-checked', st.info.sub ? 'true' : 'false');   // 0.16.0 DR-1: ［サブアイテム］の印
     dbPaintTabs(st);
     if (searching && st.parts.q) st.parts.q.focus();
     dbPaintBar();
@@ -9962,6 +10046,12 @@
     const cell = st.sel ? dbCellEl(st.sel.row, st.sel.col) : null;
     p.grid.tabIndex = cell ? -1 : 0;
     if (hadFocus) (cell || p.grid).focus({ preventScroll: true });   // 描き直してもフォーカスを同じセルに戻す（決めたこと 51。DV-1 直し rv44 F3: 戻すときに捲らない）
+    if (st.refocusSub) {   // 0.16.0 DR-1: 押したサブアイテムの ▸／▾ へ戻す
+      const t = cell === null && hadFocus ? null : [...p.body.querySelectorAll('.dbrow')].find((x) => x.dataset.id === st.refocusSub);
+      const b = t ? t.querySelector('.dbsubtog') : null;
+      st.refocusSub = null;
+      if (b) b.focus({ preventScroll: true });
+    }
     if (st.refocus) {   // DV-3 直し（rv48 F4）: 押したグループの ▸／▾ へ戻す
       const t = [...p.body.querySelectorAll('.dbgtoggle')].find((b) => b.dataset.gkey === st.refocus.gkey);
       if (t) { st.refocus = null; t.focus({ preventScroll: true }); }
@@ -9977,8 +10067,9 @@
   function dbRowEl(st, cols, row, i, li) {
     const list = st.parts.grid.classList.contains('dblist');   // 0.16.0 DV-3（決めたこと 23）: リストは「アイコン 題名」と右端の値
     const el = document.createElement('div');
-    el.className = 'dbrow'; el.setAttribute('role', 'row');
+    el.className = row.dim ? 'dbrow dbdim' : 'dbrow'; el.setAttribute('role', 'row');   // 0.16.0 DR-1: 絞り込みに当たった子の親（当たらない）は灰色
     el.dataset.id = row.id; el.dataset.i = String(i); el.dataset.li = String(li);
+    if (row.depth > 0 && typeof el.style.setProperty === 'function') el.style.setProperty('--dbdepth', String(row.depth));   // サブアイテムの段（題名のセルの字下げ）
     el.setAttribute('aria-rowindex', String(li + 2));
     const lead = document.createElement('div');
     lead.className = 'dblead'; lead.setAttribute('role', 'gridcell');
@@ -10004,7 +10095,7 @@
       if (c.wrap) cell.classList.add('wrap');
       const on = Boolean(st.sel && st.sel.row === row.id && st.sel.col === c.col.id);
       cell.setAttribute('aria-selected', on ? 'true' : 'false');
-      if (!dbWritable(c.col)) cell.setAttribute('aria-readonly', 'true');
+      if (!dbWritable(c.col) && !dbRelCol(c.col)) cell.setAttribute('aria-readonly', 'true');   // 0.16.0 DR-1: リレーションは選びの窓で書く
       cell.tabIndex = on ? 0 : -1;
       dbCellFill(st, cell, c.col, row);
       cell.onclick = () => dbCellClick(row.id, c.col.id);
@@ -10191,13 +10282,13 @@
     if (ev.key === 'ArrowDown' || ev.key === 'Enter') { ev.preventDefault(); const c = dbColsOf(st)[0]; if (c) dbSelectAt(0, c.col.id); }
   }
   // 書く命令を送って表を読み直す（断られたら一言。答えを返す）。送っている間は Ctrl+Z が待つ（inFlight）
-  async function dbWrite(send) {
+  async function dbWrite(send, bad) {
     const st = dbSt;
     let r = null;
     try { r = await inFlight(send()); }
     catch (e) {
       const code = String((e && (e.code || e.message)) || 'internal');
-      toast(code === 'too-big' ? DB_ROWS_FULL : `変更を保存できませんでした: ${code}`);
+      toast(code === 'too-big' ? DB_ROWS_FULL : code === 'bad-args' && bad ? bad : `変更を保存できませんでした: ${code}`);   // 0.16.0 DR-1: サブアイテムの輪は「その行の中へは入れられません」
       return null;
     }
     if (dbSt === st) await dbLoad(true);
@@ -10491,6 +10582,7 @@
       { label: '開く', fn: () => dbOpenRow(rowId, false) },
       { label: '新しいタブで開く', fn: () => dbOpenRow(rowId, true) },
       { label: 'リンクを写す', fn: () => { dbMenuClose(); dbCopyRowLink(rowId); if (anchor.isConnected !== false) anchor.focus(); } },
+      ...(st.info && st.info.sub ? [{ label: DB_SUB_ADD, fn: () => dbSubAdd(rowId) }] : []),   // 0.16.0 DR-1（決めたこと 38）
       { label: '削除', fn: () => { dbMenuClose(); dbTrashRow(rowId); } },
     ], 'dbrowmenu');
     m.dataset.row = rowId;
@@ -10532,7 +10624,7 @@
   // ---- 行のページの列の値の並び（決めたこと 26: 列の名前と値。データベースの列の順で、消した列と題名の列のほかは全部（ビューで隠した列も）: R93）
   // st は表の窓のメモリと同じ形の欄（id: データベースの ID・info・known）を持ち、表の書き手（dbWriterInto・dbTyped・dbAddOpt）をそのまま使う
   const rpRowOf = (p) => ({ id: p.id, title: p.title, cells: p.cells && typeof p.cells === 'object' ? p.cells : {}, createdAt: p.createdAt, updatedAt: p.updatedAt,
-    by: p.by && typeof p.by === 'object' ? p.by : {}, ...(Number.isSafeInteger(p.no) ? { no: p.no } : {}) });
+    by: p.by && typeof p.by === 'object' ? p.by : {}, ...(Number.isSafeInteger(p.no) ? { no: p.no } : {}), _rel: p.rel && typeof p.rel === 'object' ? p.rel : {} });   // DR-1: リレーションの相手の題名
   const rpValEl = (colId) => [...$('pProps').querySelectorAll('.dbpropv')].find((v) => v.dataset.col === colId) || null;
   function rpShow() {
     const page = curPage;
@@ -10578,7 +10670,7 @@
     r.className = 'prop dbprop'; r.dataset.col = col.id;
     const k = document.createElement('span');
     k.className = 'k'; k.id = `rpk-${col.id}`; k.textContent = col.name;
-    const on = dbWritable(col);
+    const on = dbWritable(col) || dbRelCol(col);   // 0.16.0 DR-1: リレーションも選びの窓で書く
     const v = document.createElement(on ? 'button' : 'span');
     v.className = on ? 'v dbpropv' : 'v dbpropv ro'; v.id = `rpv-${col.id}`; v.dataset.col = col.id;
     if (on) {
@@ -10588,7 +10680,8 @@
     }
     const x = dbModelView.cellValue(row, col);
     const text = dbModelView.fmtCell(col, x, { rowsById: st.known });
-    if (x !== null && ['url', 'email', 'phone'].includes(col.type)) {   // 値の文字を押すと開く・写す（表と同じ: SEC2）
+    if (col.type === 'rel') dbRelChips(v, x, row._rel);   // 0.16.0 DR-1: 「📄 題名」の並び（表と同じ）
+    else if (x !== null && ['url', 'email', 'phone'].includes(col.type)) {   // 値の文字を押すと開く・写す（表と同じ: SEC2）
       const a = document.createElement('span');
       a.className = 'dblink'; a.textContent = text;
       a.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbOpenValue(col, String(x)); };
@@ -10604,7 +10697,7 @@
     const col = dbColOf(st, colId);
     const row = st.known.get(st.row);
     const v = rpValEl(colId);
-    if (!col || !row || !v || !dbWritable(col)) return;
+    if (!col || !row || !v || (!dbWritable(col) && !dbRelCol(col))) return;
     if (col.type === 'check') { rpWrite(st, () => window.koeApp.rowSetCell(st.id, st.row, colId, dbModelView.cellValue(row, col) === true ? null : true)); return; }
     if (dbEditable(col)) {
       const was = dbModelView.cellValue(row, col);
@@ -10630,7 +10723,8 @@
     v.parentNode.appendChild(pop);
     const ed = { col: colId, pick: pop };
     st.editing = ed;
-    const write = (x) => rpWrite(st, () => window.koeApp.rowSetCell(st.id, st.row, colId, x));
+    const write = (x, was) => (col.type === 'rel' ? rpWrite(st, () => dbRelSend(st.id, st.row, colId, was, x), dbSubCol(st.info, colId) ? DB_SUB_LOOP : '')   // 0.16.0 DR-1
+      : rpWrite(st, () => window.koeApp.rowSetCell(st.id, st.row, colId, x)));
     const close = () => { if (st.editing === ed) rpEditEnd(st, false); };
     dbWriterInto(st, pop, col, dbModelView.cellValue(row, col), write, close, ed);
     pop.addEventListener('mousedown', (ev) => { const t = ev && ev.target; if (t && t.closest && !t.closest('input, button, select, textarea')) ev.preventDefault(); });   // 表と同じ（rv48 F2）
@@ -10666,12 +10760,12 @@
     if (v) v.focus();
   }
   // 書く命令を送り、行と列を読み直して描く（断られたら一言。答えを返す）。歩みは命令の args.db でデータベースの歩み（表と同じ）
-  async function rpWrite(st, send) {
+  async function rpWrite(st, send, bad) {
     let r = null;
     try { r = await inFlight(send()); }
     catch (e) {
       const code = String((e && (e.code || e.message)) || 'internal');
-      toast(code === 'too-big' ? DB_ROWS_FULL : `変更を保存できませんでした: ${code}`);
+      toast(code === 'too-big' ? DB_ROWS_FULL : code === 'bad-args' && bad ? bad : `変更を保存できませんでした: ${code}`);
       return null;
     }
     if (rpSt === st) await rpReload(st);
@@ -10683,10 +10777,184 @@
     if (rpSt !== st) return;
     if (info && Array.isArray(info.cols)) st.info = info;
     if (g && g.page && isRowPage(curPage) && curPage.id === st.row) {
-      Object.assign(curPage, { cells: g.page.cells, by: g.page.by, updatedAt: g.page.updatedAt, rev: g.page.rev });   // 題名と本文は今のまま（書いている途中を消さない）
+      Object.assign(curPage, { cells: g.page.cells, by: g.page.by, updatedAt: g.page.updatedAt, rev: g.page.rev, rel: g.rel || {} });   // 題名と本文は今のまま（書いている途中を消さない）
       st.known.set(st.row, rpRowOf(curPage));
     }
     rpPaint(st);
+  }
+  // ================= 0.16.0 DR-1: リレーションとサブアイテム =================
+  // 計画 docs/plans/2026-11-04-160.md の決めたこと 33〜38・R98・R99。リレーションのセルは「📄 題名」の並び（相手の題名は db.view・page.get の答えの rel。
+  // ゴミ箱の行は答えに無いので出ない）。押すと相手の行が開き、セルの余白を押す（か Enter）と選びの窓（行を探す・押すとつなぐ／外す・［新しい行を作ってつなぐ］）。
+  // サブアイテムはデータベースの「···」の［サブアイテム］で入れ、行のメニューの［サブアイテムを足す］で子を作る。子のある行の題名の前に ▸／▾（開いた行は
+  // ビューごとの窓のメモリ st.subOpen。db.view の open に渡す）。他人の文字（題名）は textContent だけ
+  const DB_REL_HEAD = 'つなぐデータベース';
+  const DB_REL_BOTH = '相手のデータベースにも列を作る';
+  const DB_REL_FIND = '行を探す';
+  const DB_REL_NEW = '新しい行を作ってつなぐ';
+  const DB_SUB = 'サブアイテム';
+  const DB_SUB_ADD = 'サブアイテムを足す';
+  const DB_SUB_LOOP = 'その行の中へは入れられません';
+  const dbRelCol = (col) => Boolean(col && col.type === 'rel' && !col.gone);
+  const dbRelName = (r) => `${r && typeof r.icon === 'string' && r.icon ? r.icon : '📄'} ${oneLine(r && r.title) || blankUntitled()}`;
+  // サブアイテムの列（親アイテム・サブアイテム）か
+  const dbSubCol = (info, colId) => Boolean(info && info.sub && (info.sub.parent === colId || info.sub.kids === colId));
+  // セルの「📄 題名」の並び（rel: 相手の行の ID → { title, icon? }。無い行は出さない）。押すと相手の行を開く（Ctrl+クリックで新しいタブ）
+  function dbRelChips(host, ids, rel) {
+    for (const id of Array.isArray(ids) ? ids : []) {
+      const r = rel && Object.hasOwn(rel, id) ? rel[id] : null;
+      if (!r) continue;
+      const a = document.createElement('span');
+      a.className = 'dbrel'; a.textContent = dbRelName(r);
+      a.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbEditEnd(false); openPageTab(id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) }); };
+      host.appendChild(a);
+    }
+  }
+  // 選びの窓の答え（next: つないだ行の並び・{ title }: 新しい行を作ってつなぐ）→ rel.link か rel.unlink の1回
+  function dbRelSend(dbId, rowId, colId, was, next) {
+    if (next && typeof next === 'object' && !Array.isArray(next)) return window.koeApp.relLink(dbId, rowId, colId, [], next.title);
+    const a = Array.isArray(was) ? was : []; const b = Array.isArray(next) ? next : [];
+    const add = b.filter((x) => !a.includes(x));
+    if (add.length) return window.koeApp.relLink(dbId, rowId, colId, add);
+    return window.koeApp.relUnlink(dbId, rowId, colId, a.filter((x) => !b.includes(x)));
+  }
+  // 選びの窓（決めたこと 35: 題名で探す・ひらがなとカタカナを寄せる・200 まで・［新しい行を作ってつなぐ］）。write(次の値, 前の値) → 答え { cell } | null
+  function dbRelWriter(st, host, col, value, write, close) {
+    let val = Array.isArray(value) ? [...value] : [];
+    let found = [];
+    let seq = 0;
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'dbedit dbpickq';
+    inp.setAttribute('aria-label', DB_REL_FIND); inp.setAttribute('placeholder', DB_REL_FIND);
+    const list = document.createElement('div');
+    list.className = 'dbpicklist'; list.setAttribute('role', 'listbox'); list.setAttribute('aria-multiselectable', 'true');
+    host.append(inp, list);
+    const opts = () => [...list.querySelectorAll('.dbopt')];
+    const key = (ev, b) => {
+      const all = opts(); const i = all.indexOf(b);
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); ev.stopPropagation(); if (all[i + 1]) all[i + 1].focus(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); ev.stopPropagation(); if (i > 0) all[i - 1].focus(); else inp.focus(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close('stay'); }
+      else if (ev.key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); ev.stopPropagation(); close(ev.shiftKey ? 'left' : 'right'); }
+    };
+    const mk = (cls, text, on, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = cls; b.setAttribute('role', 'option');
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.textContent = text;
+      b.onclick = fn;
+      b.onkeydown = (ev) => key(ev, b);
+      list.appendChild(b);
+    };
+    const paint = () => {
+      list.textContent = '';
+      for (const r of found) mk('dbopt', dbRelName(r), val.includes(r.id), () => pick(r.id));
+      mk('dbopt dbnew', DB_REL_NEW, false, () => create());
+    };
+    const find = async () => {
+      const my = ++seq;
+      let r = null;
+      try { r = await window.koeApp.relFind(col.db, inp.value.trim()); } catch (_) { r = null; }
+      if (my !== seq) return;
+      found = r && Array.isArray(r.rows) ? r.rows : [];
+      if (host.isConnected !== false) paint();
+    };
+    const keepFocus = (b) => { if (host.isConnected === false) return; const t = b !== undefined ? opts()[b] : null; (t || inp).focus(); };
+    async function pick(id) {
+      const at = found.findIndex((r) => r.id === id);
+      const next = val.includes(id) ? val.filter((x) => x !== id) : [...val, id];
+      const r = await write(next, val);
+      if (r && Array.isArray(r.cell)) val = r.cell;
+      paint(); keepFocus(at);
+    }
+    async function create() {
+      const r = await write({ title: inp.value.trim() }, val);
+      if (!r) return;
+      if (Array.isArray(r.cell)) val = r.cell;
+      inp.value = '';
+      await find();
+      keepFocus();
+    }
+    inp.oninput = () => { find(); };
+    inp.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close('stay'); return; }
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); ev.stopPropagation(); const f = opts()[0]; if (f) f.focus(); return; }
+      if (ev.key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); ev.stopPropagation(); close(ev.shiftKey ? 'left' : 'right'); }
+    };
+    paint();
+    inp.focus();
+    find();
+  }
+  // 右端の［＋］の［リレーション］: つなぐデータベース（一覧のデータベース。自分も）を選ぶ窓。チェックで両側（相手のデータベースにも列）
+  function dbRelColMenu(anchor) {
+    const st = dbSt;
+    const dbs = pages.filter((p) => p && p.kind === 'database' && typeof p.id === 'string');
+    if (!dbs.some((p) => p.id === st.id)) dbs.unshift({ id: st.id, title: curPage && curPage.id === st.id ? curPage.title : '' });
+    const m = dbMenuAt(anchor, [{ head: DB_REL_HEAD }, ...dbs.map((p) => ({ label: oneLine(p.title) || dbUntitled(), fn: () => dbAddRelCol(p.id, Boolean(ck.checked), anchor) }))], 'dbcolmenu dbrelcol');
+    const lab = document.createElement('label');
+    lab.className = 'dbrelbothl';
+    const ck = document.createElement('input');
+    ck.type = 'checkbox'; ck.className = 'dbrelboth';
+    lab.append(ck, document.createTextNode(DB_REL_BOTH));
+    const head = m.querySelector('.dbmenuhead');
+    if (head && head.nextSibling) m.insertBefore(lab, head.nextSibling); else m.appendChild(lab);
+    m.dataset.add = '1';
+    return m;
+  }
+  async function dbAddRelCol(target, both, anchor) {
+    const st = dbSt;
+    dbMenuClose();
+    const r = await dbWrite(() => window.koeApp.colAdd(st.id, 'rel', undefined, undefined, { target, both }));
+    if (!r || !r.col || dbSt !== st) return;
+    const h = [...st.parts.head.querySelectorAll('.dbcolbtn')].find((b) => b.parentNode.dataset.col === r.col.id);
+    dbMenuInput(h || anchor, r.col.name, r.col.name, (v) => { if (v && v !== r.col.name) dbWrite(() => window.koeApp.colRename(st.id, r.col.id, v)); });
+  }
+  // サブアイテムの開け閉め（ビューごとの窓のメモリ。表を読み直す: 開いた行が替わっても行の印 sig は同じなので、覚えた行を捨てる）
+  const dbSubOpen = (st) => { if (!st.subOpen) st.subOpen = new Map(); if (!st.subOpen.has(st.viewId)) st.subOpen.set(st.viewId, new Set()); return st.subOpen.get(st.viewId); };
+  function dbSubToggle(rowId, on) {
+    const st = dbSt;
+    if (!st) return null;
+    const set = dbSubOpen(st);
+    if (on === undefined ? set.has(rowId) : !on) set.delete(rowId); else set.add(rowId);
+    st.refocusSub = rowId;
+    return dbReread(st);
+  }
+  function dbReread(st) {
+    st.sig = ''; st.rows.clear(); st.heights.clear();
+    return dbLoad(false);
+  }
+  // 行のメニューの［サブアイテムを足す］: 新しい行を子にして作り（rel.link の1回）、親を開いて子の題名を書く
+  async function dbSubAdd(rowId) {
+    const st = dbSt;
+    dbMenuClose();
+    if (!st || !st.info || !st.info.sub) return;
+    const r = await dbWrite(() => window.koeApp.relLink(st.id, rowId, st.info.sub.kids, [], ''));
+    if (!r || dbSt !== st) return;
+    const kid = Array.isArray(r.cell) ? r.cell[r.cell.length - 1] : '';
+    dbSubOpen(st).add(rowId);
+    await dbReread(st);
+    if (dbSt !== st || !kid) return;
+    dbSelect(kid, 'title');
+    if (dbCellEl(kid, 'title')) dbEditStart(kid, 'title');
+  }
+  // データベースの「···」の［サブアイテム］（入れる・外す）
+  async function dbSubSet(on) {
+    const st = dbSt;
+    if (!st) return;
+    const r = await dbWrite(() => window.koeApp.dbSetSub(st.id, on));
+    if (r && dbSt === st && st.info) { st.info = { ...st.info }; await dbInfoAgain(st, st.seq); }
+  }
+  // 題名のセルの頭（サブアイテムの ▸／▾ と段の字下げ。▸ の字は CSS の content: セルの textContent は題名のまま）
+  function dbSubLead(st, cell, row) {
+    if (!st.info || !st.info.sub) return;
+    if (!row.hasKids) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'dbsubtog'; b.tabIndex = -1;
+    b.setAttribute('aria-label', dbRowName(row));
+    b.setAttribute('aria-expanded', row.dim || dbSubOpen(st).has(row.id) ? 'true' : 'false');
+    if (row.dim) b.disabled = true;   // 絞り込みの灰色の親は開いたまま（当たった子の場所を見せる: 決めたこと 38）
+    b.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbSubToggle(row.id); };
+    cell.insertBefore(b, cell.firstChild);
   }
   // ================= 0.16.0 DV-2: 列のメニューとセルの書き手 =================
   // 計画 docs/plans/2026-11-04-160.md の決めたこと 10〜14・25・52・R63〜。列の見出しを押すと列のメニュー、右端の［＋］で列を足す。
@@ -10720,11 +10988,12 @@
   // セルの中身（URL・メール・電話は値の文字を押すと開く・写す: 決めたこと 25・SEC2）
   function dbCellFill(st, cell, col, row) {
     const v = dbModelView.cellValue(row, col);
-    const text = dbModelView.fmtCell(col, v, { rowsById: st.known });
     cell.textContent = '';
+    if (col.type === 'rel') { dbRelChips(cell, v, row._rel); return; }   // 0.16.0 DR-1（決めたこと 34）: 「📄 題名」の並び
+    const text = dbModelView.fmtCell(col, v, { rowsById: st.known });
     if (v === null || !['url', 'email', 'phone'].includes(col.type)) {
       cell.textContent = text;
-      if (col.type === 'title') cell.appendChild(dbOpenBtn(row.id));   // 0.16.0 DV-4（決めたこと 26・R90）: 題名のセルの［開く］
+      if (col.type === 'title') { cell.appendChild(dbOpenBtn(row.id)); if (!st.rowPage) dbSubLead(st, cell, row); }   // 0.16.0 DV-4（決めたこと 26・R90）: 題名のセルの［開く］・DR-1: ▸
       return;
     }
     const a = document.createElement('span');
@@ -10905,13 +11174,13 @@
     if (st.menu && st.menu.dataset.add === '1') { dbMenuClose(); return; }
     dbEditEnd(true);
     if (dbColsFull(st)) return;
-    const m = dbMenuAt(anchor, DB_TYPE_LIST.map((t) => ({ label: dbModelView.COLS[t].label, fn: async () => {
+    const m = dbMenuAt(anchor, [...DB_TYPE_LIST.map((t) => ({ label: dbModelView.COLS[t].label, fn: async () => {
       dbMenuClose();
       const r = await dbWrite(() => window.koeApp.colAdd(st.id, t));
       if (!r || !r.col || dbSt !== st) return;
       const h = [...st.parts.head.querySelectorAll('.dbcolbtn')].find((b) => b.parentNode.dataset.col === r.col.id);
       dbMenuInput(h || anchor, r.col.name, r.col.name, (v) => { if (v && v !== r.col.name) dbWrite(() => window.koeApp.colRename(st.id, r.col.id, v)); });
-    } })), 'dbcolmenu');
+    } })), { label: dbModelView.COLS.rel.label, fn: () => dbRelColMenu(anchor) }], 'dbcolmenu');   // 0.16.0 DR-1: リレーションはつなぐデータベースを選んで足す
     m.dataset.add = '1';
   }
   // ビューの設定（DV-2 は［消した列］だけ: 戻す・完全に消す。R-24。0.16.0 DV-3: 並べ替え・絞り込み・グループ・列の表示の窓）
@@ -11633,7 +11902,7 @@
     const st = dbSt;
     const col = dbColOf(st, colId);
     const row = st && st.known.get(rowId);
-    if (!col || !row || !dbWritable(col)) return;
+    if (!col || !row || (!dbWritable(col) && !dbRelCol(col))) return;
     if (dbEditable(col)) { dbEditStart(rowId, colId); return; }
     if (col.type === 'check') { dbWrite(() => window.koeApp.rowSetCell(st.id, rowId, colId, dbModelView.cellValue(row, col) === true ? null : true)); return; }
     const cell = dbCellEl(rowId, colId);
@@ -11644,7 +11913,8 @@
     $('pDb').appendChild(pop);
     const ed = { row: rowId, col: colId, pick: pop };
     st.editing = ed;
-    const write = (v) => dbWrite(() => window.koeApp.rowSetCell(st.id, rowId, colId, v));
+    const write = (v, was) => (col.type === 'rel' ? dbWrite(() => dbRelSend(st.id, rowId, colId, was, v), dbSubCol(st.info, colId) ? DB_SUB_LOOP : '')   // 0.16.0 DR-1
+      : dbWrite(() => window.koeApp.rowSetCell(st.id, rowId, colId, v)));
     const close = (then) => { if (dbSt === st && st.editing === ed) dbEditEnd(false, then || 'stay'); };
     dbWriterInto(st, pop, col, dbModelView.cellValue(row, col), write, close, ed);
     // DV-2 直し（rv46 I2）: 窓の外へフォーカスが動いたら決める（暦は打った値を書く。窓の中の欄の間を動くのは決めない）
@@ -11701,6 +11971,7 @@
   // 書き手を箱に描く（write(値) は書いて答えを返す・close(then) は閉じる）
   function dbWriterInto(st, host, col, value, write, close, ed) {
     host.textContent = '';
+    if (col.type === 'rel') { dbRelWriter(st, host, col, value, write, close); return; }   // 0.16.0 DR-1（決めたこと 35）
     if (col.type === 'date') { dbDateWriter(st, host, col, value, write, close, ed); return; }
     if (DB_PICK_TYPES.includes(col.type)) dbPickWriter(st, host, col, value, write, close);
   }
@@ -15168,7 +15439,7 @@
       page.title = curPage.title;
       page.memo = curPage.memo;
       page.memoDoc = curPage.memoDoc;   // 0.14.0 MB-4: メモの行も
-      if (isRowPage(curPage) && curPage.id === page.id) Object.assign(page, { kind: 'row', db: curPage.db });   // 0.16.0 DV-4: 行のページの印は画面のもの
+      if (isRowPage(curPage) && curPage.id === page.id) Object.assign(page, { kind: 'row', db: curPage.db, rel: curPage.rel });   // 0.16.0 DV-4: 行のページの印は画面のもの
     }
     curPage = page; curSegs = segments; renderPage();
     if (typeof page.title === 'string') { tabTitles.set(page.id, page.title); renderTabs(); }

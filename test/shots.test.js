@@ -233,7 +233,8 @@ const ADDED_150 = [...NEW_150, ...RETAKEN_150];
 // DV-3 で意図して変えた: リスト・絞り込みの窓・グループ・ビューのタブの4枚を足した
 // DV-4 で意図して変えた: 行のページ（列の値の並びと本文）の1枚を足した
 const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
-  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light'];
+  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light',
+  'db-relation-light', 'db-subitems-light'];   // 0.16.0 DR-1 で足した2枚（まだ基準が無い）
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
 const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
@@ -1186,7 +1187,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変わる画面は近道の表の設定の4枚と db-views-light（長い名前のビュー。どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 46b7ecf6…）
   // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: 行の本文の /ページ・木に行の中のページを入れない・パンくずの行の段・Ctrl+Shift+U（<script> の中だけ）。
   // 撮る画面の見た目は変わらない（撮る画面に行の中のページは無い）。値を今の app.html に合わせた（前の値は fe842593…）
-  assert.strictEqual(sha, 'e716c1a70998e66d5f5ff3477d50a44af6825b444289ee3e2a3d25caec7d2794',
+  // 0.16.0 DR-1（決めたこと 33〜38・R98・R99）: リレーションのセルの「📄 題名」・選びの窓・［リレーション］の窓・サブアイテムの ▸ と字下げと灰色の行・「···」の［サブアイテム］・
+  // 行のメニューの［サブアイテムを足す］と、その CSS。データベースの無い画面は変わらない。表の画面は今の種にリレーションの列もサブアイテムも無いので変わらない見込み。
+  // 変わる画面は足した db-relation-light・db-subitems-light（NEW_160・RETAKE）。値を今の app.html に合わせた（前の値は e716c1a7…）
+  assert.strictEqual(sha, '0b49b13a5ae4d9a23322a07134237667fb87ec01056db254b3b28699d2733b84',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

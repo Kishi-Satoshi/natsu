@@ -31,7 +31,7 @@ function summarize(page) {
   const dues = open.map((b) => b.due).filter(Boolean).sort();
   return {
     id: page.id,
-    title: page.title || (page.kind === 'blank' ? '無題のページ' : '(無題の議事録)'),   // 0.15.0 PH-4（決めたこと 25・F116）: 無題の白紙のページの名前
+    title: page.title || (page.kind === 'blank' ? '無題のページ' : page.kind === 'database' ? '無題のデータベース' : '(無題の議事録)'),   // 0.15.0 PH-4（決めたこと 25・F116）: 無題の白紙のページの名前（0.16.0 DR-1: 無題のデータベースは「無題のデータベース」: R99）
     date: page.date,
     durationSec: page.durationSec || 0,
     createdAt: page.createdAt,

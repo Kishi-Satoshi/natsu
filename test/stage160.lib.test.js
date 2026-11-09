@@ -598,3 +598,46 @@ test('DS-1 直し・F1〜F5・F7〜F9・F11・F13: グループの長い鍵・�
   throwsBad(() => M.cellOf(URL1, `https://user:pw${AT}example.com`), '住所の利用者の欄と暗証');
   assert.strictEqual(M.cellOf(URL1, `https://example.com/a${AT}b`), `https://example.com/a${AT}b`, '道の中の @ はよい');
 });
+
+// ---------------------------------------------------------------- DR-1: サブアイテムの木（決めたこと 38・R98 (3)）
+test('DR-1: applyView のサブアイテムの木（親の無い行を並べ・開いた行の子を段を下げて親のすぐ後ろ・並べ替えは同じ親の中・絞り込みに当たった子の親は灰色で開いて出る・グループのあるビューは木にしない）', () => {
+  const P = { id: 'cp', name: '親アイテム', type: 'rel', db: 'pdb', back: 'ck' };
+  const K = { id: 'ck', name: 'サブアイテム', type: 'rel', db: 'pdb', back: 'cp' };
+  const cols = [TITLE, NUM, P, K];
+  const rs = [
+    row('p1', 'a', '親 一', { c3: 5, ck: ['k1', 'k2'] }), row('p2', 'b', '親 二', { c3: 1 }),
+    row('k1', 'c', '子 一', { c3: 9, cp: ['p1'], ck: ['g1'] }), row('k2', 'd', '子 二', { c3: 2, cp: ['p1'] }),
+    row('g1', 'e', '孫 一', { c3: 7, cp: ['k1'] }),
+    row('o1', 'f', '親が見えない子', { c3: 3, cp: ['gone'] }),
+  ];
+  const view = V.defaultView('v1', 'table', cols);
+  const sub = { parent: 'cp', kids: 'ck' };
+  const tree = (v, opts) => V.applyView(rs, v, cols, { now: NOW, sub, ...opts }).order.map((o) => [o.id, o.depth, o.hasKids, Boolean(o.dim)]);
+  assert.deepStrictEqual(tree(view), [['p1', 0, true, false], ['p2', 0, false, false], ['o1', 0, false, false]], '親の無い行だけ（親が無い行も最上位）');
+  assert.deepStrictEqual(tree(view, { open: ['p1'] }), [['p1', 0, true, false], ['k1', 1, true, false], ['k2', 1, false, false], ['p2', 0, false, false], ['o1', 0, false, false]]);
+  assert.deepStrictEqual(tree(view, { open: ['p1', 'k1'] }).map((x) => x[0]), ['p1', 'k1', 'g1', 'k2', 'p2', 'o1']);
+  assert.deepStrictEqual(tree(view, { open: ['k1'] }).map((x) => x[0]), ['p1', 'p2', 'o1'], '閉じた親の下の開いた子は出ない');
+  // 並べ替えは同じ親の子の中（金額の降順: 親の並びも子の並びも）
+  const sorted = { ...view, sort: [{ col: 'c3', dir: 'desc' }] };
+  assert.deepStrictEqual(tree(sorted, { open: ['p1', 'k1'] }).map((x) => x[0]), ['p1', 'k1', 'g1', 'k2', 'o1', 'p2']);
+  // 絞り込み: 当たった子の親（当たらない）は灰色で、開いて出る
+  const f = { ...view, filter: { op: 'and', items: [{ col: 'c3', cmp: 'gt', value: 6 }] } };
+  const out = V.applyView(rs, f, cols, { now: NOW, sub });
+  assert.deepStrictEqual(out.order.map((o) => [o.id, o.depth, Boolean(o.dim)]), [['p1', 0, true], ['k1', 1, false], ['g1', 2, false]]);
+  assert.deepStrictEqual([out.total, out.shown], [2, 3], 'total は当たった行・shown は並べる行');
+  // 当たった行は開けしめどおり（g1 だけ当たれば、k1・p1 は灰色で開く）
+  const f2 = { ...view, filter: { op: 'and', items: [{ col: 'c3', cmp: 'eq', value: 7 }] } };
+  assert.deepStrictEqual(tree(f2), [['p1', 0, true, true], ['k1', 1, true, true], ['g1', 2, false, false]]);
+  // 中の検索も同じ
+  assert.deepStrictEqual(V.applyView(rs, view, cols, { now: NOW, sub, q: '孫' }).order.map((o) => [o.id, Boolean(o.dim)]), [['p1', true], ['k1', true], ['g1', false]]);
+  // グループのあるビューは木にしない（どの行も段 0）
+  const grouped = { ...view, group: { col: 'c3' } };
+  assert.ok(V.applyView(rs, grouped, cols, { now: NOW, sub, open: ['p1'] }).order.every((o) => o.depth === 0 && !o.hasKids));
+  // サブアイテムの無いビューは今のまま
+  assert.deepStrictEqual(V.applyView(rs, view, cols, { now: NOW }).order.map((o) => o.id), ['p1', 'p2', 'k1', 'k2', 'g1', 'o1']);
+  // 輪になった値（古い控えなど）でも止まらない（輪の行は最上位に1度だけ）
+  const loop = [row('x1', 'a', '輪 一', { cp: ['x2'] }), row('x2', 'b', '輪 二', { cp: ['x1'] })];
+  const lo = V.applyView(loop, view, cols, { now: NOW, sub, open: ['x1', 'x2'] }).order.map((o) => o.id);
+  assert.deepStrictEqual([...new Set(lo)].sort(), ['x1', 'x2']);
+  assert.strictEqual(lo.length, 2);
+});

@@ -13,6 +13,8 @@ const UNDO_CMDS = new Set([
   // ビューの設定（view.*）と［完全に消す］（col.purge）は見た目の設定・戻せない操作なので入れない
   'row.add', 'row.setCell', 'rows.setCell', 'rows.paste', 'row.move', 'rows.trash',
   'col.add', 'col.rename', 'col.setType', 'col.move', 'col.remove', 'col.restore', 'col.setOpts', 'col.setFmt',
+  // 0.16.0 DR-1（決めたこと 47）: リレーションの行を足す・外す・サブアイテムを入れる・外す
+  'rel.link', 'rel.unlink', 'db.setSub',
 ]);
 const UNDO_MAX = 100;          // 1つの列の歩みの数（古いものから捨てる）
 const TYPE_PAUSE_MS = 2000;    // 打つ手がこれだけ止まったら保存する（1回の保存が1歩。決めたこと 8）

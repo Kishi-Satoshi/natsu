@@ -1314,3 +1314,254 @@ test('R97: page.get の行の子ページの答えは今のまま（db を添え
   ok(call(db, 'block.remove', { pageId: r, blockId: sb }), 'block.remove');
   assert.ok(blockOf(db, c).trashed_at, '📄 の行を消しても子がゴミ箱に入らない');
 }));
+
+// ================================================================ DR-1: リレーションとサブアイテム（計画の Task DR-1・決めたこと 33〜38・R98）
+const relOf = (db, id, col) => { const c = cellsOf(db, id) || {}; return Object.hasOwn(c, col) ? c[col] : undefined; };
+const oplogN = (db) => db.prepare('select count(*) as c from oplog').get().c;
+// データベースの行の題名（D77 の会議の題名でない）
+function twoDbs(db) {
+  const d1 = mkDb(db); const d2 = mkDb(db);
+  const a1 = rowAddA(db, d1, { title: '見積もり' }); const a2 = rowAddA(db, d1, { title: '発注' });   // D77 の会議の題名でない（データベースの行の題名）
+  const b1 = rowAddA(db, d2, { title: '取引先 甲' }); const b2 = rowAddA(db, d2, { title: '取引先 乙' });   // D77 の会議の題名でない（データベースの行の題名）
+  return { d1, d2, a1, a2, b1, b2 };
+}
+
+test('DR-1・F140: 両側のリレーション（列を足すと相手のデータベースにも列・rel.link で両側のセルが同じ oplog の1行・rel.unlink で両側から外れる・Ctrl+Z で両側が戻る）。つなぐ先の無いリレーションの列は bad-args', T, () => withDb((db) => {
+  const { d1, d2, a1, a2, b1, b2 } = twoDbs(db);
+  assert.strictEqual(code(call(db, 'col.add', { db: d1, type: 'rel' })), 'bad-args', 'つなぐ先が無い');
+  assert.strictEqual(code(call(db, 'col.add', { db: d1, type: 'rel', target: 'pa1' })), 'bad-args', 'つなぐ先がデータベースでない');
+  assert.strictEqual(code(call(db, 'col.add', { db: d1, type: 'text', target: d2 })), 'bad-args', 'リレーションでない列につなぐ先');
+  const n0 = oplogN(db);
+  const got = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d2, both: true }), 'col.add');
+  assert.strictEqual(oplogN(db), n0 + 1, '列を足すのは1つの命令');
+  const col = got.col;
+  const back = dbGet(db, d2).cols.find((c) => c.type === 'rel');
+  assert.ok(back, '相手のデータベースに列が無い');
+  assert.deepStrictEqual([col.type, col.db, col.back, back.db, back.back], ['rel', d2, back.id, d1, col.id]);
+  assert.deepStrictEqual(got.back, back);
+  // 足す: 両側が同じ命令
+  const n1 = oplogN(db);
+  ok(call(db, 'rel.link', { db: d1, id: a1, col: col.id, ids: [b1, b2] }), 'rel.link');
+  assert.strictEqual(oplogN(db), n1 + 1);
+  assert.deepStrictEqual([relOf(db, a1, col.id), relOf(db, b1, back.id), relOf(db, b2, back.id)], [[b1, b2], [a1], [a1]]);
+  // 相手の側から足しても両方に写る
+  const l2 = callTx(db, 'rel.link', { db: d2, id: b1, col: back.id, ids: [a2] });
+  assert.strictEqual(code(l2.r), 'ok');
+  assert.deepStrictEqual([relOf(db, b1, back.id), relOf(db, a2, col.id)], [[a1, a2], [b1]]);
+  // Ctrl+Z（データベースの歩み）で両側が戻る・やり直すと両側に
+  const un = revert(db, d2, [l2.tx]);
+  assert.strictEqual(code(un.r), 'ok', `edit.revert: ${un.r.code}`);
+  assert.deepStrictEqual([relOf(db, b1, back.id), relOf(db, a2, col.id)], [[a1], undefined]);
+  assert.strictEqual(code(revert(db, d2, [un.tx]).r), 'ok');
+  assert.deepStrictEqual([relOf(db, b1, back.id), relOf(db, a2, col.id)], [[a1, a2], [b1]]);
+  // 外す: 両方から
+  ok(call(db, 'rel.unlink', { db: d1, id: a1, col: col.id, ids: [b1] }), 'rel.unlink');
+  assert.deepStrictEqual([relOf(db, a1, col.id), relOf(db, b1, back.id), relOf(db, b2, back.id)], [[b2], [a2], [a1]]);
+  // 同じ行をもう一度足すのは何もしない（重ねない）・外していない行を外すのも何もしない
+  const same = [callTx(db, 'rel.link', { db: d1, id: a1, col: col.id, ids: [b2] }), callTx(db, 'rel.unlink', { db: d1, id: a1, col: col.id, ids: [b1] })];
+  for (const x of same) assert.deepStrictEqual([code(x.r), opsOfTx(db, x.tx)], ['ok', []], '変わらない命令に操作がある');
+  // 後で相手の側が変わった歩みは stale（何も変えない）
+  assert.strictEqual(code(revert(db, d2, [l2.tx]).r), 'stale');
+  // つなぐ先の行は生きているつなぐ先のデータベースの行だけ（自分のデータベースの行・無い行・ゴミ箱の行は bad-args）
+  for (const ids of [[a2], ['rnone'], [d2]]) assert.strictEqual(code(call(db, 'rel.link', { db: d1, id: a1, col: col.id, ids })), 'bad-args', ids[0]);
+  // 片側（both 無し）: 相手に列も値も無い
+  const one = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d2 }), 'col.add').col;
+  assert.strictEqual(one.back, undefined);
+  assert.strictEqual(dbGet(db, d2).cols.filter((c) => c.type === 'rel').length, 1);
+  ok(call(db, 'rel.link', { db: d1, id: a2, col: one.id, ids: [b2] }), 'rel.link');
+  assert.deepStrictEqual([relOf(db, a2, one.id), relOf(db, b2, back.id)], [[b2], [a1]]);
+  // 両側の片方を消すと、相手の列は片側に戻る（相手の値は消さない: 決めたこと 36）
+  ok(call(db, 'col.remove', { db: d1, col: col.id }), 'col.remove');
+  assert.strictEqual(dbGet(db, d2).cols.find((c) => c.id === back.id).back, undefined, '相手の列が両側のまま');
+  assert.deepStrictEqual(relOf(db, b2, back.id), [a1]);
+  ok(call(db, 'rel.link', { db: d2, id: b2, col: back.id, ids: [a2] }), 'rel.link');
+  assert.deepStrictEqual(relOf(db, a2, col.id), [b1], '消した列に書いた');
+}));
+
+test('DR-1・F140: 相手の行をゴミ箱へ入れるとセルに出ない（値は残る）・戻すと出る。相手のデータベースをゴミ箱へ入れても出ない。101 個目は bad-args（相手の側の 101 個目も）', T, () => withDb((db) => {
+  const { d1, d2, a1, a2, b1, b2 } = twoDbs(db);
+  const col = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d2, both: true }), 'col.add').col;
+  ok(call(db, 'rel.link', { db: d1, id: a1, col: col.id, ids: [b1, b2] }), 'rel.link');
+  const relIn = () => { const v = view(db, d1); return { cell: v.rows.find((r) => r.id === a1).cells[col.id], rel: v.rel || {} }; };
+  assert.deepStrictEqual(relIn().rel, { [b1]: { title: '取引先 甲' }, [b2]: { title: '取引先 乙' } });   // D77 の会議の題名でない（データベースの行の題名）
+  assert.strictEqual(DM.fmtCell(col, relIn().cell, { rowsById: relIn().rel }), '取引先 甲, 取引先 乙');
+  const tr = callTx(db, 'rows.trash', { db: d2, ids: [b2] });
+  assert.strictEqual(code(tr.r), 'ok');
+  assert.deepStrictEqual(relIn().cell, [b1, b2], '値が消えた');
+  assert.deepStrictEqual(Object.keys(relIn().rel), [b1], 'ゴミ箱の行がセルに出る');
+  assert.strictEqual(code(call(db, 'rel.link', { db: d1, id: a2, col: col.id, ids: [b2] })), 'bad-args', 'ゴミ箱の行をつないだ');
+  assert.strictEqual(code(revert(db, d2, [tr.tx]).r), 'ok');
+  assert.deepStrictEqual(Object.keys(relIn().rel).sort(), [b1, b2].sort(), '戻した行が出ない');
+  ok(call(db, 'page.delete', { id: d2 }), 'page.delete');
+  assert.deepStrictEqual(relIn().rel, {}, 'ゴミ箱のデータベースの行が出る');
+  ok(call(db, 'page.restore', { id: d2 }), 'page.restore');
+  // 101 個目（自分の側）
+  const many = [];
+  for (let i = 0; i < 100; i += 1) many.push({ op: 'add', id: `rk${i}`, row: ops.rowBlock({ id: `rk${i}`, db: d2, ord: `k${String(i).padStart(3, '0')}`, title: `相手 ${i}`, cells: {}, by: { c: 'me', u: 'me' }, no: 100 + i, at: at() }) });   // D77 の会議の題名でない（データベースの行の題名）
+  put(db, many);
+  ok(call(db, 'rel.link', { db: d1, id: a2, col: col.id, ids: many.slice(0, 99).map((o) => o.id) }), 'rel.link 99');
+  ok(call(db, 'rel.link', { db: d1, id: a2, col: col.id, ids: [b1] }), 'rel.link 100');
+  assert.strictEqual(relOf(db, a2, col.id).length, 100);
+  const mid = dump(db);
+  assert.strictEqual(code(call(db, 'rel.link', { db: d1, id: a2, col: col.id, ids: ['rk99'] })), 'bad-args', '101 個目');
+  assert.deepStrictEqual(dump(db), mid);
+  // 相手の側の 101 個目: b1 のセルを 100 にして、もう1行から b1 をつなぐ
+  const back = col.back;
+  const fill = [];
+  for (let i = 0; i < 98; i += 1) fill.push({ op: 'add', id: `rj${i}`, row: ops.rowBlock({ id: `rj${i}`, db: d1, ord: `j${String(i).padStart(3, '0')}`, title: `自分 ${i}`, cells: {}, by: { c: 'me', u: 'me' }, no: 300 + i, at: at() }) });   // D77 の会議の題名でない（データベースの行の題名）
+  put(db, fill);
+  ok(call(db, 'rel.link', { db: d2, id: b1, col: back, ids: fill.map((o) => o.id) }), 'rel.link 相手');
+  assert.strictEqual(relOf(db, b1, back).length, 100);
+  const a3 = rowAddA(db, d1, { title: '検収' });   // D77 の会議の題名でない（データベースの行の題名）
+  const mid2 = dump(db);
+  assert.strictEqual(code(call(db, 'rel.link', { db: d1, id: a3, col: col.id, ids: [b1] })), 'bad-args', '相手のセルの 101 個目');
+  assert.deepStrictEqual(dump(db), mid2);
+}));
+
+test('DR-1・R98（M15-2）: 自分のデータベースへの片側のリレーション（列1つ）は、行 A のセルに行 B を入れると同じ命令で行 B のセルにも行 A・外すと両方から外れる', T, () => withDb((db) => {
+  const { d1, a1, a2 } = twoDbs(db);
+  const col = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d1 }), 'col.add').col;
+  assert.deepStrictEqual([col.db, col.back], [d1, undefined]);
+  assert.strictEqual(dbGet(db, d1).cols.filter((c) => c.type === 'rel').length, 1, '列が2つできた');
+  const n0 = oplogN(db);
+  ok(call(db, 'rel.link', { db: d1, id: a1, col: col.id, ids: [a2] }), 'rel.link');
+  assert.strictEqual(oplogN(db), n0 + 1);
+  assert.deepStrictEqual([relOf(db, a1, col.id), relOf(db, a2, col.id)], [[a2], [a1]]);
+  ok(call(db, 'rel.unlink', { db: d1, id: a2, col: col.id, ids: [a1] }), 'rel.unlink');
+  assert.deepStrictEqual([relOf(db, a1, col.id), relOf(db, a2, col.id)], [undefined, undefined]);
+  // 両側（列2つ）の自分へのリレーションは、片方に入れるともう片方に写る（同じ列には入れない）
+  const two = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d1, both: true }), 'col.add');
+  assert.deepStrictEqual([two.col.db, two.back.db, two.col.back, two.back.back], [d1, d1, two.back.id, two.col.id]);
+  ok(call(db, 'rel.link', { db: d1, id: a1, col: two.col.id, ids: [a2] }), 'rel.link');
+  assert.deepStrictEqual([relOf(db, a1, two.col.id), relOf(db, a2, two.back.id), relOf(db, a2, two.col.id)], [[a2], [a1], undefined]);
+}));
+
+test('DR-1・F140: サブアイテム（db.setSub で2つの列「親アイテム」「サブアイテム」・親は1つ・自分の子孫を親にすると bad-args・［サブアイテムを足す］は新しい行を子にして作る・外すと列は残る）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const p1 = rowAddA(db, d, { title: '親 一' }); const p2 = rowAddA(db, d, { title: '親 二' });   // D77 の会議の題名でない（データベースの行の題名）
+  const c1 = rowAddA(db, d, { title: '子 一' }); const g1 = rowAddA(db, d, { title: '孫 一' });   // D77 の会議の題名でない（データベースの行の題名）
+  const n0 = oplogN(db);
+  const on = ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub');
+  assert.strictEqual(oplogN(db), n0 + 1);
+  const info = dbGet(db, d);
+  const P = info.cols.find((c) => c.id === info.sub.parent); const K = info.cols.find((c) => c.id === info.sub.kids);
+  assert.deepStrictEqual(on.sub, info.sub);
+  assert.deepStrictEqual([P.name, P.type, P.db, P.back, K.name, K.type, K.db, K.back], ['親アイテム', 'rel', d, K.id, 'サブアイテム', 'rel', d, P.id]);
+  // 入れたままもう一度入れても列を足さない
+  ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub');
+  assert.strictEqual(dbGet(db, d).cols.length, info.cols.length);
+  ok(call(db, 'rel.link', { db: d, id: c1, col: P.id, ids: [p1] }), 'rel.link 親');
+  ok(call(db, 'rel.link', { db: d, id: c1, col: K.id, ids: [g1] }), 'rel.link 子');
+  assert.deepStrictEqual([relOf(db, c1, P.id), relOf(db, p1, K.id), relOf(db, g1, P.id), relOf(db, c1, K.id)], [[p1], [c1], [c1], [g1]]);
+  const mid = dump(db);
+  // 親は1つ（どちらの列から入れても）
+  assert.strictEqual(code(call(db, 'rel.link', { db: d, id: c1, col: P.id, ids: [p2] })), 'bad-args', '2つ目の親');
+  assert.strictEqual(code(call(db, 'rel.link', { db: d, id: p2, col: K.id, ids: [c1] })), 'bad-args', '親のある行を子にした');
+  assert.strictEqual(code(call(db, 'rel.link', { db: d, id: p2, col: P.id, ids: [p1, c1] })), 'bad-args', '1回に親を2つ');
+  // 輪（自分・子・孫を親にする）
+  for (const x of [p1, c1, g1]) assert.strictEqual(code(call(db, 'rel.link', { db: d, id: p1, col: P.id, ids: [x] })), 'bad-args', `輪 ${x}`);
+  assert.strictEqual(code(call(db, 'rel.link', { db: d, id: g1, col: K.id, ids: [p1] })), 'bad-args', '子の列から輪');
+  assert.deepStrictEqual(dump(db), mid);
+  // 親を替える: 外してから入れる
+  ok(call(db, 'rel.unlink', { db: d, id: c1, col: P.id, ids: [p1] }), 'rel.unlink');
+  ok(call(db, 'rel.link', { db: d, id: c1, col: P.id, ids: [p2] }), 'rel.link');
+  assert.deepStrictEqual([relOf(db, p1, K.id), relOf(db, p2, K.id)], [undefined, [c1]]);
+  // ［サブアイテムを足す］: 新しい行（題名つき）を作って子にする（1つの命令）
+  const n1 = oplogN(db);
+  const add = ok(call(db, 'rel.link', { db: d, id: p1, col: K.id, ids: [], title: '新しい子' }), 'rel.link title');   // D77 の会議の題名でない（データベースの行の題名）
+  assert.strictEqual(oplogN(db), n1 + 1);
+  assert.match(add.added, /^r[0-9a-z]+$/);
+  assert.deepStrictEqual([blockOf(db, add.added).text, blockOf(db, add.added).parent_id, relOf(db, add.added, P.id), relOf(db, p1, K.id)], ['新しい子', d, [p1], [add.added]]);
+  // 外す: attrs.sub だけ消え、列と値は残る（ふつうのリレーション）
+  ok(call(db, 'db.setSub', { db: d, on: false }), 'db.setSub off');
+  const off = dbGet(db, d);
+  assert.strictEqual(off.sub, undefined);
+  assert.deepStrictEqual(off.cols.filter((c) => c.type === 'rel').map((c) => c.id), [P.id, K.id]);
+  assert.deepStrictEqual(relOf(db, c1, P.id), [p2]);
+  // サブアイテムでないリレーションは、親が2つでも・輪でもよい（ただのつながり）
+  ok(call(db, 'rel.link', { db: d, id: c1, col: P.id, ids: [p1] }), 'rel.link');
+  assert.deepStrictEqual(relOf(db, c1, P.id), [p2, p1]);
+}));
+
+test('DR-1・R98（M15-1）: 子のある行をゴミ箱へ入れると子孫も同じ命令でゴミ箱へ（答えの数は子孫も数える・同じ時刻）・Ctrl+Z で一緒に戻る。db.view の木（開いた行の子・字下げ）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const p1 = rowAddA(db, d, { title: '親 一' }); const p2 = rowAddA(db, d, { title: '親 二' });   // D77 の会議の題名でない（データベースの行の題名）
+  const c1 = rowAddA(db, d, { title: '子 一' }); const c2 = rowAddA(db, d, { title: '子 二' }); const g1 = rowAddA(db, d, { title: '孫 一' });   // D77 の会議の題名でない（データベースの行の題名）
+  const { sub } = ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub');
+  ok(call(db, 'rel.link', { db: d, id: p1, col: sub.kids, ids: [c1, c2] }), 'rel.link');
+  ok(call(db, 'rel.link', { db: d, id: g1, col: sub.parent, ids: [c1] }), 'rel.link');
+  // 木: 閉じていれば親の無い行だけ・開いた行の子は段を下げて親のすぐ後ろ
+  const tree = (open) => view(db, d, open ? { open } : {}).rows.map((r) => [r.title, r.depth, r.hasKids]);
+  assert.deepStrictEqual(tree(), [['親 一', 0, true], ['親 二', 0, false]]);
+  assert.deepStrictEqual(tree([p1, c1]), [['親 一', 0, true], ['子 一', 1, true], ['孫 一', 2, false], ['子 二', 1, false], ['親 二', 0, false]]);
+  assert.strictEqual(view(db, d, { open: [p1] }).shown, 4);
+  // 子孫ごとゴミ箱へ
+  const tr = callTx(db, 'rows.trash', { db: d, ids: [p1] });
+  assert.strictEqual(code(tr.r), 'ok');
+  assert.strictEqual(tr.r.result.trashed, 4, '答えの数に子孫が無い');
+  const when = [p1, c1, c2, g1].map((id) => blockOf(db, id).trashed_at);
+  assert.ok(when.every((x) => x && x === when[0]), '子孫が同じ時刻にゴミ箱へ入らない');
+  assert.strictEqual(blockOf(db, p2).trashed_at, null);
+  assert.deepStrictEqual(titles(db, d), ['親 二']);
+  assert.strictEqual(opsOfTx(db, tr.tx).filter((o) => o.op === 'trash').length, 4);
+  // Ctrl+Z で一緒に戻る
+  assert.strictEqual(code(revert(db, d, [tr.tx]).r), 'ok');
+  assert.deepStrictEqual(tree([p1, c1]), [['親 一', 0, true], ['子 一', 1, true], ['孫 一', 2, false], ['子 二', 1, false], ['親 二', 0, false]]);
+  // 子だけ消すと、その子孫だけ一緒に（親は残る）
+  const t2 = callTx(db, 'rows.trash', { db: d, ids: [c1, g1] });
+  assert.strictEqual(t2.r.result.trashed, 2, '選んだ行と子孫を2度数えた');
+  assert.deepStrictEqual(tree([p1]), [['親 一', 0, true], ['子 二', 1, false], ['親 二', 0, false]]);
+  // サブアイテムでないデータベースは今のまま（選んだ行だけ）
+  const e = mkDb(db);
+  const x1 = rowAddA(db, e, { title: '甲' }); const x2 = rowAddA(db, e, { title: '乙' });   // D77 の会議の題名でない（データベースの行の題名）
+  const rc = ok(call(db, 'col.add', { db: e, type: 'rel', target: e, both: true }), 'col.add');
+  ok(call(db, 'rel.link', { db: e, id: x1, col: rc.col.id, ids: [x2] }), 'rel.link');
+  assert.strictEqual(ok(call(db, 'rows.trash', { db: e, ids: [x1] }), 'rows.trash').trashed, 1);
+  assert.deepStrictEqual(titles(db, e), ['乙']);
+}));
+
+test('DR-1: rel.find はつなぐ先のデータベースの生きている行を題名で探す（ひらがなとカタカナを寄せる・200 まで・ゴミ箱の行は出ない）。page.get の行の答えにリレーションの相手の題名（rel）', T, () => withDb((db) => {
+  const { d1, d2, a1, b1, b2 } = twoDbs(db);
+  const kana = rowAddA(db, d2, { title: 'カイギシツ' });   // D77 の会議の題名でない（データベースの行の題名）
+  const found = (q) => ok(call(db, 'rel.find', { db: d2, ...(q === undefined ? {} : { q }) }), 'rel.find');
+  assert.deepStrictEqual(found().rows.map((r) => r.id), [b1, b2, kana]);
+  assert.deepStrictEqual(found('かいぎ').rows.map((r) => r.title), ['カイギシツ']);
+  assert.deepStrictEqual(found('甲').rows.map((r) => r.id), [b1]);
+  ok(call(db, 'rows.trash', { db: d2, ids: [b2] }), 'rows.trash');
+  assert.deepStrictEqual(found('取引先').rows.map((r) => r.id), [b1]);
+  assert.strictEqual(code(call(db, 'rel.find', { db: 'pa1' })), 'bad-args', 'データベースでない');
+  const many = [];
+  for (let i = 0; i < 230; i += 1) many.push({ op: 'add', id: `rf${i}`, row: ops.rowBlock({ id: `rf${i}`, db: d2, ord: `m${String(i).padStart(3, '0')}`, title: `多い ${i}`, cells: {}, by: { c: 'me', u: 'me' }, no: 50 + i, at: at() }) });   // D77 の会議の題名でない（データベースの行の題名）
+  put(db, many);
+  const f = found('多い');
+  assert.deepStrictEqual([f.rows.length, f.total], [200, 230]);
+  const col = ok(call(db, 'col.add', { db: d1, type: 'rel', target: d2 }), 'col.add').col;
+  ok(call(db, 'rel.link', { db: d1, id: a1, col: col.id, ids: [b1, kana] }), 'rel.link');
+  const g = ok(call(db, 'page.get', { id: a1 }), 'page.get');
+  assert.deepStrictEqual(g.rel, { [b1]: { title: '取引先 甲' }, [kana]: { title: 'カイギシツ' } });   // D77 の会議の題名でない（データベースの行の題名）
+  assert.ok(!Object.hasOwn(g.page, 'rel'), 'ページの欄に入れた');
+}));
+
+test('DR-1: preload の呼び口（relLink・relUnlink・dbSetSub・relFind・colAdd の rel・dbView の open。どれも dbCall の1回）。rel.link・rel.unlink・db.setSub は元に戻すの歩み（データベースの ID）・rel.find は読む命令', T, async () => {
+  const PRE = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
+  for (const cmd of ['rel.link', 'rel.unlink', 'db.setSub']) { assert.ok(UNDO_CMDS.has(cmd), cmd); assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd); }
+  assert.ok(!UNDO_CMDS.has('rel.find') && core.COMMANDS['rel.find'].write === false);
+  const reads = [.../const DB_READS = new Set\(\[([^\]]*)\]\)/.exec(PRE)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
+  assert.ok(reads.includes('rel.find'));
+  const exposed = {}; const on = {}; let uuid = 0;
+  const electron = { contextBridge: { exposeInMainWorld: (k, v) => { exposed[k] = v; } }, ipcRenderer: { on: (ch, fn) => { on[ch] = fn; }, invoke: async () => ({}), send: () => {} } };
+  vm.runInNewContext(PRE, { require: () => electron, crypto: { randomUUID: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` }, setTimeout, clearTimeout, console, Promise });
+  const port = new EventTarget(); port.sent = []; port.postMessage = (m) => port.sent.push(structuredClone(m)); port.start = () => {};
+  on['db:port']({ ports: [port] });
+  const k = exposed.koeApp;
+  k.relLink('pd1', 'r1', 'c1', ['r2']); k.relLink('pd1', 'r1', 'c1', [], ''); k.relUnlink('pd1', 'r1', 'c1', ['r2']); k.dbSetSub('pd1', true); k.relFind('pd2', 'か');
+  k.colAdd('pd1', 'rel', undefined, undefined, { target: 'pd2', both: true }); k.colAdd('pd1', 'rel', undefined, undefined, { target: 'pd1' });
+  k.dbView('pd1', 'v1', 0, 200, '', ['r1']); k.dbView('pd1', 'v1', 0, 200, '', []);
+  assert.deepStrictEqual(port.sent.map((m) => [m.cmd, m.args]), [
+    ['rel.link', { db: 'pd1', id: 'r1', col: 'c1', ids: ['r2'] }], ['rel.link', { db: 'pd1', id: 'r1', col: 'c1', ids: [], title: '' }],
+    ['rel.unlink', { db: 'pd1', id: 'r1', col: 'c1', ids: ['r2'] }], ['db.setSub', { db: 'pd1', on: true }], ['rel.find', { db: 'pd2', q: 'か' }],
+    ['col.add', { db: 'pd1', type: 'rel', target: 'pd2', both: true }], ['col.add', { db: 'pd1', type: 'rel', target: 'pd1' }],
+    ['db.view', { id: 'pd1', viewId: 'v1', from: 0, count: 200, open: ['r1'] }], ['db.view', { id: 'pd1', viewId: 'v1', from: 0, count: 200 }],
+  ]);
+  for (const m of port.sent) if (['rel.find', 'db.view'].includes(m.cmd)) assert.strictEqual(m.tx, undefined, m.cmd); else assert.match(m.tx, /^a:/, m.cmd);
+});
