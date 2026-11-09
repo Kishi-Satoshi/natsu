@@ -1390,6 +1390,7 @@ const IDS_160 = [
   'vw-url-open', 'vw-person-cand', 'vw-view-save', 'vw-row-props', 'vw-paste-grid',
   // 0.16.0 DV-3 直し2（rv49 M-c・R95）で足した行（表の末: R87 の写すリンクの1行）
   'vw-ref-kind',
+  'tb-row-kids-hide', 'tb-row-move-cycle', 'vw-row-kids-tree',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1405,7 +1406,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(tb|vw)-/.test(m.id) && !IDS_160.includes(m.id)).map((m) => m.id), [], 'IDS_160 に無い 0.16.0 の頭の変異がある');
   const rows = planRows160();
   // 0.16.0 DV-3 直し2（R95）で意図して直した: R87 の vw-ref-kind を表に足した（vw- 19）
-  assert.strictEqual(rows.length, 80, '計画の 0.16.0 の表（tb- 61・vw- 19）が読めない');
+  // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）で意図して直した: 行の中の子ページの3つ（tb-row-kids-hide・tb-row-move-cycle・vw-row-kids-tree）を表の末に足した
+  assert.strictEqual(rows.length, 83, '計画の 0.16.0 の表（tb- 63・vw- 20）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');

@@ -2199,7 +2199,7 @@ test('DV-4・vw-row-props: 行のページの列の値の並び（データベ�
   } finally { l.done(); }
 });
 
-test('DV-4: 行のページの本文は白紙のページの部品（手引き・Enter で分ける）。本文の Ctrl+Z は行の要約の欄の歩み（edit.revert の pageId は行）。/ の選びに［ページ］を出さない（R92: 持ち主に問う）', T, async () => {
+test('DV-4: 行のページの本文は白紙のページの部品（手引き・Enter で分ける）。本文の Ctrl+Z は行の要約の欄の歩み（edit.revert の pageId は行）。/ の選びに［ページ］を出す（R97 で意図して直した: 前は R92 で出さなかった）', T, async () => {
   const l = await openDb({ before: (call, d) => {
     const b = call('block.insert', { pageId: d.rows[1], afterBlockId: '', type: 'paragraph' }).blockId;
     call('block.update', { pageId: d.rows[1], blockId: b, patch: { text: '本文の一行' } });
@@ -2223,12 +2223,12 @@ test('DV-4: 行のページの本文は白紙のページの部品（手引き�
     await l.drain(); await l.drain();
     assert.deepStrictEqual(l.called('editRevert').map((c) => c.args), [[r1, [l.steps[0].step]]], '本文の Ctrl+Z が行の要約の欄の歩みでない');
     assert.strictEqual(l.call('page.get', { id: r1 }).page.blocks.length, 1, 'Ctrl+Z で戻らない');
-    // / の選びに［ページ］が無い（行の中に子ページは作れない: R92）
+    // R97 で意図して直した（2026-11-09 の持ち主の答え「使えるようにする…（おすすめ）」）: / の選びに［ページ］がある（前は R92 で出さなかった。作るのは R97 のテスト）
     const t2 = $(l, 'pNote').querySelector('.blk .txt');
     t2.focus(); t2.textContent = '/'; l.caret.set(t2, 1); t2.dispatchEvent({ type: 'input' }); await l.drain();
     const sm = $(l, 'pNote').querySelector('.slashmenu');
     assert.ok(sm, '/ の選びが開かない');
-    assert.ok(!sm.querySelectorAll('.sopt').some((o) => o.textContent === 'ページ'), '行の本文の / に［ページ］が出る');
+    assert.ok(sm.querySelectorAll('.sopt').some((o) => o.textContent === 'ページ'), '行の本文の / に［ページ］が無い');
     assert.deepStrictEqual(l.called('pageCreate'), []);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
@@ -2381,4 +2381,68 @@ test('R96 (4): 切れているタブ（240px で …）だけ、名前全体を�
     for (const [i, k] of ['scrollWidth', 'clientWidth'].entries()) { if (had[i]) Object.defineProperty(Element.prototype, k, had[i]); else delete Element.prototype[k]; }
     l.done();
   }
+});
+
+// ================================================================ R97（2026-11-09 の持ち主の答え・M14: 行の本文の /ページ）
+test('R97: 行の本文の /ページ で行の中に白紙のページを作って開く（打った行に 📄 の行）。パンくず「… / データベース / 📄 行 / 子」・サイドバーには出さない・行の 📄 の行とパンくずから開く・Ctrl+Shift+U で行へ', T, async () => {
+  // データベースの題名（D77 の会議の題名でない）
+  const l = await openDb({ before: (call, d) => { call('page.setTitle', { id: d.id, title: '案件' }); } });
+  try {
+    const r0 = l.rows[0];
+    l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
+    // 空の本文の手引きの行を押して書き始める（行が無ければ作る）
+    const b = l.call('block.insert', { pageId: r0, afterBlockId: '', type: 'paragraph' }).blockId;
+    l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
+    const t = $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === b).querySelector('.txt');
+    t.focus(); t.textContent = '/ぺーじ'; l.caret.set(t, t.textContent.length); t.dispatchEvent({ type: 'input' }); await l.drain();
+    const sm = $(l, 'pNote').querySelector('.slashmenu');
+    assert.deepStrictEqual(sm.querySelectorAll('.sopt').map((o) => o.textContent), ['ページ']);
+    l.key({ key: 'Enter', code: 'Enter' }, t);
+    await l.drain(); await l.drain(200);
+    assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [[r0, b]], '行の中に打った行の所で作らない');
+    const kid = l.called('pageCreate').length && l.call('page.get', { id: r0 }).page.blocks.find((x) => x.type === 'subpage').page;
+    assert.ok(kid, '行の本文に 📄 の行が無い');
+    assert.strictEqual(tabOnKey(l), `page:${kid}`, '作った子ページを開かない');
+    assert.ok(l.document.activeElement === $(l, 'pTitle'), '作った子ページの題名にフォーカスが無い');
+    assert.deepStrictEqual([crumbUps(l), crumbNow(l)], [['案件', '見積もり'], ['📄', '無題のページ']], 'パンくずが「… / データベース / 行 / 子」でない');
+    assert.deepStrictEqual($(l, 'crumb').querySelectorAll('.cseg').map((x) => x.querySelector('.csi').textContent).slice(1), ['📄'], '行の段のアイコンが 📄 でない');
+    const side = () => [...$(l, 'plist').children].map((e) => e.dataset && e.dataset.pid);
+    assert.ok(side().includes(l.id) && !side().includes(kid), '行の中の子ページがサイドバーに出る（データベースが出ない）');
+    // 子の中の孫もサイドバーに出ず、パンくずは行から
+    // 白紙のページの題名（D77 の会議の題名でない）
+    l.call('page.setTitle', { id: kid, title: '下見のメモ' });
+    const g = l.call('page.create', { parentId: kid }).id;
+    l.fire('onPagesUpdated'); await l.drain(120);
+    l.fire('onOpenLink', { id: g, anchor: '' }); await l.drain(200);
+    assert.deepStrictEqual(crumbUps(l), ['案件', '見積もり', '下見のメモ']);
+    assert.ok(!side().includes(g) && !side().includes(kid), '孫がサイドバーに出る');
+    // Ctrl+Shift+U は親のページへ（孫 → 子 → 行）
+    await press(l, l.document.body, { key: 'U', code: 'KeyU', ctrlKey: true, shiftKey: true }); await l.drain(200);
+    assert.strictEqual(tabOnKey(l), `page:${kid}`);
+    await press(l, l.document.body, { key: 'U', code: 'KeyU', ctrlKey: true, shiftKey: true }); await l.drain(200);
+    assert.strictEqual(tabOnKey(l), `page:${r0}`, 'Ctrl+Shift+U で行のページへ戻らない');
+    // 行の本文の 📄 の行から子を開く・パンくずの行の段から行へ
+    const sub = $(l, 'pNote').querySelectorAll('.blk.subpage').find((e) => e._b && e._b.page === kid);
+    assert.ok(sub && !sub.classList.contains('gone'), '行の本文の 📄 の行が灰色');
+    assert.strictEqual(sub.querySelector('.txt').textContent, '📄 下見のメモ');
+    await clickEl(l, sub.querySelector('.txt'), 200);
+    assert.strictEqual(tabOnKey(l), `page:${kid}`, '📄 の行から子を開かない');
+    await clickEl(l, $(l, 'crumb').querySelectorAll('.cseg')[1], 200);
+    assert.strictEqual(tabOnKey(l), `page:${r0}`, 'パンくずの行の段から行を開かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('R97・決めたこと 28: 行をゴミ箱へ入れると、行の中の子ページは一覧から外れる（行の本文も見えない）。Ctrl+Z で戻すとまた見える', T, async () => {
+  const l = await openDb({ before: (call, d) => ({ kid: call('page.create', { parentId: d.rows[0] }).id }) });
+  try {
+    const has = () => l.call('pages.list', {}).some((e) => e.id === l.kid);
+    assert.ok(has());
+    const ck = dataRows(l).find((r) => r.dataset.id === l.rows[0]).querySelector('.dbcheck'); ck.checked = true; ck.dispatchEvent({ type: 'change' }); await l.drain(20);
+    await clickEl(l, box(l).querySelector('.dbselbar').querySelectorAll('button').find((x) => x.textContent === '削除'), 200);
+    assert.ok(!has(), '行をゴミ箱へ入れても子が一覧に残る');
+    await press(l, grid(l), { key: 'z', code: 'KeyZ', ctrlKey: true }); await l.drain(200);
+    assert.ok(has(), 'Ctrl+Z で行を戻しても子が見えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });

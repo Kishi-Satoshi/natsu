@@ -2686,20 +2686,44 @@
     if (back && m.btn.parentNode) m.btn.focus();
   }
   function crumbPage(id) { return pages.find((p) => p && p.id === id) || null; }
+  // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の中のページの祖先の段（根から親まで）。行のデータベースまでの段・データベース・行・
+  // 行から親までのページ。一覧に無い段（行）と題名を替える段（データベース: 無題は「無題のデータベース」）は names（ID → [アイコン, 名前]）に入れる
+  let crumbNames = new Map();
+  function crumbUpsOf(id, names, depth = 0) {
+    const p = crumbPage(id);
+    if (!p) return [];
+    if (!p.inRow || depth > 20) return pageTreeView.crumbsOf(treeNow(), id);
+    const r = p.inRow;
+    const mids = [];
+    const seen = new Set([id]);
+    for (let q = p; typeof q.parentId === 'string' && q.parentId !== r.row && !seen.has(q.parentId);) {
+      seen.add(q.parentId);
+      const up = crumbPage(q.parentId);
+      if (!up) break;
+      mids.unshift(up.id); q = up;
+    }
+    names.set(r.db, [pageEmoji(crumbPage(r.db)), oneLine(r.dbTitle) || dbUntitled()]);
+    names.set(r.row, [pageEmoji({ kind: 'row', db: r.db }), oneLine(r.title) || blankUntitled()]);
+    const dbUps = crumbPage(r.db) ? [...crumbUpsOf(r.db, names, depth + 1), r.db] : [];
+    return [...dbUps, r.row, ...mids];
+  }
   let crumbSig = '';   // PH-5 直し 2（R56 M-1）: 描いた段の形（ページ・アイコン・題名・隠れた段）
   function renderCrumbPath(id) {
     const c = $('crumb');
     // 0.16.0 DV-4（決めたこと 26・R90）: データベースの行のページは、データベースの祖先とデータベースの後ろに今の行（データベースが一覧に無ければ段は無い）
     const host = id && rowPages.has(id) ? rowPages.get(id) : '';
-    const ups = !id ? [] : host ? (crumbPage(host) ? [...pageTreeView.crumbsOf(treeNow(), host), host] : []) : pageTreeView.crumbsOf(treeNow(), id);   // 祖先はどれも一覧の木の行（一覧にあるページ）
+    const names = new Map();   // R97: 一覧に無い段・題名を替える段
+    const ups = !id ? [] : host ? (crumbPage(host) ? [...crumbUpsOf(host, names), host] : []) : crumbUpsOf(id, names);   // 祖先は一覧の行（R97: と、行の中のページの上の行）
     const hide = ups.length + 1 > CRUMB_MAX ? ups.slice(1, -1) : [];
     const shown = hide.length ? [ups[0], '', ups[ups.length - 1]] : ups;
     // PH-5 直し 2（R56 M-1）: 一覧を読み直すたび（行の保存・ほかの窓の変更）にも呼ばれるので、段の形が同じなら描き直さない（「…」の一覧とフォーカスを残す）。
     // 変わったら描き直し、段（か「…」の一覧）にあったフォーカスは同じ段へ戻す
     // DV-4: データベースの段の題名は列とビューの答え（db.get）の題名（無題は「無題のデータベース」。一覧の1行の無題の名前は議事録の名前のため）
     const hostInfo = !host ? null : rpSt && rpSt.id === host && rpSt.info ? rpSt.info : dbSt && dbSt.id === host && dbSt.info ? dbSt.info : null;
-    const name = (a) => (a === host && hostInfo ? oneLine(hostInfo.title) || dbUntitled() : oneLine(crumbPage(a).title));
-    const seg = (a) => (a ? [a, pageEmoji(crumbPage(a)), name(a)] : '');
+    const name = (a) => (a === host && hostInfo ? oneLine(hostInfo.title) || dbUntitled() : names.has(a) ? names.get(a)[1] : oneLine(crumbPage(a).title));
+    const icon = (a) => (names.has(a) ? names.get(a)[0] : pageEmoji(crumbPage(a)));
+    crumbNames = new Map([...shown, ...hide].filter(Boolean).map((a) => [a, [icon(a), name(a)]]));   // 「…」の一覧も同じ名前
+    const seg = (a) => (a ? [a, icon(a), name(a)] : '');
     const sig = JSON.stringify([shown.map(seg), hide.map(seg)]);
     if (sig === crumbSig) return;
     crumbSig = sig;
@@ -2713,9 +2737,8 @@
       const b = document.createElement('button');
       b.type = 'button';
       if (a) {
-        const p = crumbPage(a);
         b.className = 'cseg'; b.dataset.crumb = 'up'; b.dataset.pid = a; b.title = name(a);
-        const ic = document.createElement('span'); ic.className = 'csi'; ic.textContent = pageEmoji(p);
+        const ic = document.createElement('span'); ic.className = 'csi'; ic.textContent = icon(a);
         const t = document.createElement('span'); t.className = 'cst'; t.textContent = name(a);
         b.append(ic, t);
         b.onclick = () => openPageTab(a);
@@ -2743,8 +2766,8 @@
     box.className = 'blockmenu treemenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', CRUMB_MORE);
     crumbMore = { box, btn };
     for (const a of ids) {
-      const p = crumbPage(a);
-      if (p) menuItem(box, `${pageEmoji(p)} ${oneLine(p.title)}`, () => { closeCrumbMore(); openPageTab(a); });
+      const nm = crumbNames.get(a);   // 0.16.0 R97: 段と同じアイコンと名前（行の段は一覧に無い）
+      if (nm) menuItem(box, `${nm[0]} ${nm[1]}`, () => { closeCrumbMore(); openPageTab(a); });
     }
     box.onkeydown = (ev) => {
       if (imeEnter(ev)) return;
@@ -4989,7 +5012,8 @@
   let treeOf = null; let treeFor = null;   // 一覧（pages）から組んだ木（pages を替えたら組み直す）
   function treeNow() {
     if (treeFor !== pages) {
-      treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string')
+      // 0.16.0 R97（M14）: データベースの行の中のページ（一覧の inRow）はサイドバーの木に入れない（行の本文の 📄 の行とパンくずから開く）
+      treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string' && !p.inRow)
         .map((p) => ({ id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt })));
       treeFor = pages;
     }
@@ -5147,7 +5171,7 @@
   async function createPageIn(parentId, placeAt) {
     flushEdits();
     // PR-2 直し 5（R52 の3・R51 の文のとおり）: 開いている白紙のページの中に作るときは、命令の前の本文の行の数を見る（2,000 行に満たなければ行は必ず置ける: R33）
-    const openHost = Boolean(parentId) && parentId === curId && isBlankPage(curPage);
+    const openHost = Boolean(parentId) && parentId === curId && isBodyPage(curPage);   // 0.16.0 R97: データベースの行の本文も
     const fullBefore = openHost && flattenBlocks(curPage.blocks).length >= BODY_ROWS_MAX;
     let r = null;
     try { r = await (parentId ? (placeAt ? window.koeApp.pageCreate(parentId, placeAt) : window.koeApp.pageCreate(parentId)) : window.koeApp.pageCreate()); } catch (_) { r = null; }
@@ -5157,7 +5181,7 @@
     // （小さな本文は読み直さない）。開いていない親だけ pageGet の1回
     if (!openHost) await noteRowless(parentId, r.id);
     else if (fullBefore) await noteRowless(parentId, r.id, await openPage(parentId));
-    if (parentId) setTreeOpen(parentId, true);   // PH-3 直し（R28 (2)）: 覚えるのは子のある行だけなので、作った子が一覧に入ってから開く
+    if (parentId && treeNow().byId.has(parentId)) setTreeOpen(parentId, true);   // PH-3 直し（R28 (2)）: 覚えるのは子のある行だけなので、作った子が一覧に入ってから開く（R97: 木の外の行・行の中のページは開かない）
     const ok = await openPageTab(r.id);
     if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
     return r.id;
@@ -5492,7 +5516,9 @@
     if (!(ev.code === 'KeyU' || String(ev.key).toLowerCase() === 'u')) return;
     ev.preventDefault();
     const id = isPageKey(activeTab) ? activeTab.slice(5) : '';
-    const up = id ? treeNow().parent.get(id) || null : null;   // 木の親（輪・親の無い行は最上位: HR2）
+    const ent = id ? pages.find((p) => p && p.id === id) : null;
+    // 木の親（輪・親の無い行は最上位: HR2）。0.16.0 R97: データベースの行の中のページは一覧の親（行か、行の中のページ）
+    const up = ent && ent.inRow && typeof ent.parentId === 'string' && ent.parentId ? ent.parentId : id ? treeNow().parent.get(id) || null : null;
     if (up) openPageTab(up);
   });
   // ---------------- 0.10.0 L-2（D58・D70・決めたこと 101）: 一覧で選んでリンクを写す ----------------
@@ -9399,7 +9425,7 @@
   const SLASH_PAGE = Object.freeze({ id: 'page', label: 'ページ', md: [], words: ['ぺーじ', 'page'] });
   function slashPageHits(q, el) {
     const k = keyOfEl(el);
-    if (!k || isMemoKey(k) || k !== curId || isRowPage(curPage)) return [];   // 0.16.0 DV-4（R92）: 行の中には子ページを作れない（DB の page.create が断る。持ち主に問う）
+    if (!k || isMemoKey(k) || k !== curId) return [];   // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の本文にも作れる（前は R92 で出さなかった）
     if (!q) return [{ id: SLASH_PAGE.id, group: 'types' }];
     return slashHit(SLASH_PAGE, q) ? [{ id: SLASH_PAGE.id, group: '' }] : [];
   }
@@ -9410,7 +9436,7 @@
     setCaret(txt, s.start);
     const pid = keyOfEl(el);
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    return createPageIn(pid, isBlankPage(curPage) && pid === curId ? el.dataset.id : undefined);   // 0.15.0 PR-2（決めたこと 25・45）: 白紙のページは打った行に子ページの行
+    return createPageIn(pid, isBodyPage(curPage) && pid === curId ? el.dataset.id : undefined);   // 0.15.0 PR-2（決めたこと 25・45）: 白紙のページは打った行に子ページの行（R97: データベースの行も）
   }
   // 語を打ったときだけ色の項目を出す（空の / では型だけ）
   const slashColorHits = (q) => (q ? SLASH_COLORS.filter((r) => slashHit(r, q)).map((r) => ({ id: r.id, group: r.kind })) : []);

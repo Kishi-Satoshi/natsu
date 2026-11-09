@@ -283,7 +283,16 @@ function listedRows(db) {
     if (isLive(attrs)) continue;
     out.push({ id: r.id, key: keyOfRow(r), attrs, createdAt: r.created_at, parentId: r.parent_id ?? null, ord: r.ord, title: r.text });   // 0.15.0 PH-7: 題名は MCP の場所の文（決めたこと 34）
   }
-  return out;
+  // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の中の子ページ（と子孫）は、行が生きている間だけ一覧に出し、一番近い行の印 inRow を付ける
+  // （画面はサイドバーの木に出さない）。行かデータベースをゴミ箱へ入れると見えなくなる（ページには書かない: 決めたこと 28）
+  const scope = rowScope(db, out);
+  return out.filter((r) => {
+    const s = scope.page(r.id);
+    if (!s) return true;
+    if (!s.live) return false;
+    r.inRow = { row: s.row, title: s.title, db: s.db, dbTitle: s.dbTitle };
+    return true;
+  });
 }
 
 // 0.15.0 PH-2（決めたこと 17・F118）: 一覧の1行の木の欄。覚えた1行（LIST_CACHE）の外で、読んだページの行から添える
@@ -293,6 +302,7 @@ function withTree(e, row) {
   e.ord = row.ord;
   if (row.attrs && row.attrs.kind === 'blank') e.kind = 'blank';
   if (row.attrs && typeof row.attrs.icon === 'string' && row.attrs.icon) e.icon = row.attrs.icon;
+  if (row.inRow) e.inRow = { ...row.inRow };   // 0.16.0 R97: データベースの行の中のページ（一番近い行・その題名・データベース・その題名）
   return e;
 }
 
@@ -912,19 +922,32 @@ function newPageId(db, now, rand = randU32) {
 function pageCreate(db, a, ctx) {
   const rows = pageRowsOf(db);
   const parentId = a.parentId || null;
+  let inRow = false;
   if (parentId !== null) {
     const host = rows.find((r) => r.id === parentId);
-    if (!host || host.trashedAt !== null) throw refuse('bad-args');   // 無い・ゴミ箱のページの中には作らない
-    if (isLive(host.attrs)) throw refuse('bad-args');   // 録音中の写しの中には作らない（決めたこと 9）
-    if (isDbPage(host.attrs)) throw refuse('bad-args');   // 0.16.0 DS-3（決めたこと 42）: データベースの中にページを作らない
+    const scope = rowScope(db, rows);
+    if (!host) {
+      // 0.16.0 R97（M14）: 生きているデータベースの行の中（行の本文の /ページ）。行の本文に子ページの行を置けないなら作らない（行の無い子は見つけられない）
+      const ri = scope.row(parentId);
+      if (!ri || !ri.live) throw refuse('bad-args');
+      inRow = true;
+    } else {
+      if (host.trashedAt !== null) throw refuse('bad-args');   // 無い・ゴミ箱のページの中には作らない
+      if (isLive(host.attrs)) throw refuse('bad-args');   // 録音中の写しの中には作らない（決めたこと 9）
+      if (isDbPage(host.attrs)) throw refuse('bad-args');   // 0.16.0 DS-3（決めたこと 42）: データベースの中にページを作らない
+      const s = scope.page(parentId);
+      if (s && !s.live) throw refuse('bad-args');   // R97: ゴミ箱の行の中の（見えない）ページの中にも作らない
+    }
   }
   const id = newPageId(db, ctx.now);
   const at = ctx.now();
-  const ord = parentId === null ? PT.TOP_ORD : PT.siblingKey(PT.pageTree(rows), new Map(rows.map((r) => [r.id, r.ord])), parentId, undefined);
+  const ords = new Map(rows.map((r) => [r.id, r.ord]));
+  const ord = parentId === null ? PT.TOP_ORD : PT.siblingKey(inRow ? rowKidsTree(rows, parentId) : PT.pageTree(rows), ords, parentId, undefined);
   const page = { id, title: '', kind: 'blank', date: localDate(at), memo: '', blocks: [], createdAt: at.toISOString(), updatedAt: at.toISOString() };
   const ops = [{ op: 'add', id, row: { ...pageRow(page, { ord }), parent_id: parentId } }];
   // 0.15.0 PR-1（決めたこと 45・HR13）: 白紙のページの中なら、同じ命令でその本文に子ページの行（placeAt の所か本文の最後）。議事録の中には作らない（BQ3）
-  const body = parentId === null || !isBlankPage(rows.find((r) => r.id === parentId).attrs) ? null : bodyOps(db, parentId, ctx, (p) => placeSubRow(p, newSubRow(db, ctx, id), { placeAt: a.placeAt }));
+  const body = parentId === null || !(inRow || isBlankPage(rows.find((r) => r.id === parentId).attrs)) ? null : bodyOps(db, parentId, ctx, (p) => placeSubRow(p, newSubRow(db, ctx, id), { placeAt: a.placeAt }));
+  if (inRow && !body) throw refuse('too-big');   // R97: 満杯の行の本文（R33 の白紙のページと違い、行の無い子は「このページの中のページ」にも出ないので作らない）
   if (body) ops.push(...body);
   applyOps(db, ops);
   return { ops, pageIds: body ? [id, parentId] : [id], result: { page: readPage(db, id), id } };
@@ -939,19 +962,30 @@ function pageMove(db, a, ctx) {
   const me = tree.byId.get(a.id);
   if (!me || me.trashedAt !== null) throw refuse('bad-args');   // 無い・ゴミ箱のページは動かさない
   if (isLive(me.attrs)) throw refuse('bad-args');   // 録音中の写しは動かさない（決めたこと 9）
+  // 0.16.0 R97（M14）: ゴミ箱の行の中の（見えない）ページは動かさない。行の中へは、生きている行だけ（行の本文の最後に子ページの行）
+  const scope = rowScope(db, raw);
+  const mine = scope.page(a.id);
+  if (mine && !mine.live) throw refuse('bad-args');
   const to = a.parentId || null;
-  if (to !== null) {
+  const toRow = to !== null && !tree.byId.has(to);
+  if (toRow) {
+    const ri = scope.row(to);
+    if (!ri || !ri.live) throw refuse('bad-args');
+  } else if (to !== null) {
     const dest = tree.byId.get(to);
-    if (!dest) throw refuse('bad-args');
     if (dest.trashedAt !== null) throw refuse('bad-args');   // ゴミ箱のページの下へは動かさない
     if (isLive(dest.attrs)) throw refuse('bad-args');   // 録音中の写しの下へは動かさない
     if (isDbPage(dest.attrs)) throw refuse('bad-args');   // 0.16.0 DS-3（決めたこと 42）: データベースの中へページを入れない（行と混ぜない）
+    const s = scope.page(to);
+    if (s && !s.live) throw refuse('bad-args');   // R97: ゴミ箱の行の中の（見えない）ページの下へは動かさない
   }
   if (!PT.canMoveUnder(tree, a.id, to)) throw refuse('bad-args');   // 自分と子孫の下へは動かさない（輪: 決めたこと 5）
   if (to !== null && rawChainHas(tree.byId, to, a.id)) throw refuse('bad-args');   // PH-2 直し（R13）: 壊れた輪の上の親をたどって自分に戻る所へも動かさない
+  if (to !== null && chainThroughRows(db, tree.byId, to, a.id)) throw refuse('bad-args');   // R97: 行を通って自分に戻る所（自分の下のデータベースの行の中）へも動かさない
   // 0.15.0 PR-2 直し（R44・決めたこと 55）: rowAfter（と rowParent）は、同じ白紙のページの子の行を本文のその所へ置く（行の無い子を「このページの中のページ」から引っ張って置く）
-  if (a.rowAfter !== undefined || a.rowParent !== undefined) return placeInBody(db, a, ctx, me, to, tree);
-  const blank = (id) => id !== null && tree.byId.has(id) && isBlankPage(tree.byId.get(id).attrs);   // 本文を読むのは白紙のページだけ
+  if (a.rowAfter !== undefined || a.rowParent !== undefined) return placeInBody(db, a, ctx, me, to, tree, toRow);
+  // 本文を読むのは白紙のページだけ（R97: とデータベースの行。ページの木に無い親は行か無い ID）
+  const blank = (id) => id !== null && (tree.byId.has(id) ? isBlankPage(tree.byId.get(id).attrs) : isRowId(db, id));
   // PH-5 直し 2（R56・M-5）: 本文に行のある子を同じ白紙の親へ afterId なしで動かす（［移動先…］で親だけを選ぶ）と、最後の兄弟でも行を本文の最後へ（R54）。
   // 行がもう本文の最後なら同じ所
   // PH-6・PH-7 直し（rv29 F1・決めたこと 16）: ゴミ箱・録音中の写し・知らない・兄弟でない afterId は末尾（placeKeys と placeSubRow と同じ）なので、
@@ -982,10 +1016,16 @@ function pageMove(db, a, ctx) {
   // PH-5 直し 2（R56。R53 を直す）: 白紙の親の本文に行を置けなかった（満杯の本文: R33）子は、行の無い子の中で表の ord で並ぶ（withBodyOrds）ので、
   // 鍵は本文の順から作った鍵でなく、行の無い兄弟の表の ord の間で作る（afterId が行の無い兄弟ならその後ろ・'' か行のある兄弟なら行の無い子の頭・無ければ末尾）
   if (still) return { ops: [], pageIds: [], result: listPages(db) };
-  const rowless = blank(to) && !hosts.includes(to) ? rowlessSpot(db, raw, others, to, me, a.afterId === a.id ? undefined : a.afterId) : null;
+  // R97: 行の本文に子ページの行を置けない（満杯）なら動かさない（行の無い行の子は見つけられない）。同じ行の中なら今の所のまま
+  if (toRow && !hosts.includes(to)) {
+    if (me.parentId === to) return { ops: [], pageIds: [], result: listPages(db) };
+    throw refuse('too-big');
+  }
+  const rowless = !toRow && blank(to) && !hosts.includes(to) ? rowlessSpot(db, raw, others, to, me, a.afterId === a.id ? undefined : a.afterId) : null;
   // PH-5 直し 4（R61）: 行の無い子の中で今と同じ所（頭を頭へ・前の兄弟の後ろへ・最後をゴミ箱の兄弟の後ろへ）なら書かない（決めたこと 16）
   if (rowless && rowless.same) return { ops: [], pageIds: [], result: listPages(db) };
   const place = to === null ? { ord: PT.TOP_ORD, rekey: [] }
+    : toRow ? PT.placeKeys(rowKidsTree(others, to), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId)
     : rowless ? PT.placeKeys(PT.pageTree([raw.find((r) => r.id === to), ...rowless.rows]), stored, to, rowless.at)
       : PT.placeKeys(PT.pageTree(others), new Map(others.map((r) => [r.id, r.ord])), to, a.afterId === a.id ? undefined : a.afterId);
   ops.unshift({ op: 'move', id: a.id, ord: place.ord, old: stored.get(a.id), ...(me.parentId !== to ? { parent: to, oldParent: me.parentId } : {}) },
@@ -993,6 +1033,8 @@ function pageMove(db, a, ctx) {
   applyOps(db, ops);
   return { ops, pageIds: [a.id, ...hosts], result: listPages(db) };
 }
+// 0.16.0 R97: 本文にそのページを指す子ページの行があるか（文と欄は読まない）
+const hasSubRow = (db, hostId, pageId) => db.prepare(HOT_QUERIES.bodyRows).all(hostId, hostId).some((r) => r.type === 'subpage' && r.sub === pageId);
 // PH-5 直し 2（R56）: 白紙のページの本文で、そのページの行が本文の最後（最上位の並びの末尾）に無いか（行が無ければ偽）
 function subRowNotLast(db, hostId, pageId) {
   const rows = db.prepare(HOT_QUERIES.bodyRows).all(hostId, hostId);
@@ -1021,8 +1063,8 @@ function rowlessSpot(db, raw, others, to, me, afterId) {
 // 0.15.0 PR-2 直し（R44・決めたこと 55）: 白紙のページの子（me）の行を、同じ本文の rowAfter の行のすぐ後ろ（'' は頭・rowParent があればその子の頭。
 // block.move の afterId・parentId と同じ置き場: BT.spotOf）へ。行が無ければ作り（上限を越えるなら too-big。本文もページも変えない）、あれば動かす（同じページを
 // 指す行を2つにしない）。ページの親と並びの鍵は変えない（並びは本文の行の順: HR14）。同じ命令（oplog の1行）で、元に戻すの歩みにはしない（決めたこと 60）→ 一覧
-function placeInBody(db, a, ctx, me, to, tree) {
-  if (a.rowAfter === undefined || a.afterId !== undefined || to === null || me.parentId !== to || !isBlankPage(tree.byId.get(to).attrs)) throw refuse('bad-args');
+function placeInBody(db, a, ctx, me, to, tree, toRow = false) {
+  if (a.rowAfter === undefined || a.afterId !== undefined || to === null || me.parentId !== to || !(toRow || isBlankPage(tree.byId.get(to).attrs))) throw refuse('bad-args');   // R97: 行の本文も
   let made = false;
   const ops = bodyOps(db, to, ctx, (p) => {
     const had = subSpot(p.blocks, a.id);
@@ -1079,16 +1121,23 @@ function pageRestore(db, a, ctx) {
   const group = PT.restoreGroup(rows, a.id, tree).filter((id) => !isLive(tree.byId.get(id).attrs));
   const ops = group.map((id) => ({ op: 'restore', id, at, old: tree.byId.get(id).trashedAt }));
   const host = me.parentId === null ? null : tree.byId.get(me.parentId);
-  if (me.parentId !== null && !isListedRow(host)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱・録音中の写しの親の下・無い親）に戻さない
+  // 0.16.0 R97（M14）: 親がデータベースの行なら、行が生きているときだけその本文へ戻す（ゴミ箱の行・ゴミ箱のデータベースの行の下は見えない所）。
+  // 親のページがゴミ箱の行の中（見えない）なら、そこへも戻さない
+  const scope = rowScope(db, rows);
+  const hostRowInfo = me.parentId !== null && !host ? scope.row(me.parentId) : null;
+  const hostSeen = host ? isListedRow(host) && !(scope.page(host.id) && !scope.page(host.id).live) : Boolean(hostRowInfo && hostRowInfo.live);
   // PR-1 直し（R34）: 最上位へ出すページの行が、ゴミ箱の白紙の親の本文に残っていれば同じ命令で消す（後で親を戻したときに灰色の行を残さない）
   const left = host && host.trashedAt !== null && isBlankPage(host.attrs) ? bodyOps(db, host.id, ctx, (p, was) => (takeSubRow(p, was, a.id) ? undefined : false), { trashed: true }) : null;
   if (left) ops.push(...left);
   // 0.15.0 PR-1（決めたこと 45・54・HR15）: 親が白紙のページなら、同じ命令でその本文に行を戻す（覚えた置き場がまだあればそこ・無ければ本文の最後。
   // 行がもうあれば足さない）。覚えた置き場は戻したら消す
   const rowAt = rowAtOf(db, a.id);
-  const body = me.parentId !== null && isListedRow(host) && isBlankPage(host.attrs)
+  const body = me.parentId !== null && hostSeen && (hostRowInfo || isBlankPage(host.attrs))
     ? bodyOps(db, me.parentId, ctx, (p, was) => (subSpot(p.blocks, a.id) ? false : putBackSubRow(p, was, newSubRow(db, ctx, a.id), rowAt)))
     : null;
+  // R97: 行の本文に行を戻せない（満杯）なら最上位へ（行の無い行の子は見つけられない）。もう本文に行があれば戻せる
+  const rowBack = !hostRowInfo || body || hasSubRow(db, me.parentId, a.id);
+  if (me.parentId !== null && (!hostSeen || !rowBack)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱・録音中の写しの親の下・無い親）に戻さない
   if (body) ops.push(...body);
   if (rowAt !== undefined) ops.push({ op: 'set', id: a.id, key: 'rowAt', value: undefined, old: rowAt });
   applyOps(db, ops);
@@ -1118,6 +1167,67 @@ function trashHeads(db) {
 // 作る・動かす・戻す・ほかの所で消す命令は、ページの行の操作と本文の行の操作を同じ命令（同じ oplog の1行）に積む（決めたこと 44）
 const isSubRow = (b) => isObj(b) && b.type === 'subpage';
 const isBlankPage = (attrs) => isObj(attrs) && attrs.kind === 'blank';
+// ---------------------------------------------------------------- 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の中の子ページ
+// 行（型 row）は本文を白紙のページと同じ部品で持つので、行の本文の /ページ で行を親にした白紙のページを作れる。そのページと子孫はページの木の外
+// （木の行 rows に親が無い）で、サイドバーに出さない。rows（pageRowsOf か listedRows の行）について、
+//   page(id) … id のページから親をたどって最初に出会う行（rows に無い親が型 row）→ { row, title, db, dbTitle, live }。行の下でなければ null
+//   row(id)  … id が行なら { row, title, db, dbTitle, live }（無い・行でなければ null）
+// live は行がゴミ箱でなく、データベースが rows にあってゴミ箱でないデータベースのページで、データベースも死んだ行の下でないとき。
+// 親をたどる道は1回ずつ覚える（輪は行の下でないとみなす）。行の問い合わせは rows に無い親のときだけ（主キー）
+function rowScope(db, rows) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const pages = new Map();
+  const rowsMemo = new Map();
+  const busy = new Set();
+  const alive = (r) => Boolean(r) && (r.trashedAt === null || r.trashedAt === undefined);
+  const parentOf = (r) => (r && typeof r.parentId === 'string' && r.parentId ? r.parentId : null);
+  function row(id) {
+    if (rowsMemo.has(id)) return rowsMemo.get(id);
+    rowsMemo.set(id, null);   // 輪の見張り（データベースの道が同じ行に戻る）
+    const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+    let info = null;
+    if (r && r.type === 'row') {
+      const d = byId.get(r.parent_id);
+      const up = d ? page(d.id) : null;
+      const live = (r.trashed_at === null || r.trashed_at === undefined) && alive(d) && isDbPage(d.attrs) && !isLive(d.attrs) && (!up || up.live);
+      info = { row: r.id, title: r.text, db: r.parent_id, dbTitle: d ? d.title : '', live };
+    }
+    rowsMemo.set(id, info);
+    return info;
+  }
+  function page(start) {
+    const path = [];
+    let info = null;
+    for (let cur = start; ;) {
+      if (pages.has(cur)) { info = pages.get(cur); break; }
+      if (busy.has(cur)) break;
+      busy.add(cur); path.push(cur);
+      const p = parentOf(byId.get(cur));
+      if (p === null) break;
+      if (!byId.has(p)) { info = row(p); break; }
+      cur = p;
+    }
+    for (const id of path) { pages.set(id, info); busy.delete(id); }
+    return info;
+  }
+  return { page: (id) => (byId.has(id) ? page(id) : null), row };
+}
+// R97: 本文に子ページの行を持つページ（白紙のページと、データベースの行）か。rows は木の行（行は入らない）
+const isRowId = (db, id) => (db.prepare(HOT_QUERIES.typeOf).get(id) || {}).type === 'row';
+// R97: start から親をたどって id に着くか（行を通るときは行のデータベースへ。輪を作る置き場を断る）
+function chainThroughRows(db, byId, start, id) {
+  const seen = new Set();
+  for (let cur = start; cur !== null && cur !== undefined && !seen.has(cur);) {
+    if (cur === id) return true;
+    seen.add(cur);
+    if (byId.has(cur)) { cur = byId.get(cur).parentId; continue; }
+    const r = db.prepare(HOT_QUERIES.dbRow).get(cur);
+    cur = r && r.type === 'row' ? r.parent_id : null;
+  }
+  return false;
+}
+// R97: 行の子の並びの鍵の木（行を根にした小さな木。ページの木では行の子は親の無い行なので兄弟に数えられない）
+const rowKidsTree = (rows, rowId) => PT.pageTree([{ id: rowId, parentId: null }, ...rows.filter((r) => r.parentId === rowId)]);
 const cmpStr = (x, y) => (String(x ?? '') < String(y ?? '') ? -1 : String(x ?? '') > String(y ?? '') ? 1 : 0);
 // 本文の中の、そのページを指す子ページの行の居場所（BT.locate の形。無ければ null。同じページを指す行が2つあれば先の行）
 function subSpot(blocks, pageId) {
@@ -1129,7 +1239,7 @@ function subSpot(blocks, pageId) {
 // 「このページの中のページ」に出る: 決めたこと 55。ページを断らない・失わない）。trashed はゴミ箱の白紙のページの本文も読む（R34）
 function bodyOps(db, pageId, ctx, fn, { trashed = false } = {}) {
   const w = forWrite(db, pageId, { trashed });
-  if (!w || !isBlankPage(w.was.page)) return null;
+  if (!w || !(isBlankPage(w.was.page) || isRowId(db, pageId))) return null;   // 0.16.0 R97: データベースの行の本文も
   const n0 = BT.flattenBlocks(w.page.blocks).length;
   if (fn(w.page, w.was) === false) return null;
   const n = BT.flattenBlocks(w.page.blocks).length;
@@ -1996,7 +2106,9 @@ const DEFS = {
       const host = rows.find((r) => r.id === a.id).parentId;
       const hostRow = host === null ? null : rows.find((r) => r.id === host);
       let spot = null;
-      const body = !hostRow || !isBlankPage(hostRow.attrs) ? null : bodyOps(db, host, ctx, (p, w) => { spot = takeSubRow(p, w, a.id); return spot ? undefined : false; });
+      // 0.16.0 R97: 親がデータベースの行（行の本文の /ページ）でも同じ（ゴミ箱の行の本文は読まない）
+      const bodyHost = hostRow ? isBlankPage(hostRow.attrs) : host !== null && isRowId(db, host);
+      const body = !bodyHost ? null : bodyOps(db, host, ctx, (p, w) => { spot = takeSubRow(p, w, a.id); return spot ? undefined : false; });
       if (body) ops.push(...body, { op: 'set', id: a.id, key: 'rowAt', value: spot, old: rowAtOf(db, a.id) });
       applyOps(db, ops);
       return { ops, pageIds: [a.id], result: listPages(db) };

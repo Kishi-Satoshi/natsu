@@ -1171,3 +1171,146 @@ test('DV-4（R91）: page.get の行の答えにデータベースの ID（db）
   assert.ok(!Object.hasOwn(ok(call(db, 'page.get', { id: 'pa1' }), 'page.get'), 'db'), '議事録の答えに db がある');
   assert.ok(!Object.hasOwn(JSON.parse(blockOf(db, r).attrs), 'db'));
 }));
+
+// ================================================================ R97（2026-11-09 の持ち主の答え・M14: 行の本文の /ページ）
+const listIds = (db) => ok(call(db, 'pages.list', {}), 'pages.list').map((e) => e.id);
+const listEntry = (db, id) => ok(call(db, 'pages.list', {}), 'pages.list').find((e) => e.id === id);
+const subRows = (db, id) => ok(call(db, 'page.get', { id }), 'page.get').page.blocks.filter((b) => b.type === 'subpage').map((b) => b.page);
+
+test('R97: page.create は生きている行の中に白紙のページを作る（親は行・行の本文の最後か placeAt の所に 📄 の行・oplog は1行）。一覧には inRow（行・題名・データベース・その題名）つきで出る。孫も同じ', T, () => withDb((db) => {
+  const d = mkDb(db);
+  // データベースの題名（D77 の会議の題名でない）
+  ok(call(db, 'page.setTitle', { id: d, title: '案件' }), 'page.setTitle');
+  // データベースの行の題名（D77 の会議の題名でない）
+  const r = rowAddA(db, d, { title: '見積もり' });
+  const b = ok(call(db, 'block.insert', { pageId: r, afterBlockId: '', type: 'paragraph' }), 'block.insert').blockId;
+  const mk = callTx(db, 'page.create', { parentId: r });
+  const c1 = ok(mk.r, 'page.create').id;
+  assert.deepStrictEqual([blockOf(db, c1).type, blockOf(db, c1).parent_id, ok(mk.r, '').page.kind], ['page', r, 'blank']);
+  assert.ok(db.prepare("select count(*) as c from oplog where role = 'app' and tx = ?").get(mk.tx).c === 1);
+  assert.deepStrictEqual(subRows(db, r), [c1], '行の本文の最後に 📄 の行が無い');
+  const c2 = ok(call(db, 'page.create', { parentId: r, placeAt: b }), 'page.create').id;
+  assert.deepStrictEqual(ok(call(db, 'page.get', { id: r }), 'page.get').page.blocks.map((x) => x.type === 'subpage' ? x.page : x.id), [c2, c1], 'placeAt の空の行が 📄 の行にならない');
+  assert.notStrictEqual(blockOf(db, c1).ord, blockOf(db, c2).ord, '行の子の並びの鍵が同じ');
+  const g = ok(call(db, 'page.create', { parentId: c1 }), 'page.create').id;
+  // データベースと行の題名（D77 の会議の題名でない）
+  for (const id of [c1, c2, g]) assert.deepStrictEqual(listEntry(db, id).inRow, { row: r, title: '見積もり', db: d, dbTitle: '案件' }, `${id} の一覧の1行に inRow が無い`);
+  assert.ok(!Object.hasOwn(listEntry(db, d), 'inRow') && !Object.hasOwn(listEntry(db, 'pa1'), 'inRow'));
+  assert.strictEqual(listEntry(db, g).parentId, c1);
+  // 行の本文に書いた後も行のセルと題名はそのまま
+  assert.strictEqual(view(db, d).rows[0].title, '見積もり');
+}));
+
+test('R97: 行の中に作れないとき（ゴミ箱の行・ゴミ箱のデータベースの行・無い ID）は bad-args で何も変えない。行の本文が満杯（2,000 行）なら too-big（行の無い子を作らない）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const [r1, r2] = [rowAddA(db, d), rowAddA(db, d)];
+  ok(call(db, 'rows.trash', { db: d, ids: [r1] }), 'rows.trash');
+  const before = dump(db);
+  assert.strictEqual(code(call(db, 'page.create', { parentId: r1 })), 'bad-args');
+  assert.strictEqual(code(call(db, 'page.create', { parentId: 'rnothere1' })), 'bad-args');
+  assert.deepStrictEqual(dump(db), before);
+  const d2 = mkDb(db);
+  const r3 = rowAddA(db, d2);
+  ok(call(db, 'page.delete', { id: d2 }), 'page.delete');
+  const mid = dump(db);
+  assert.strictEqual(code(call(db, 'page.create', { parentId: r3 })), 'bad-args');
+  assert.deepStrictEqual(dump(db), mid);
+  // 満杯の本文
+  const list = [];
+  for (let i = 0; i < 2000; i += 1) list.push({ op: 'add', id: `bfull${i}`, row: { id: `bfull${i}`, type: 'paragraph', page_id: r2, parent_id: r2, ord: `a${String(i).padStart(5, '0')}`, text: '', rich: null, attrs: '{}', fold: '' } });
+  put(db, list);
+  const full = dump(db);
+  assert.strictEqual(code(call(db, 'page.create', { parentId: r2 })), 'too-big');
+  assert.deepStrictEqual(dump(db), full, '満杯の行の中に行の無い子を作った');
+}));
+
+test('R97・決めたこと 28: 行をゴミ箱へ入れると、行の中の子ページ（と孫）は一覧・アクション一覧から見えなくなる（ページには書かない）。行を戻すと見える。データベースをゴミ箱へ入れても同じ', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const r = rowAddA(db, d);
+  const c = ok(call(db, 'page.create', { parentId: r }), 'page.create').id;
+  const g = ok(call(db, 'page.create', { parentId: c }), 'page.create').id;
+  ok(call(db, 'block.insert', { pageId: g, afterBlockId: '', type: 'todo' }), 'block.insert');
+  const tb = ok(call(db, 'page.get', { id: g }), 'page.get').page.blocks[0].id;
+  ok(call(db, 'block.update', { pageId: g, blockId: tb, patch: { text: '見積もりを送る' } }), 'block.update');
+  const acts = () => ok(call(db, 'pages.actionView', {}), 'pages.actionView').actions.map((x) => x.pageId);
+  assert.ok(listIds(db).includes(c) && listIds(db).includes(g) && acts().includes(g));
+  const tr = callTx(db, 'rows.trash', { db: d, ids: [r] });
+  assert.strictEqual(code(tr.r), 'ok');
+  assert.deepStrictEqual(opsOfTx(db, tr.tx).map((o) => o.id), [r], '子ページにゴミ箱の印を書いた');
+  assert.ok(!listIds(db).includes(c) && !listIds(db).includes(g), '行をゴミ箱へ入れても子が一覧に出る');
+  assert.ok(!acts().includes(g), '行をゴミ箱へ入れても子の ToDo が出る');
+  assert.deepStrictEqual([blockOf(db, c).trashed_at, blockOf(db, g).trashed_at], [null, null]);
+  assert.ok(!ok(call(db, 'pages.trash', {}), 'pages.trash').some((x) => x.id === c || x.id === g), '子がゴミ箱の窓に出る');
+  ok(call(db, 'edit.revert', { pageId: d, steps: [tr.tx] }), 'edit.revert');
+  assert.ok(listIds(db).includes(c) && listIds(db).includes(g), '行を戻しても子が見えない');
+  ok(call(db, 'page.delete', { id: d }), 'page.delete');
+  assert.ok(!listIds(db).includes(c), 'データベースをゴミ箱へ入れても子が一覧に出る');
+  assert.strictEqual(blockOf(db, c).trashed_at, null);
+  ok(call(db, 'page.restore', { id: d }), 'page.restore');
+  assert.ok(listIds(db).includes(c) && listIds(db).includes(g));
+}));
+
+test('R97: 行の子ページの page.delete は行の本文の 📄 の行を消して置き場を覚え、page.restore で同じ所へ戻る（親は行のまま）。行がゴミ箱のときに戻すと最上位へ（見えない所に戻さない）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const r = rowAddA(db, d);
+  const c1 = ok(call(db, 'page.create', { parentId: r }), 'page.create').id;
+  const c2 = ok(call(db, 'page.create', { parentId: r }), 'page.create').id;
+  ok(call(db, 'page.delete', { id: c1 }), 'page.delete');
+  assert.deepStrictEqual(subRows(db, r), [c2], '消した子の 📄 の行が本文に残る');
+  assert.ok(blockOf(db, c1).trashed_at);
+  ok(call(db, 'page.restore', { id: c1 }), 'page.restore');
+  assert.deepStrictEqual([subRows(db, r), blockOf(db, c1).parent_id], [[c1, c2], r], '元の所へ戻らない');
+  ok(call(db, 'page.delete', { id: c2 }), 'page.delete');
+  ok(call(db, 'rows.trash', { db: d, ids: [r] }), 'rows.trash');
+  ok(call(db, 'page.restore', { id: c2 }), 'page.restore');
+  assert.deepStrictEqual([blockOf(db, c2).parent_id, blockOf(db, c2).trashed_at], [null, null], 'ゴミ箱の行の下へ戻した');
+  assert.ok(listIds(db).includes(c2) && !listEntry(db, c2).inRow);
+}));
+
+test('R97: page.move で行の子ページを外へ出す（行の本文の 📄 の行が消える）・外のページを行の中へ入れる（本文の最後に行）・行の本文の中で置き直す（rowAfter）。ゴミ箱の行・見えない子・輪（自分の下のデータベースの行）は bad-args', T, () => withDb((db) => {
+  const top = ok(call(db, 'page.create', {}), 'page.create').id;
+  const d = mkDb(db, top);
+  const r = rowAddA(db, d);
+  const c1 = ok(call(db, 'page.create', { parentId: r }), 'page.create').id;
+  const c2 = ok(call(db, 'page.create', { parentId: r }), 'page.create').id;
+  // 本文の中で置き直す
+  const rowOf = (pid) => ok(call(db, 'page.get', { id: r }), 'page.get').page.blocks.find((b) => b.type === 'subpage' && b.page === pid).id;
+  ok(call(db, 'page.move', { id: c2, parentId: r, rowAfter: '' }), 'page.move');
+  assert.deepStrictEqual(subRows(db, r), [c2, c1]);
+  assert.ok(rowOf(c1));
+  // 外へ
+  ok(call(db, 'page.move', { id: c1, parentId: '' }), 'page.move');
+  assert.deepStrictEqual([subRows(db, r), blockOf(db, c1).parent_id], [[c2], null]);
+  assert.ok(!listEntry(db, c1).inRow);
+  // 中へ
+  ok(call(db, 'page.move', { id: c1, parentId: r }), 'page.move');
+  assert.deepStrictEqual([subRows(db, r), blockOf(db, c1).parent_id], [[c2, c1], r]);
+  assert.strictEqual(listEntry(db, c1).inRow.row, r);
+  // 輪: top の下のデータベースの行の中へ top は入れない。行の子の中へも
+  const before = dump(db);
+  assert.strictEqual(code(call(db, 'page.move', { id: top, parentId: r })), 'bad-args');
+  assert.strictEqual(code(call(db, 'page.move', { id: top, parentId: c1 })), 'bad-args');
+  assert.strictEqual(code(call(db, 'page.move', { id: d, parentId: c1 })), 'bad-args');
+  assert.deepStrictEqual(dump(db), before);
+  // ゴミ箱の行・見えない子
+  const r2 = rowAddA(db, d);
+  ok(call(db, 'rows.trash', { db: d, ids: [r] }), 'rows.trash');
+  const mid = dump(db);
+  assert.strictEqual(code(call(db, 'page.move', { id: 'pa1', parentId: r })), 'bad-args');
+  assert.strictEqual(code(call(db, 'page.move', { id: c1, parentId: '' })), 'bad-args');
+  assert.strictEqual(code(call(db, 'page.create', { parentId: c1 })), 'bad-args', '見えない子の中に作った');
+  assert.deepStrictEqual(dump(db), mid);
+  ok(call(db, 'page.move', { id: 'pa1', parentId: r2 }), 'page.move');
+  assert.deepStrictEqual(subRows(db, r2), ['pa1']);
+}));
+
+test('R97: page.get の行の子ページの答えは今のまま（db を添えない）。行の本文の 📄 の行を消すと子ページはゴミ箱へ（白紙のページと同じ）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const r = rowAddA(db, d);
+  const c = ok(call(db, 'page.create', { parentId: r }), 'page.create').id;
+  const got = ok(call(db, 'page.get', { id: c }), 'page.get');
+  assert.ok(!Object.hasOwn(got, 'db') && got.page.kind === 'blank');
+  const sb = ok(call(db, 'page.get', { id: r }), 'page.get').page.blocks.find((b) => b.type === 'subpage').id;
+  ok(call(db, 'block.remove', { pageId: r, blockId: sb }), 'block.remove');
+  assert.ok(blockOf(db, c).trashed_at, '📄 の行を消しても子がゴミ箱に入らない');
+}));

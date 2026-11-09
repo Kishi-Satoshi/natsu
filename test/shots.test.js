@@ -1184,7 +1184,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変わる画面は db-views-light（「他 n 件」が1行・検索の欄が縮まない。RETAKE にある）。値を今の app.html に合わせた（前の値は 31ee7509…）
   // 0.16.0 R96（2026-11-09 の持ち主の答え）: SHORTCUTS の写しにビューのタブの2行・［グループ］の窓の 200 を越えた一言（.dbgmore）・切れたタブの吹き出し。
   // 変わる画面は近道の表の設定の4枚と db-views-light（長い名前のビュー。どれも RETAKE にある）。値を今の app.html に合わせた（前の値は 46b7ecf6…）
-  assert.strictEqual(sha, 'fe8425935f7034fd08f6ddd98f179a11e7c946f788e75cddc1c717e8ddb0c5c2',
+  // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: 行の本文の /ページ・木に行の中のページを入れない・パンくずの行の段・Ctrl+Shift+U（<script> の中だけ）。
+  // 撮る画面の見た目は変わらない（撮る画面に行の中のページは無い）。値を今の app.html に合わせた（前の値は fe842593…）
+  assert.strictEqual(sha, 'e716c1a70998e66d5f5ff3477d50a44af6825b444289ee3e2a3d25caec7d2794',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
