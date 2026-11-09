@@ -283,7 +283,7 @@ function listMeetings(db, args, { now }) {
   for (; i < rows.length && lines.length < limit; i++) {
     const e = commands.entryOf(db, rows[i]);
     if (!e) continue;
-    const line = F.meetingLine(e, rows[i].attrs, { place: places.place(rows[i].id) });
+    const line = F.meetingLine(e, rows[i].attrs, { place: places.place(rows[i].id), ...(F.isDb(e) ? { rows: rowCountOf(db, e.id) } : {}) });
     if (size + 1 + line.length + reserve > MAX_RESULT_CHARS) break;
     size += 1 + line.length;
     lines.push(line);
@@ -360,8 +360,13 @@ function searchPassages(db, args, { now, ctx }) {
   return { text: lines.join('\n'), count: n };
 }
 
+// 0.16.0 DX-3（決めたこと 49・R103）: データベースのゴミ箱でない行の数と、読む答えの列と行（100 行まで）
+const DB_READ_ROWS = 100;
+const rowCountOf = (db, id) => db.prepare(commands.HOT_QUERIES.dbRowCount).get(id).c;
+const dumpOf = (db, page, now) => (F.isDb(page) ? commands.dbDump(db, page.id, DB_READ_ROWS, now.getTime()) : null);
+
 // get_meeting（決めたこと 114）。一覧に出す行に無い ID（無い・ゴミ箱・録音中の写し）は not-found
-function getMeeting(db, args) {
+function getMeeting(db, args, { now }) {
   const row = commands.listedRows(db).find((r) => r.id === args.id);
   if (!row) return { error: 'not-found' };
   const places = placesOf(commands.listedRows(db));   // 0.15.0 PH-7: 場所と子ページの行の題名（一覧に出る行だけ）
@@ -369,7 +374,7 @@ function getMeeting(db, args) {
   if (!page) return { error: 'not-found' };
   const segments = commands.readSegments(db, args.id);
   if (args.transcript_from && !segments.some((s) => s.id === args.transcript_from)) return { error: 'no-seg' };
-  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS, place: places.place(args.id), subTitle: places.kidTitle(args.id) });
+  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS, place: places.place(args.id), subTitle: places.kidTitle(args.id), dump: dumpOf(db, page, now) });
   return { text: md.text, count: 1 };
 }
 
@@ -417,7 +422,7 @@ function getMeetings(db, args, { now }) {
     if (!page) continue;
     const segments = commands.readSegments(db, id);
     const from = k === startIdx && startSeg && segments.some((s) => s.id === startSeg) ? startSeg : null;
-    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false, place: places.place(id), subTitle: places.kidTitle(id) };
+    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false, place: places.place(id), subTitle: places.kidTitle(id), dump: dumpOf(db, page, now) };
     const full = F.meetingMarkdown(page, segments, { ...opts, budget: 1e9 });
     if (full.text.length <= left) {
       parts.push(full.text);

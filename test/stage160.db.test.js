@@ -127,7 +127,8 @@ test('DS-2・F135・RF17: 行が1万あっても、pages.list・listedRows・木
     ['actions', () => ok(call(db, 'pages.actionView', {}), 'pages.actionView')],
     // 0.16.0 DX-2（決めたこと 44）で意図して直した: ゴミ箱の行のまとまりは pages.trash に出る（kind: 'row'）ので、ページの頭だけを比べ、行は下で見る
     ['trash', () => ok(call(db, 'pages.trash', {}), 'pages.trash').filter((h) => h.kind !== 'row')],
-    ['mcp', () => tools.callTool('list_meetings', {}, { sqlite, dataDir: path.dirname(t.file), now: () => new Date('2026-11-07T00:00:00.000Z') }).text],
+    // 0.16.0 DX-3（決めたこと 49）で意図して直した: データベースの行は「データベース（行 n）」で行の数を出すので、数を伏せて比べ、数は下で見る
+    ['mcp', () => tools.callTool('list_meetings', {}, { sqlite, dataDir: path.dirname(t.file), now: () => new Date('2026-11-07T00:00:00.000Z') }).text.replace(/データベース（行 \d+）/g, 'データベース（行 n）')],
   ];
   const before = Object.fromEntries(READERS.map(([k, read]) => [k, read()]));
   assert.ok(before.list.some((p) => p.id === 'pdb'), 'データベースのページは一覧に出る');
@@ -145,6 +146,7 @@ test('DS-2・F135・RF17: 行が1万あっても、pages.list・listedRows・木
     if (Array.isArray(before[k]) || typeof before[k] === 'string') assert.strictEqual(after[k].length, before[k].length, `${k} の数が行で変わった`);
     assert.deepStrictEqual(after[k], before[k], `${k} が行で変わった`);
   }
+  assert.match(tools.callTool('list_meetings', {}, { sqlite, dataDir: path.dirname(t.file), now: () => new Date('2026-11-07T00:00:00.000Z') }).text, /｜データベース（行 9999）｜ID pdb$/m, 'MCP の行の数がゴミ箱でない行の数でない');
   assert.deepStrictEqual(ok(call(db, 'pages.trash', {}), 'pages.trash').filter((h) => h.kind === 'row').map((h) => [h.id, h.count]), [['r5', 0]], 'ゴミ箱の行のまとまりが出ない');
   // サイドバーの木（一覧の行から作る）に行は出ない（前の版の描き方も同じ一覧を読む: RF17）
   const tree = PT.pageTree(after.list);

@@ -1675,6 +1675,29 @@ function dbCreate(db, a, ctx) {
   applyOps(db, ops);
   return { ops, pageIds: body ? [id, parentId] : [id], result: { page: readPage(db, id), id } };
 }
+// 0.16.0 DX-3（決めたこと 49・R103）: Claude（MCP）が読むデータベースの中身。列（消した列は除く。名前と種類の名前）と、最初のビューの並べ替えの順
+// （ビューの絞り込みとグループは当てない: Claude からの絞り込みは 0.18.0）の行の頭から max 行。値は画面と同じ見せ方の文字（fmtCell。リレーションは生きている相手の題名）。
+// 文字を1行にするのは呼び手（src/mcp/format.js の safeLine）→ { total, cols: [{ name, label }], rows: [{ title, vals: [[列の名前, 値]] }] } | null（無い・ゴミ箱）
+function dbDump(db, id, max, nowMs) {
+  const d = dbOf(db, id);
+  if (!d) return null;
+  const list = db.prepare(HOT_QUERIES.dbRows).all(d.id).map(rowView);
+  const v0 = d.views.length ? normView(d, d.views[0]) : DV.defaultView('v1', 'table', d.cols);
+  const order = DV.applyView(list, { ...v0, filter: null, group: null }, d.cols, { now: nowMs }).order;
+  const byId = new Map(list.map((r) => [r.id, r]));
+  const cols = d.cols.filter((c) => !c.gone && Object.hasOwn(DM.COLS, c.type));
+  const picked = order.slice(0, max).map((o) => byId.get(o.id)).filter(Boolean);
+  const titles = relTitlesOf(db, picked.flatMap((r) => relIdsIn(cols, r.cells)));
+  const opts = { rowsById: new Map(Object.entries(titles)) };
+  return {
+    total: list.length,
+    cols: cols.map((c) => ({ name: c.name, label: DM.COLS[c.type].label })),
+    rows: picked.map((r) => ({
+      title: DM.fmtCell(TITLE_COL, r.title, opts),
+      vals: cols.filter((c) => c.type !== 'title').map((c) => [c.name, DM.fmtCell(c, DM.cellValue(r, c), opts)]).filter((x) => x[1] !== ''),
+    })),
+  };
+}
 // データベースの形（列・照らしたビュー・今の行の数。行の数は削除の確かめの文が使う: 決めたこと 44・R36）→ null（無い・ゴミ箱）
 function dbGetOf(db, id) {
   const d = dbOf(db, id);
@@ -2910,4 +2933,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo };
+module.exports = { newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump };

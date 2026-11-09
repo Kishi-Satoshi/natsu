@@ -90,13 +90,20 @@ function summaryOf(entry, route) {
 const BLANK_LABEL = '白紙のページ';
 const BLANK_UNTITLED = '無題のページ';
 const isBlank = (x) => Boolean(x) && x.kind === 'blank';
-// 題名の1行（無題は白紙のページなら「無題のページ」・議事録は「(無題の議事録)」）
-const titleLine = (x) => safeLine((x && x.title) || '') || (isBlank(x) ? BLANK_UNTITLED : '(無題の議事録)');
+// 0.16.0 DX-3（計画 docs/plans/2026-11-04-160.md の決めたこと 49・F145・R103）: データベースの印（会議の種類と長さの代わり）・無題の名前・続きの1行
+const DB_UNTITLED = '無題のデータベース';
+const DB_MORE = '行は NaTsu で見てください（Claude からの絞り込みは 0.18.0 の道具で）';
+const dbLabel = (n) => `データベース（行 ${Number(n) || 0}）`;
+const isDb = (x) => Boolean(x) && x.kind === 'database';
+// 題名の1行（無題は白紙のページなら「無題のページ」・データベースは「無題のデータベース」・議事録は「(無題の議事録)」）
+const titleLine = (x) => safeLine((x && x.title) || '') || (isBlank(x) ? BLANK_UNTITLED : isDb(x) ? DB_UNTITLED : '(無題の議事録)');
 
 // 一覧の1行（決まった欄だけ）。0.15.0 PH-7（決めたこと 34）: place は子ページの場所の文（呼び手が題名を1行にして組んだもの。最上位は ''）。
 // 白紙のページは日付・題名・「白紙のページ」・場所・開いた ToDo・ID だけ（会議の種類・長さ・要約・質・文字起こしの欄は無い）
-function meetingLine(entry, attrs = {}, { place = '' } = {}) {
+function meetingLine(entry, attrs = {}, { place = '', rows = 0 } = {}) {
   const at = place ? [`場所: ${place}`] : [];
+  // 0.16.0 DX-3（決めたこと 49）: データベースは日付・題名・「データベース（行 n）」・場所・ID だけ（rows は呼び手が数えたゴミ箱でない行の数）
+  if (isDb(entry)) return `- ${[dateWithDay(entry.date) || safeLine(String(entry.date || '')), titleLine(entry), dbLabel(rows), ...at, `ID ${entry.id}`].join('｜')}`;
   const blank = isBlank(entry);
   if (blank) return `- ${[dateWithDay(entry.date) || safeLine(String(entry.date || '')), titleLine(entry), BLANK_LABEL, ...at, `開いた ToDo ${Number(entry.openActionCount) || 0}`, `ID ${entry.id}`].join('｜')}`;
   const route = attrs && attrs.route;
@@ -263,13 +270,14 @@ function sortSegs(segments) {
 //   → { text, next }（next は続きの発言の ID か null）。12,000 文字で切るときも、出し終えていない見出しは切った後に出す
 const CUT_NOTE = '（長いので、ここで切りました）';
 const SECTION_RESERVE = 160;   // 後ろの見出しと最初の1行の分
-function propLines(page, place = '') {
+function propLines(page, place = '', dump = null) {
   const lines = [];
   const time = timeOf(page.createdAt);
   const d = dateWithDay(page.date) || safeLine(String(page.date || ''));
   if (d) lines.push(`- 日付: ${d}${time}`);
   const at = place ? [`- 場所: ${place}`] : [];   // 0.15.0 PH-7（決めたこと 34）: 子ページの場所
   if (isBlank(page)) return [...lines, `- ${BLANK_LABEL}`, ...at, `- ID: ${page.id}`, ...linkLine(page.id)];   // 白紙のページは会議の欄を出さない（F116）
+  if (isDb(page)) return [...lines, `- ${dbLabel(dump ? dump.total : 0)}`, ...at, `- ID: ${page.id}`, ...linkLine(page.id)];   // 0.16.0 DX-3: データベースも
   lines.push(`- 長さ: ${clock((Number(page.durationSec) || 0) * 1000)}`);
   lines.push(`- 会議の種類: ${typeLabel(page.meetingType)}`);
   // 0.11.0 T-6（決めたこと 40）: メモの型（種類から決まる。決まらなかった会議は会議の要点）と打ち合わせの質
@@ -316,6 +324,18 @@ function summaryLines(page, subTitle = () => null) {
   else if (out.length === 1) out.push(`要約はまだありません。${typeof page.summaryError === 'string' && page.summaryError.trim() ? `（${safeLine(page.summaryError)}）` : ''}`);
   return out;
 }
+// 0.16.0 DX-3（決めたこと 49・F145・R103）: データベースの「## 列」（1行に「名前（種類）」）と「## 行」（1行に「題名｜列: 値｜…」。空の値の列は出さない）。
+// 行が dump.rows より多ければ続きの1行。どの文字も safeLine（列の名前・選択肢の名前・セルの改行や向きの制御の文字で答えの形を偽らせない: RF77）
+function dbLines(dump) {
+  const d = dump || { total: 0, cols: [], rows: [] };
+  const out = ['## 列', ...d.cols.map((c) => `- ${safeLine(c.name)}（${c.label}）`), '## 行'];
+  for (const r of d.rows) {
+    const vals = r.vals.map(([n, v]) => [safeLine(n), safeLine(v)]).filter((x) => x[1] !== '');
+    out.push(`- ${[safeLine(r.title) || BLANK_UNTITLED, ...vals.map(([n, v]) => `${n}: ${v}`)].join('｜')}`);
+  }
+  if (d.total > d.rows.length) out.push(DB_MORE);
+  return out;
+}
 // 0.11.0 T-6（決めたこと 40）: 要約の後の点の節（軸の名前・点・理由・出典の印）。点が無い・壊れていれば []
 function qualityLinesOf(page) {
   const qv = qualityOf(page.quality);
@@ -334,7 +354,7 @@ function fitLines(lines, budget) {
 }
 // 0.15.0 PH-7（決めたこと 34）: place は子ページの場所の文・subTitle は本文の子ページの行の題名（どちらも呼び手が1行にしたもの）。
 // 白紙のページは頭・「## 本文」だけ（メモと文字起こしは無い: BQ2）
-function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true, place = '', subTitle } = {}) {
+function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true, place = '', subTitle, dump = null } = {}) {
   const segs = sortSegs(Array.isArray(segments) ? segments : []);
   // 0.12.0 SP-4（決めたこと 138）: 文字起こしの行はタイムラインの行（parts のある区間は文ごとの行）。「全 N 発言」と transcript_from は発言のまま
   const rows = timelineItems(segments);
@@ -348,7 +368,8 @@ function meetingMarkdown(page, segments, { includeTranscript = false, from = nul
   if (from) {
     take([...head, `- ID: ${page.id}`, ...linkLine(page.id)].join('\n'));
   } else {
-    take([...head, ...propLines(page, place)].join('\n'));
+    take([...head, ...propLines(page, place, dump)].join('\n'));
+    if (isDb(page)) { take(fitLines(dbLines(dump), left)); return { text: parts.join('\n'), next: null }; }   // 0.16.0 DX-3: データベースは頭・列・行だけ
     if (isBlank(page)) { take(fitLines(summaryLines(page, subTitle), left)); return { text: parts.join('\n'), next: null }; }
     take(fitLines([...summaryLines(page, subTitle), ...qualityLinesOf(page)], left - SECTION_RESERVE * 2));
     take(fitLines(memoLines(page), left - SECTION_RESERVE));
@@ -401,4 +422,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { BLANK_LABEL, BLANK_UNTITLED, isBlank, titleLine, UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { BLANK_LABEL, BLANK_UNTITLED, isBlank, DB_UNTITLED, DB_MORE, dbLabel, isDb, titleLine, UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

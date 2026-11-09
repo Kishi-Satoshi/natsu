@@ -1386,8 +1386,10 @@ const IDS_160 = [
   // 0.16.0 DR-1 で作った行（表の行の順。tb-sub-trash-kids は R98 で tb-sub-keep-kids を改めた）
   'tb-rel-both', 'tb-rel-unlink', 'tb-rel-trash', 'tb-rel-max', 'tb-sub-one-parent', 'tb-sub-cycle', 'tb-sub-trash-kids',
   'tb-search-rows', 'tb-trash-rows',   // 0.16.0 DX-2 で作った行
+  'tb-mcp-db-kind', 'tb-mcp-safe',   // 0.16.0 DX-3 で作った行
   'tb-paste-rows', 'tb-paste-convert',
   'tb-paste-max',
+  'tb-mcp-rows-hidden',   // 0.16.0 DX-3 で作った行
   // 0.16.0 DV-1 で作った行
   'vw-window', 'vw-sig', 'vw-ime', 'vw-focus-keep', 'vw-del-readonly', 'vw-ctrl-d', 'vw-undo-key', 'vw-undo-view',
   // 0.16.0 DV-2 で作った行（vw-paste-grid）と DV-3 で作った行（vw-view-save）と DV-4 で作った行（vw-row-props）。表の行の順
