@@ -1145,3 +1145,15 @@ test('DV-2 直し（2026-11-08 の持ち主の答え「PC の中だけの会議�
     assert.ok(out.actions.every((a) => a.pageId === 'pa1'));
   } finally { t.done(); }
 });
+
+test('DV-3 直し（rv48 F11・R88）: ビューの ID は使い直さない（消したビューの古いリンクがほかのビューを開かない）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const v2 = ok(call(db, 'view.add', { db: d }), 'view.add').view.id;
+  assert.strictEqual(v2, 'v2');
+  ok(call(db, 'view.remove', { db: d, viewId: v2 }), 'view.remove');
+  assert.strictEqual(ok(call(db, 'view.add', { db: d }), 'view.add').view.id, 'v3');
+  // 列を足しても（列と選択肢の数 seq.c・seq.o を書いても）ビューの数は残る
+  ok(call(db, 'view.remove', { db: d, viewId: 'v3' }), 'view.remove');
+  colAdd(db, d, 'text', 'メモ');
+  assert.strictEqual(ok(call(db, 'view.add', { db: d }), 'view.add').view.id, 'v4');
+}));

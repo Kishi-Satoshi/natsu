@@ -1175,7 +1175,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // メールの引数・接頭辞の NFKC・題名の貼り付け・見せる文字の読み（dbModel の写し）・ユーザーの候補の noPrivate（<script> の中だけ。撮る画面の種では見た目は変わらない見込み）。
   // 値を今の app.html に合わせた（前の値は e66e3ebd…）
   // 0.16.0 R87（2026-11-09 の持ち主の答え）: 写すリンクの1行（議事録でないページは「NaTsu の「題名」」。<script> の中だけ）。値を今の app.html に合わせた（前の値は b1227f31…）
-  assert.strictEqual(sha, '292cd7c7d194a8c98fc47a11baaad3049088435d9ef53a13515d5d9284761f57',
+  // 0.16.0 DV-3 直し（rv48・R88・R89）: 設定の窓の NodeList・フォーカスを戻す・タブのキーと1行の CSS（.dbtab の flex: none・nowrap）・暦の mousedown と focusout・
+  // グループの［＋］・［グループ］の窓の 200。変わる画面は db-views-light（タブが縮まず「他 n 件」）と db-filter-light（並べ替えを足した後に絞り込みの窓）。値を今の app.html に合わせた（前の値は 292cd7c7…）
+  assert.strictEqual(sha, '6585989c0613547119d0f2db00a3115b4e5203a3d3417299f769de16f5e4aad3',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

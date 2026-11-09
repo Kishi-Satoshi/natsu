@@ -1423,7 +1423,7 @@ const SEQ_NUM_RE = /^[co](\d{1,9})$/;
 function freshIds(d, cols) {
   const num = (id) => { const m = SEQ_NUM_RE.exec(String(id)); return m ? Number(m[1]) : 0; };
   const was0 = isObj(d.attrs.seq) ? d.attrs.seq : {};
-  const seq = { c: Number.isSafeInteger(was0.c) ? was0.c : 0, o: Number.isSafeInteger(was0.o) ? was0.o : 0 };
+  const seq = { ...was0, c: Number.isSafeInteger(was0.c) ? was0.c : 0, o: Number.isSafeInteger(was0.o) ? was0.o : 0 };   // v（ビューの数: R88）は残す
   for (const c of d.cols) { seq.c = Math.max(seq.c, num(c.id)); for (const o of Array.isArray(c.opts) ? c.opts : []) seq.o = Math.max(seq.o, num(o.id)); }
   const take = (head, id) => { const n = num(id); if (n > seq[head]) { seq[head] = n; return id; } seq[head] += 1; return `${head}${seq[head]}`; };
   const was = new Map(d.cols.map((c) => [c.id, c]));
@@ -1809,9 +1809,11 @@ function checkedView(d, v, keys) {
 function viewAdd(db, a) {
   const d = mustDb(db, a.db);
   if (d.views.length >= LIMITS.dbViews) throw refuse('bad-args');
-  const ids = d.views.map((v) => v.id);
-  let n = 1;
-  while (ids.includes(`v${n}`)) n += 1;
+  // DV-3 直し（rv48 F11・R88）: ビューの ID は使い直さない（消したビューへの古いリンクがほかのビューを開かない）。今までに振った一番大きい数を attrs.seq.v に
+  const was0 = isObj(d.attrs.seq) ? d.attrs.seq : {};
+  let n = Number.isSafeInteger(was0.v) ? was0.v : 0;
+  for (const x of d.views) { const m = /^v(\d{1,9})$/.exec(String(x.id)); if (m) n = Math.max(n, Number(m[1])); }
+  n += 1;
   let v;
   if (a.from !== undefined) {
     const src = viewOf(d, a.from);
@@ -1819,7 +1821,7 @@ function viewAdd(db, a) {
     v = { ...normView(d, src), id: `v${n}`, ...(a.name !== undefined ? { name: a.name } : {}) };
   } else v = DV.defaultView(`v${n}`, a.layout || 'table', d.cols, a.name);
   const view = checkedView(d, v, ['name', 'layout']);
-  return viewsSet(db, d, [...d.views, view], { view });
+  return dbDone(db, d, [dbSet(d, 'views', [...d.views, view]), { op: 'set', id: d.id, key: 'seq', value: { ...was0, v: n }, old: d.attrs.seq }], { view });
 }
 function viewUpdate(db, a) {
   const d = mustDb(db, a.db);

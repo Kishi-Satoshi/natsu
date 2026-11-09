@@ -142,9 +142,25 @@ const OPEN_DB_SELECT = OPEN_DB_AT(`cell(2, 'c2').click();`);
 const OPEN_DB_DATE = OPEN_DB_AT(`cell(0, 'c4').click();`);
 // 0.16.0 DV-3: リスト（開くだけ）・絞り込みの窓（⚙ →［絞り込み］）・グループ（開くだけ）・タブの「他 n 件」と今のタブのメニュー
 const OPEN_DB_PLAIN = OPEN_DB_AT('');
-const OPEN_DB_FILTER = OPEN_DB_AT(`document.querySelector('#pDb .dbsetbtn').click();
-  [...document.querySelectorAll('#pDb .dbmenu .mitem')].find((b) => b.textContent === '絞り込み').click();`);
-const OPEN_DB_VIEWS = OPEN_DB_AT(`document.querySelector('#pDb .dbtab[aria-selected="true"]').click();`);
+// DV-3 直し（rv48 F1・F4・F7・R89）: 本物の Chromium で見る（偽の DOM では見えない NodeList・フォーカス・タブの幅）。崩れていれば投げて「撮れない」の NG にする
+const OPEN_DB_FILTER = OPEN_DB_AT(`const errs = [];
+  window.addEventListener('error', (e) => errs.push(String(e.message)));
+  window.addEventListener('unhandledrejection', (e) => errs.push(String((e.reason && e.reason.message) || e.reason)));
+  const open = (label) => { document.querySelector('#pDb .dbsetbtn').click(); [...document.querySelectorAll('#pDb .dbmenu .mitem')].find((b) => b.textContent === label).click(); };
+  const inPanel = () => Boolean(document.activeElement && document.activeElement.closest('.dbpanel'));
+  open('並べ替え');
+  if (!inPanel()) throw new Error('並べ替えの窓にフォーカスが無い');
+  const add = [...document.querySelectorAll('#pDb .dbpanel button')].find((b) => b.textContent === '並べ替えを足す');
+  add.focus(); add.click();
+  await new Promise((r) => setTimeout(r, 300));
+  if (!inPanel()) throw new Error('並べ替えを足すとフォーカスが窓から外れる');
+  open('絞り込み');
+  await new Promise((r) => setTimeout(r, 100));
+  if (errs.length) throw new Error('画面のエラー: ' + errs.join(' / '));`);
+const OPEN_DB_VIEWS = OPEN_DB_AT(`const shown = [...document.querySelectorAll('#pDb .dbtab')].filter((b) => !b.hidden).map((b) => b.getBoundingClientRect().height);
+  if (Math.max(...shown) > Math.min(...shown) + 1) throw new Error('タブの高さが揃わない（名前が折り返している）: ' + shown.join(','));
+  if (document.querySelector('#pDb .dbtabmore').hidden) throw new Error('入り切らないタブがあるのに「他 n 件」が出ない');
+  document.querySelector('#pDb .dbtab[aria-selected="true"]').click();`);
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
   document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
