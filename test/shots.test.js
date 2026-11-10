@@ -235,7 +235,10 @@ const GONE_SHOTS_151 = ['dictation-light', 'settings-dictation-light', 'history-
 const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-private-menu-light', 'side-private-more-light', 'side-private-zoom200-light',
   'side-row-menu-light', 'side-row-rename-light',   // 0.15.1 PS-3 で行の［···］のメニューと名前を変える欄の2枚を足した
   'library-light', 'library-dark', 'library-zoom200-light', 'library-search-light'];   // 0.15.1 PS-4 でライブラリの4枚を足した
-const RETAKE_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light').map((s) => s.name);
+// 0.15.1 で意図して変えた（版を 0.15.1 に上げる commit。Task G の後半: R56）: 0.15.1 で足した画面と取り直した画面（ADDED_151。前の RETAKE_151: サイドバーの出る app の画面の全部）。
+// 持ち主が見比べ（違いのある 105 枚・新しい 11 枚）に「この見た目でよい（おすすめ）」（2026-11-10）と言ったので、CI run 42752361720（ba0be5a）・artifact 13733319867 の
+// .after.png（116 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
+const ADDED_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light').map((s) => s.name);
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -288,7 +291,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.15.0 PH-3 で意図して変えた: サイドバーの木の明暗と拡大 200% の3枚を足した。PH-4 で白紙のページの明暗の2枚を、PR-2 で子ページの行の明暗の2枚を足した。PH-5・PH-6・PL-3 で足した画面も（版を 0.15.0 に上げる commit で基準にした）
     ...NEW_150].filter((n) => !GONE_SHOTS_151.includes(n)).concat(
     // 0.15.1 PS-2 で意図して変えた: 見出し「プライベート」の畳んだ明暗・［···］のメニュー・［もっと見る］・拡大 200% の5枚を足した（取り直し待ち・まだ基準が無い）。
-    // PS-3 で行の［···］のメニューと名前を変える欄の2枚を、PS-4 でライブラリの4枚を足した
+    // PS-3 で行の［···］のメニューと名前を変える欄の2枚を、PS-4 でライブラリの4枚を足した（版を 0.15.1 に上げる commit で基準にした）
     NEW_151));
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -523,8 +526,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 0.13.2 で意図して変えた: 持ち主が取り直しの見比べ（8 枚）を「この見た目でよい（おすすめ）」と言ったので取り直し待ちを空にし、版を 0.13.2 にした。次の版も、取り直し待ちが残る間は 0.13.2 のまま
 // 0.14.0 で意図して変えた: 持ち主が取り直しの見比べ（32 枚）を「この見た目でよい（おすすめ）」と言ったので取り直し待ちを空にし、版を 0.14.0 にした。次の版も、取り直し待ちが残る間は 0.14.0 のまま
 // 0.15.0 で意図して変えた: 持ち主が取り直しの見比べ（27 枚）を「0.15.0の画面はこの見た目でよいです」と言ったので取り直し待ちを空にし、版を 0.15.0 にした。次の版も、取り直し待ちが残る間は 0.15.0 のまま
+// 0.15.1 で意図して変えた: 持ち主が取り直しの見比べ（116 枚）を「この見た目でよい（おすすめ）」と言ったので取り直し待ちを空にし、版を 0.15.1 にした。次の版も、取り直し待ちが残る間は 0.15.1 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.15.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.15.1', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -765,7 +769,7 @@ test('U-3・G-3: settings-offline-light は基準の PNG と比べる（取り�
 // 0.10.0 で意図して変えた（版を 0.10.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.0 の表の画面（ADDED_100）はどれも計画の表にあり、基準がある
 // 0.10.1 で意図して変えた（版を 0.10.1 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.10.1 の表の画面（ADDED_101）はどれも計画の表にあり、基準がある
 // 0.11.0 で意図して変えた（版を 0.11.0 に上げる commit）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.0 の表の画面（ADDED_110）はどれも計画の表にあり、基準がある
-test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0: 取り直し待ちは無い（0.11.1 のロゴの差し替えの 139 枚と 0.12.0 の 14 枚と 0.12.1 の 10 枚と 0.13.0 の 21 枚と 0.13.1 の 9 枚と 0.13.2 の 8 枚と 0.14.0 の 32 枚と 0.15.0 の 27 枚は基準にした）。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.12.0・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
+test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1: 取り直し待ちは無い（0.11.1 のロゴの差し替えの 139 枚と 0.12.0 の 14 枚と 0.12.1 の 10 枚と 0.13.0 の 21 枚と 0.13.1 の 9 枚と 0.13.2 の 8 枚と 0.14.0 の 32 枚と 0.15.0 の 27 枚と 0.15.1 の 116 枚は基準にした）。どの画面にも基準の PNG があり（0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.12.0・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1 で足した画面も）、本体の画面の大きさは窓の大きさと同じ', { timeout: 5000 }, () => {
   // 0.11.1 LG-2 で意図して変えた: 取り直し待ちは 0.11.1 の表の画面（ファイルの頭の ADDED_LOGO）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
   // 0.11.1 で意図して変えた（版を 0.11.1 に上げる commit。LG-8）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.11.1 の表の画面（ADDED_LOGO）はどれも計画の表にあり、基準がある
   // 0.12.0 SP-4 で意図して変えた: 取り直し待ちは 0.12.0 の表の画面（ファイルの頭の RETAKE_120）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある
@@ -788,12 +792,13 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.15.0 で意図して変えた（版を 0.15.0 に上げる commit。Task G の後半）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.15.0 の表の画面（ADDED_150）はどれも計画の表にあり、基準がある
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・D114）で意図して変えた: 取り直し待ちは RETAKE_151（105 枚）。録音バーとパネル・サイドバーを畳んだ画面は入れない
   // 0.15.1 PS-2 で意図して変えた: 足した5枚（NEW_151）も取り直し待ち（110 枚）
-  assert.deepStrictEqual([...SH.RETAKE], RETAKE_151);
-  assert.strictEqual(RETAKE_151.length, 116);   // 0.15.1 PS-3 で意図して変えた: 足した2枚（行のメニュー・名前を変える欄）も。PS-4 でライブラリの4枚も
+  // 0.15.1 で意図して変えた（版を 0.15.1 に上げる commit。Task G の後半: R56）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.15.1 の画面（ADDED_151）は 116 枚で、どれも基準がある
+  assert.deepStrictEqual([...SH.RETAKE], []);
+  assert.strictEqual(ADDED_151.length, 116);   // 0.15.1 PS-3 で意図して変えた: 足した2枚（行のメニュー・名前を変える欄）も。PS-4 でライブラリの4枚も
   const plan151 = read('docs/plans/2026-11-04-151.md');
   const table151 = plan151.slice(plan151.indexOf('## 取り直す画面（RETAKE）'), plan151.indexOf('\n## ', plan151.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of NEW_151) assert.ok(table151.includes(`\`${n}\``), `0.15.1 の計画の「取り直す画面」の表に ${n} が無い`);
-  assert.ok(!SH.RETAKE.has('notes-collapsed-light') && [...SH.RETAKE].every((n) => SH.SCREENS.find((x) => x.name === n).page === 'app'));
+  assert.ok(!ADDED_151.includes('notes-collapsed-light') && ADDED_151.every((n) => SH.SCREENS.find((x) => x.name === n).page === 'app'));
   const plan150 = read('docs/plans/2026-11-03-150.md');
   const table150 = plan150.slice(plan150.indexOf('## 取り直す画面（RETAKE）'), plan150.indexOf('\n## ', plan150.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of ADDED_150) assert.ok(table150.includes(`\`${n}\``), `0.15.0 の計画の「取り直す画面」の表に ${n} が無い`);
@@ -834,12 +839,11 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   const table093 = plan093.slice(plan093.indexOf('## 取り直す画面（RETAKE）'), plan093.indexOf('## 実機で利用者に見てもらうこと'));
   for (const n of ADDED_093) assert.ok(table093.includes(`\`${n}\``), `0.9.3 の計画の「取り直す画面」の表に ${n} が無い`);
   assert.ok(!SH.RETAKE.has('overlay-processing'), '外した録音バーの画面を取り直し待ちに入れた');
-  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100), ...ADDED_101, ...ADDED_110, ...ADDED_LOGO, ...ADDED_120, ...ADDED_121, ...ADDED_130, ...ADDED_131, ...ADDED_132, ...ADDED_140, ...ADDED_150].filter((n) => !GONE_SHOTS_151.includes(n))) {   // 0.15.1 ND-3: 消した3枚を除く
+  for (const n of [...ADDED_091, ...ADDED_092, ...ADDED_093, ...new Set(ADDED_094), ...new Set(ADDED_100), ...ADDED_101, ...ADDED_110, ...ADDED_LOGO, ...ADDED_120, ...ADDED_121, ...ADDED_130, ...ADDED_131, ...ADDED_132, ...ADDED_140, ...ADDED_150].filter((n) => !GONE_SHOTS_151.includes(n)).concat(ADDED_151)) {   // 0.15.1 ND-3: 消した3枚を除く。0.15.1 の Task G の後半: 0.15.1 の 116 枚も
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
   for (const s of SH.SCREENS) {
-    if (NEW_151.includes(s.name)) continue;   // 0.15.1 で足した画面（取り直し待ち・まだ基準が無い。版を上げる commit で基準にする）
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
@@ -1412,7 +1416,8 @@ test('0.9.3 M-7: パネルの画面は透過の窓で撮る（明暗は onShow �
 });
 
 // ---------------------------------------------------------------- 0.15.1 Task ND-5（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・F154・F157・WQ8）
-test('ND-5: 撮る画面の一覧に音声入力の画面が無く、RETAKE_151 は計画の「取り直す画面」の表とちょうど同じ（消す3枚は無い・新しい 11 枚は NEW_151・ほかはサイドバーの出る app の画面の全部）', { timeout: 5000 }, () => {
+// 0.15.1 で意図して変えた（版を 0.15.1 に上げる commit。Task G の後半: R56）: 取り直し待ちを空に戻したので、表の画面は ADDED_151（前の RETAKE_151）にあり、どれも基準があることを見る
+test('ND-5・0.15.1 Task G: 撮る画面の一覧に音声入力の画面が無く、ADDED_151（前の RETAKE_151）は計画の「取り直す画面」の表とちょうど同じ（消す3枚は無い・新しい 11 枚は NEW_151・ほかはサイドバーの出る app の画面の全部）で、どれも基準がある', { timeout: 5000 }, () => {
   const plan = read('docs/plans/2026-11-04-151.md');
   const at = plan.indexOf('## 取り直す画面（RETAKE）');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
@@ -1425,9 +1430,11 @@ test('ND-5: 撮る画面の一覧に音声入力の画面が無く、RETAKE_151 
   assert.strictEqual(NEW_151.length, 11);
   const names = SH.SCREENS.map((s) => s.name);
   assert.deepStrictEqual(names.filter((n) => /dictation|history-tidy/.test(n) || GONE_SHOTS_151.includes(n)), [], '音声入力の画面が残っている');
-  for (const n of rows.flatMap(namesIn).filter((x) => !gone.includes(x))) assert.ok(SH.RETAKE.has(n), `表の ${n} が取り直し待ちに無い`);
-  assert.deepStrictEqual([...SH.RETAKE], SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light').map((s) => s.name), '取り直し待ちがサイドバーの出る app の画面の全部でない');
-  for (const n of NEW_151) assert.ok(names.includes(n) && !fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n}: 撮る画面に無いか、まだ見てもらっていない基準がある`);
+  for (const n of rows.flatMap(namesIn).filter((x) => !gone.includes(x))) assert.ok(ADDED_151.includes(n), `表の ${n} が 0.15.1 の画面に無い`);
+  assert.deepStrictEqual(ADDED_151, SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light').map((s) => s.name), '0.15.1 の画面がサイドバーの出る app の画面の全部でない');
+  assert.deepStrictEqual([...SH.RETAKE], [], '取り直し待ちが残っている');
+  for (const n of ADDED_151) assert.ok(names.includes(n) && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n}: 撮る画面に無いか、基準が無い`);
+  for (const n of GONE_SHOTS_151) assert.ok(!fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `消した ${n} の基準が残っている`);
 });
 
 test('ND-5・F157: 撮る画面の手順（tools/shots/screens.js）とテストの手順に、前の見出し（#tabBtnNotes）を押す字が無い', { timeout: 5000 }, () => {
@@ -1462,13 +1469,18 @@ test('ND-5・WQ8: 違いの場所の枠（diffRegions: 色の差が TOLERANCE �
   const side = SH.sideArea(1);
   assert.deepStrictEqual(side, { x0: 0, y0: 0, x1: 263, y1: SH.SIZE.height - 1 });
   assert.deepStrictEqual(SH.sideArea(2), { x0: 0, y0: 0, x1: 527, y1: SH.SIZE.height - 1 });
-  const rep = SH.retakeReport([
+  // 0.15.1 Task G の後半（R56）で意図して変えた: 取り直し待ちを空に戻したので、ND-5 のときの取り直し待ち（サイドバーの出る app の画面の全部: ADDED_151）を渡して形を見る。
+  // 今の取り直し待ち（空）では何も書かない
+  const cmp = [
     { name: 'notes-page-light', status: 'diff', count: 10, regions: [{ x0: 10, y0: 700, x1: 200, y1: 760 }] },
     { name: 'settings-light', status: 'diff', count: 99, regions: [{ x0: 10, y0: 10, x1: 20, y1: 20 }, { x0: 600, y0: 300, x1: 700, y1: 310 }] },
     { name: 'notes-page-zoom200-light', status: 'diff', count: 5, regions: [{ x0: 300, y0: 10, x1: 520, y1: 40 }] },
     { name: 'side-row-menu-light', status: 'missing' },
     { name: 'overlay-h-light-rec-100', status: 'same' },
-  ]);
+    { name: 'overlay-h-light-rec-150', status: 'diff', count: 3, regions: [{ x0: 1, y0: 1, x1: 2, y1: 2 }] },
+  ];
+  assert.deepStrictEqual(SH.retakeReport(cmp), [], '取り直し待ちが空なのに一覧に書いた');
+  const rep = SH.retakeReport(cmp, new Set(ADDED_151));
   assert.deepStrictEqual(rep.map((r) => [r.name, r.status, r.onlySide]), [['notes-page-light', 'diff', true], ['settings-light', 'diff', false], ['notes-page-zoom200-light', 'diff', true], ['side-row-menu-light', 'missing', false]],
     '取り直し待ちでない画面を書いた・サイドバーの所だけかを違えた');
   assert.deepStrictEqual(rep[1].regions, [{ x0: 10, y0: 10, x1: 20, y1: 20 }, { x0: 600, y0: 300, x1: 700, y1: 310 }]);

@@ -648,29 +648,11 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // edit-slash-light・edit-slash-dark は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 195 枚）
 // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・D114）: サイドバーの下の［🎤 音声入力］の行が無くなり、［🗑️ ゴミ箱］［⚙️ 設定］が上へ上がるので、
 // サイドバーの出ている app の画面の全部（サイドバーを畳んだ notes-collapsed-light のほか。105 枚）を取り直し待ちにした。録音バーと会議の知らせのパネルは変わらない（WQ1）
-const RETAKE = new Set([
-  'notes-empty-light', 'notes-page-light', 'notes-page-dark', 'settings-light', 'settings-dark', 'notes-tabs-light', 'live-light', 'live-dark', 'notes-page-zoom200-light',
-  'settings-zoom200-dark', 'search-palette-light', 'live-banner-light', 'live-banner-dark', 'live-banner-zoom200-dark', 'settings-record-light', 'settings-search-light',
-  'settings-offline-light', 'live-quiet-light', 'live-quiet-dark', 'settings-quiet-search-light', 'settings-record-dark', 'settings-record-zoom200-light',
-  'settings-summary-light', 'settings-account-light', 'settings-info-loop-light', 'settings-info-stt-dark', 'settings-info-claude-light', 'settings-info-zoom200-light',
-  'settings-info-search-light', 'live-wave-light', 'live-wave-dark', 'live-silent-light', 'live-paused-dark', 'settings-detect-light', 'settings-detect-dark',
-  'live-offline-light', 'live-offline-dark', 'live-late-light', 'live-late-dark', 'live-late-zoom200-light', 'settings-mcp-light', 'settings-info-mcp-light',
-  'page-menu-link-light', 'page-menu-link-dark', 'list-select-light', 'list-select-dark', 'page-summary-lock-light', 'settings-mcp-running-light', 'page-type-light',
-  'page-type-dark', 'page-type-undecided-light', 'live-type-light', 'page-quality-light', 'page-quality-dark', 'settings-quality-light', 'notes-script-spk-light',
-  'live-ready-light', 'live-ready-dark', 'live-ready-zoom200-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light',
-  'edit-types-light', 'edit-types-dark', 'edit-types-zoom150-light', 'edit-nested-light', 'edit-nested-dark', 'edit-nested-zoom200-light', 'edit-toggle-light',
-  'live-banner-signin-light', 'page-pending-light', 'page-pending-running-light', 'edit-marks-light', 'edit-marks-dark', 'edit-toolbar-light', 'edit-link-light',
-  'edit-color-menu-light', 'edit-toolbar-zoom200-light', 'edit-select-light', 'edit-select-dark', 'settings-shortcuts-light', 'memo-blocks-light', 'memo-blocks-dark',
-  'live-memo-blocks-light', 'sidebar-tree-light', 'sidebar-tree-dark', 'sidebar-tree-zoom200-light', 'page-blank-light', 'page-blank-dark', 'page-rows-light',
-  'page-rows-dark', 'crumb-deep-light', 'page-kids-light', 'move-pop-light', 'new-pop-light', 'trash-pop-light', 'icon-pop-light', 'icon-pop-dark', 'look-wide-light',
-  'look-wide-zoom200-light', 'look-small-serif-light', 'look-mono-light', 'page-menu-look-light', 'look-small-zoom200-light',
-  // 0.15.1 PS-2（D124）: 足した5枚（まだ基準が無い）
-  'side-private-folded-light', 'side-private-folded-dark', 'side-private-menu-light', 'side-private-more-light', 'side-private-zoom200-light',
-  // 0.15.1 PS-3（D124）: 足した2枚（まだ基準が無い）
-  'side-row-menu-light', 'side-row-rename-light',
-  // 0.15.1 PS-4（D125）: 足した4枚（まだ基準が無い）
-  'library-light', 'library-dark', 'library-zoom200-light', 'library-search-light',
-]);
+// 0.15.1（版を 0.15.1 に上げる commit。Task G の後半: R56）: 持ち主が取り直しの見比べ（違いのある画面 105 枚: サイドバーの［🎤 音声入力］の行が無くなり、一覧の見出しが
+// 「プライベート」になる・設定の行と ⓘ の吹き出しの文。新しい画面 11 枚: プライベートを畳んだ明暗・［···］のメニュー・もっと見る・拡大 200%・行のメニュー・名前を変える欄・
+// ライブラリの4枚）に「この見た目でよい（おすすめ）」（2026-11-10）と答えたので、CI run 42752361720（ba0be5a）の artifact 13733319867 の .after.png（116 枚）を
+// バイトのまま基準にし、空に戻した（基準は 203 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -1253,10 +1235,11 @@ function sideArea(zoom = 1) {
 /**
  * 取り直し待ちの画面ごとの違いの場所の一覧（CI の成果物 retake-regions.json の中身）: [{ name, status, count, regions, onlySide }]。
  * onlySide はサイドバーの所だけが違うか（基準と同じ画面は書かない。基準の無い画面・大きさの違う画面は偽 = 画像で見てもらう）
+ * 0.15.1 Task G の後半（R56）で意図して変えた: 取り直し待ちの一覧を引数でも渡せる（既定は RETAKE。取り直し待ちを空に戻した後も、テストが決まった一覧で形を見られるように）
  */
-function retakeReport(compare) {
+function retakeReport(compare, retake = RETAKE) {
   const zoomOf = (n) => (SCREENS.find((s) => s.name === n) || {}).zoom || 1;
-  return (compare || []).filter((c) => RETAKE.has(c.name) && c.status !== 'same').map((c) => ({
+  return (compare || []).filter((c) => retake.has(c.name) && c.status !== 'same').map((c) => ({
     name: c.name, status: c.status, count: c.count || 0, regions: c.regions || [],
     onlySide: c.status === 'diff' && onlyIn(c.regions || [], [sideArea(zoomOf(c.name))]),
   }));
