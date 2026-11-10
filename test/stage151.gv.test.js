@@ -338,8 +338,9 @@ const SCENES = {
   devices: () => runG([...G], { FAKE_GPU: 'gpu-devices:60' }),
   lost: () => runG([...G, '--segs=3', '--seg-settle', '--after-retry'], { FAKE_GPU: 'lost-after:2' }),
   baseLost: () => runG([...B, '--segs=3', '--seg-settle', '--after-retry'], { FAKE_GPU: 'lost-after:2' }),
-  down: () => runG([...G, '--segs=2', '--offline'], { FAKE_GPU: 'exit-before-ready' }),
-  baseDown: () => runG([...B, '--segs=2', '--offline'], { FAKE_GPU: 'exit-before-ready' }),
+  // 起動の先読みと会議の始めの先読みが片付いてから次へ進む（--warm-settle。起こした数を時刻で変えない: R51）
+  down: () => runG([...G, '--segs=2', '--offline', '--warm-settle'], { FAKE_GPU: 'exit-before-ready' }),
+  baseDown: () => runG([...B, '--segs=2', '--offline', '--warm-settle'], { FAKE_GPU: 'exit-before-ready' }),
   // 1つ目は中継・2つ目から中継が届かず PC へ（GPU 版が起きない）→ つながると見回りが中継で文字にする（届かない覚えは試しの尺度で短く）
   downBack: () => runG([...G, '--segs=3', '--relay-seq=cnn', '--back-after', '--back-settle'], { FAKE_GPU: 'exit-before-ready', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001' }),
   crashOk: () => runG([...G, '--crash-ok']),
@@ -422,9 +423,15 @@ test('GV-2b・F166・F177: 会議の途中で GPU 版が落ちる（その区間
 test('GV-2b・F166: 起きない GPU 版（区間は音声を残して文字起こし待ち・帯は今の engine-down・起こすのは頼みごとに1回・-ng が無い。つながると中継で文字になる）', ST, async () => {
   const [r, base] = await Promise.all([scene('down'), scene('baseDown')]);
   assert.ok(r.spawns.length >= 1 && r.spawns.every((s) => !s.args.includes('-ng') && path.basename(s.cwd) === 'whisper-1.0.0-vk'), JSON.stringify(r.spawns));
-  // 頼み（区間・復旧の待ち行列ごとの ensureEngineReady と、起動と会議の始めの先読みの 2）ごとに1回まで。自分で回り続けない（G17・VR24）
-  const asks = r.engineLog.filter((l) => /^文字起こしの経路: (区間|復旧) s\d+ → local/.test(l) || l.startsWith('文字起こし待ち: 始めた')).length + 2;
-  assert.ok(r.spawns.length <= asks, `起こした数が頼みの数を越えた: ${r.spawns.length} > ${asks}`);
+  // 頼み（区間・復旧の待ち行列ごとの ensureEngineReady と、起動と会議の始めの先読みの 2）ごとにちょうど1回。同じ待ちの中で起こし直さない・自分で回り続けない（G17・VR24・決めたこと 54）
+  // rv52 の重要 1（R51）で意図して変えた: 「頼みの数 + 2 を越えない」は、先読みが最初の区間の待ちと重なるかで数が 3 か 4 になり、準備の前に落ちたら
+  // 同じ待ちの中で1回起こし直す回帰を半分ほどしか捕まえなかった。--warm-settle で先読みを1つずつ片付けてから進め、数をちょうどで見る（変異 gv-ready-once）
+  const asksOf = (x) => x.engineLog.filter((l) => /^文字起こしの経路: (区間|復旧) s\d+ → local/.test(l) || l.startsWith('文字起こし待ち: 始めた')).length + 2;
+  for (const [k, x] of [['down', r], ['baseDown', base]]) {
+    assert.deepStrictEqual(x.warmSpawns, [1, 2], `${k}: 先読みで起こした数（起動の先読みの後・会議の始めの先読みの後）`);
+    assert.strictEqual(asksOf(x), 5, `${k}: 頼みの数（区間 2・文字起こし待ち 1・先読み 2）: ${JSON.stringify(x.engineLog)}`);
+    assert.strictEqual(x.spawns.length, asksOf(x), `${k}: 起こした数が頼みの数と違う（同じ待ちの中で起こし直した）`);
+  }
   assert.ok(r.sttAt['engine-down'], JSON.stringify(r.sttSeen));
   assert.deepStrictEqual(codes(r), codes(base), '帯が今のエンジンが起きないときと違う');
   assert.deepStrictEqual(r.notices, base.notices, '知らせが今のエンジンが起きないときと違う');

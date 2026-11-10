@@ -105,6 +105,10 @@ const { titleAt } = require('./titles');
 //     --seg-settle  … 0.15.1 GV-2b: 区間（最後を除く）を送るたびに、片付く（meeting:status の pending が 0）のを待ってから 300 ミリ秒置く
 //                     （区間の間が分の単位の本物の会議の形。落ちたエンジンの終わりを main が受けてから次の区間を送る）
 //     --back-settle … 0.15.1 GV-2b: --back-after で、つながった後の見回りの待ち行列が片付くまで 15 秒まで待ってから写す
+//     --warm-settle … 0.15.1 rv52 の直し（R51）: 会議を始める前に起動の先読みの、始めた後に会議の始めの先読みの起こしたエンジンが
+//                     終わる（engine.log の「…が終了しました」の行が起こした数に届き、1 秒の間に新しく起こさない）のを待ち、
+//                     そのときまでに起こした数を out.warmSpawns に [起動の先読みの後, 会議の始めの先読みの後] で残す
+//                     （準備の前に落ちる偽の whisper で、先読みが最初の区間の待ちと重なるかで起こした数を時刻で変えない）
 //     出力に served（fake-whisper の served の行）・engineRootFiles（取り込み先の頭のファイルとフォルダの名前）を足す。--old-set は
 //     out.calcAtStop（記録を止める前の「文字起こしの計算:」の行）も
 //   0.15.1 GV-2b（第9版）: --gpu-state・--driver（reg.exe の偽物）・--gpu-platform・--ng-ok-at-stop と、出力の gpuState・regCalls・gpuStateAtStop・
@@ -648,6 +652,7 @@ const oldConsent = flagVal('--old-consent') || 'yes';
 const win32Flag = flags.includes('--win32') || gpuSet || oldSet;
 const segSettle = flags.includes('--seg-settle');   // 0.15.1 GV-2b（頭の注釈）
 const backSettle = flags.includes('--back-settle');   // 0.15.1 GV-2b（頭の注釈）
+const warmSettle = flags.includes('--warm-settle');   // 0.15.1 rv52 の直し（R51。頭の注釈）
 let autoFetchFn = null;   // --old-set: 起動のときの自動の取り込みの時計（走らせずに覚える）
 const recoverMode = flags.includes('--recover');
 // 0.13.2 LN-1（LR14）: --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えだけを ms 遅らせる（呼んだ印 call を残した後、DB へ渡す前に待つ。
@@ -3404,7 +3409,19 @@ process.on('exit', () => {
   // 待つ文）を録音バーでなく本体の窓の知らせにしたので、DB の用意の前に会議を始めて止めると知らせの数が時間の具合で変わる。場面（scene）と同じく、
   // 始める前に DB の用意（ready・read-only か down）を待つ（--no-db-wait なら待たない。DB の用意の前の会議を試す場合）
   if (!flags.includes('--no-db-wait')) await waitFor(() => !['none', 'starting', 'migrating'].includes(dbState()), 15000);
+  // 0.15.1 rv52 の直し（R51）: 起こしたエンジンが全部終わり、1 秒の間に新しく起こさないまで待つ（先読みの待ちが片付く）
+  const settleWarm = async (min) => {
+    const exits = () => elogLines().filter((l) => l.startsWith('文字起こしエンジンが終了しました')).length;
+    for (let i = 0; i < 20; i++) {
+      await waitFor(() => spawns.length >= min && exits() >= spawns.length, 15000);
+      const n = spawns.length;
+      await sleep(1000);
+      if (spawns.length === n && exits() >= n) return;
+    }
+  };
+  if (warmSettle) { await settleWarm(1); out.warmSpawns = [spawns.length]; }
   out.start = await handlers['meeting:toggle']();
+  if (warmSettle) { await settleWarm(out.warmSpawns[0] + 1); out.warmSpawns.push(spawns.length); }
   if (oldSet && autoFetchFn) { autoFetchFn(); await sleep(50); }   // 0.15.1 GV-2: 記録中に起動のときの自動の取り込みを始める（係は記録が終わるまで待つ）
   // 0.9.0 B-2（--no-whisper-after-start）: 始めた直後に偽のモデルを消す（engineValid(whisperEng) が偽になる）
   if (noWhisperAfterStart) {

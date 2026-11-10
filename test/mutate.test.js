@@ -1426,6 +1426,8 @@ const IDS_151 = [
   'gv-args-same', 'gv-log-state', 'gv-mark-cap', 'gv-crash-noverify', 'gv-hint-bundled',
   // 0.15.1 GV-4
   'gv-help-fallback',
+  // 0.15.1 GV-2b 直し（rv52 の重要 1: R51）
+  'gv-ready-once',
 ];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
@@ -1463,7 +1465,7 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb|gv)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');   // 0.15.1 GV-1 で gv を足した
   const rows = planRows151();
-  assert.strictEqual(rows.length, 105, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 17・gv- 17）が読めない');   // 0.15.1 GV-2b（第9版）で gv- を 23 → 17 に（111 → 105）   // 0.15.1 GV-1 で表の頭に gv を足した（88 → 111: 計画の「変異の表」の gv- の決まり）   // PS-4 直しで lb-press-hold・lb-open-focus・lb-move-back・lb-sel-menu・lb-sort-aria を足した（83 → 88: R44）   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
+  assert.strictEqual(rows.length, 106, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 17・gv- 18）が読めない');   // 0.15.1 GV-2b 直し（rv52 の重要 1: R51）で gv-ready-once を足した（105 → 106）   // 0.15.1 GV-2b（第9版）で gv- を 23 → 17 に（111 → 105）   // 0.15.1 GV-1 で表の頭に gv を足した（88 → 111: 計画の「変異の表」の gv- の決まり）   // PS-4 直しで lb-press-hold・lb-open-focus・lb-move-back・lb-sel-menu・lb-sort-aria を足した（83 → 88: R44）   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');
