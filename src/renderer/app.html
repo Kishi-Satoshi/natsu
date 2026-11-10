@@ -15034,7 +15034,8 @@
       rn.hidden = !st.resumeHint;
       rn.textContent = st.resumeHint ? 'スリープから戻りました。会議の録音は一時停止しています。続けるときは、録音中のページの［再開］を押してください。' : '';
       renderLiveNotes(st);
-      if (!mtTimer) mtTimer = setInterval(() => { const e = $('liveTm'); if (e) e.textContent = mtClock(); renderSttLine(); renderWave(); }, 500);
+      // 0.16.0 の CI 直し（R114）: 時計は字が変わったときだけ書く（同じ字でも書くと文字の節を作り直して 500 ミリ秒ごとに描き直す）
+      if (!mtTimer) mtTimer = setInterval(() => { const e = $('liveTm'); const t = mtClock(); if (e && e.textContent !== t) e.textContent = t; renderSttLine(); renderWave(); }, 500);
       if (started) {
         if (!hasTab('live')) openTabs.push({ key: 'live' });
         activateTab('live');   // 開いていたページを確定して閉じ、記録中の描き方で描く（activateTab → showLive）

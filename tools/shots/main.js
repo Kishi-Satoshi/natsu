@@ -435,62 +435,6 @@ function boot() {
     }
     closeOverlay();
 
-    // ---- 調べもの（R114。live-wave-dark の2枚目だけ角の4画素が違った原因を見る。次の commit で外す）
-    try {
-      const s = SH.SCREENS.find((x) => x.name === 'live-wave-dark');
-      const RECTS = `(() => ['liveTm', 'liveTitle', 'livePauseBtn', 'liveStopBtn', 'meetingLocalOnly'].map((id) => { const e = document.getElementById(id); if (!e) return id + ':-'; const r = e.getBoundingClientRect(); return id + ':' + [r.left, r.top, r.width, r.height].join(','); }).join(' '))()`;
-      const QUIET = `(() => { const e = document.getElementById('liveTm'); const d = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent'); Object.defineProperty(e, 'textContent', { configurable: true, get() { return d.get.call(this); }, set(v) { if (d.get.call(this) !== String(v)) d.set.call(this, v); } }); return 1; })()`;
-      const MUT = `(() => { window.__r114 = []; new MutationObserver((ms) => { for (const m of ms) { const el = m.target.nodeType === 3 ? m.target.parentNode : m.target; window.__r114.push(m.type + ':' + (el.id || el.className || el.tagName) + (m.attributeName ? '@' + m.attributeName : '')); } }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true }); return 1; })()`;
-      const basePath = args.compare ? path.join(args.compare, 'live-wave-dark.png') : '';
-      const base = basePath && fs.existsSync(basePath) ? png.decodePng(fs.readFileSync(basePath)) : null;
-      const raw = async (wc) => png.decodePng((await within(wc.capturePage(), 10000, '撮影')).toPNG());
-      let saved = 0;
-      for (const mode of ['barrier', 'none', 'quiet', 'barrier2']) {
-        let bad = 0;
-        for (let k = 0; k < 10; k++) {
-          const o = await open(s.page, s.theme, Object.assign({}, SH.fixtures(), JSON.parse(JSON.stringify(s.answers || {}))), 1);
-          try {
-            await o.wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: s.motion }] });
-            for (const [name, payload] of s.events || []) o.wc.send(`shots:event:${BRIDGE[s.page]}.${name}`, payload);
-            await settle(o.wc, o.t);
-            await wait(300);
-            await within(o.wc.executeJavaScript(SH.OVERFLOW_PROBE), 10000, 'はみ出し');
-            await within(o.wc.executeJavaScript(MUT), 10000, '見張り');
-            if (mode === 'quiet') await within(o.wc.executeJavaScript(QUIET), 10000, '静か');
-            const takes = [];
-            const rects = [];
-            for (let i = 0; i < 4; i++) {
-              o.wc.invalidate();
-              await settle(o.wc, o.t);
-              await wait(300);
-              rects.push(await within(o.wc.executeJavaScript(RECTS), 10000, '位置'));
-              if (mode === 'none') takes.push(await raw(o.wc));
-              else if (mode === 'barrier2') { await capture(o.wc); takes.push(await capture(o.wc)); }
-              else takes.push(await capture(o.wc));
-            }
-            const notes = takes.slice(1).map((b) => { const d = png.diffImages(takes[0], b, { tolerance: 0 }); return d.same ? 'same' : `${d.count}px${JSON.stringify(d.box)}`; });
-            const vb = base ? png.diffImages(base, takes[0], { tolerance: 0 }) : null;
-            const muts = await within(o.wc.executeJavaScript('window.__r114.join(" ")'), 10000, '見張りを読む');
-            const moved = rects.some((r) => r !== rects[0]);
-            if (notes.some((n) => n !== 'same')) {
-              bad += 1;
-              if (saved < 6) {
-                fs.mkdirSync(args.out, { recursive: true });
-                takes.forEach((im, i) => fs.writeFileSync(path.join(args.out, `r114-${mode}-${k}-${i}.png`), png.encodePng(im)));
-                saved += 1;
-              }
-            }
-            console.log(`参考: 調べ R114 ${mode} ${k}: ${notes.join(' / ')}・基準と ${vb ? (vb.same ? 'same' : `${vb.count}px${JSON.stringify(vb.box)}`) : '-'}・位置 ${moved ? `動いた ${rects.join(' || ')}` : `同じ ${rects[0]}`}・変化 ${muts}`);
-          } finally {
-            tables.delete(o.wc.id);
-            try { o.win.destroy(); } catch (_) { /* もう無い */ }
-          }
-        }
-        console.log(`参考: 調べ R114 ${mode}: 違った窓 ${bad}/10`);
-      }
-    } catch (e) {
-      console.log(`参考: 調べ R114 が止まった: ${msgOf(e)}`);
-    }
     // ---- 録音バーの余白（F11）: 横と縦の記録中と警告を、拡大率 1・1.25・1.5・2 で（基準の画像は 100・150% だけ。ここは測るだけ）
     for (const form of [...new Set(SH.SCREENS.filter((x) => x.pill).map((x) => x.pill.form))]) {
       for (const scale of SH.PANEL_PROBE_SCALES) {

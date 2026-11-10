@@ -317,6 +317,34 @@ test('CLK-3: 一時停止の間は録音中のページの時計を止め（時�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+// 0.16.0 の CI 直し（R114）: 録音中のページの 500 ミリ秒の時限が、同じ字でも #liveTm を書き直していた（文字の節を作り直して描き直す）。
+// Windows の CI の撮る道具で、書き直しのたびに［⏸ 一時停止］の枠の左下の角の4画素が2通りに描かれ、2回撮る間の書き直しの回数が奇数だと
+// live-wave-dark が「揺れる」になった（e1df121 の CI。0b16804 の調べで、書き直しを止めた形だけが 10 窓とも揺れなかった）
+test('R114: 録音中のページの時計は、字が変わったときだけ書く（一時停止の間は書かない・動いている間は1秒に1回）', async () => {
+  const l = await open();
+  await l.drain();
+  const t0 = l.clock.now;
+  l.fire('onMeetingUpdate', ST({ startedAt: t0 - 33_000, paused: true, pausedMs: 0 }));
+  await l.drain();
+  await l.clock.advance(1_000);
+  const el = l.document.getElementById('liveTm');
+  let d = null;
+  for (let o = el; o && !d; o = Object.getPrototypeOf(o)) d = Object.getOwnPropertyDescriptor(o, 'textContent') || null;
+  assert.ok(d && d.set, 'textContent の書き口が無い');
+  let n = 0;
+  Object.defineProperty(el, 'textContent', { configurable: true, get() { return d.get.call(this); }, set(v) { n += 1; d.set.call(this, v); } });
+  await l.clock.advance(5_000);
+  assert.strictEqual(el.textContent, '0:33', '一時停止の間の時計が違う（検査が空振り）');
+  assert.strictEqual(n, 0, '一時停止の間に同じ字を書き直した');
+  l.fire('onMeetingUpdate', ST({ startedAt: t0 - 33_000, paused: false, pausedMs: 6_000 }));
+  await l.drain();
+  n = 0;
+  await l.clock.advance(3_000);
+  assert.strictEqual(el.textContent, '0:36', '再開の後の時計が進まない');
+  assert.strictEqual(n, 3, '動いている間に、字が変わった3回のほかにも書いた');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('RF4: スリープから戻って一時停止のままなら、録音中のページに再開を促す文が出る', async () => {
   const l = await open();
   await l.drain();
