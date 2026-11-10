@@ -37,6 +37,9 @@ const RECENT_MAX = 3;
 // 0.15.0 PR-1（計画 docs/plans/2026-11-03-150.md の決めたこと 43）: 白紙のページの本文の子ページの行（{ id, type: 'subpage', text: '', page }）。
 // 子を持てず、文を持たない。型の表（BLOCK_TYPES・TYPE_KEYS）には入れない（画面の書く命令は作れない・変えられない。作るのはページの命令だけ）
 const SUBPAGE_ROW = Object.freeze({ id: 'subpage', key: 'subpage', label: 'ページ', words: Object.freeze([]), md: Object.freeze([]), kids: false, cite: false, since: '0.15.0' });
+// 0.16.0 DL-1（計画 docs/plans/2026-11-04-160.md の決めたこと 40・R105）: リンクドビューの行（{ id, type: 'dbview', text: '', db, views }）。子ページの行と同じく
+// 子を持てず、文を持たず、型の表に入れない（作るのは block.insertDbView だけ）
+const DBVIEW_ROW = Object.freeze({ id: 'dbview', key: 'dbview', label: 'リンクドビュー', words: Object.freeze([]), md: Object.freeze([]), kids: false, cite: false, since: '0.16.0' });
 const CALLOUT_ICON = '💡';   // EQ15 (a): コールアウトの絵文字は 💡 だけ
 
 const rowById = (id) => MENU_ROWS.find((r) => r.id === id) || null;
@@ -47,6 +50,7 @@ function typeOf(block) {
   const b = block && typeof block === 'object' ? block : {};
   if (b.type === 'heading') return rowById(`${b.toggle === true ? 'th' : 'h'}${headingLevel(b)}`);   // 0.13.1: トグル見出しは th1〜th3
   if (b.type === 'subpage') return SUBPAGE_ROW;   // 0.15.0 PR-1: 子ページの行（子を持てない）
+  if (b.type === 'dbview') return DBVIEW_ROW;   // 0.16.0 DL-1: リンクドビューの行（子を持てない）
   const r = VERSION_ROWS.find((x) => x.key === b.type && x.key !== 'heading');
   return r || rowById('text');
 }
@@ -274,7 +278,7 @@ function lisIndexes(seq) {
 }
 
 module.exports = {
-  BLOCK_TYPES, VERSION_ROWS, MENU_ROWS, MENU_KEYS, TYPE_KEYS, RECENT_MAX, CALLOUT_ICON, SUBPAGE_ROW,
+  BLOCK_TYPES, VERSION_ROWS, MENU_ROWS, MENU_KEYS, TYPE_KEYS, RECENT_MAX, CALLOUT_ICON, SUBPAGE_ROW, DBVIEW_ROW,
   typeOf, isTyped, headingLevel, safeOffset, splitText, splitRich, joinRich,
   shortcutFor, slashQuery, slashFilter, recentAdd, recentCheck,
   nextTypeOnEnter, backspaceAtStart, numberLabels, keyAction, blocksMarkdown, patchPlan,

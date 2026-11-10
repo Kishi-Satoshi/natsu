@@ -21,7 +21,9 @@ const TX_RE = /^[A-Za-z0-9:_.-]{8,120}$/;
 const LIMITS = { blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000, title: 500,
   // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の決めたこと 7・52）: 1つのデータベースの行・列・ビュー・列とビューの設定（データベースのページの attrs）の大きさ・
   // 1回の貼り付けのセル。選択肢（200）・リレーションの行（100）・テキストのセル（10,000 字）は src/dbModel.js の MAX
-  dbRows: 10000, dbCols: 100, dbViews: 20, dbAttrs: 256 * 1024, pasteCells: 2000 };
+  dbRows: 10000, dbCols: 100, dbViews: 20, dbAttrs: 256 * 1024, pasteCells: 2000,
+  // 0.16.0 DL-1（決めたこと 40）: 1つの本文に置けるデータベースの表（インラインとリンクドビュー。速さのため）
+  dbTables: 10 };
 const RESERVED_BLOCK = ['id', 'type', 'text', 'rich', 'children'];
 const RESERVED_PAGE = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];
@@ -142,6 +144,8 @@ function checkPatch(p) {
     else if (k === 'checked') { if (typeof p.checked !== 'boolean') throw bad('patch.checked'); }
     else if (k === 'type') { if (!isBlockType(p.type)) throw bad('patch.type'); }
     else if (k === 'rich') { richText(p.rich); }
+    // 0.16.0 DL-1（決めたこと 39・R113）: 子ページの行の［インラインにする］・［ページの行に変える］（ほかの欄とは一緒に送らない: 命令の中で見る）
+    else if (k === 'inline') { if (typeof p.inline !== 'boolean') throw bad('patch.inline'); }
     else throw bad('patch');
   }
   return normalizeBlock(p);

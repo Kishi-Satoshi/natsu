@@ -427,7 +427,10 @@ function applyOps(db, ops, dir = 'forward') {
 const REVERT_PAGE_KEYS = Object.freeze(['memo', 'memoDoc']);
 // 0.15.0 PR-1（決めたこと 50）: 戻すページ（pageId を渡したときだけ）でない、ほかのページの行の操作か
 const childPage = (o, pageId) => typeof pageId === 'string' && o.id !== pageId;
-const NO_REVERT_BLOCK = Object.freeze(['citeSkip', ...VIEW_KEYS]);
+// 0.16.0 DL-1（決めたこと 47・R113）: リンクドビューの行のビューの並び（views）も見た目の設定（ビューの命令は歩みにしない。行を足した歩みを、後でタブを
+// 変えたからと stale にしない）
+const BLOCK_VIEW_KEYS = Object.freeze([...VIEW_KEYS, 'views']);
+const NO_REVERT_BLOCK = Object.freeze(['citeSkip', ...BLOCK_VIEW_KEYS]);
 function invertOps(ops, { pageId, dbId } = {}) {
   if (!Array.isArray(ops)) throw new Error('invertOps: 操作の列が無い');
   if (typeof dbId === 'string') return invertDbOps(ops, dbId);   // 0.16.0 DS-3（決めたこと 48）: データベースの歩み
@@ -475,7 +478,7 @@ function invertOps(ops, { pageId, dbId } = {}) {
 
 // opsMatch(db, ops) → 各操作の「後の値」が今の行と同じか（並べた操作を前から重ねた形と比べる）。
 // 比べない欄: 見た目だけの欄（VIEW_KEYS。add の行の中の欄も: G1）・短い行の印 citeSkip・ページの行の印と時刻と出典の数（R60）
-const NO_MATCH_VIEW = VIEW_KEYS;
+const NO_MATCH_VIEW = BLOCK_VIEW_KEYS;
 const NO_MATCH_BLOCK = Object.freeze(['citeSkip']);
 const NO_MATCH_PAGE = Object.freeze(['summaryEdited', 'updatedAt', 'citeStat']);
 const skipKey = (isPage, key) => (isPage ? NO_MATCH_PAGE.includes(key) : NO_MATCH_VIEW.includes(key) || NO_MATCH_BLOCK.includes(key));

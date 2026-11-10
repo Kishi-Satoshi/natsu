@@ -101,6 +101,7 @@ const HOT_QUERIES = Object.freeze({
   trashedRowsAt: "select id, trashed_at from blocks where type = 'row' and parent_id = ? and trashed_at = ? order by ord, id",
   dbLastOrd: "select max(ord) as m from blocks where type = 'row' and parent_id = ?",
   dbRow: 'select id, type, parent_id, ord, text, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
+  viewRow: 'select id, type, page_id, attrs, trashed_at from blocks where id = ?',   // 0.16.0 DL-1: リンクドビューの行（置いたページと attrs）
   pageBlocks: 'select id, type, text, rich, attrs, ord, parent_id from blocks where page_id = ? and id <> ? order by ord',
   // 0.15.0 PR-1（HR14）: 白紙のページの本文の並び（行の木の形と、子ページの行の指すページだけ。文・飾り・ほかの欄は読まない）
   bodyRows: "select id, parent_id, ord, type, json_extract(attrs, '$.page') as sub from blocks where page_id = ? and id <> ? order by ord",
@@ -855,7 +856,7 @@ function pasteInto(db, ctx, p, a) {
   const b = l.b;
   const text = RT.plainOf(a.rich);
   // 0.15.0 PR-1（決めたこと 51）: 子ページの行の文には貼らない。PR-2（R31）: 区切り線と同じく、文の無い形（rich が空）なら行のすぐ下へ足す（行はそのまま）
-  if (isSubRow(b) && (text !== '' || a.inside === true)) throw refuse('bad-args');
+  if (isFixedRow(b) && (text !== '' || a.inside === true)) throw refuse('bad-args');   // 0.16.0 DL-1: リンクドビューの行も
   if (!splitAtOk(text, a.at)) throw refuse('bad-args');
   // inside は子の見えている行だけ（R66・TQ3）。0.14.0 の BQ31（2026-10-30 の持ち主の答え「すぐ下（子の先頭）に入れる」）で文の途中も通す（Enter と同じ）。
   // 文のある行の頭は上に足す形（BQ30 (a)）なので inside は断る
@@ -1007,7 +1008,11 @@ function pageMove(db, a, ctx) {
   if (to !== null && rawChainHas(tree.byId, to, a.id)) throw refuse('bad-args');   // PH-2 直し（R13）: 壊れた輪の上の親をたどって自分に戻る所へも動かさない
   if (to !== null && chainThroughRows(db, tree.byId, to, a.id)) throw refuse('bad-args');   // R97: 行を通って自分に戻る所（自分の下のデータベースの行の中）へも動かさない
   // 0.15.0 PR-2 直し（R44・決めたこと 55）: rowAfter（と rowParent）は、同じ白紙のページの子の行を本文のその所へ置く（行の無い子を「このページの中のページ」から引っ張って置く）
-  if (a.rowAfter !== undefined || a.rowParent !== undefined) return placeInBody(db, a, ctx, me, to, tree, toRow);
+  // 0.16.0 DL-1（決めたこと 56・DQ9）: 別の親（最上位・ほかのページの子・議事録の子）からなら、下のふつうの動かしの道で親を替え、新しい親（白紙のページか行）の
+  // 本文の rowAfter・rowParent の所に行を置く（前の白紙の親の本文の行は同じ命令で消える。満杯の白紙のページの本文なら行を置かずに動かす: R33）
+  const cross = (a.rowAfter !== undefined || a.rowParent !== undefined) && me.parentId !== to;
+  if (cross && (a.rowAfter === undefined || a.afterId !== undefined || to === null || !(toRow || isBlankPage(tree.byId.get(to).attrs)))) throw refuse('bad-args');
+  if (!cross && (a.rowAfter !== undefined || a.rowParent !== undefined)) return placeInBody(db, a, ctx, me, to, tree, toRow);
   // 本文を読むのは白紙のページだけ（R97: とデータベースの行。ページの木に無い親は行か無い ID）
   const blank = (id) => id !== null && (tree.byId.has(id) ? isBlankPage(tree.byId.get(id).attrs) : isRowId(db, id));
   // PH-5 直し 2（R56・M-5）: 本文に行のある子を同じ白紙の親へ afterId なしで動かす（［移動先…］で親だけを選ぶ）と、最後の兄弟でも行を本文の最後へ（R54）。
@@ -1026,7 +1031,8 @@ function pageMove(db, a, ctx) {
   const ops = [];
   const sibs = new Set(to === null ? [] : PT.pageTree(others).kids.get(to) || []);
   const hosts = [];
-  const put = (p) => placeSubRow(p, newSubRow(db, ctx, a.id), { afterPage: a.afterId, sibs });
+  const fresh = () => newSubRow(db, ctx, a.id);   // 0.16.0 DL-1（決めたこと 39・56）: 新しい親の行に inline は写さない（ページの行になる）
+  const put = (p) => (cross ? putAtRow(p, fresh(), a.rowAfter, a.rowParent) : placeSubRow(p, fresh(), { afterPage: a.afterId, sibs }));
   const add = (id, list) => { if (list) { ops.push(...list); hosts.push(id); } };
   // PH-6・PH-7 直し（rv29 F1）: 同じ白紙の親の中で、本文の行の並びが変わらない（行がもう置く所にある）なら、見える並び（本文の行の順: HR14）も
   // 変わらないので書かない（行の無い兄弟の後ろ・満杯の本文でも）
@@ -1107,6 +1113,17 @@ function placeInBody(db, a, ctx, me, to, tree, toRow = false) {
   if (!ops) { if (made) throw refuse('too-big'); return { ops: [], pageIds: [], result: listPages(db) }; }
   applyOps(db, ops);
   return { ops, pageIds: [a.id, to], result: listPages(db) };
+}
+// 0.16.0 DL-1（決めたこと 56）: 別の親から来たページの行を、本文の rowAfter の行のすぐ後ろ（'' は頭・rowParent があればその子の頭。block.move と同じ置き場:
+// BT.spotOf）へ。本文に同じページを指す行がもうあれば（前の版の行）、新しく作らずに動かし、inline を外す（同じページを指す行を2つにしない）
+function putAtRow(p, row, rowAfter, rowParent) {
+  const had = subSpot(p.blocks, row.page);
+  let me = row;
+  if (had) { me = had.b; had.list.splice(had.index, 1); delete me.inline; }
+  if (rowAfter !== '' && !BT.locate(p.blocks, rowAfter)) throw refuse('bad-args');
+  const s = BT.spotOf(p.blocks, rowAfter, rowParent);
+  if (!s) throw refuse('bad-args');   // 無い親の行・子を持てない行・親の違う行
+  s.list.splice(s.index, 0, me);
 }
 // PH-2 直し（R13）: start から「そのままの親」（parent_id）をたどって id に着くか（木の部品は輪の行を最上位に並べるので、壊れた輪の上では
 // canMoveUnder が見ない道がある。訪ねた印で止まる）
@@ -1225,6 +1242,13 @@ function trashHeads(db) {
 // 行は { id, type: 'subpage', text: '', page }（page は attrs の欄）。木の正本は子のページの parent_id で、行は「本文のどこに並ぶか」だけ（HR17）。
 // 作る・動かす・戻す・ほかの所で消す命令は、ページの行の操作と本文の行の操作を同じ命令（同じ oplog の1行）に積む（決めたこと 44）
 const isSubRow = (b) => isObj(b) && b.type === 'subpage';
+// 0.16.0 DL-1（決めたこと 40・R105）: リンクドビューの行 { id, type: 'dbview', text: '', db, views }。子ページの行と同じく文と子を持たない（断りは isFixedRow）。
+// 指すのは元のデータベース（attrs.db）で、ページの木には入らない（行を消しても元は何もされない）
+const isViewRow = (b) => isObj(b) && b.type === 'dbview';
+const isFixedRow = (b) => isSubRow(b) || isViewRow(b);
+// 本文に描くデータベースの表（インラインの子ページの行とリンクドビューの行）の数（決めたこと 40: 1つの本文に 10 まで）
+const tablesIn = (blocks) => BT.flattenBlocks(blocks).filter((b) => (isSubRow(b) && b.inline === true) || isViewRow(b)).length;
+const tableRoom = (blocks) => { if (tablesIn(blocks) >= LIMITS.dbTables) throw refuse('too-big'); };
 const isBlankPage = (attrs) => isObj(attrs) && attrs.kind === 'blank';
 // ---------------------------------------------------------------- 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の中の子ページ
 // 行（型 row）は本文を白紙のページと同じ部品で持つので、行の本文の /ページ で行を親にした白紙のページを作れる。そのページと子孫はページの木の外
@@ -1315,7 +1339,7 @@ function placeSubRow(p, row, { placeAt, afterPage, sibs } = {}) {
   if (placeAt !== undefined) {
     const l = BT.locate(p.blocks, placeAt);
     if (l && l.b.type === 'paragraph' && String(l.b.text || '') === '' && !(Array.isArray(l.b.children) && l.b.children.length)) {
-      l.list[l.index] = { id: l.b.id, type: 'subpage', text: '', page: row.page };
+      l.list[l.index] = { id: l.b.id, type: 'subpage', text: '', page: row.page, ...(row.inline === true ? { inline: true } : {}) };   // 0.16.0 DL-1: インラインの行
       return;
     }
     if (l) { l.list.splice(l.index + 1, 0, me); return; }
@@ -1450,15 +1474,25 @@ function bodySubOrder(rows, hostId) {
   for (const r of rows) if (!seen.has(r.id) && r.type === 'subpage' && typeof r.sub === 'string') out.push(r.sub);
   return out;
 }
-// 子ページの行の断り（決めたこと 52・53・59）: 文を持たない・型を変えない・つながない・分けない・写さない
-function noSubRow(b) {
-  if (isSubRow(b)) throw refuse('bad-args');
+// 0.16.0 DL-1（決めたこと 39・R113）: 子ページの行の inline の欄だけを変える（block.update の patch { inline }。ほかの欄と一緒は断る）。行はこのページの子の
+// 生きているデータベースを指す子ページの行だけ（ページの 📄・灰色の行・リンクドビューの行は断る）。入れるときは本文の表を 10 まで（too-big）。false は欄を消す
+function setInline(db, p, b, patch) {
+  if (Object.keys(patch).length !== 1 || !isSubRow(b)) throw refuse('bad-args');
+  const d = dbOf(db, b.page);
+  if (!d || (db.prepare(HOT_QUERIES.dbRow).get(d.id) || {}).parent_id !== p.id) throw refuse('bad-args');
+  if (patch.inline === (b.inline === true)) return true;   // 今と同じ（editPage は書かずに今のページを返す）
+  if (patch.inline) { tableRoom(p.blocks); b.inline = true; } else delete b.inline;
+  return true;
 }
-// 写す行から子ページの行を除く（子孫も。決めたこと 52: 同じページを指す行を2つにしない）
+// 子ページの行の断り（決めたこと 52・53・59）: 文を持たない・型を変えない・つながない・分けない・写さない（0.16.0 DL-1: リンクドビューの行も）
+function noSubRow(b) {
+  if (isFixedRow(b)) throw refuse('bad-args');
+}
+// 写す行から子ページの行を除く（子孫も。決めたこと 52: 同じページを指す行を2つにしない。0.16.0 DL-1: リンクドビューの行も写さない（表の数を増やさない: R113））
 function dropSubRows(list) {
   const out = [];
   for (const b of list) {
-    if (isSubRow(b)) continue;
+    if (isFixedRow(b)) continue;
     if (Array.isArray(b.children)) b.children = dropSubRows(b.children);
     out.push(b);
   }
@@ -1658,11 +1692,15 @@ function relSig(db, d) {
   return parts.join('\n');
 }
 // データベースを作る（決めたこと 1・43。親は一覧に出るページで、データベースでない。白紙のページの中なら本文の最後に子ページの行: page.create と同じ）→ { page, id }
+// 0.16.0 DL-1（決めたこと 39・F141）: inline（/データベース を打った行）があれば、白紙のページの本文のその所に inline: true の子ページの行
+// （placeAt と同じ: 空のテキストの行なら替え、ほかの行ならすぐ下・無ければ本文の最後）。議事録の本文・親の無い inline は断る。本文の表は 10 まで（too-big）。
+// 満杯の本文（2,000 行）なら page.create と同じく行を置かずに作る（R33）
 function dbCreate(db, a, ctx) {
   const rows = pageRowsOf(db);
   const parentId = a.parentId || null;
   const host = parentId === null ? null : rows.find((r) => r.id === parentId);
   if (parentId !== null && (!host || host.trashedAt !== null || isLive(host.attrs) || isDbPage(host.attrs))) throw refuse('bad-args');   // 録音中の写し・ゴミ箱・無い・データベースの中には作らない
+  if (a.inline !== undefined && !(host && isBlankPage(host.attrs))) throw refuse('bad-args');   // 議事録の本文・最上位にはインラインを作らない（BQ3）
   const id = newPageId(db, ctx.now);
   const at = ctx.now();
   const ord = parentId === null ? PT.TOP_ORD : PT.siblingKey(PT.pageTree(rows), new Map(rows.map((r) => [r.id, r.ord])), parentId, undefined);
@@ -1670,7 +1708,11 @@ function dbCreate(db, a, ctx) {
   const page = { id, title: '', kind: 'database', date: localDate(at), memo: '', blocks: [], cols, views: [DV.defaultView('v1', 'table', cols)], nextNo: 1,
     createdAt: at.toISOString(), updatedAt: at.toISOString() };
   const ops = [{ op: 'add', id, row: { ...pageRow(page, { ord }), parent_id: parentId } }];
-  const body = host && isBlankPage(host.attrs) ? bodyOps(db, parentId, ctx, (p) => placeSubRow(p, newSubRow(db, ctx, id))) : null;
+  const inline = a.inline !== undefined;
+  const body = host && isBlankPage(host.attrs) ? bodyOps(db, parentId, ctx, (p) => {
+    if (inline) tableRoom(p.blocks);
+    placeSubRow(p, inline ? { ...newSubRow(db, ctx, id), inline: true } : newSubRow(db, ctx, id), inline ? { placeAt: a.inline } : {});
+  }) : null;
   if (body) ops.push(...body);
   applyOps(db, ops);
   return { ops, pageIds: body ? [id, parentId] : [id], result: { page: readPage(db, id), id } };
@@ -1699,10 +1741,12 @@ function dbDump(db, id, max, nowMs) {
   };
 }
 // データベースの形（列・照らしたビュー・今の行の数。行の数は削除の確かめの文が使う: 決めたこと 44・R36）→ null（無い・ゴミ箱）
-function dbGetOf(db, id) {
+// 0.16.0 DL-1（R105・R113）: linked（リンクドビューの行）があれば views はその行のビュー（元の今の列で照らす）
+function dbGetOf(db, id, linked) {
   const d = dbOf(db, id);
   if (!d) return null;
-  const out = { id, title: d.title, cols: d.cols, views: d.views.map((v) => normView(d, v)), rowCount: db.prepare(HOT_QUERIES.dbRowCount).get(id).c };
+  const views = linked === undefined ? d.views : linkedOf(db, d.id, linked).views;
+  const out = { id, title: d.title, cols: d.cols, views: views.map((v) => normView(d, v)), rowCount: db.prepare(HOT_QUERIES.dbRowCount).get(id).c };
   if (typeof d.attrs.icon === 'string' && d.attrs.icon) out.icon = d.attrs.icon;
   const sub = subOf(d);   // 0.16.0 DR-1 直し2（rv51 I2・R108）: 木にしているときだけ（列が消えている・互いを指していないなら無い）
   if (sub) out.sub = sub;
@@ -1713,7 +1757,9 @@ function dbViewRead(db, a, ctx) {
   if (!Number.isSafeInteger(a.from) || a.from < 0 || !Number.isSafeInteger(a.count) || a.count < 1 || a.count > DB_VIEW_MAX) throw refuse('bad-args');
   const d = dbOf(db, a.id);
   if (!d) return { result: null };
-  const raw = viewOf(d, a.viewId);
+  // 0.16.0 DL-1（R105）: linked（リンクドビューの行）はその行のビューで読み、印にその行のビューの並びを入れる（タブや設定を変えると描き直す: R113）
+  const L = a.linked === undefined ? null : linkedOf(db, d.id, a.linked);
+  const raw = (L ? L.views : d.views).find((v) => v.id === a.viewId);
   if (!raw) throw refuse('bad-args');
   const v = normView(d, raw);
   const stored = db.prepare(HOT_QUERIES.dbRows).all(d.id);
@@ -1733,7 +1779,7 @@ function dbViewRead(db, a, ctx) {
   });
   // DR-1（決めたこと 34）: 返す行のリレーションのセルの相手の題名（ゴミ箱の行・ゴミ箱のデータベースの行は入れない: 値は残る）
   const rel = relTitlesOf(db, rows.flatMap((r) => relIdsIn(d.cols, r.cells, shown)));
-  return { result: { total: out.total, shown: out.shown, rows, groups: out.groups, agg: out.agg, rel, sig: sigOf(d, stored, relSig(db, d)) } };
+  return { result: { total: out.total, shown: out.shown, rows, groups: out.groups, agg: out.agg, rel, sig: sigOf(d, stored, relSig(db, d) + (L ? `\n${L.id}\n${JSON.stringify(L.raw)}` : '')) } };
 }
 
 // 行を足す（決めたこと 24・29: ID の列の番号は nextNo から振って詰めない・作成者は命令の actor・行は 10,000 まで）→ { id, row }
@@ -2223,6 +2269,8 @@ function colSetFmt(db, a) {
 }
 
 // ---- ビュー（決めたこと 15・16。どれも元に戻すの歩みにしない: 決めたこと 47）
+// 0.16.0 DL-1（決めたこと 40・R105）: linked（リンクドビューの行の ID）があれば、その行の attrs.views を書く（元のデータベースのビューは変えない）。
+// 行の照らしと上限・最後の1つ・複製の決まりは元のビューと同じ（viewsOf の1か所）
 function viewsSet(db, d, views, result) { return dbDone(db, d, [dbSet(d, 'views', views)], result); }
 // 照らした写し（patch か新しいビューの、壊れた項目があれば bad-args: 画面の誤りを黙って直さない。前からある壊れた項目は直して残す）
 function checkedView(d, v, keys) {
@@ -2230,47 +2278,111 @@ function checkedView(d, v, keys) {
   if (repaired.some((k) => keys.includes(k))) throw refuse('bad-args');
   return view;
 }
-function viewAdd(db, a) {
+// 置いたページ: 生きている（ゴミ箱でない）白紙のページ（録音中の写しでない）
+function blankHost(db, id) {
+  const r = db.prepare(HOT_QUERIES.pageRow).get(id);
+  if (!r || r.type !== 'page' || (r.trashed_at !== null && r.trashed_at !== undefined)) return false;
+  const attrs = JSON.parse(r.attrs || '{}');
+  return isBlankPage(attrs) && !isLive(attrs);
+}
+// リンクドビューの行 → { id, pageId, raw（保存した値）, views }。行が無い・dbview でない・attrs.db が dbId でない・置いたページがゴミ箱か白紙のページでないなら bad-args
+function linkedOf(db, dbId, linked) {
+  const r = db.prepare(HOT_QUERIES.viewRow).get(linked);
+  if (!r || r.type !== 'dbview' || (r.trashed_at !== null && r.trashed_at !== undefined)) throw refuse('bad-args');
+  const attrs = JSON.parse(r.attrs || '{}');
+  if (attrs.db !== dbId || !blankHost(db, r.page_id)) throw refuse('bad-args');
+  return { id: r.id, pageId: r.page_id, raw: attrs.views, views: Array.isArray(attrs.views) ? attrs.views.filter(isObj) : [] };
+}
+// ビューの持ち主（元のデータベースか、リンクドビューの行）→ { d, L?, views, done(views, result) }
+function viewsOf(db, a) {
   const d = mustDb(db, a.db);
-  if (d.views.length >= LIMITS.dbViews) throw refuse('bad-args');
+  if (a.linked === undefined) return { d, views: d.views, done: (views, result) => viewsSet(db, d, views, result) };
+  const L = linkedOf(db, d.id, a.linked);
+  return { d, L, views: L.views, done: (views, result) => {
+    if (Buffer.byteLength(JSON.stringify(views), 'utf8') > LIMITS.dbAttrs) throw refuse('too-big');
+    const ops = [{ op: 'set', id: L.id, key: 'views', value: views, old: L.raw }];
+    applyOps(db, ops);
+    return { ops, pageIds: [L.pageId], result };
+  } };
+}
+function viewAdd(db, a) {
+  const h = viewsOf(db, a);
+  const d = h.d;
+  if (h.views.length >= LIMITS.dbViews) throw refuse('bad-args');
   // DV-3 直し（rv48 F11・R88）: ビューの ID は使い直さない（消したビューへの古いリンクがほかのビューを開かない）。今までに振った一番大きい数を attrs.seq.v に
-  const was0 = isObj(d.attrs.seq) ? d.attrs.seq : {};
+  // （DL-1: リンクドビューのタブはリンクで選ばないので、行の中の一番大きい数の次: R113）
+  const was0 = !h.L && isObj(d.attrs.seq) ? d.attrs.seq : {};
   let n = Number.isSafeInteger(was0.v) ? was0.v : 0;
-  for (const x of d.views) { const m = /^v(\d{1,9})$/.exec(String(x.id)); if (m) n = Math.max(n, Number(m[1])); }
+  for (const x of h.views) { const m = /^v(\d{1,9})$/.exec(String(x.id)); if (m) n = Math.max(n, Number(m[1])); }
   n += 1;
   let v;
   if (a.from !== undefined) {
-    const src = viewOf(d, a.from);
+    const src = h.views.find((x) => x.id === a.from);
     if (!src || a.layout !== undefined) throw refuse('bad-args');
     v = { ...normView(d, src), id: `v${n}`, ...(a.name !== undefined ? { name: a.name } : {}) };
   } else v = DV.defaultView(`v${n}`, a.layout || 'table', d.cols, a.name);
   const view = checkedView(d, v, ['name', 'layout']);
+  if (h.L) return h.done([...h.views, view], { view });
   return dbDone(db, d, [dbSet(d, 'views', [...d.views, view]), { op: 'set', id: d.id, key: 'seq', value: { ...was0, v: n }, old: d.attrs.seq }], { view });
 }
 function viewUpdate(db, a) {
-  const d = mustDb(db, a.db);
-  const was = viewOf(d, a.viewId);
+  const h = viewsOf(db, a);
+  const was = h.views.find((v) => v.id === a.viewId);
   if (!was) throw refuse('bad-args');
-  const view = checkedView(d, { ...normView(d, was), ...a.patch, id: was.id }, Object.keys(a.patch));
+  const view = checkedView(h.d, { ...normView(h.d, was), ...a.patch, id: was.id }, Object.keys(a.patch));
   if (isDeepStrictEqual(view, was)) return { ops: [], pageIds: [], result: { view } };
-  return viewsSet(db, d, d.views.map((v) => (v.id === was.id ? view : v)), { view });
+  return h.done(h.views.map((v) => (v.id === was.id ? view : v)), { view });
 }
 function viewRemove(db, a) {
-  const d = mustDb(db, a.db);
-  if (!viewOf(d, a.viewId) || d.views.length <= 1) throw refuse('bad-args');   // 最後の1つは消せない（V-T03）
-  return viewsSet(db, d, d.views.filter((v) => v.id !== a.viewId), { removed: a.viewId });
+  const h = viewsOf(db, a);
+  if (!h.views.some((v) => v.id === a.viewId) || h.views.length <= 1) throw refuse('bad-args');   // 最後の1つは消せない（V-T03）
+  return h.done(h.views.filter((v) => v.id !== a.viewId), { removed: a.viewId });
 }
 function viewMove(db, a) {
-  const d = mustDb(db, a.db);
-  const me = viewOf(d, a.viewId);
+  const h = viewsOf(db, a);
+  const me = h.views.find((v) => v.id === a.viewId);
   if (!me) throw refuse('bad-args');
-  const rest = d.views.filter((v) => v.id !== a.viewId);
+  const rest = h.views.filter((v) => v.id !== a.viewId);
   const i = a.after === '' ? 0 : rest.findIndex((v) => v.id === a.after) + 1;
   if (a.after === a.viewId) return { ops: [], pageIds: [], result: { view: me } };
   if (i === 0 && a.after !== '') throw refuse('bad-args');
   rest.splice(i, 0, me);
-  if (isDeepStrictEqual(rest.map((v) => v.id), d.views.map((v) => v.id))) return { ops: [], pageIds: [], result: { view: me } };
-  return viewsSet(db, d, rest, { view: me });
+  if (isDeepStrictEqual(rest.map((v) => v.id), h.views.map((v) => v.id))) return { ops: [], pageIds: [], result: { view: me } };
+  return h.done(rest, { view: me });
+}
+// 0.16.0 DL-1（R105）: データベースの題名（頭の題名の欄。データベースのページ・インライン・リンクドビューのどこからでも）。page.setTitle と同じく題名と
+// 最終更新日時を書き、oplog の page_id はデータベース（元に戻すの歩み bookKey(<データベース>, 'db'): UNDO_CMDS。dbRevert が題名の text を戻す）→ ページ
+function dbSetTitle(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  if (d.title === a.title) return { ops: [], pageIds: [], result: readPage(db, d.id) };
+  const r = db.prepare(HOT_QUERIES.pageRow).get(d.id);
+  const ops = [{ op: 'text', id: d.id, value: a.title, old: d.title }, { op: 'set', id: d.id, key: 'updatedAt', value: ctx.now().toISOString(), old: r.updated_at }];
+  applyOps(db, ops);
+  return { ops, pageIds: [d.id], result: readPage(db, d.id) };
+}
+// 0.16.0 DL-1（決めたこと 40・R105）: /リンクドビュー で本文にリンクドビューの行を置く（1つの命令・本文の歩み: UNDO_CMDS）。from は写す元のビュー（設定の写しで
+// ID は行の中の v1。後で元を変えても変わらない）、無ければ「表」のビュー。afterId は打った行（placeAt と同じ: 空のテキストの行なら替え、ほかはすぐ下・無ければ本文の最後）。
+// 置けるのは生きている白紙のページで、元は生きているデータベースだけ。本文の表は 10 まで（too-big）→ { page, blockId }
+function insertDbView(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  if (!blankHost(db, a.pageId)) throw refuse('bad-args');
+  let view;
+  if (a.from !== undefined) {
+    const src = viewOf(d, a.from);
+    if (!src) throw refuse('bad-args');
+    view = { ...normView(d, src), id: 'v1' };
+  } else view = DV.defaultView('v1', 'table', d.cols);
+  let blockId = newBlockId(db, ctx.now);
+  const out = editPage(db, a.pageId, ctx, (p) => {
+    tableRoom(p.blocks);
+    const row = { id: blockId, type: 'dbview', text: '', db: d.id, views: [view] };
+    const l = a.afterId ? BT.locate(p.blocks, a.afterId) : null;
+    if (l && l.b.type === 'paragraph' && String(l.b.text || '') === '' && !(Array.isArray(l.b.children) && l.b.children.length)) { blockId = l.b.id; l.list[l.index] = { ...row, id: blockId }; }
+    else if (l) l.list.splice(l.index + 1, 0, row);
+    else p.blocks.push(row);
+    pageFits(p, ctx);
+  }, { summary: true });
+  return { ...out, result: out.result ? { page: out.result, blockId } : null };
 }
 
 // ---- 元に戻す（決めたこと 47・48・R31）: データベースの歩み。行の足し引き・セル・列を戻し、戻して書き直した行の最終更新日時と更新者は今の時刻と自分
@@ -2334,6 +2446,13 @@ function dbRevert(db, a, ctx, fwd) {
 // ---- 送り直しの答え（rv42 M3・R59: 1回目と同じ R29 の形を、今の中身と oplog の1行から作り直す。データベースが無ければ null）
 const dupOps = (row) => { try { const l = JSON.parse(row.ops || '[]'); return Array.isArray(l) ? l : []; } catch (_) { return []; } };
 const dupDb = (db, a) => dbOf(db, a.db);
+// 0.16.0 DL-1: ビューの命令の今のビューの並び（linked ならその行の。行が無ければ null）
+function dupViews(db, a) {
+  const d = dupDb(db, a);
+  if (!d) return null;
+  if (a.linked === undefined) return d.views;
+  try { return linkedOf(db, d.id, a.linked).views; } catch (_) { return null; }
+}
 const dupCol = (db, a) => { const d = dupDb(db, a); const col = d ? colIn(d.cols, a.col) : null; return col ? { col } : null; };
 // 1回目に足した物（列・ビュー）の ID: oplog の set の前と後の並びで、後にだけある ID
 function dupNewId(row, key) {
@@ -2357,8 +2476,8 @@ const DUP = {
     return got ? { ...got, emptied: dupOps(row).filter((o) => o && o.op === 'set' && o.key === `cell:${a.col}` && (o.value === undefined || o.value === null)).length } : null;
   },
   'col.purge': (db, a) => ({ purged: a.col }),
-  'view.add': (db, a, row) => { const d = dupDb(db, a); const id = dupNewId(row, 'views'); const v = d && id ? viewOf(d, id) : null; return v ? { view: v } : null; },
-  'view.one': (db, a) => { const d = dupDb(db, a); const v = d ? viewOf(d, a.viewId) : null; return v ? { view: v } : null; },
+  'view.add': (db, a, row) => { const vs = dupViews(db, a); const id = dupNewId(row, 'views'); const v = vs && id ? vs.find((x) => x.id === id) : null; return v ? { view: v } : null; },
+  'view.one': (db, a) => { const vs = dupViews(db, a); const v = vs ? vs.find((x) => x.id === a.viewId) : null; return v ? { view: v } : null; },
   'view.remove': (db, a) => ({ removed: a.viewId }),
   'row.move': (db, a) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); return r ? { row: rowView(r) } : null; },
   'rows.setCell': (db, a, row) => ({ changed: new Set(dupOps(row).filter((o) => o && (o.op === 'text' || (o.op === 'set' && String(o.key).startsWith('cell:')))).map((o) => o.id)).size }),
@@ -2468,6 +2587,7 @@ const DEFS = {
       const l = BT.locate(p.blocks, a.blockId);
       if (!l) return false;
       const b = l.b;
+      if (a.patch.inline !== undefined) return setInline(db, p, b, a.patch);   // 0.16.0 DL-1（決めたこと 39・R113）: ［インラインにする］・［ページの行に変える］
       noSubRow(b);   // 0.15.0 PR-1（決めたこと 59）: 子ページの行は文・チェック・型を持たない（前の版の画面の命令も断る）
       const patch = a.patch;
       // 0.14.0 EB-2（決めたこと 16）: 飾りのある行に文だけの直しは断る（黙って飾りを捨てない・ずらさない。画面はいつも rich を送る）
@@ -2650,7 +2770,7 @@ const DEFS = {
         }
         const b = l.b;
         const prev = pl.b;
-        if (isSubRow(prev)) throw refuse('bad-args');   // 0.15.0 PR-1（決めたこと 53・HR18）: 子ページの行はつなぐ先にもしない（画面は子ページの行を選ぶ）
+        if (isFixedRow(prev)) throw refuse('bad-args');   // 0.15.0 PR-1（決めたこと 53・HR18）: 子ページの行はつなぐ先にもしない（画面は子ページの行を選ぶ）
         if (a.rich !== undefined && RT.plainOf(a.rich) !== a.text) throw refuse('bad-args');
         if (a.rich !== undefined) putRich(b, a.rich);   // つなぐ今の行の飾り（画面の今の形）
         if (prev.type === 'divider') { pl.list.splice(pl.index, 1); retext(b, a.text); return true; }
@@ -2762,9 +2882,9 @@ const DEFS = {
     run: (db, a, ctx) => editPage(db, a.pageId, ctx, (p) => {
       // 0.15.0 PR-1 直し（R37・決めたこと 43）: 子ページの行は色（飾り）を持たない。子ページの行だけなら断り、ほかの行と一緒なら除く（複製と同じ）
       const tops = pickRoots(p.blocks, a.ids);
-      if (tops.every(isSubRow)) throw refuse('bad-args');
+      if (tops.every(isFixedRow)) throw refuse('bad-args');   // 0.16.0 DL-1: リンクドビューの行も
       for (const top of tops) {
-        for (const x of BT.flattenBlocks([top])) { if (isSubRow(x)) continue; if (a.color) x.color = a.color; else delete x.color; }
+        for (const x of BT.flattenBlocks([top])) { if (isFixedRow(x)) continue; if (a.color) x.color = a.color; else delete x.color; }
       }
     }, { summary: true }),
     dupResult: reread },
@@ -2894,14 +3014,22 @@ const DEFS = {
     run: segmentRemove, dupResult: resegments },
 
   // ---- 0.16.0 DS-3: データベース・行・列・ビュー（どれも役 app だけ。oplog の page_id はデータベース: 元に戻すの列はデータベースの歩み）
-  'db.create': { roles: ['app'], write: true, args: { parentId: 'id?' }, pageOf: () => null,
+  'db.create': { roles: ['app'], write: true, args: { parentId: 'id?', inline: 'id?' }, pageOf: () => null,
     run: dbCreate,
     dupResult: (db, _a, row) => {
       const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type === 'page');
       return add ? { page: readPage(db, add.id), id: add.id } : null;
     } },
-  'db.get': { roles: ['app'], write: false, args: { id: 'id' }, run: (db, a) => ({ result: dbGetOf(db, a.id) }) },
-  'db.view': { roles: ['app'], write: false, args: { id: 'id', viewId: 'id', from: 'int', count: 'int', q: 'short?', open: 'ids?' }, run: dbViewRead },
+  'db.get': { roles: ['app'], write: false, args: { id: 'id', linked: 'id?' }, run: (db, a) => ({ result: dbGetOf(db, a.id, a.linked) }) },
+  'db.view': { roles: ['app'], write: false, args: { id: 'id', viewId: 'id', from: 'int', count: 'int', q: 'short?', open: 'ids?', linked: 'id?' }, run: dbViewRead },
+  // 0.16.0 DL-1（決めたこと 40・R105）: リンクドビューの行を置く（本文の歩み）・データベースの題名（データベースの歩み）
+  'block.insertDbView': { roles: ['app'], write: true, args: { pageId: 'id', afterId: 'idOrEmpty', db: 'id', from: 'id?' }, run: insertDbView,
+    dupResult: (db, a, row) => {
+      const page = readPage(db, a.pageId);
+      const o = dupOps(row).find((x) => x && ((x.op === 'add' && isObj(x.row) && x.row.type === 'dbview') || (x.op === 'retype' && x.value === 'dbview')));
+      return page ? { page, blockId: o ? o.id : null } : null;
+    } },
+  'db.setTitle': { roles: ['app'], write: true, args: { db: 'id', title: 'title' }, pageOf: dbOfArgs, run: dbSetTitle, dupResult: (db, a) => readPage(db, a.db) },
   // 0.16.0 DR-1（決めたこと 33〜38・R98）: リレーションの行を足す・外す・サブアイテムを入れる・外す（データベースの歩み）・つなぐ先の行を探す（読む）
   'rel.link': { roles: ['app'], write: true, args: { db: 'id', id: 'id', col: 'id', ids: 'ids', title: 'title?' }, pageOf: dbOfArgs, run: (db, a, ctx) => relEdit(db, a, ctx, true),
     dupResult: (db, a, row) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); const c = r ? JSON.parse(r.attrs || '{}').cells : null; const add = dupOps(row).find((o) => o && o.op === 'add'); return r ? { cell: (isObj(c) && c[a.col]) || [], ...(add ? { added: add.id } : {}) } : null; } },
@@ -2937,10 +3065,10 @@ const DEFS = {
   'col.purge': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colPurge, dupResult: DUP['col.purge'] },
   'col.setOpts': { roles: ['app'], write: true, args: { db: 'id', col: 'id', opts: 'optsArg', groups: 'groupsArg?' }, pageOf: dbOfArgs, run: colSetOpts, dupResult: dupCol },
   'col.setFmt': { roles: ['app'], write: true, args: { db: 'id', col: 'id', fmt: 'short?', prefix: 'short?' }, pageOf: dbOfArgs, run: colSetFmt, dupResult: dupCol },
-  'view.add': { roles: ['app'], write: true, args: { db: 'id', layout: 'layout?', name: 'short?', from: 'id?' }, pageOf: dbOfArgs, run: viewAdd, dupResult: DUP['view.add'] },
-  'view.update': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', patch: 'viewPatch' }, pageOf: dbOfArgs, run: viewUpdate, dupResult: DUP['view.one'] },
-  'view.remove': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id' }, pageOf: dbOfArgs, run: viewRemove, dupResult: DUP['view.remove'] },
-  'view.move': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: viewMove, dupResult: DUP['view.one'] },
+  'view.add': { roles: ['app'], write: true, args: { db: 'id', layout: 'layout?', name: 'short?', from: 'id?', linked: 'id?' }, pageOf: dbOfArgs, run: viewAdd, dupResult: DUP['view.add'] },
+  'view.update': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', patch: 'viewPatch', linked: 'id?' }, pageOf: dbOfArgs, run: viewUpdate, dupResult: DUP['view.one'] },
+  'view.remove': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', linked: 'id?' }, pageOf: dbOfArgs, run: viewRemove, dupResult: DUP['view.remove'] },
+  'view.move': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', after: 'idOrEmpty', linked: 'id?' }, pageOf: dbOfArgs, run: viewMove, dupResult: DUP['view.one'] },
 };
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),

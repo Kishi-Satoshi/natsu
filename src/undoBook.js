@@ -15,6 +15,8 @@ const UNDO_CMDS = new Set([
   'col.add', 'col.rename', 'col.setType', 'col.move', 'col.remove', 'col.restore', 'col.setOpts', 'col.setFmt',
   // 0.16.0 DR-1（決めたこと 47）: リレーションの行を足す・外す・サブアイテムを入れる・外す
   'rel.link', 'rel.unlink', 'db.setSub',
+  // 0.16.0 DL-1（決めたこと 40・R105）: リンクドビューの行を置く（本文の歩み）・データベースの題名（データベースの歩み）
+  'block.insertDbView', 'db.setTitle',
 ]);
 const UNDO_MAX = 100;          // 1つの列の歩みの数（古いものから捨てる）
 const TYPE_PAUSE_MS = 2000;    // 打つ手がこれだけ止まったら保存する（1回の保存が1歩。決めたこと 8）

@@ -25,7 +25,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.16.0 DV-2（R63）: 種類を変える前に、読めずに空になるセルの数を見る読む命令（58）
   'col.typeCheck',
   // 0.16.0 DR-1（決めたこと 33〜38・R98）: リレーションの行を足す・外す・サブアイテム・つなぐ先の行を探す（62）
-  'rel.link', 'rel.unlink', 'db.setSub', 'rel.find']);
+  'rel.link', 'rel.unlink', 'db.setSub', 'rel.find',
+  // 0.16.0 DL-1（決めたこと 39・40・R105）: リンクドビューの行を置く・データベースの題名（64）
+  'block.insertDbView', 'db.setTitle']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -35,12 +37,15 @@ const UNDO_CMDS = new Set([
   'row.add', 'row.setCell', 'rows.setCell', 'rows.paste', 'row.move', 'rows.trash',
   'col.add', 'col.rename', 'col.setType', 'col.move', 'col.remove', 'col.restore', 'col.setOpts', 'col.setFmt',
   'rel.link', 'rel.unlink', 'db.setSub',   // 0.16.0 DR-1（決めたこと 47）
+  // 0.16.0 DL-1（決めたこと 40・R105）: リンクドビューの行を置く（本文の歩み）・データベースの題名（データベースの歩み）
+  'block.insertDbView', 'db.setTitle',
 ]);
 const editSteps = [];
 function editStep(req) {
   const a = req.args || {};
   // 0.16.0 DS-3（決めたこと 47）: データベースの表の命令は、行の ID でなくデータベース（args.db）の歩み
-  const step = { cmd: req.cmd, pageId: typeof a.db === 'string' ? a.db : typeof a.pageId === 'string' ? a.pageId : a.id, step: req.tx };
+  // 0.16.0 DL-1（R105）: 本文の命令（args.pageId）は db を持っていても本文の歩み（block.insertDbView は元のデータベースを args.db に持つ）
+  const step = { cmd: req.cmd, pageId: typeof a.pageId === 'string' ? a.pageId : typeof a.db === 'string' ? a.db : a.id, step: req.tx };
   for (const cb of editSteps) { try { cb(step); } catch (_) { /* 画面の受け口の誤りで答えを止めない */ } }
 }
 const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash', 'db.get', 'db.view', 'col.typeCheck', 'rel.find']);
@@ -238,9 +243,13 @@ contextBridge.exposeInMainWorld('koeApp', {
   // PL-2 直し（R75・rv33 M4）: 文字でない値も '' に替えずにそのまま送り、DB が bad-args で断る（画面の誤りでアイコンが黙って外れない）
   // 0.16.0 DS-3（決めたこと 1〜32・47）: データベース（作る・形・表の見える分）・行・列・ビュー。表の命令は元に戻すの歩み（onEditStep の pageId はデータベース）、
   // ビューの命令と［完全に消す］は歩みにしない。どれも引数をそのまま送り、DB が照らす（無い引数は送らない）
-  dbCreate: (parentId) => dbCall('db.create', parentId ? { parentId } : {}),
-  dbGet: (id) => dbCall('db.get', { id }),
-  dbView: (id, viewId, from, count, q, open) => dbCall('db.view', { id, viewId, from, count, ...(q ? { q } : {}), ...(Array.isArray(open) && open.length ? { open } : {}) }),   // 0.16.0 DR-1: open は開いたサブアイテムの行
+  // 0.16.0 DL-1（決めたこと 39・40・R105）: inline は /データベース を打った行（白紙のページの本文の表）。linked はリンクドビューの行（その行のビューを読む・書く。
+  // 元のデータベースのビューは変えない）。blockInsertDbView は /リンクドビュー（本文の歩み）、dbSetTitle はデータベースの題名（データベースの歩み）
+  dbCreate: (parentId, inline) => dbCall('db.create', { ...(parentId ? { parentId } : {}), ...(inline ? { inline } : {}) }),
+  dbGet: (id, linked) => dbCall('db.get', { id, ...(linked ? { linked } : {}) }),
+  dbView: (id, viewId, from, count, q, open, linked) => dbCall('db.view', { id, viewId, from, count, ...(q ? { q } : {}), ...(Array.isArray(open) && open.length ? { open } : {}), ...(linked ? { linked } : {}) }),   // 0.16.0 DR-1: open は開いたサブアイテムの行
+  blockInsertDbView: (pageId, afterId, db, from) => dbCall('block.insertDbView', { pageId, afterId, db, ...(from ? { from } : {}) }),
+  dbSetTitle: (db, title) => dbCall('db.setTitle', { db, title }),
   rowAdd: (db, { afterId, cells, title } = {}) => dbCall('row.add', { db, ...(afterId === undefined ? {} : { afterId }), ...(cells ? { cells } : {}), ...(title ? { title } : {}) }),
   rowSetCell: (db, id, col, value) => dbCall('row.setCell', { db, id, col, value }),
   rowsSetCell: (db, ids, col, value) => dbCall('rows.setCell', { db, ids, col, value }),
@@ -262,10 +271,10 @@ contextBridge.exposeInMainWorld('koeApp', {
   colPurge: (db, col) => dbCall('col.purge', { db, col }),
   colSetOpts: (db, col, opts, groups) => dbCall('col.setOpts', { db, col, opts, ...(groups ? { groups } : {}) }),
   colSetFmt: (db, col, { fmt, prefix } = {}) => dbCall('col.setFmt', { db, col, ...(fmt === undefined ? {} : { fmt }), ...(prefix === undefined ? {} : { prefix }) }),
-  viewAdd: (db, { layout, name, from } = {}) => dbCall('view.add', { db, ...(layout ? { layout } : {}), ...(name ? { name } : {}), ...(from ? { from } : {}) }),
-  viewUpdate: (db, viewId, patch) => dbCall('view.update', { db, viewId, patch }),
-  viewRemove: (db, viewId) => dbCall('view.remove', { db, viewId }),
-  viewMove: (db, viewId, after) => dbCall('view.move', { db, viewId, after }),
+  viewAdd: (db, { layout, name, from, linked } = {}) => dbCall('view.add', { db, ...(layout ? { layout } : {}), ...(name ? { name } : {}), ...(from ? { from } : {}), ...(linked ? { linked } : {}) }),
+  viewUpdate: (db, viewId, patch, linked) => dbCall('view.update', { db, viewId, patch, ...(linked ? { linked } : {}) }),
+  viewRemove: (db, viewId, linked) => dbCall('view.remove', { db, viewId, ...(linked ? { linked } : {}) }),
+  viewMove: (db, viewId, after, linked) => dbCall('view.move', { db, viewId, after, ...(linked ? { linked } : {}) }),
   pageSetIcon: (id, icon) => dbCall('page.setIcon', { id, icon }),
   pageSetLook: (id, look) => dbCall('page.setLook', { id, look }),
   pageSetTitle: (id, title) => dbCall('page.setTitle', { id, title }),

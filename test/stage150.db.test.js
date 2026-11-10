@@ -381,9 +381,10 @@ function loadPreload() {
 // 0.16.0 DS-3（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」）で意図して直した: データベース・行・列・ビューの 22 の命令を足して 57（照らしは同じ）
 // 0.16.0 DV-2（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」・R63）で意図して直した: 種類を変える前に数を見る読む命令 col.typeCheck を足して 58（照らしは同じ）
 // 0.16.0 DR-1（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」・R99）で意図して直した: リレーションとサブアイテムの命令 rel.link・rel.unlink・db.setSub・rel.find を足して 62（照らしは今の役 app の命令と同じ集まり）
+// 0.16.0 DL-1 (1)（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」・R105・R111）で意図して直した: リンクドビューの行を置く block.insertDbView とデータベースの題名 db.setTitle を足して 64（照らしは今の役 app の命令と同じ集まり）
 test('PH-2: preload の 58 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 62);
+  assert.strictEqual(names.length, 64);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   for (const cmd of ['page.create', 'page.move', 'page.restore', 'pages.trash']) assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd);
   assert.strictEqual(core.COMMANDS['pages.trash'].write, false);
@@ -1205,11 +1206,12 @@ test('PR-2 直し・R44（決めたこと 55）: page.move の rowAfter・rowPar
   assert.deepStrictEqual(kidsInList(db, P), [K1, K2]);
   sameTree(db);
   // 断り（何も変えない）
-  const Q = create(db); const KQ = create(db, Q); const KM = create(db, 'pa1');
+  const KM = create(db, 'pa1');
   const div = insert(db, P, tg, 'divider');
   const was = dump(db);
   const bad = (args, what) => { const x = call(db, 'page.move', args); assert.strictEqual(x.code, 'bad-args', `${what}: ${x.code}`); };
-  bad({ id: KQ, parentId: P, rowAfter: r1 }, '違う親の子');
+  // 0.16.0 DL-1 (1)（計画 docs/plans/2026-11-04-160.md の決めたこと 56・DQ9・「意図して変えるテスト」）で意図して直した: 違う親の子の rowAfter は親を替えて行を置く（test/stage160.db.test.js の DL-1・F146）。
+  // 議事録・最上位・無い行などの断りは今のまま
   bad({ id: KM, parentId: 'pa1', rowAfter: '' }, '議事録の中');
   bad({ id: K2, parentId: '', rowAfter: '' }, '最上位');
   bad({ id: K2, parentId: P, rowAfter: 'bnothere1' }, '無い行');

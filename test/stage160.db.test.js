@@ -1828,3 +1828,410 @@ test('DX-2・決めたこと 7: 行を戻すと 10,000 行を越えるまとま�
   assert.strictEqual(call(db, 'page.restore', { id: a }).code, 'too-big', '1万1行目を戻した');
   assert.ok(db.prepare('select trashed_at from blocks where id = ?').get(a).trashed_at, '戻した');
 }));
+
+// ================================================================ 0.16.0 DL-1 (1)（計画の Task DL-1・決めたこと 39・40・47・56・R105・R111）: データベースの命令
+// インラインのデータベース（db.create の inline）・リンクドビュー（block.insertDbView・view.* と db.view と db.get の linked）・db.setTitle・
+// 別の親からの page.move の rowAfter・rowParent・dbview の行を前の版の描き方で描く（RF17）。画面は DL-1 (2)
+const blankWith = (db, texts) => {
+  const P = ok(call(db, 'page.create', {}), 'page.create').id;
+  const ids = [];
+  for (const t of texts) {
+    const b = ok(call(db, 'block.insert', { pageId: P, afterBlockId: ids.length ? ids[ids.length - 1] : '', type: 'paragraph' }), 'block.insert').blockId;
+    if (t) ok(call(db, 'block.update', { pageId: P, blockId: b, patch: { text: t } }), 'block.update');
+    ids.push(b);
+  }
+  return { P, ids };
+};
+const bodyOf160 = (db, id) => ok(call(db, 'page.get', { id }), 'page.get').page.blocks;
+const flat160 = (list) => list.flatMap((b) => [b, ...flat160(b.children || [])]);
+const shape160 = (db, id) => flat160(bodyOf160(db, id)).map((b) => (b.type === 'subpage' ? `📄${b.page}${b.inline ? '*' : ''}` : b.type === 'dbview' ? `🔗${b.db}` : b.text));
+const pageRaw = (db, id) => db.prepare('select id, parent_id, text, trashed_at from blocks where id = ?').get(id);
+const dbViewsRaw = (db, id) => JSON.stringify(attrsOf(db, id).views);
+const linkOf = (db, P, D, from, afterId = '') => ok(call(db, 'block.insertDbView', { pageId: P, afterId, db: D, ...(from ? { from } : {}) }), 'block.insertDbView');
+const linkedId = (db, P) => flat160(bodyOf160(db, P)).filter((b) => b.type === 'dbview').map((b) => b.id);
+
+test('DL-1・F141: /データベース → db.create(親, 打った行) で、白紙のページの本文に inline: true の子ページの行（空の打った行は替え・文のある行はすぐ下）・データベースの parent_id は親・oplog は1行。議事録の本文・親の無い inline は bad-args（何も変えない）', T, () => withDb((db) => {
+  const { P, ids: [b1, b2] } = blankWith(db, ['まえ', '']);
+  const n0 = oplogN(db);
+  const D1 = ok(call(db, 'db.create', { parentId: P, inline: b2 }), 'db.create').id;
+  assert.strictEqual(oplogN(db), n0 + 1, 'oplog は1行');
+  assert.strictEqual(pageRaw(db, D1).parent_id, P);
+  assert.deepStrictEqual(shape160(db, P), ['まえ', `📄${D1}*`], '空の打った行を inline の行に替えない');
+  assert.strictEqual(flat160(bodyOf160(db, P))[1].id, b2, '打った行と同じ ID でない');
+  const D2 = ok(call(db, 'db.create', { parentId: P, inline: b1 }), 'db.create').id;
+  assert.deepStrictEqual(shape160(db, P), ['まえ', `📄${D2}*`, `📄${D1}*`], '文のある打った行のすぐ下に置かない');
+  // 打った行の無い親の中（今どおり本文の最後に inline の無い行）
+  const D3 = ok(call(db, 'db.create', { parentId: P }), 'db.create').id;
+  assert.deepStrictEqual(shape160(db, P).slice(-1), [`📄${D3}`]);
+  const was = dump(db);
+  assert.strictEqual(code(call(db, 'db.create', { parentId: 'pa1', inline: 'bnothere1' })), 'bad-args', '議事録の本文にインラインを作れた');
+  assert.strictEqual(code(call(db, 'db.create', { inline: b1 })), 'bad-args', '親の無いインライン');
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+}));
+
+test('DL-1・F141: インラインの行を消すとデータベースもゴミ箱へ・Ctrl+Z で戻る（inline のまま）。［ページの行に変える］／［インラインにする］は block.update の inline の欄だけ（ほかの欄と一緒・データベースでない子ページの行・灰色の行は bad-args）', T, () => withDb((db) => {
+  const { P, ids: [b1] } = blankWith(db, ['まえ']);
+  const D = ok(call(db, 'db.create', { parentId: P, inline: b1 }), 'db.create').id;
+  const row = flat160(bodyOf160(db, P)).find((b) => b.page === D).id;
+  const del = callTx(db, 'block.remove', { pageId: P, blockId: row });
+  ok(del.r, 'block.remove');
+  assert.ok(pageRaw(db, D).trashed_at, 'インラインの行を消してもデータベースがゴミ箱に入らない');
+  ok(revert(db, P, [del.tx]).r, 'edit.revert');
+  assert.strictEqual(pageRaw(db, D).trashed_at, null, 'Ctrl+Z でデータベースが戻らない');
+  assert.deepStrictEqual(shape160(db, P), ['まえ', `📄${D}*`]);
+  // ［ページの行に変える］・［インラインにする］
+  const off = callTx(db, 'block.update', { pageId: P, blockId: row, patch: { inline: false } });
+  ok(off.r, 'inline: false');
+  assert.deepStrictEqual(shape160(db, P), ['まえ', `📄${D}`]);
+  assert.ok(!('inline' in attrsOf(db, row)), 'inline: false を欄に残した');
+  assert.deepStrictEqual(opsOfTx(db, off.tx).filter((o) => o.id === row).map((o) => [o.op, o.key]), [['set', 'inline']], '行の inline の欄のほかを書いた');
+  assert.ok(UNDO_CMDS.has('block.update'));
+  ok(revert(db, P, [off.tx]).r, 'edit.revert');
+  assert.deepStrictEqual(shape160(db, P), ['まえ', `📄${D}*`], 'Ctrl+Z で inline が戻らない');
+  ok(call(db, 'block.update', { pageId: P, blockId: row, patch: { inline: false } }), 'inline: false');
+  ok(call(db, 'block.update', { pageId: P, blockId: row, patch: { inline: true } }), 'inline: true');
+  assert.deepStrictEqual(shape160(db, P), ['まえ', `📄${D}*`]);
+  const K = ok(call(db, 'page.create', { parentId: P }), 'page.create').id;
+  const kRow = flat160(bodyOf160(db, P)).find((b) => b.page === K).id;
+  const Q = ok(call(db, 'page.create', {}), 'page.create').id;
+  const G = ok(call(db, 'db.create', { parentId: P }), 'db.create').id;
+  const gRow = flat160(bodyOf160(db, P)).find((b) => b.page === G).id;
+  ok(call(db, 'page.move', { id: G, parentId: Q }), 'page.move');
+  ok(call(db, 'block.insert', { pageId: P, afterBlockId: '', type: 'paragraph' }), 'block.insert');
+  const grey = ok(call(db, 'block.insert', { pageId: P, afterBlockId: '', type: 'paragraph' }), 'block.insert').blockId;
+  db.prepare("update blocks set type = 'subpage', attrs = json_object('page', ?) where id = ?").run(G, grey);   // 前の版で残った灰色の行（今の子でないデータベースを指す）
+  const was = dump(db);
+  const bad = (blockId, patch, what) => assert.strictEqual(code(call(db, 'block.update', { pageId: P, blockId, patch })), 'bad-args', what);
+  bad(row, { inline: true, text: 'x' }, 'ほかの欄と一緒');
+  bad(kRow, { inline: true }, 'データベースでない子ページの行');
+  bad(grey, { inline: true }, '灰色の行');
+  bad(b1, { inline: true }, '子ページの行でない');
+  assert.strictEqual(code(call(db, 'block.update', { pageId: P, blockId: row, patch: { inline: 'yes' } })), 'bad-args', '真偽でない');
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+  assert.ok(gRow);
+}));
+
+test('DL-1・F141（R104・M16-1）: block.insertDbView の1回（oplog の1行・本文の歩み）で dbview の行。「元のビューを写す」は元のビューの写し1つ（ID は行の中で v1）・後で元を変えても変わらない。from 無しは「表」1つ。リンクドビューの行を消しても元は何もされない', T, () => withDb((db) => {
+  const D = mkDb(db);
+  const sel = selectCol(db, D);
+  const memo = colAdd(db, D, 'text', 'メモ');
+  ok(call(db, 'view.add', { db: D, layout: 'list', name: '一覧' }), 'view.add');
+  const filter = { op: 'and', items: [{ col: sel, cmp: 'any', value: ['o1'] }] };
+  ok(call(db, 'view.update', { db: D, viewId: 'v2', patch: { sort: [{ col: sel, dir: 'desc' }], filter, agg: { [memo]: 'count' }, props: [{ col: 'title', show: true, width: 240, wrap: true }, { col: memo, show: true, wrap: true }] } }), 'view.update');
+  const src = dbGet(db, D).views.find((v) => v.id === 'v2');
+  const { P, ids: [b1, b2] } = blankWith(db, ['まえ', 'うしろ']);
+  const n0 = oplogN(db);
+  const ins = callTx(db, 'block.insertDbView', { pageId: P, afterId: b1, db: D, from: 'v2' });
+  const page = ok(ins.r, 'block.insertDbView').page;
+  assert.strictEqual(oplogN(db), n0 + 1, 'oplog は1行');
+  assert.strictEqual(db.prepare("select page_id from oplog where role = 'app' and tx = ?").get(ins.tx).page_id, P, '本文の歩みでない');
+  assert.ok(UNDO_CMDS.has('block.insertDbView'));
+  const L = linkedId(db, P)[0];
+  assert.deepStrictEqual(shape160(db, P), ['まえ', `🔗${D}`, 'うしろ'], '打った行のすぐ下に置かない');
+  assert.ok(page.blocks.some((b) => b.id === L), '答えのページに行が無い');
+  const got = attrsOf(db, L);
+  assert.strictEqual(got.db, D);
+  assert.deepStrictEqual(got.views, [{ ...src, id: 'v1' }], '元のビューの写し（ID は v1）でない');
+  ok(call(db, 'view.update', { db: D, viewId: 'v2', patch: { sort: [], name: '別の名前' } }), 'view.update');
+  assert.deepStrictEqual(attrsOf(db, L).views, [{ ...src, id: 'v1' }], '元を変えるとリンクドビューも変わった');
+  // 新しい表から
+  const L2 = ok(call(db, 'block.insertDbView', { pageId: P, afterId: b2, db: D }), 'block.insertDbView').blockId;
+  const fresh = attrsOf(db, L2).views;
+  assert.deepStrictEqual(fresh.map((v) => [v.id, v.name, v.layout, v.sort, v.filter, v.group]), [['v1', '表', 'table', [], null, null]]);
+  // 空の打った行は同じ ID のままリンクドビューの行に替える。送り直し（同じ tx）は同じ行の ID
+  const { P: P3, ids: [e1] } = blankWith(db, ['']);
+  const tx = txOf('app');
+  const r1 = core.call(db, { role: 'app', cmd: 'block.insertDbView', args: { pageId: P3, afterId: e1, db: D }, tx }, { now, labels: {} });
+  const r2 = core.call(db, { role: 'app', cmd: 'block.insertDbView', args: { pageId: P3, afterId: e1, db: D }, tx }, { now, labels: {} });
+  assert.deepStrictEqual([r1.result.blockId, r2.dup, r2.result.blockId], [e1, true, e1], '空の打った行を替えないか、送り直しの答えが違う');
+  assert.deepStrictEqual(shape160(db, P3), [`🔗${D}`]);
+  // 元に戻す（行が消える）
+  ok(revert(db, P, [ins.tx]).r, 'edit.revert');
+  assert.deepStrictEqual(linkedId(db, P), [L2]);
+  // リンクドビューの行を消しても元のデータベースは何もされない（置いたページの子のデータベースでも）
+  const before = dbGet(db, D);
+  ok(call(db, 'block.remove', { pageId: P, blockId: L2 }), 'block.remove');
+  assert.strictEqual(pageRaw(db, D).trashed_at, null, 'リンクドビューの行を消すと元のデータベースがゴミ箱へ入った');
+  assert.deepStrictEqual(dbGet(db, D), before);
+  const DK = mkDb(db, P);
+  const LK = linkOf(db, P, DK).blockId;
+  ok(call(db, 'block.remove', { pageId: P, blockId: LK }), 'block.remove');
+  assert.strictEqual(pageRaw(db, DK).trashed_at, null, 'リンクドビューの行を消すと置いたページの子の元のデータベースがゴミ箱へ入った');
+  // 断り（何も変えない）
+  const Q = ok(call(db, 'page.create', {}), 'page.create').id;
+  const T2 = mkDb(db);
+  ok(call(db, 'page.delete', { id: T2 }), 'page.delete');
+  ok(call(db, 'page.delete', { id: Q }), 'page.delete');
+  const was = dump(db);
+  const bad = (args, what) => assert.strictEqual(code(call(db, 'block.insertDbView', { pageId: P, afterId: '', db: D, ...args })), 'bad-args', what);
+  bad({ pageId: 'pa1' }, '議事録の本文');
+  bad({ pageId: D }, 'データベースのページ');
+  bad({ pageId: Q }, 'ゴミ箱のページ');
+  bad({ db: T2 }, 'ゴミ箱のデータベース');
+  bad({ db: P }, 'データベースでないページ');
+  bad({ from: 'v9' }, '無い元のビュー');
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+}));
+
+test('DL-1・F141（R104・M16-1）: リンクドビューのタブ（view.add・view.update・view.remove・view.move に linked）はその行の attrs.views だけを変え、元のデータベースの attrs.views は1字も同じ。20 まで・最後の1つは消せない・違う linked は bad-args（途中に混ぜても前の結果は崩れない）。歩みにしない', T, () => withDb((db) => {
+  const D = mkDb(db);
+  const sel = selectCol(db, D);
+  const E = mkDb(db);
+  const { P } = blankWith(db, ['まえ']);
+  const L = linkOf(db, P, D).blockId;
+  const LE = linkOf(db, P, E).blockId;
+  const orig = dbViewsRaw(db, D);
+  const n = (id) => attrsOf(db, id).views.map((v) => v.id);
+  const add = ok(call(db, 'view.add', { db: D, linked: L, layout: 'list', name: '一覧' }), 'view.add').view;
+  assert.deepStrictEqual([add.id, add.name, add.layout], ['v2', '一覧', 'list']);
+  assert.deepStrictEqual(n(L), ['v1', 'v2']);
+  // 断られる頼みを混ぜる（違うデータベースの行・データベースの行でない・無い行）
+  const was = dump(db);
+  for (const [linked, what] of [[LE, '違うデータベースの行'], ['bnothere1', '無い行'], [P, 'ページ']]) {
+    assert.strictEqual(code(call(db, 'view.add', { db: D, linked })), 'bad-args', what);
+    assert.strictEqual(code(call(db, 'view.update', { db: D, linked, viewId: 'v1', patch: { name: 'x' } })), 'bad-args', what);
+  }
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+  const u = ok(call(db, 'view.update', { db: D, linked: L, viewId: 'v2', patch: { sort: [{ col: sel, dir: 'desc' }] } }), 'view.update').view;
+  assert.deepStrictEqual(u.sort, [{ col: sel, dir: 'desc' }]);
+  const cp = ok(call(db, 'view.add', { db: D, linked: L, from: 'v2' }), 'view.add 複製').view;
+  assert.deepStrictEqual([cp.id, cp.sort], ['v3', [{ col: sel, dir: 'desc' }]]);
+  ok(call(db, 'view.move', { db: D, linked: L, viewId: 'v3', after: '' }), 'view.move');
+  assert.deepStrictEqual(n(L), ['v3', 'v1', 'v2']);
+  ok(call(db, 'view.remove', { db: D, linked: L, viewId: 'v1' }), 'view.remove');
+  assert.deepStrictEqual(n(L), ['v3', 'v2']);
+  assert.strictEqual(dbViewsRaw(db, D), orig, '元のデータベースのビューが変わった');
+  assert.deepStrictEqual(dbGet(db, D).views.map((v) => v.id), ['v1']);
+  for (const cmd of ['view.add', 'view.update', 'view.remove', 'view.move']) assert.ok(!UNDO_CMDS.has(cmd), cmd);
+  ok(call(db, 'view.remove', { db: D, linked: L, viewId: 'v3' }), 'view.remove');
+  assert.strictEqual(code(call(db, 'view.remove', { db: D, linked: L, viewId: 'v2' })), 'bad-args', '最後のビューを消せた');
+  for (let i = 1; i < LIMITS.dbViews; i += 1) ok(call(db, 'view.add', { db: D, linked: L }), 'view.add');
+  assert.strictEqual(attrsOf(db, L).views.length, LIMITS.dbViews);
+  assert.strictEqual(code(call(db, 'view.add', { db: D, linked: L })), 'bad-args', '21 個目のビュー');
+  assert.strictEqual(dbViewsRaw(db, D), orig, '元のデータベースのビューが変わった');
+  // 置いたページがゴミ箱・元のデータベースがゴミ箱なら bad-args
+  const { P: P2 } = blankWith(db, []);
+  const L2 = linkOf(db, P2, D).blockId;
+  ok(call(db, 'page.delete', { id: P2 }), 'page.delete');
+  assert.strictEqual(code(call(db, 'view.add', { db: D, linked: L2 })), 'bad-args', 'ゴミ箱のページの行');
+  ok(call(db, 'page.delete', { id: D }), 'page.delete');
+  assert.strictEqual(code(call(db, 'view.add', { db: D, linked: L })), 'bad-args', 'ゴミ箱のデータベース');
+}));
+
+test('DL-1・F141（R104・M16-1）: db.view と db.get の linked はその行のビューで読む（元のデータベースの今の列で照らし、消えた列の設定だけを落とす）・印 sig にリンクドビューのビューが入る・元がゴミ箱なら null', T, () => withDb((db) => {
+  const D = mkDb(db);
+  const sel = selectCol(db, D);
+  const memo = colAdd(db, D, 'text', 'メモ');
+  for (const t of ['か', 'あ', 'さ']) rowAddA(db, D, { title: t });
+  const { P } = blankWith(db, []);
+  const L = linkOf(db, P, D).blockId;
+  ok(call(db, 'view.update', { db: D, linked: L, viewId: 'v1', patch: { name: 'リンク', sort: [{ col: 'title', dir: 'asc' }, { col: memo, dir: 'desc' }], agg: { [memo]: 'count' }, props: [{ col: 'title', show: true }, { col: sel, show: false }, { col: memo, show: true, width: 200 }] } }), 'view.update');
+  assert.deepStrictEqual(titles(db, D), ['か', 'あ', 'さ'], '元のビューで並べ替えた');
+  assert.deepStrictEqual(titles(db, D, { linked: L }), ['あ', 'か', 'さ'], 'リンクドビューのビューで読まない');
+  const s1 = view(db, D, { linked: L }).sig;
+  ok(call(db, 'view.update', { db: D, linked: L, viewId: 'v1', patch: { name: 'リンク2' } }), 'view.update');
+  assert.notStrictEqual(view(db, D, { linked: L }).sig, s1, 'リンクドビューのビューを変えても印が変わらない');
+  assert.strictEqual(code(call(db, 'db.view', { id: D, viewId: 'v1', from: 0, count: 200, linked: 'bnothere1' })), 'bad-args');
+  // 元で列を消すと、その列の設定だけが落ちる
+  ok(call(db, 'col.remove', { db: D, col: memo }), 'col.remove');
+  const v = ok(call(db, 'db.get', { id: D, linked: L }), 'db.get').views[0];
+  assert.deepStrictEqual([v.name, v.sort, v.agg], ['リンク2', [{ col: 'title', dir: 'asc' }], {}], '消えた列の設定だけを落とさない');
+  assert.deepStrictEqual(v.props.filter((p) => p.col === sel).map((p) => p.show), [false], 'ほかの設定が残らない');
+  assert.ok(!v.props.some((p) => p.col === memo));
+  assert.deepStrictEqual(titles(db, D, { linked: L }), ['あ', 'か', 'さ']);
+  assert.deepStrictEqual(dbGet(db, D).views.map((x) => x.name), ['表'], 'db.get の linked 無しは元のビュー');
+  ok(call(db, 'page.delete', { id: D }), 'page.delete');
+  assert.strictEqual(ok(call(db, 'db.view', { id: D, viewId: 'v1', from: 0, count: 200, linked: L }), 'db.view'), null, 'ゴミ箱の元を読んだ');
+  assert.strictEqual(ok(call(db, 'db.get', { id: D, linked: L }), 'db.get'), null);
+}));
+
+test('DL-1・F141（R104・M16-2）: リンクドビュー・インラインの表の列の操作は元のデータベースに書き、元の歩み（oplog の page_id は元）。db.setTitle は元の題名を変え、元の歩みの Ctrl+Z で戻る（後で変われば stale）', T, () => withDb((db) => {
+  const D = mkDb(db);
+  const { P } = blankWith(db, []);
+  const L = linkOf(db, P, D).blockId;
+  const add = callTx(db, 'col.add', { db: D, type: 'text', name: 'メモ' });
+  const c = ok(add.r, 'col.add').col.id;
+  assert.strictEqual(db.prepare("select page_id from oplog where role = 'app' and tx = ?").get(add.tx).page_id, D);
+  const rm = callTx(db, 'col.remove', { db: D, col: c });
+  ok(rm.r, 'col.remove');
+  assert.ok(colIn160(dbGet(db, D).cols, c).gone, '元から消えない');
+  ok(revert(db, D, [rm.tx]).r, 'edit.revert');
+  assert.ok(!colIn160(dbGet(db, D).cols, c).gone, '元の歩みで戻らない');
+  assert.ok(attrsOf(db, L).views, 'リンクドビューの行');
+  // 題名
+  const t1 = callTx(db, 'db.setTitle', { db: D, title: '案件' });   // データベースの題名（D77 の会議の題名でない）
+  ok(t1.r, 'db.setTitle');
+  assert.strictEqual(pageRaw(db, D).text, '案件');
+  assert.strictEqual(db.prepare("select page_id from oplog where role = 'app' and tx = ?").get(t1.tx).page_id, D, '題名が元の歩みでない');
+  assert.ok(UNDO_CMDS.has('db.setTitle'), 'db.setTitle が歩みでない');
+  assert.deepStrictEqual(core.COMMANDS['db.setTitle'].roles, ['app']);
+  assert.ok(C.listPages(db).some((p) => p.id === D && p.title === '案件'), '一覧の題名');
+  ok(revert(db, D, [t1.tx]).r, 'edit.revert');
+  assert.strictEqual(pageRaw(db, D).text, '', 'Ctrl+Z で題名が戻らない');
+  const t2 = callTx(db, 'db.setTitle', { db: D, title: '案件 2' });   // データベースの題名（D77 の会議の題名でない）
+  ok(t2.r, 'db.setTitle');
+  ok(call(db, 'db.setTitle', { db: D, title: '案件 3' }), 'db.setTitle');   // データベースの題名（D77 の会議の題名でない）
+  const was = dump(db);
+  assert.strictEqual(code(revert(db, D, [t2.tx]).r), 'stale', '後で変わった題名を戻した');
+  assert.deepStrictEqual(dump(db), was);
+  assert.strictEqual(code(call(db, 'db.setTitle', { db: P, title: 'x' })), 'bad-args', 'データベースでないページ');   // データベースの題名（D77 の会議の題名でない）
+  const n0 = oplogN(db);
+  ok(call(db, 'db.setTitle', { db: D, title: '案件 3' }), 'db.setTitle');   // データベースの題名（D77 の会議の題名でない）
+  assert.strictEqual(oplogN(db), n0 + 1);
+}));
+const colIn160 = (cols, id) => cols.find((c) => c.id === id);
+
+test('DL-1・決めたこと 40: 1つの本文に置けるデータベースの表（インラインとリンクドビュー）は 10 まで（11 個目の db.create の inline・block.insertDbView・［インラインにする］は too-big で何も変えない）', T, () => withDb((db) => {
+  const D = mkDb(db);
+  const { P, ids: [b1] } = blankWith(db, ['まえ']);
+  for (let i = 0; i < 5; i += 1) ok(call(db, 'db.create', { parentId: P, inline: b1 }), 'db.create');
+  for (let i = 0; i < 5; i += 1) linkOf(db, P, D);
+  const G = ok(call(db, 'db.create', { parentId: P }), 'db.create').id;   // ページの行（表でない）は数えない
+  const gRow = flat160(bodyOf160(db, P)).find((b) => b.page === G).id;
+  const was = dump(db);
+  assert.strictEqual(code(call(db, 'db.create', { parentId: P, inline: b1 })), 'too-big');
+  assert.strictEqual(code(call(db, 'block.insertDbView', { pageId: P, afterId: b1, db: D })), 'too-big');
+  assert.strictEqual(code(call(db, 'block.update', { pageId: P, blockId: gRow, patch: { inline: true } })), 'too-big');
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+  ok(call(db, 'block.update', { pageId: P, blockId: gRow, patch: { inline: false } }), '外すのは通す');
+}));
+
+test('DL-1・F146（第3版・DQ9・決めたこと 56）: 別の親（最上位・ほかの白紙のページの子・議事録の子）のページの page.move に rowAfter・rowParent → 親が替わり、落とした所に行（inline は写さない）・前の白紙の親の本文の行は消える・oplog は1行。満杯の本文へは親だけ替わって行は無い。afterId と一緒・議事録の本文は bad-args', T, () => withDb((db, t) => {
+  const { P, ids: [p1, p2] } = blankWith(db, ['いち', 'に']);
+  const { P: Q, ids: [q1] } = blankWith(db, ['きゅう']);
+  const K = ok(call(db, 'page.create', { parentId: Q }), 'page.create').id;
+  const D = ok(call(db, 'db.create', { parentId: Q, inline: q1 }), 'db.create').id;
+  const top = ok(call(db, 'page.create', {}), 'page.create').id;
+  const M = ok(call(db, 'page.create', { parentId: 'pa1' }), 'page.create').id;
+  // ほかの白紙のページの子 → 行の後ろ
+  const n0 = oplogN(db);
+  ok(call(db, 'page.move', { id: K, parentId: P, rowAfter: p1 }), 'page.move');
+  assert.strictEqual(oplogN(db), n0 + 1, 'oplog は1行');
+  assert.strictEqual(pageRaw(db, K).parent_id, P);
+  assert.deepStrictEqual(shape160(db, P), ['いち', `📄${K}`, 'に'], '落とした所に行が無い');
+  assert.ok(!shape160(db, Q).includes(`📄${K}`), '前の親の本文に行が残った');
+  // インラインのデータベース → inline の無い行（子を持てる行の子の頭）
+  const tg = ok(call(db, 'block.insert', { pageId: P, afterBlockId: p2, type: 'toggle' }), 'block.insert').blockId;
+  ok(call(db, 'page.move', { id: D, parentId: P, rowAfter: '', rowParent: tg }), 'page.move');
+  assert.deepStrictEqual(bodyOf160(db, P).find((b) => b.id === tg).children.map((b) => [b.page, b.inline]), [[D, undefined]], 'inline を写した');
+  assert.deepStrictEqual(shape160(db, Q), ['きゅう']);
+  // 最上位と議事録の子 → 頭へ
+  ok(call(db, 'page.move', { id: top, parentId: P, rowAfter: '' }), 'page.move');
+  ok(call(db, 'page.move', { id: M, parentId: P, rowAfter: p2 }), 'page.move');
+  assert.deepStrictEqual(shape160(db, P), [`📄${top}`, 'いち', `📄${K}`, 'に', `📄${M}`, '', `📄${D}`]);
+  assert.deepStrictEqual([pageRaw(db, top).parent_id, pageRaw(db, M).parent_id], [P, P]);
+  // ふつうの動かし（行の無い afterId）でもインラインを写さない
+  const D2 = ok(call(db, 'db.create', { parentId: Q, inline: q1 }), 'db.create').id;
+  ok(call(db, 'page.move', { id: D2, parentId: P }), 'page.move');
+  assert.deepStrictEqual(shape160(db, P).slice(-1), [`📄${D2}`], 'inline を写した');
+  // 満杯の本文へは親だけ替わって行は無い
+  t.seed({ id: 'pfull3', title: '大きな本文', kind: 'blank', date: '2026-11-02', memo: '', blocks: Array.from({ length: 2000 }, (_, i) => ({ id: `fz${i}`, type: 'paragraph', text: `行${i}` })), createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }, []);   // 利用者が付けた題名（D77）
+  ok(call(db, 'page.move', { id: K, parentId: 'pfull3', rowAfter: 'fz0' }), '満杯の本文へ');
+  assert.strictEqual(pageRaw(db, K).parent_id, 'pfull3');
+  assert.ok(!shape160(db, P).includes(`📄${K}`), '前の親の本文に行が残った');
+  assert.strictEqual(flat160(bodyOf160(db, 'pfull3')).length, 2000, '満杯の本文に行を足した');
+  // 断り（何も変えない）
+  const was = dump(db);
+  const bad = (args, what) => assert.strictEqual(code(call(db, 'page.move', args)), 'bad-args', what);
+  bad({ id: K, parentId: P, rowAfter: p1, afterId: '' }, 'afterId と一緒');
+  bad({ id: K, parentId: 'pa1', rowAfter: '' }, '議事録の本文');
+  bad({ id: K, parentId: P, rowAfter: 'bnothere1' }, '無い行');
+  bad({ id: K, parentId: P, rowParent: tg }, 'rowAfter の無い rowParent');
+  assert.deepStrictEqual(dump(db), was, '断った命令が何か書いた');
+}));
+
+// 0.15.0（19d2f22）の src/renderer/app.html の本文の描き方の写し（型の見た目の決め方・子を持てるか・［コピー］の Markdown。前の版の NaTsu に戻したとき: RF17・決めたこと 9）
+const OLD150 = `
+  const CALLOUT_ICON = '💡';
+  function headingLevel(b) {
+    return b && (b.level === 1 || b.level === 2 || b.level === 3) ? b.level : 2;
+  }
+  function numberLabels(blocks) {
+    const out = new Map();
+    let n = 0;
+    for (const b of Array.isArray(blocks) ? blocks : []) {
+      if (b && b.type === 'numbered') { n += 1; out.set(b.id, \`\${n}.\`); } else n = 0;
+    }
+    return out;
+  }
+  function blocksMarkdown(blocks, depth = 0, at = { base: 0 }) {
+    const list = Array.isArray(blocks) ? blocks.filter((b) => b && typeof b === 'object') : [];
+    const nums = numberLabels(list);
+    const line = (b, pad) => {
+      const t = (Array.isArray(b.rich) && b.rich.length ? richMarkdown(b.rich) : String(b.text ?? '')).replace(/\\n/g, \`\\n\${pad}  \`);
+      if (b.type === 'heading') return \`\\n\${'#'.repeat(headingLevel(b))} \${t}\`;
+      if (b.type === 'todo') return \`- [\${b.checked ? 'x' : ' '}] \${t}\`;
+      if (b.type === 'bullet') return \`- \${t}\`;
+      if (b.type === 'numbered') return \`\${nums.get(b.id) || '1.'} \${t}\`;
+      if (b.type === 'quote') return \`> \${t}\`;
+      if (b.type === 'divider') return '---';
+      if (b.type === 'callout') return \`> \${CALLOUT_ICON} \${t}\`;
+      if (b.type === 'toggle') return \`- \${t}\`;
+      if (b.type === 'subpage') return \`📄 \${typeof at.title === 'function' ? String(at.title(b.page) ?? '') : ''}\`;
+      return t;
+    };
+    return list.map((b) => {
+      at.base = b.type === 'heading' ? depth : Math.min(at.base, depth);
+      const pad = b.type === 'heading' ? '' : '  '.repeat(depth - at.base);
+      const own = pad ? line(b, pad).replace(/^(\\n?)/, \`$1\${pad}\`) : line(b, pad);
+      const kids = Array.isArray(b.children) && b.children.length ? blocksMarkdown(b.children, depth + 1, at) : '';
+      return kids ? \`\${own}\\n\${kids}\` : own;
+    }).join('\\n');
+  }
+  function kidsCanView(b) {
+    if (!b || typeof b !== 'object') return true;
+    if (b.type === 'heading') return b.toggle === true;
+    return b.type !== 'divider' && b.type !== 'subpage';
+  }
+  const TYPED_VIEW = ['heading', 'todo', 'bullet', 'numbered', 'toggle', 'quote', 'divider', 'callout', 'subpage'];
+  const viewTypeOf = (b) => (b.type === 'paragraph' || TYPED_VIEW.includes(b.type) ? b.type : 'paragraph');
+`;
+test('DL-1・RF17（決めたこと 9）: dbview の行とインラインの行を、0.15.0 の本文の描き方（写した関数）で描いても落ちない（dbview は知らない型のテキストの行・インラインはふつうの子ページの行「📄 題名」）', T, () => withDb((db) => {
+  const D = mkDb(db);
+  ok(call(db, 'db.setTitle', { db: D, title: '案件' }), 'db.setTitle');   // データベースの題名（D77 の会議の題名でない）
+  const { P, ids: [b1] } = blankWith(db, ['まえ']);
+  linkOf(db, P, D, 'v1', b1);
+  const I = ok(call(db, 'db.create', { parentId: P, inline: b1 }), 'db.create').id;
+  const blocks = bodyOf160(db, P);
+  const old = vm.runInNewContext(`${OLD150}; ({ blocksMarkdown, kidsCanView, viewTypeOf })`, { richMarkdown: (r) => r.map((x) => x.t).join('') });
+  const titleOf = (id) => (id === I ? '題の無い表' : '');
+  const md = old.blocksMarkdown(blocks, 0, { base: 0, title: titleOf });
+  assert.strictEqual(md, 'まえ\n📄 題の無い表\n', '前の版の［コピー］で落ちたか形が違う');
+  assert.deepStrictEqual(blocks.map((b) => [b.type, old.viewTypeOf(b), old.kidsCanView(b)]), [['paragraph', 'paragraph', true], ['subpage', 'subpage', false], ['dbview', 'paragraph', true]]);
+  assert.deepStrictEqual(blocks.map((b) => typeof b.text), ['string', 'string', 'string'], '前の版の描き方は文を読む');
+}));
+
+test('DL-1: preload の呼び口（blockInsertDbView・dbSetTitle・dbCreate の inline・dbGet と dbView と view.* の linked。どれも dbCall の1回）。block.insertDbView は本文の歩み・db.setTitle はデータベースの歩み（onEditStep の pageId）', T, async () => {
+  const PRE = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
+  const preUndo = [.../const UNDO_CMDS = new Set\(\[([^\]]*)\]\)/.exec(PRE)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
+  for (const cmd of ['block.insertDbView', 'db.setTitle']) { assert.ok(UNDO_CMDS.has(cmd) && preUndo.includes(cmd), cmd); assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd); }
+  const exposed = {}; const on = {}; let uuid = 0;
+  const electron = { contextBridge: { exposeInMainWorld: (k, v) => { exposed[k] = v; } }, ipcRenderer: { on: (ch, fn) => { on[ch] = fn; }, invoke: async () => ({}), send: () => {} } };
+  vm.runInNewContext(PRE, { require: () => electron, crypto: { randomUUID: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` }, setTimeout, clearTimeout, console, Promise });
+  const port = new EventTarget(); port.sent = []; port.postMessage = (m) => port.sent.push(structuredClone(m)); port.start = () => {};
+  on['db:port']({ ports: [port] });
+  const steps = [];
+  const k = exposed.koeApp;
+  k.onEditStep((s) => steps.push(s));
+  k.blockInsertDbView('pb1', 'b1', 'pd1', 'v2'); k.blockInsertDbView('pb1', '', 'pd1');
+  k.dbSetTitle('pd1', '案件');   // データベースの題名（D77 の会議の題名でない）
+  k.dbCreate('pb1', 'b1'); k.dbCreate('pb1'); k.dbCreate();
+  k.dbGet('pd1', 'b2'); k.dbGet('pd1');
+  k.dbView('pd1', 'v1', 0, 200, '', [], 'b2');
+  k.viewAdd('pd1', { layout: 'list', linked: 'b2' }); k.viewUpdate('pd1', 'v1', { name: 'x' }, 'b2'); k.viewRemove('pd1', 'v1', 'b2'); k.viewMove('pd1', 'v1', '', 'b2');
+  k.viewUpdate('pd1', 'v1', { name: 'x' });
+  assert.deepStrictEqual(port.sent.map((m) => [m.cmd, m.args]), [
+    ['block.insertDbView', { pageId: 'pb1', afterId: 'b1', db: 'pd1', from: 'v2' }], ['block.insertDbView', { pageId: 'pb1', afterId: '', db: 'pd1' }],
+    ['db.setTitle', { db: 'pd1', title: '案件' }],   // データベースの題名（D77 の会議の題名でない）
+    ['db.create', { parentId: 'pb1', inline: 'b1' }], ['db.create', { parentId: 'pb1' }], ['db.create', {}],
+    ['db.get', { id: 'pd1', linked: 'b2' }], ['db.get', { id: 'pd1' }],
+    ['db.view', { id: 'pd1', viewId: 'v1', from: 0, count: 200, linked: 'b2' }],
+    ['view.add', { db: 'pd1', layout: 'list', linked: 'b2' }], ['view.update', { db: 'pd1', viewId: 'v1', patch: { name: 'x' }, linked: 'b2' }],
+    ['view.remove', { db: 'pd1', viewId: 'v1', linked: 'b2' }], ['view.move', { db: 'pd1', viewId: 'v1', after: '', linked: 'b2' }],
+    ['view.update', { db: 'pd1', viewId: 'v1', patch: { name: 'x' } }],
+  ]);
+  for (const m of port.sent) if (['db.get', 'db.view'].includes(m.cmd)) assert.strictEqual(m.tx, undefined, m.cmd); else assert.match(m.tx, /^a:/, m.cmd);
+  for (const m of port.sent.slice(0, 3)) port.onmessage({ data: { id: m.id, ok: true, changed: true, result: {} } });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepStrictEqual(steps.map((s) => [s.cmd, s.pageId]), [['block.insertDbView', 'pb1'], ['block.insertDbView', 'pb1'], ['db.setTitle', 'pd1']]);
+});

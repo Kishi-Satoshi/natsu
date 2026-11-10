@@ -1385,10 +1385,12 @@ const IDS_160 = [
   'tb-undo-row-trash', 'tb-undo-stale', 'tb-view-undo', 'tb-move-into-db', 'tb-db-live-parent', 'tb-db-delete-count',
   // 0.16.0 DR-1 で作った行（表の行の順。tb-sub-trash-kids は R98 で tb-sub-keep-kids を改めた）
   'tb-rel-both', 'tb-rel-unlink', 'tb-rel-trash', 'tb-rel-max', 'tb-sub-one-parent', 'tb-sub-cycle', 'tb-sub-trash-kids',
+  'tb-inline-row', 'tb-inline-trash', 'tb-inline-meeting', 'tb-linked-keep', 'tb-linked-view-own',   // 0.16.0 DL-1 (1) で作った行
   'tb-search-rows', 'tb-trash-rows',   // 0.16.0 DX-2 で作った行
   'tb-mcp-db-kind', 'tb-mcp-safe',   // 0.16.0 DX-3 で作った行
   'tb-paste-rows', 'tb-paste-convert',
   'tb-paste-max',
+  'tb-move-inline-off', 'tb-move-cross-place', 'tb-move-cross-full',   // 0.16.0 DL-1 (1) で作った行
   'tb-mcp-rows-hidden',   // 0.16.0 DX-3 で作った行
   // 0.16.0 DV-1 で作った行
   'vw-window', 'vw-sig', 'vw-ime', 'vw-focus-keep', 'vw-del-readonly', 'vw-ctrl-d', 'vw-undo-key', 'vw-undo-view',
@@ -1401,10 +1403,13 @@ const IDS_160 = [
   'vw-ref-kind',
   'tb-row-kids-hide', 'tb-row-move-cycle', 'vw-row-kids-tree',
   'tb-rel-self',   // 0.16.0 R98（M15-2）で表の末に足した行
+  'tb-linked-copy', 'tb-linked-tabs', 'tb-db-title-undo',   // 0.16.0 DL-1 (1) で作った行（R104 の DL-1 の行。vw-sub-key・vw-rel-open-key は DL-1 (3)）
   // 0.16.0 DR-1 直し（rv51 I1・I4・R106）で表の末（R104 の DL-1 の5行の後）に足した行
   'tb-sub-new-parent', 'tb-undo-rel-row', 'tb-undo-rel-max', 'tb-undo-rel-col', 'tb-rel-sig', 'tb-rel-dup', 'tb-rel-col-max', 'tb-rel-self-max', 'tb-sub-col-max',
   // 0.16.0 DR-1 直し2（MQ2・rv51 I2・R108）で表の末に足した行
   'tb-sub-col-keep', 'tb-sub-pair', 'tb-sub-get', 'vw-sub-col-del',
+  // 0.16.0 DL-1 (1)（R113）で表の末に足した行
+  'tb-linked-sig', 'tb-db-tables',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1425,7 +1430,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 R104（2026-11-09 の持ち主の答え M16・rv51 Q1）で意図して直した: DL-1 の5つ（tb-linked-copy・tb-linked-tabs・tb-db-title-undo・vw-sub-key・vw-rel-open-key）を表の末に足した（まだ作っていない行）
   // 0.16.0 DR-1 直し（rv51 I1・I4・R106）で意図して直した: R99 の道と I1 の直しを戻す9つを表の末に足した
   // 0.16.0 DR-1 直し2（MQ2・R108）で意図して直した: サブアイテムの列を消せない・互いを指しているときだけ木の4つを表の末に足した
-  assert.strictEqual(rows.length, 102, '計画の 0.16.0 の表（tb- 79・vw- 23）が読めない');
+  // 0.16.0 DL-1 (1)（R113）で意図して直した: リンクドビューの印と本文の表の上限の2つ（tb-linked-sig・tb-db-tables）を表の末に足した（tb- 81）
+  assert.strictEqual(rows.length, 104, '計画の 0.16.0 の表（tb- 81・vw- 23）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');
