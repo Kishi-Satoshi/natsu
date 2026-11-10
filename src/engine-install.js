@@ -1092,8 +1092,7 @@ function makeRunner(deps = {}) {
 // ---------------------------------------------------------------- その4: 古い版の片付けと、ライセンスの写し（Task 12c）
 
 // 記録が何と言っても消さない置き場所（root からの相対。記録・写し・取り込み途中のフォルダ）
-// 0.15.1 GV-1（D126・決めたこと 47）: gpu-state.json は GPU の印のファイル（main が書く。記録には無い）
-const SPECIAL_PLACES = ['installed.json', 'THIRD-PARTY-NOTICES.txt', '.download', 'gpu-state.json'];
+const SPECIAL_PLACES = ['installed.json', 'THIRD-PARTY-NOTICES.txt', '.download'];
 
 // ---------------------------------------------------------------- 0.10.0 LS-4: 0.9.x の要約の組を消す（D59・決めたこと 107）
 // 0.9.x の表にあった要約のエンジン（llama-b11669 の 23 個）とモデル（gemma）の、置き場所の名前と大きさ。消すのは管理しているフォルダの下の

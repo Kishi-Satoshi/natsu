@@ -22,10 +22,11 @@
  *        来ない）ことを見る。200 になったら、RF1 を試せていない。
  *     0.10.0 LS-3（D59）: 要約のエンジンを外したので、確かめるのは文字起こしのエンジンと VAD だけ。
  *     0.15.1 GV-3（計画 docs/plans/2026-11-04-151.md・D126）: 取り込むエンジンは GPU 版の組（Vulkan）。4 の前に、置いた組の whisper.dll・ggml-vulkan.dll の
- *     バイトの中に mainlib.GPU_LOG_MARKS の書式の字（計画の G15）があることを見る（配る whisper が、アプリの見分けが読む字を出すか）。4 は
- *     GPU の形（アプリと同じ引数）と -ng の形（mainlib.noGpuArgs）の2回起こし、GPU の形の標準エラーを mainlib.gpuLogState に通した答えが
- *     none か gpu（GPU の無い作業機では none の見込み。init-failed・lost でない）で use gpu の値が 1、-ng の形は use gpu の値が 0 であることを見る。
- *     形ごとに「形・見分けの答え・use gpu の値・/health・無音の /inference」の1行を出す。
+ *     バイトの中に mainlib.GPU_LOG_MARKS の書式の字（計画の G15）があることを見る（配る whisper が、アプリの見分けが読む字を出すか）。
+ *     0.15.1 GV-2b（第9版・VR21）: 4 は GPU 版の組をアプリと同じ今の引数で1回だけ起こし（-ng の形は外した: NaTsu は -ng を足さない）、
+ *     標準エラーに whisper_backend_init_gpu: で始まる行（GPU_LOG_MARKS の using・noGpu・failed のどれか）があること・use gpu の値が 1・
+ *     mainlib.gpuLogState の答えが none か gpu（GPU の無い作業機では none の見込み。init-failed・lost でない）を見る。
+ *     結果の1行「形の結果: GPU 版の組（今の引数）・見分け <答え>・whisper_backend_init_gpu の行 <あり／なし>・use gpu <値>・/health・無音の /inference」を出す。
  *     落としたエンジンを起動するのは Windows だけ。ほかの OS では 1〜3 だけをして、NG で終わる。
  *
  * 結果は1行ずつ OK／NG で出し、1つでも NG なら終了コード 1。
@@ -44,7 +45,7 @@ const { execFileSync, spawn } = require('child_process');
 const { MANIFEST, hostOf } = require('../src/engine-manifest');
 const { fetchFile, hget, parseContentRange } = require('../src/engine-fetch');
 const { listZip, readEntry } = require('../src/zipread');
-const { engineSpawnPlan, silentWav, vcRuntimeVersions, vcRuntimeIssue, GPU_LOG_MARKS, gpuLogState, noGpuArgs } = require('../src/mainlib');
+const { engineSpawnPlan, silentWav, vcRuntimeVersions, vcRuntimeIssue, GPU_LOG_MARKS, gpuLogState } = require('../src/mainlib');
 const { fakeRequest } = require('../test/helpers/fake-net');
 
 const UA = `NaTsu/${require('../package.json').version} (engine-smoke)`;
@@ -66,7 +67,7 @@ const SMALL = Object.freeze({
   }),
 });
 
-const PORT = { whisper: 18990, negative: 18992, ng: 18994 };   // ng: 0.15.1 GV-3 の -ng の形
+const PORT = { whisper: 18990, negative: 18992 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (line) => console.log(line);
@@ -362,15 +363,13 @@ async function inference(port, rf = 'json') {
 const whisperArgs = (model, vad, port) => ['-m', model, '--host', '127.0.0.1', '--port', String(port), '-t', '2', '-l', 'ja', '-sns',
   '--vad', '--vad-model', vad];
 
-// 0.15.1 GV-3: form は 'gpu'（アプリの GPU の形 = 今の引数）か 'ng'（CPU の形 = 引数の終わりに -ng）
-async function smokeWhisper(p, form = 'gpu') {
-  const label = form === 'ng' ? '-ng の形' : 'GPU の形';
-  const name = `whisper（${label}・相対パス・日本語の作業フォルダ）`;
-  const port = form === 'ng' ? PORT.ng : PORT.whisper;
-  const args = whisperArgs(p.tiny, p.vad, port);
-  const plan = engineSpawnPlan(p.whisperExe, form === 'ng' ? noGpuArgs(args) : args, { whisper: true });
+// 0.15.1 GV-3・GV-2b（第9版・VR21）: GPU 版の組を、アプリと同じ今の引数で起こす（-ng を足さない）
+async function smokeWhisper(p) {
+  const name = 'whisper（GPU 版の組・今の引数・相対パス・日本語の作業フォルダ）';
+  const port = PORT.whisper;
+  const plan = engineSpawnPlan(p.whisperExe, whisperArgs(p.tiny, p.vad, port), { whisper: true });
   if (plan.problem) return ng(name, `engineSpawnPlan が起動を止めた: ${plan.problem}`);
-  log(`whisper 起動（${label}）: ${p.whisperExe} ${plan.args.join(' ')}（作業フォルダ: ${plan.cwd}）`);
+  log(`whisper 起動: ${p.whisperExe} ${plan.args.join(' ')}（作業フォルダ: ${plan.cwd}）`);
   const child = startChild(p.whisperExe, plan.args, plan.cwd);
   const res = { health: '来ない', inference: '来ない' };
   try {
@@ -382,18 +381,20 @@ async function smokeWhisper(p, form = 'gpu') {
     res.inference = '200';
     const vj = await inference(port, 'verbose_json');   // 0.12.0 SP-3b: 文ごとの時刻の答えの形
     if (!vj.ok) return ng(name, `verbose_json: ${vj.why}`);
-    // 0.15.1 GV-3（F165）: 見分けの答えと use gpu の値（GPU の形は none か gpu で 1、-ng の形は 0）
-    const lines = child.all().split(/\r?\n/);
+    // 0.15.1 GV-3・GV-2b（F165・VR21）: whisper_backend_init_gpu: で始まる行（アプリの記録の1行が読む頭の字）・見分けの答え（none か gpu）・use gpu の値（1）
+    const lines = child.all().split(/\r?\n/).map((l) => l.replace(/\s+$/, ''));
+    const initLine = lines.some((l) => l.startsWith(GPU_LOG_MARKS.using) || l.startsWith(GPU_LOG_MARKS.noGpu) || l.startsWith(GPU_LOG_MARKS.failed));
     const g = gpuLogState(lines);
     const useGpu = ((lines.find((l) => l.includes('use gpu    = ')) || '').match(/use gpu {4}= (\d+)/) || [])[1] || 'なし';
-    log(`形の結果: ${label}・見分け ${g.state}${g.device ? `（${g.device}）` : ''}・use gpu ${useGpu}・/health ${res.health}・無音の /inference ${res.inference}`);
-    if (form === 'gpu' && !['none', 'gpu'].includes(g.state)) return ng(name, `GPU の形の見分けが ${g.state}（none か gpu でない）`);
-    if (useGpu !== (form === 'ng' ? '0' : '1')) return ng(name, `use gpu の値が ${useGpu}（${form === 'ng' ? '0' : '1'} でない）`);
-    return ok(name, `/health が 200・${inf.why}・verbose_json: ${vj.why}・見分け ${g.state}・use gpu ${useGpu}`);
+    log(`形の結果: GPU 版の組（今の引数）・見分け ${g.state}・whisper_backend_init_gpu の行 ${initLine ? 'あり' : 'なし'}・use gpu ${useGpu}・/health ${res.health}・無音の /inference ${res.inference}`);
+    if (!initLine) return ng(name, '標準エラーに whisper_backend_init_gpu: で始まる行（using・no GPU found・failed to initialize）が無い');
+    if (!['none', 'gpu'].includes(g.state)) return ng(name, `見分けが ${g.state}（none か gpu でない）`);
+    if (useGpu !== '1') return ng(name, `use gpu の値が ${useGpu}（1 でない）`);
+    return ok(name, `/health が 200・${inf.why}・verbose_json: ${vj.why}・見分け ${g.state}・whisper_backend_init_gpu の行あり・use gpu ${useGpu}`);
   } catch (e) {
     return ng(name, errText(e));
   } finally {
-    await stopChild(`whisper（${label}）`, child);
+    await stopChild('whisper', child);
   }
 }
 
@@ -455,9 +456,8 @@ async function start() {
     rs.push(report(ng('起動', 'エンジンの起動は Windows でだけ試す（ほかの OS では落としたエンジンを実行しない）')));
     return rs;
   }
-  const relative = report(await smokeWhisper(placed, 'gpu'));
+  const relative = report(await smokeWhisper(placed));
   rs.push(relative);
-  rs.push(report(await smokeWhisper(placed, 'ng')));   // 0.15.1 GV-3: -ng の形
   rs.push(report(await smokeWhisperAbsolute(placed, relative.ok)));
   return rs;
 }

@@ -94,18 +94,21 @@ const { titleAt } = require('./titles');
 //                     その番号で出す偽の子にし、その前に whisper.dll を消す）。同意済みで偽のサーバーを開いたままにし、
 //                     main が照らし直して使うのをやめ、取り直してから使い直すのを見る（第0b回 Task 14・RF3）
 //     --crash-ok    … --crash と同じ落ち方だが、ファイルはそのまま（照らし直して合う: ランタイムの案内のまま、組は使い続ける）
-//   0.15.1 GV-2（計画 docs/plans/2026-11-04-151.md の Task GV-2・D126。偽の whisper の GPU の型は fake-whisper.js の FAKE_GPU・FAKE_NG）:
+//   0.15.1 GV-2（計画 docs/plans/2026-11-04-151.md の Task GV-2・D126。偽の whisper の GPU の型は fake-whisper.js の FAKE_GPU）:
 //     --gpu-set     … --managed と組む。取り込んだ組を GPU 版の組に見立てる（engine-small の vk: 印 vulkan・runtime のある試験のピン）
 //     --old-set     … --managed と組む。前のピンの組（印の無い engine-small）だけがそろった PC。main のピンは GPU 版の組（エンジンだけ違う）。
 //                     engine-small の GPU 版の偽のサーバーは開いたまま。起動のときの自動の取り込み（10 秒後の時計）は走らせずに覚え、会議を始めた直後に呼ぶ
 //                     （記録中は係が待つ）。写した後に、切り替えて GPU 版の組を起こすのを待ち、トレイの［エンジンを停止］と見回りで片付けを回して out.oldSet に
 //     --old-consent=yes|none|paused … --old-set の installed.json の同意（既定 yes）
-//     --gpu-state=<ファイル> … 起動の前に、そのファイルを取り込み先の gpu-state.json に写す
-//     --driver=<名前>=<版> … reg.exe query（表示アダプターの級）の答えの偽物。無ければ reg.exe は失敗で答える。呼んだ数を out.regCalls に
 //     --win32       … whenReady の後で process.platform を win32 と読ませ、System32 を 14.51 の偽の DLL のある一時フォルダに向ける
-//                     （--gpu-set・--old-set は既定で付く。--gpu-platform=linux で付けず、Windows の機械でも linux と読ませる）。終わりの片付けの前に元に戻す
-//     --ng-ok-at-stop … 最後の区間の前に、それまでの区間が片付くのを待ち（out.liveFailed に失敗の区間の数）、FAKE_NG_OK_FILE を置く（-ng の形が起きるようになる）
-//     出力に gpuState（gpu-state.json の中身。無ければ null）・served（fake-whisper の served の行）・regCalls を足す
+//                     （--gpu-set・--old-set は既定で付く）。終わりの片付けの前に元に戻す
+//     --seg-settle  … 0.15.1 GV-2b: 区間（最後を除く）を送るたびに、片付く（meeting:status の pending が 0）のを待ってから 300 ミリ秒置く
+//                     （区間の間が分の単位の本物の会議の形。落ちたエンジンの終わりを main が受けてから次の区間を送る）
+//     --back-settle … 0.15.1 GV-2b: --back-after で、つながった後の見回りの待ち行列が片付くまで 15 秒まで待ってから写す
+//     出力に served（fake-whisper の served の行）・engineRootFiles（取り込み先の頭のファイルとフォルダの名前）を足す。--old-set は
+//     out.calcAtStop（記録を止める前の「文字起こしの計算:」の行）も
+//   0.15.1 GV-2b（第9版）: --gpu-state・--driver（reg.exe の偽物）・--gpu-platform・--ng-ok-at-stop と、出力の gpuState・regCalls・gpuStateAtStop・
+//     liveFailed を外した（印のファイル・ドライバの鍵・-ng の形を作らない）
 //     --slow-load   … 画面の読み込みを、起動のときの照らしが済むまで終えない（読み込み中に送った知らせは画面に届かない。
 //                     main は読み終えてから送る: noticeMainWin）
 //     --json-scene=名前 … 第1a回の保存の守りの場面（helpers/json-scenes.js）。readyResolve() の直後に分かれ、場面が済んだら出力して終える。
@@ -642,12 +645,9 @@ const managedMode = flags.includes('--managed') ? 'ok' : (flags.includes('--mana
 const gpuSet = flags.includes('--gpu-set');
 const oldSet = flags.includes('--old-set');
 const oldConsent = flagVal('--old-consent') || 'yes';
-const gpuStateIn = flagVal('--gpu-state');
-const driverFlag = flagVal('--driver');
-const win32Flag = flags.includes('--win32') || ((gpuSet || oldSet) && flagVal('--gpu-platform') !== 'linux');
-const ngOkAtStop = flags.includes('--ng-ok-at-stop');
-if (ngOkAtStop) process.env.FAKE_NG_OK_FILE = path.join(os.tmpdir(), `natsu-ngok-${process.pid}`);
-const regCalls = [];
+const win32Flag = flags.includes('--win32') || gpuSet || oldSet;
+const segSettle = flags.includes('--seg-settle');   // 0.15.1 GV-2b（頭の注釈）
+const backSettle = flags.includes('--back-settle');   // 0.15.1 GV-2b（頭の注釈）
 let autoFetchFn = null;   // --old-set: 起動のときの自動の取り込みの時計（走らせずに覚える）
 const recoverMode = flags.includes('--recover');
 // 0.13.2 LN-1（LR14）: --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えだけを ms 遅らせる（呼んだ印 call を残した後、DB へ渡す前に待つ。
@@ -1235,7 +1235,6 @@ process.on('exit', () => {
       I.setActive(home, { schema: 1, items }, 'whisper');
       I.writeInstalled(instFile, { ...I.readInstalled(instFile), consent: oldConsent !== 'none', userPaused: oldConsent === 'paused' });
     }
-    if (gpuStateIn) fs.copyFileSync(gpuStateIn, path.join(managedRoot, 'gpu-state.json'));
     const tamper = (dir, name) => {
       const dll = path.join(managedRoot, dir, name);
       fs.writeFileSync(dll, Buffer.alloc(fs.statSync(dll).size, 7));   // 大きさは同じ・中身だけ違う
@@ -2060,15 +2059,6 @@ process.on('exit', () => {
     },
     execFile(_cmd, _args, _opts, cb) {
       const done = typeof _opts === 'function' ? _opts : cb;
-      // 0.15.1 GV-2: reg.exe query（表示アダプターの級）。--driver=<名前>=<版> の答え（無ければ失敗）
-      if (/(^|[\\/])reg(\.exe)?$/i.test(String(_cmd)) && Array.isArray(_args) && _args[0] === 'query' && /\{4d36e968-e325-11ce-bfc1-08002be10318\}/i.test(String(_args[1]))) {
-        regCalls.push(_args.slice());
-        const m = /^(.*)=([^=]*)$/.exec(driverFlag || '');
-        const v = _args[_args.indexOf('/v') + 1];
-        const text = m ? `\r\n${String(_args[1]).replace(/^HKLM\\/i, 'HKEY_LOCAL_MACHINE\\')}\\0000\r\n    ${v}    REG_SZ    ${v === 'DriverDesc' ? m[1] : m[2]}\r\n\r\nEnd of search: 1 match(es) found.\r\n` : '';
-        if (done) setImmediate(() => (m ? done(null, text, '') : done(new Error('ERROR: The system was unable to find the specified registry key or value.'), '', '')));
-        return anyProxy();
-      }
       if (/(^|[\\/])xdotool$/.test(String(_cmd))) pasteSims.push(_args);   // 0.14.0 EK-6: 貼り付けの真似（Linux）
       if (/(^|[\\/])osascript$/.test(String(_cmd)) && Array.isArray(_args) && String(_args[_args.length - 1]).includes('keystroke "v"')) pasteSims.push(_args);   // 同じ（macOS）
       // 0.14.0 EK-6 直し（R193）: Windows の貼り付けの真似（常駐が書けないときの SendKeys の PowerShell）。本物と同じく誤り無しで答える（'ok'）
@@ -2101,14 +2091,13 @@ process.on('exit', () => {
     }
     return k;
   };
-  // 0.15.1 GV-2: 出力に足す GPU の写し（gpu-state.json・偽の whisper の served の行・reg.exe を呼んだ数）
+  // 0.15.1 GV-2: 出力に足す GPU の写し（偽の whisper の served の行・取り込み先の頭の名前。GV-2b で gpu-state.json と reg.exe の数を外した）
   const gpuOut = () => {
-    const f = managedRoot ? path.join(managedRoot, 'gpu-state.json') : '';
-    let gpuState = null;
-    try { gpuState = f && fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null; } catch (_) { gpuState = 'broken'; }
     let served = [];
     try { served = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('served')); } catch (_) { served = []; }
-    return { gpuState, served, regCalls: regCalls.length };
+    let engineRootFiles = [];
+    try { engineRootFiles = managedRoot ? fs.readdirSync(managedRoot).sort() : []; } catch (_) { engineRootFiles = []; }
+    return { served, engineRootFiles };
   };
   const stopEnginesFromTrayItem = () => { const it = trayItems.find((x) => x && /^エンジンを停止/.test(x.label)); if (it) it.click(); };
   // いま動いているエンジンの子（本物の node の子で、まだ終わっていない）の数
@@ -2676,8 +2665,6 @@ process.on('exit', () => {
     out.spawnsBeforeVerify = spawns.length;
     out.managedRoot = managedRoot;
     if (win32Flag && !noVcRuntime) toWin32();   // 0.15.1 GV-2
-    // 0.15.1 GV-2 直し（Windows の CI の赤）: --gpu-platform=linux は、Windows の機械でも Windows 以外と読ませる（付けないだけでは本物の win32 のまま）
-    if (flagVal('--gpu-platform') === 'linux') Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     if (noVcRuntime) {
       // whenReady（トレイ・貼り付け・窓）は今の OS のまま済んだ。照らし終える前に、ランタイムの無い Windows にする
       const winDir = path.join(tmp, 'Windows-空𠮷');
@@ -3744,16 +3731,11 @@ process.on('exit', () => {
       const st = handlers['meeting:status']();
       out.retried = { stt: st.stt, segments: segSnap(st.segments) };
     }
-    // 0.15.1 GV-2: --ng-ok-at-stop（それまでの区間が片付いてから -ng の形を起きるようにする）・--old-set（記録中の取り込みと印のファイル）
-    if (last && ngOkAtStop) {
-      await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
-      out.liveFailed = (handlers['meeting:status']().segments || []).filter((x) => x.failed).length;
-      fs.writeFileSync(process.env.FAKE_NG_OK_FILE, 'ok');
-    }
+    // 0.15.1 GV-2: --old-set（記録中の取り込みと、前の組で書いた記録の行）
     if (last && oldSet) {
       await waitFor(() => handlers['meeting:status']().pending === 0, 15000);
       out.hitsAtStop = fetchSet.hits().map((h) => h.id);
-      out.gpuStateAtStop = fs.existsSync(path.join(managedRoot, 'gpu-state.json'));
+      out.calcAtStop = elogLines().filter((l) => l.startsWith('文字起こしの計算:'));
     }
     if (last) out.stop = await handlers['meeting:toggle']();
     listeners['audio:segment']({}, { buffer: new Uint8Array(wavs[i].buf), durationMs: wavs[i].ms, final: last });
@@ -3771,6 +3753,7 @@ process.on('exit', () => {
       out.sttSentAtLocalOnly = sttSentNow() - sttSent0;
     }
     await sleep(50);
+    if (segSettle && !last) { await waitFor(() => handlers['meeting:status']().pending === 0, 15000); await sleep(300); }   // 0.15.1 GV-2b
     if (relaySeq) {
       const t0 = Date.now();
       await waitFor(() => handlers['meeting:status']().pending === 0, 15000);   // 文字になるか失敗するまで（区間と並びが1対1）
@@ -4020,7 +4003,7 @@ process.on('exit', () => {
       oldDir: fs.existsSync(path.join(managedRoot, 'whisper-1.0.0')), newDir: fs.existsSync(path.join(managedRoot, 'whisper-1.0.0-vk')), engineLog: elogLines() };
     await fetchSet.close();
   }
-  if (gpuSet || oldSet || win32Flag || driverFlag) Object.assign(out, gpuOut());
+  if (gpuSet || oldSet || win32Flag) Object.assign(out, gpuOut());
   // 第1d2回 M-3: 写した後の見回り・戻り・ログイン
   const pagesNow = () => store.listPages().map((p) => {
     const page = store.getPage(p.id);
@@ -4040,6 +4023,7 @@ process.on('exit', () => {
     await relayLocal.setAnswer('c');
     netUp = true;
     await keptTick();
+    if (backSettle) await waitFor(() => !segbufLeft().queue, 15000);   // 0.15.1 GV-2b
     // 待ち行列が片付いたら、要約の欄が S3 から替わり、要約が済む（ブロックか理由）まで待つ。見回りは文字起こしを待って返すので、
     // 待ち行列が残っていれば（PC の中だけの待ち行列は送らない）待たない
     if (!segbufLeft().queue) await waitFor(() => pagesNow().every((p) => !S3_RE.test(p.summaryError || '') && (p.blocks > 0 || p.summaryError)), 10000);

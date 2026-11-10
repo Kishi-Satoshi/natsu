@@ -203,7 +203,7 @@ jobs:
   #  - --start: é・日本語・𠮷 の名前のフォルダに、アプリと同じ道（fetchFile → zipread → engineSpawnPlan）で
   #             エンジンを置いて起動し、VAD を読ませる。英数字以外の絶対パスでは落ちることも見る。
   #             本物の CDN で、取り消してから続きを取れるか（206）も、キャッシュがあっても毎回見る。
-  #             0.15.1 GV-3: エンジンは GPU 版の組。DLL の中の見分けの書式の字を見て、GPU の形と -ng の形の両方で起こす（GPU の無い作業機では黙って CPU で動く）。
+  #             0.15.1 GV-3・GV-2b: エンジンは GPU 版の組。DLL の中の見分けの書式の字を見て、今の引数で1回起こす（whisper_backend_init_gpu の行を見る。GPU の無い作業機では黙って CPU で動く）。
   # キャッシュは SHA-256 を照らしてから使う（合わなければ取り直す）。
   engine-smoke:
     runs-on: windows-latest

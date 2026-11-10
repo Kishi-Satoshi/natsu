@@ -577,9 +577,15 @@ const STATUS_ENTRYPOINT_NOT_FOUND = 0xC0000139; // 3221225785
 const STATUS_ACCESS_VIOLATION = 0xC0000005;     // 3221225477
 const STATUS_ILLEGAL_INSTRUCTION = 0xC000001D;  // 3221225501
 const STATUS_STACK_BUFFER_OVERRUN = 0xC0000409; // 3221226505
-function engineExitHint(code, ms) {
+function engineExitHint(code, ms, opts) {
   if (typeof code !== 'number' || !Number.isFinite(code)) return '';
   const c = code >>> 0;
+  // 0.15.1 GV-2b（D126・決めたこと 54・K17）: 取り込んだ GPU 版の組（opts.bundled が真: engine-manifest の runtime: 'bundled'）は Visual C++
+  // ランタイムを使わないので、ランタイムを言わない（GPU のドライバの中で落ちた起動直後の 0xC0000005 にも、根拠の無い案内を出さない）
+  if (opts && opts.bundled === true) {
+    if (c === STATUS_DLL_NOT_FOUND) return 'エンジンのファイルが見つからないため起動できませんでした。';
+    if (c === STATUS_ENTRYPOINT_NOT_FOUND || (c === STATUS_ACCESS_VIOLATION && Number(ms) <= 10000)) return '';
+  }
   if (c === STATUS_DLL_NOT_FOUND) return '必要な部品（Microsoft Visual C++ ランタイム）か、エンジンのファイルが見つからないため起動できませんでした。';
   if (c === STATUS_ENTRYPOINT_NOT_FOUND || (c === STATUS_ACCESS_VIOLATION && Number(ms) <= 10000)) return 'Microsoft Visual C++ ランタイムが古い可能性があります。';
   if (c === STATUS_ILLEGAL_INSTRUCTION) return 'この PC の CPU では、このエンジンを動かせません。';
@@ -2271,10 +2277,10 @@ function stallStepMs(st, { text, levelDbfs, durationMs } = {}) {
 }
 
 // ---------------------------------------------------------------- 0.15.1 GV-1（D126）: PC の中の文字起こしを GPU 版に
-// 取り込んだ GPU 版の組（engine-manifest の vulkan: true）を GPU の形（今と同じ引数）で起こし、whisper の記録の行で本当に GPU で
-// 動いたかを見分け、使えなければ同じ組を -ng（CPU の形）で起こし直す。印は %LOCALAPPDATA%\natsu\engine\gpu-state.json（main が書く）。
-// 理由の符号は決まった 5 つだけ（記録の行・印のファイル）
-const GPU_WHY = Object.freeze(['none', 'init-failed', 'start-failed', 'lost', 'left-trying']);
+// 取り込んだ GPU 版の組（engine-manifest の vulkan: true）は、いつも今と同じ引数で起こす（0.15.1 GV-2b・第9版: -ng を足さない・印を付けない）。
+// GPU を使えなければ whisper が同じプロセスのまま CPU で計算する。準備までの whisper の記録の行で、どちらで計算したかを見分け、engine.log に1行書くだけ。
+// 理由の符号は決まった 3 つだけ（記録の行）
+const GPU_WHY = Object.freeze(['none', 'init-failed', 'lost']);
 // 見分けの印の決まった字（計画の G15: 配る zip の whisper.dll・ggml-vulkan.dll の中の書式から作った）。formats は engine-smoke が
 // DLL の中にあることを照らす書式の字。印を変えるときはここ1か所だけ（VR16）
 const GPU_LOG_MARKS = Object.freeze({
@@ -2303,7 +2309,12 @@ function gpuLogState(lines) {
   else if (ls.some((l) => l.startsWith(K.failed))) state = 'init-failed';
   else if (ls.some((l) => l.startsWith(K.using))) state = 'gpu';
   const use = ls.map((l) => (l.startsWith(K.using) ? /^(\d+) /.exec(l.slice(K.using.length)) : null)).find(Boolean);
-  const devs = ls.map((l) => (l.startsWith(K.device) ? /^(\d+) = (.*?)\| uma:/.exec(l.slice(K.device.length)) : null)).filter(Boolean);
+  const devs = ls.map((l) => {
+    if (!l.startsWith(K.device)) return null;
+    const rest = l.slice(K.device.length);
+    const end = rest.indexOf(K.deviceEnd);   // 0.15.1 GV-2b（点検の軽微 8）: 名前の終わりの字は GPU_LOG_MARKS.deviceEnd から
+    return end > 0 ? /^(\d+) = (.*)$/.exec(rest.slice(0, end)) : null;
+  }).filter(Boolean);
   const dev = (use && devs.find((d) => d[1] === use[1])) || devs[0];
   let device = '';
   if (dev) {
@@ -2314,108 +2325,16 @@ function gpuLogState(lines) {
   return { state, device };
 }
 
-/**
- * この起動の選び → { use: 'gpu' | 'cpu' | 'plain', why, retry }。plain は今と1字も同じ起こし方（-ng を足さない）。
- *  o: { platform, manual（詳細設定のパスの組）, vulkan（候補の組の印）, driver（今のドライバの鍵）, state（normGpuState の state） }
- *  前の起動の「試している」印が残っていれば cpu（left-trying）。同じ鍵の「使えなかった」印があれば cpu（その理由）。
- *  違う鍵の印は外して gpu を試し直す（retry: 真）
- */
-function gpuPlan(o = {}) {
-  const { platform, manual = false, vulkan = false, driver = '', state = null } = o || {};
-  const plain = (why) => ({ use: 'plain', why, retry: false });
-  if (platform !== 'win32') return plain('platform');
-  if (manual) return plain('manual');
-  if (!vulkan) return plain('no-set');
-  const st = isPlain(state) ? state : {};
-  if (typeof st.trying === 'string' && st.trying) return { use: 'cpu', why: 'left-trying', retry: false };
-  if (isPlain(st.bad) && GPU_WHY.includes(st.bad.why)) {
-    if (st.driver === driver) return { use: 'cpu', why: st.bad.why, retry: false };
-    return { use: 'gpu', why: '', retry: true };
-  }
-  return { use: 'gpu', why: '', retry: false };
-}
-
-const GPU_STATE_DEFAULT = Object.freeze({ schema: 1, driver: '', bad: null, trying: null });
-const GPU_KEY_MAX = 200;
-const ISO_AT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$/;
-/**
- * gpu-state.json の中身 → { state: { schema: 1, driver, bad, trying }, repaired }。項目ごとに照らし、形の悪い項目だけ既定に戻す
- * （repaired: 真）。無い（null）は既定で直したことにしない。組でない・配列・schema が 1 でないものは全部既定（GPU を試す）。
- *  driver: 200 字までの文字。bad: null か { why: GPU_WHY のどれか, code: 整数か null, at: ISO の日時 }。trying: null か 200 字までの空でない文字
- */
-function normGpuState(raw) {
-  if (raw == null) return { state: { ...GPU_STATE_DEFAULT }, repaired: false };
-  if (!isPlain(raw) || raw.schema !== 1) return { state: { ...GPU_STATE_DEFAULT }, repaired: true };
-  const state = { ...GPU_STATE_DEFAULT };
-  let repaired = false;
-  if (typeof raw.driver === 'string' && raw.driver.length <= GPU_KEY_MAX) state.driver = raw.driver;
-  else if (raw.driver !== undefined) repaired = true;
-  const b = raw.bad;
-  if (isPlain(b) && GPU_WHY.includes(b.why) && (b.code === null || Number.isSafeInteger(b.code))
-    && typeof b.at === 'string' && ISO_AT.test(b.at) && Number.isFinite(Date.parse(b.at))) {
-    state.bad = { why: b.why, code: b.code, at: b.at };
-  } else if (b != null) repaired = true;
-  const t = raw.trying;
-  if (typeof t === 'string' && t && t.length <= GPU_KEY_MAX) state.trying = t;
-  else if (t != null) repaired = true;
-  return { state, repaired };
-}
-
-/**
- * reg.exe query の答え（表示アダプターの級の下の DriverDesc と DriverVersion。2 回の問いの答えをつないでもよい）→ { key, version }。
- * 鍵はアダプターごとの「名前=版」を ; でつないだ字（200 字を超えれば頭と SHA-256 の頭 16 桁）。version は版を「、」でつないだ字。
- * アダプターが読めなければ { key: 'unknown', version: '不明' }（鍵 unknown も1つの鍵として扱う）
- */
-function driverKeyOf(regText) {
-  const by = new Map();
-  let at = '';
-  for (const line of (typeof regText === 'string' ? regText : '').split(/\r?\n/)) {
-    if (/^HKEY_/i.test(line)) { at = line.trim(); continue; }
-    const m = /^\s+(DriverDesc|DriverVersion)\s+REG_SZ\s+(.*?)\s*$/.exec(line);
-    if (!m || !at) continue;
-    if (!by.has(at)) by.set(at, {});
-    by.get(at)[m[1]] = m[2];
-  }
-  const ads = [...by.keys()].sort().map((k) => by.get(k)).filter((a) => a.DriverDesc);
-  if (!ads.length) return { key: 'unknown', version: '不明' };
-  const joined = ads.map((a) => `${a.DriverDesc}=${a.DriverVersion || ''}`).join(';');
-  const key = joined.length <= GPU_KEY_MAX ? joined
-    : `${joined.slice(0, GPU_KEY_MAX - 17)}#${require('crypto').createHash('sha256').update(joined).digest('hex').slice(0, 16)}`;
-  return { key, version: driverVersionOf(joined) };
-}
-
-/** 鍵（driverKeyOf の key）から版の字（「、」でつなぐ）。読めなければ 不明（記録の行の「前の版」に使う） */
-function driverVersionOf(key) {
-  if (typeof key !== 'string' || !key || key === 'unknown') return '不明';
-  const vs = [...new Set(key.replace(/#[0-9a-f]{16}$/, '').split(';').map((p) => p.slice(p.lastIndexOf('=') + 1)).filter(Boolean))];
-  return vs.length ? vs.join('、') : '不明';
-}
-
-/** CPU の形の引数: 今の引数の写しの終わりに -ng を1つ足す（もうあれば足さない。ほかの引数は1字も同じ） */
-function noGpuArgs(args) {
-  const a = Array.isArray(args) ? args.slice() : [];
-  if (!a.includes('-ng')) a.push('-ng');
-  return a;
-}
-
-// 記録の行に入れる名前と版。パスの形（\・/）と行を割る字を除き、100 字まで。空なら 不明
+// 記録の行に入れる名前。パスの形（\・/）と行を割る字を除き、100 字まで。空なら 不明
 const gpuLogText = (v) => String(v == null ? '' : v).replace(/[\\/\u0000-\u001f\u007f]/g, '').trim().slice(0, 100) || '不明';
 /**
- * engine.log の「文字起こしの計算:」の行（決めたこと 55）。kind: 'gpu' | 'switch' | 'marked' | 'driver'。
- * info: { device, version, why, code, prev }。理由の符号が GPU_WHY の外・知らない kind は ''（書かない）。パス・利用者名は入れない
+ * engine.log の「文字起こしの計算:」の行（決めたこと 55。0.15.1 GV-2b・第9版で2つの形にした）。kind: 'gpu' | 'cpu'。info: { device, why }。
+ * 理由の符号が GPU_WHY の外・知らない kind は ''（書かない）。パス・利用者名・ドライバの版は入れない
  */
 function gpuLogLine(kind, info = {}) {
   const o = isPlain(info) ? info : {};
-  const ver = gpuLogText(o.version);
-  const why = GPU_WHY.includes(o.why) ? o.why : '';
-  if (kind === 'gpu') return `文字起こしの計算: GPU（${gpuLogText(o.device)}・ドライバ ${ver}）`;
-  if (kind === 'switch') {
-    if (!why) return '';
-    const code = Number.isSafeInteger(o.code) ? `・終了コード ${o.code}` : '';
-    return `文字起こしの計算: CPU に切り替えました（理由 ${why}・ドライバ ${ver}${code}）。このドライバの版では次から CPU で動かします`;
-  }
-  if (kind === 'marked') return why ? `文字起こしの計算: CPU（このドライバの版では前に GPU を使えませんでした: 理由 ${why}）` : '';
-  if (kind === 'driver') return `文字起こしの計算: ドライバの版が変わったので、GPU をもう一度試します（${gpuLogText(o.prev)} → ${ver}）`;
+  if (kind === 'gpu') return `文字起こしの計算: GPU（${gpuLogText(o.device)}）`;
+  if (kind === 'cpu') return GPU_WHY.includes(o.why) ? `文字起こしの計算: CPU（GPU を使えませんでした: 理由 ${o.why}）` : '';
   return '';
 }
 
@@ -2431,8 +2350,8 @@ module.exports = {
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
-  // 0.15.1 GV-1（D126）: GPU 版の組の見分け・選び・印・記録の行
-  GPU_WHY, GPU_LOG_MARKS, gpuLogState, gpuPlan, normGpuState, driverKeyOf, driverVersionOf, noGpuArgs, gpuLogLine,
+  // 0.15.1 GV-1（D126）: GPU 版の組の見分け・記録の行（GV-2b で選び・印・ドライバの鍵・-ng の部品を外した）
+  GPU_WHY, GPU_LOG_MARKS, gpuLogState, gpuLogLine,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   PICK_KEYS, pickDefaultPath,
   truncationMessage, buildPromptParts,

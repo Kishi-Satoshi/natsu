@@ -1415,15 +1415,18 @@ const IDS_151 = [
   'lb-new', 'lb-text', 'lb-kids',   // PS-4
   'lb-press-hold', 'lb-open-focus', 'lb-move-back', 'lb-sel-menu', 'lb-sort-aria',   // PS-4 直し（R44）
   // 0.15.1 GV-1（計画の「変異の表」の gv- の行の順に。PC の中の文字起こしを GPU 版に: D126）
-  'gv-pin-id', 'gv-pin-vulkan', 'gv-cand-current', 'gv-cleanup-keep', 'gv-consent', 'gv-update-auto', 'gv-log-fail', 'gv-log-lost',
-  'gv-plan-manual', 'gv-plan-mark', 'gv-plan-driver', 'gv-state-norm', 'gv-ng-args', 'gv-log-path',
+  // 0.15.1 GV-2b（第9版）で意図して変えた: CPU の形・試している印・ドライバの印の 11（gv-cleanup-keep・gv-plan-manual・gv-plan-mark・gv-plan-driver・
+  // gv-state-norm・gv-ng-args・gv-silent-cpu・gv-crash-cpu・gv-resend-cpu・gv-trying・gv-ng-noloop）を消し（GONE_151 には移さない: VR23）、5 を足した
+  'gv-pin-id', 'gv-pin-vulkan', 'gv-cand-current', 'gv-consent', 'gv-update-auto', 'gv-log-fail', 'gv-log-lost', 'gv-log-path',
   // 0.15.1 GV-2（表の行の順に）
-  'gv-rt-bundled', 'gv-rt-prev', 'gv-silent-cpu', 'gv-crash-cpu', 'gv-resend-cpu', 'gv-trying', 'gv-ng-noloop',
+  'gv-rt-bundled', 'gv-rt-prev',
   // 0.15.1 GV-3
   'gv-wf-clobber',
+  // 0.15.1 GV-2b（第9版）
+  'gv-args-same', 'gv-log-state', 'gv-mark-cap', 'gv-crash-noverify', 'gv-hint-bundled',
 ];
 // 0.15.1 GV-1（計画の「変異の表」の gv- の決まり）: GV-1〜GV-3 の間は、まだ作っていないタスクの gv- の行を除いて表と比べる（ND-5 の前の BUILT_151 と同じ形）。
-// タスクを作るたびに減らし、GV-4 で表の全部（111）に戻す（この並びを消す）
+// タスクを作るたびに減らし、GV-4 で表の全部（105。GV-2b で 111 から）に戻す（この並びを消す）
 const GV_TODO_151 = ['gv-help-fallback'];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
@@ -1461,7 +1464,7 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb|gv)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');   // 0.15.1 GV-1 で gv を足した
   const rows = planRows151();
-  assert.strictEqual(rows.length, 111, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 17・gv- 23）が読めない');   // 0.15.1 GV-1 で表の頭に gv を足した（88 → 111: 計画の「変異の表」の gv- の決まり）   // PS-4 直しで lb-press-hold・lb-open-focus・lb-move-back・lb-sel-menu・lb-sort-aria を足した（83 → 88: R44）   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
+  assert.strictEqual(rows.length, 105, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 17・gv- 17）が読めない');   // 0.15.1 GV-2b（第9版）で gv- を 23 → 17 に（111 → 105）   // 0.15.1 GV-1 で表の頭に gv を足した（88 → 111: 計画の「変異の表」の gv- の決まり）   // PS-4 直しで lb-press-hold・lb-open-focus・lb-move-back・lb-sel-menu・lb-sort-aria を足した（83 → 88: R44）   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');

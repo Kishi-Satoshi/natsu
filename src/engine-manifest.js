@@ -30,8 +30,8 @@ function deepFreeze(o) {
 }
 
 // 0.15.1 GV-1（D126）: NaTsu の CI が whisper.cpp v1.9.5（commit d1be6fde11ac6e0407606b4e42fe72d34add8037）を Vulkan 付きで作った先行版の組。
-// GPU を使えないときも同じ組を -ng で起こす。資産はこのリポジトリの先行版のタグ whisper-vulkan-d1be6fd にある（latest にしない・
-// アプリの更新の札 natsu-v の形でない）。zip の中は平ら（strip が空）で 19 個。試験用の whisper-cli.exe を除く 18 個（合計 60,473,419 バイト）。
+// GPU を使えないときは whisper が同じ組のまま CPU で計算する（NaTsu は -ng を足さない）（0.15.1 GV-2b で直した注釈）。
+// 資産はこのリポジトリの先行版のタグ whisper-vulkan-d1be6fd にある（latest にしない・アプリの更新の札 natsu-v の形でない）。zip の中は平ら（strip が空）で 19 個。試験用の whisper-cli.exe を除く 18 個（合計 60,473,419 バイト）。
 // Visual C++ ランタイムは使わない（C/C++ の実行の部品は中に持ち、OpenMP の vcomp140.dll を同梱。vulkan-1.dll は GPU のドライバの物を使う）。
 // 0.15.0 までの上流の CPU 版（タグ b5454 の whisper-bin-x64.zip）はピンから外した（前から取り込んだ PC は同じ id の「新しい版」として取り直す）。
 const WHISPER_FILES = [
