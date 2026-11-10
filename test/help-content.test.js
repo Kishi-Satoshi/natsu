@@ -892,7 +892,11 @@ test('0.15.0 Task G: README の「画面の使い方」にページの階層・�
   assert.ok(readme.includes('**白紙のページと中のページ（0.15.0 から）:**'), 'README の MCP の節に白紙のページが無い');
   const d = read('docs/plans/natsu-design.md');
   for (let n = 115; n <= 123; n++) assert.ok(new RegExp(`^\\| D${n} \\| \\*\\*`, 'm').test(d), `設計書に D${n} の行が無い`);
-  assert.ok(!/^\| D11[34] \|/m.test(d), '設計書に D113・D114 の行がある（ほかの道で使う番号）');
+  // 0.15.1 Task G（計画の R55）で意図して直した: 前は設計書のどこにも D113・D114 の行が無いことを見ていた。0.15.1 の Task G で D114（音声入力を
+  // なくす）の行がその道の節に入るので、0.15.0 の節（D115〜D123）の中に D113・D114 が無いことを見る（意図「0.15.0 はほかの道の番号を使わない」は残す）
+  const at150 = d.indexOf('## 利用者が決めたこと（ページの階層・白紙のページ');
+  const s150 = d.slice(at150, d.indexOf('\n## ', at150 + 5));
+  assert.ok(at150 > 0 && s150.includes('| D115 |') && !/^\| D11[34] \|/m.test(s150), '設計書の 0.15.0 の節に D113・D114 の行がある（ほかの道で使う番号）');
   for (const [h, w] of [['H1', 'D117'], ['H5', 'D120'], ['U3', 'D121']]) {
     const row = d.split('\n').find((l) => l.startsWith(`| ${h} |`));
     assert.ok(row && row.includes(`0.15.0 で改めた: ${w}`), `設計書の ${h} に ${w} の書き添えが無い`);
@@ -903,6 +907,51 @@ test('0.15.0 Task G: README の「画面の使い方」にページの階層・�
     const row = nb.split('\n').find((l) => l.startsWith(`| ${id} |`));
     assert.ok(row && row.includes('（2026-11-03 の 0.15.0 の'), `notion-behavior の ${id} に答えが無い`);
   }
+});
+
+// ---------------------------------------------------------------- 0.15.1 Task G の前半（計画の Task G・「設計書の直し」・R55）: 設計書の D114・D124〜D126 と取り下げの印・notion-behavior
+test('0.15.1 Task G: 設計書に D114・D124・D125・D126 の行（計画の「設計書の直し」の字のまま。D126 の確かめた所は緑の engine-smoke の run）・版の表の直しの版 0.15.1・U4 ほかの取り下げの印・やらないこと、notion-behavior の N-03〜N-10・Q-16・Q-24 にプライベートの分', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const plan = read('docs/plans/2026-11-04-151.md').split('\n');
+  const pl = (head) => { const xs = plan.filter((l) => l.startsWith(head)); assert.equal(xs.length, 1, `計画に「${head}」の行が1つでない`); return xs[0]; };
+  const row = (k) => { const xs = d.split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.equal(xs.length, 1, `設計書に ${k} の行が1つでない`); return xs[0]; };
+  const decOf = (l) => l.slice(l.indexOf(':** 「') + 5, l.indexOf('」 | 設計書での形「'));
+  // 決めたことの字は計画の「設計書の直し」のまま（D126 は日付の「〜」を「〜11-10」に閉じた）
+  assert.ok(row('D114').startsWith(`| D114 | ${decOf(pl('- **新しい節「利用者が決めたこと（音声入力をなくす。2026-11-04）」と D114 の行:**'))} | U4・D108〜D111・C6・OF5 を取り下げた。`), 'D114 の行が計画の字と違う');
+  assert.ok(row('D124').startsWith(`| D124 | ${decOf(pl('- **（第4版・第5版）D124 の行:**'))} | 見出し「議事録」は「プライベート」`), 'D124 の行が計画の字と違う');
+  const l125 = pl('- **（第5版）D125 の行:**');
+  assert.ok(row('D125').startsWith(`| D125 | ${l125.slice(l125.indexOf(':** 「') + 5, l125.indexOf('」。あわせて'))} | `), 'D125 の行が計画の字と違う');
+  const dec126 = decOf(pl('- **（第6版・第7版・第9版）D126 の行')).replace(/2026-11-09〜）$/, '2026-11-09〜11-10）');
+  const r126 = row('D126');
+  assert.ok(r126.startsWith(`| D126 | ${dec126} | 取り込む文字起こしのエンジンは、whisper.cpp v1.9.5 を Vulkan 付きで`), 'D126 の行が計画の字と違う');
+  assert.ok(/engine-smoke の run \d{11}）。本物の GPU では出す前に確かめていない（VQ8） \|$/.test(r126) && !r126.includes('<番号>'), 'D126 の確かめた所に engine-smoke の run の番号が無い');
+  // 節の見出しと、版の表
+  for (const h of ['## 利用者が決めたこと（音声入力をなくす。2026-11-04）', '## 利用者が決めたこと（PC の中の文字起こしを GPU 版に。2026-11-09）']) assert.ok(d.includes(`\n${h}\n`), `設計書に節「${h}」が無い`);
+  assert.ok(d.includes('直しの版 0.15.1: 音声入力をなくす（D114: `docs/plans/2026-11-04-151.md`）・サイドバーの「プライベート」とライブラリ・行のメニューと名前を変える（D124・D125）・PC の中の文字起こしを GPU 版に（D126）） |'), '版の表の 0.15.0 の欄に直しの版 0.15.1 が無い');
+  assert.ok(d.includes('\n（2026-11-04: 持ち主が音声入力をなくすと決めた（D114）。0.15.1 の直しの版で、1.0.0 の中身から音声入力を外した）\n'), '版の表の下の注が無い');
+  // 取り下げの印（行は消さない）
+  assert.ok(row('U4').includes('**（2026-11-04 の 0.15.1 で取りやめた: D114）**'), 'U4 に取りやめの印が無い');
+  for (const k of ['C6', 'OF5', 'D108', 'D109', 'D110', 'D111']) assert.ok(row(k).includes('**取り下げ（2026-11-04・D114）**'), `${k} に取り下げの印が無い`);
+  assert.ok(row('D110').includes('中継の整えの口は 2026-11-03 に上げた（P6）。0.15.1 からアプリは呼ばず、中継は変えない（WQ6）'), 'D110 に中継の添え書きが無い');
+  for (const k of ['N2', 'N3', 'N5', 'RP7', 'RF21', 'RF9', 'SP2']) assert.ok(row(k).includes('0.15.1 で音声入力の分を取り下げ: D114'), `${k} に音声入力の分の取り下げが無い`);
+  for (const k of ['RF9', 'SP2']) assert.ok(row(k).includes('0.15.1 から Esc はどの時も全体のホットキーにしない'), `${k} に Esc の添え書きが無い`);
+  for (const k of ['RL16', 'RF41']) assert.ok(row(k).includes('（会議・音声入力。0.15.1 から会議だけ: D114）'), `${k} に会議だけの添え書きが無い`);
+  for (const k of ['D21', 'OF1', '1d2']) assert.ok(row(k).includes('会議と音声入力（0.15.1 から会議だけ: D114）'), `${k} に会議だけの添え書きが無い`);
+  for (const k of ['JS5', '`history.json`']) assert.ok(row(k).includes('0.15.1 から') && row(k).includes('ファイルは残す: D114'), `${k} に history.json の添え書きが無い`);
+  assert.ok(row('JS6').includes('（0.15.1 で 30。'), 'JS6 にキーの数の添え書きが無い');
+  assert.ok(d.includes('NaTsu の中の音声入力・口述（Windows の音声入力で代わる: D114）。'), 'やらないことに音声入力が無い');
+  // D124・D125・D126 の書き添え
+  assert.ok(row('L1').includes('2026-11-06 の D124・D125 で') && row('T2').includes('0.15.1 の D124・D125 で先にある') && row('TP3').includes('予定どおり 0.17.0 で入れる（おすすめ）'), 'L1・T2・TP3 の書き添えが無い');
+  assert.ok(row('R7').includes('2026-11-09 の D126 で') && row('R7').includes('第0b回の計画の RF4 の照らし'), 'R7 の書き添えが無い');
+  assert.ok(!row('RF4').includes('D126'), '設計書の RF4（スリープと復帰）に D126 の書き添えがある（計画の RF4 は第0b回の計画の RF4）');
+  assert.ok(d.includes('- **自分たちで作ったエンジン（2026-11-09 の D126）:** 自分たちで作ったエンジン（GPU 版）は、手で押すワークフローが作った先行版の資産をピンで固定して配り、置き換えない。'), '試し方と配り方に自分たちで作ったエンジンの1行が無い');
+  // notion-behavior
+  const nb = read('docs/plans/notion-behavior.md');
+  const nrow = (k) => nb.split('\n').find((l) => l.startsWith(`| ${k} |`)) || '';
+  for (const k of ['N-03', 'N-04', 'N-05', 'N-06', 'N-09', 'N-10']) assert.ok(nrow(k).includes('0.15.1（D124・D125）'), `notion-behavior の ${k} にプライベートの分が無い`);
+  assert.ok(!nrow('N-14').includes('0.15.1') && nrow('N-05').includes('セクションの上下の移動は 17 のまま'), 'N-05 の上下の移動・N-14 は 17 のまま');
+  assert.ok(nrow('Q-16').includes('NaTsu は 0.15.1 で、リンクを写す・名前を変える・移動先・中にページを作る・新しいタブで開く・削除・最終更新にした（D124）'), 'notion-behavior の Q-16 に 0.15.1 の形が無い');
+  assert.ok(nrow('Q-24').includes('出典 SB の頁に、見出しの横の矢印の印'), 'notion-behavior に見出しの矢印の印の Q が無い');
 });
 
 // ---------------------------------------------------------------- 0.15.0 最後の点検の直し（R80・2026-11-06 の a3f0925..707ad1e の点検）: 前の版で消した議事録もゴミ箱に並ぶ
