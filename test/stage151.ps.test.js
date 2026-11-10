@@ -15,6 +15,7 @@ const assert = require('node:assert');
 const SS = require('../src/sideSection');
 const W = require('../src/winstate');
 const PT = require('../src/pageTree');
+const PF = require('../tools/perf');
 const path = require('node:path');
 const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
@@ -877,18 +878,24 @@ test('PS-2 直し: 「最終更新」の間は、兄弟の前後へ落とす印�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
-test('PS-2 直し: sectionRows の「最終更新」は 5,000 ページでも速い（日時を木ごとに1回だけ読む。一覧の読み直しの4回で 40 ミリ秒以内・3 回の中央値）', { timeout: 30000 }, () => {
+// 0.15.1 R54: 全部のテストのファイルを並べて走らせる CI（Windows の run 42743040080）で、続けた3回が同じ込み合いに当たって中央値 46.7 ミリ秒の赤になった
+// （このファイルの速さは変わっていない。前の7回の Windows の run は通っていた）。0.16.0 の R109 と同じく、目安を越えたときだけ PF.recheck（PG1）で間を置いた2回を計り直し、はじめと合わせた中央値で決める（目安の値は変えない）
+test('PS-2 直し: sectionRows の「最終更新」は 5,000 ページでも速い（日時を木ごとに1回だけ読む。一覧の読み直しの4回で 40 ミリ秒以内・3 回の中央値・越えたら PF.recheck で計り直す）', { timeout: 30000 }, async () => {
   const rows = [];
   for (let i = 0; i < 5000; i++) rows.push({ id: `q${i.toString(36)}`, parentId: null, ord: 'i', createdAt: new Date(Date.UTC(2026, 0, 1) + i * 60000).toISOString(), updatedAt: new Date(Date.UTC(2026, 5, 1) - ((i * 7919) % 100000) * 60000).toISOString() });
-  const times = [];
-  for (let k = 0; k < 3; k++) {
-    const tree = PT.pageTree(rows);   // 一覧を読み直すたびに木は組み直す
-    const t0 = process.hrtime.bigint();
-    for (let j = 0; j < 4; j++) SS.sectionRows(tree, new Set(), { sort: 'edited', show: j % 2 ? 5 : 0 });
-    times.push(Number(process.hrtime.bigint() - t0) / 1e6);
-  }
-  times.sort((a, b) => a - b);
-  assert.ok(times[1] <= 40, `中央値 ${times[1].toFixed(1)} ms`);
+  const med3 = () => {
+    const times = [];
+    for (let k = 0; k < 3; k++) {
+      const tree = PT.pageTree(rows);   // 一覧を読み直すたびに木は組み直す
+      const t0 = process.hrtime.bigint();
+      for (let j = 0; j < 4; j++) SS.sectionRows(tree, new Set(), { sort: 'edited', show: j % 2 ? 5 : 0 });
+      times.push(Number(process.hrtime.bigint() - t0) / 1e6);
+    }
+    return Number(PF.median(times).toFixed(1));
+  };
+  const ms = med3();
+  const [x] = await PF.recheck([{ name: 'sectionRows', ms, budget: 40, ok: ms <= 40 }], async () => { await new Promise((r) => setTimeout(r, 200)); return med3(); }, { rounds: 2 });
+  assert.ok(x.ok, `中央値 ${x.ms} ms${x.tries ? `（計り直し ${x.tries.join('・')}）` : ''}`);
   const r = SS.sectionRows(PT.pageTree(rows), new Set(), { sort: 'edited', show: 5 });
   assert.deepStrictEqual([r.rows.length, r.hidden], [5, 4995]);
 });
