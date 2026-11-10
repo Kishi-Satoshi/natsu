@@ -169,7 +169,11 @@ function boot() {
       return { win, wc, t };
     };
     // 画面の外で描く窓（offscreen）は、まだ1枚も描いていないと capturePage が失敗する。そのときは描き直させて1度だけやり直す
+    // 0.16.0 の CI 直し（R110）: capturePage は最後に出来上がった枠の写しで、2回の requestAnimationFrame（settle）は描き終わりではない
+    // （塗るのが遅いと前の枠のまま: icon-pop-light が窓の無い絵になった）。先に DevTools の Page.captureScreenshot（頼んだ後に描かせた枠が
+    // 出来上がってから写す）で今の DOM を描いた枠を待つ。写しは捨て、撮るのは今までどおり capturePage（基準の画像と同じ写し方）
     const capture = async (wc) => {
+      await within(wc.debugger.sendCommand('Page.captureScreenshot', { format: 'png' }), 20000, '描き終わりを待つ');
       let im;
       try { im = await within(wc.capturePage(), 10000, '撮影'); } catch (_) {
         wc.invalidate();
@@ -230,6 +234,26 @@ function boot() {
       }
     } catch (e) {
       console.log(`参考: 慣らしの画面を撮れなかった（本番は続ける）: ${msgOf(e)}`);
+    }
+    // ---- 0.16.0 の CI 直し（R110）: 描き終わりの待ちの自己点検。本体の画面に塗るのに時間のかかる層（SH.PAINT_PROBE）を出した直後に撮り、
+    // 層が写っていなければ（capture が古い枠を写した）「撮れない」の NG。capture の待ち（Page.captureScreenshot）を外すと手元の Linux で赤
+    try {
+      const o = await open('app', 'light', SH.fixtures());
+      try {
+        const before = await capture(o.wc);
+        await within(o.wc.executeJavaScript(SH.PAINT_PROBE, true), 10000, '描くのに時間のかかる層を出す');
+        await settle(o.wc, o.t);
+        const after = await capture(o.wc);
+        const pw = SH.judgePaintWait(before, after, png);
+        if (!pw.ok) errors.push(`描き終わりの待ち: ${pw.note}`);
+        console.log(`${pw.ok ? 'OK' : 'NG'} 描き終わりの待ち — ${pw.note}`);
+      } finally {
+        tables.delete(o.wc.id);
+        try { o.win.destroy(); } catch (_) { /* もう無い */ }
+      }
+    } catch (e) {
+      errors.push(`描き終わりの待ち: ${msgOf(e)}`);
+      console.log(`NG 描き終わりの待ち — 確かめられなかった: ${msgOf(e)}`);
     }
     // ---- 録音バーの画面（0.9.0 O-3・設計書 D25・RP9・F11）
     const panel = [];   // ピルが窓の内側に 4px 以上の余白で入るかの { name, ok, note }（取り直し待ちでも NG）

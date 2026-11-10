@@ -1307,6 +1307,34 @@ function judgePair(a, b, png) {
   return { ok: false, note: d.sizeMismatch ? 'flaky: 2回の大きさが違う' : `flaky: ${d.count} 画素が違う` };
 }
 
+// 0.16.0 の CI 直し（R110）: 描き終わりの待ちの自己点検。画面の全部を覆う層に、塗るのに時間のかかる影（box-shadow と text-shadow）を
+// たくさん重ねて見せる（手元の Linux の画面の外の窓で 300 個は約 1 秒。待ちを外すと、2回の requestAnimationFrame と 300 ミリ秒の後に撮っても
+// 前の絵のままだった）。撮る道具だけが使い、製品の画面には無い
+const PAINT_PROBE = `(() => {
+  const box = document.createElement('div');
+  box.id = 'shotsPaintProbe';
+  box.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#c00;overflow:hidden';
+  for (let i = 0; i < 300; i++) {
+    const d = document.createElement('span');
+    d.textContent = 'あ😀';
+    d.style.cssText = 'position:absolute;left:' + ((i * 37) % 1000) + 'px;top:' + ((i * 53) % 700) + 'px;font-size:60px;' +
+      'text-shadow:0 0 90px #00f,0 0 70px #0f0,0 0 50px #ff0;box-shadow:0 0 150px 40px rgba(0,0,' + (i % 255) + ',.3)';
+    box.appendChild(d);
+  }
+  document.body.appendChild(box);
+  return 1;
+})()`;
+
+/** 描き終わりの待ちの自己点検の判定。PAINT_PROBE の後の絵が前の絵と半分以上違えば OK（同じなら古い枠を写した） */
+function judgePaintWait(before, after, png) {
+  if (!before || !after) return { ok: false, note: '撮れなかった' };
+  const d = png.diffImages(before, after, { tolerance: 0 });
+  if (d.sizeMismatch) return { ok: false, note: '前と後の大きさが違う' };
+  const half = Math.ceil((before.width * before.height) / 2);
+  if (d.count >= half) return { ok: true, note: `描くのに時間のかかる変化の後の絵を撮れた（${d.count} 画素が前と違う）` };
+  return { ok: false, note: `変化の前の古い枠を撮った（前と違うのは ${d.count} 画素。半分の ${half} に届かない）` };
+}
+
 /**
  * 撮った画面を基準と比べる。shots: { name: { width, height, data } } → [{ name, status, count? }]（shots の並び）。
  * 'diff'・'size' なら outDir に <name>.before.png（基準）・<name>.after.png（今）・<name>.diff.png、'missing' なら <name>.after.png。
@@ -1492,6 +1520,6 @@ module.exports = {
   SIZE, OVERLAY_SIZE, SHOT_AREA, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
   WAVE_SPEECH, NUDGE_SIZE, NUDGE_PROBE, nudgeWindowFor, detectAnswers,
   PANEL_PROBE, PANEL_PROBE_SCALES, PANEL_PROBE_STATES, judgePanel, panelWindowFor, shotSizeFor, watchdogMs,
-  apiNamesOf, fixtures, liveAnswers, bigPage, bigListEntry, judgePair, compareAll, cspViolation, median, judgePerf, judgeOverflow, judgeFocus, judgeZoom,
+  apiNamesOf, fixtures, liveAnswers, bigPage, bigListEntry, judgePair, PAINT_PROBE, judgePaintWait, compareAll, cspViolation, median, judgePerf, judgeOverflow, judgeFocus, judgeZoom,
   exitCodeOf, ensureContentSize,
 };

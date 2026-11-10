@@ -1231,6 +1231,45 @@ test('F9: 揺れの確かめの2枚目は、描き直させて（invalidate）�
   assert.ok(m.slice(a, b).includes('await settle(o.wc, o.t);'), '描き直しが済むのを待っていない');
 });
 
+// 0.16.0 の CI 直し（R110）: 画面の外で描く窓の capturePage は「最後に出来上がった枠」の写しで、2回の requestAnimationFrame は描き終わりではない
+// （枠を作る指示が出ただけで、絵を塗る（ラスタ）のが遅いと前の枠のまま）。run 42572852010 の icon-pop-light は1枚目が窓の無いページ・2枚目
+// （0.6 秒後）が窓のある基準どおりの絵で、窓を開き直す道は無いので、1枚目は古い枠だった。run 42729582325 では2枚とも古い枠で「2回とも同じ」・
+// 基準と 87,480 画素違った（Windows の CI で初めて色の絵文字を塗るのが遅い。暗い方は2枚目なので速い）。撮る前に、DevTools の
+// Page.captureScreenshot（頼んだ後に描いた枠が出てから写す）で今の DOM を描いた枠を待ってから capturePage で撮る
+test('R110: 撮る前に、今の DOM を描いた枠が出るまで待つ（DevTools の Page.captureScreenshot）。capturePage だけでは古い枠を写す', { timeout: 5000 }, () => {
+  const m = read('tools/shots/main.js');
+  const at = m.indexOf('const capture = async (wc) => {');
+  assert.ok(at >= 0, '撮る関数が無い');
+  const body = m.slice(at, m.indexOf('\n    };', at));
+  const barrier = body.indexOf("wc.debugger.sendCommand('Page.captureScreenshot'");
+  assert.ok(barrier >= 0, '撮る前に、今の DOM を描いた枠を待っていない');
+  assert.ok(barrier < body.indexOf('wc.capturePage()'), '枠を待つのが capturePage の後');
+  // 描くのに時間のかかる変化の直後に撮って、変化が写っていなければ「撮れない」の NG（待ちを外すと手元の Linux で赤: R110）
+  const self = m.indexOf('SH.PAINT_PROBE');
+  assert.ok(self >= 0 && self < m.indexOf('for (const s of SH.SCREENS) {'), '本番の前に描き終わりの待ちを確かめていない');
+  assert.ok(/SH\.judgePaintWait\(before, after, png\)/.test(m), '描き終わりの待ちの判定を使っていない');
+  assert.ok(/if \(!pw\.ok\) errors\.push\(/.test(m), '描き終わりの待ちが効かないのを NG にしていない');
+  assert.match(SH.PAINT_PROBE, /shotsPaintProbe/);
+  assert.match(SH.PAINT_PROBE, /box-shadow/);
+});
+
+test('R110: judgePaintWait は、描くのに時間のかかる変化の後の絵が前の絵と半分以上違えば OK（同じ・少しだけ違う・大きさが違うは NG）', { timeout: 5000 }, () => {
+  const im = (w, h, rgb) => { const data = Buffer.alloc(w * h * 4); for (let i = 0; i < w * h; i++) data.set([...rgb, 255], i * 4); return { width: w, height: h, data }; };
+  const white = im(10, 10, [255, 255, 255]);
+  const red = im(10, 10, [200, 0, 0]);
+  assert.strictEqual(SH.judgePaintWait(white, red, P).ok, true);
+  const same = SH.judgePaintWait(white, im(10, 10, [255, 255, 255]), P);
+  assert.strictEqual(same.ok, false, '古い枠（前と同じ絵）を OK にした');
+  assert.match(same.note, /古い枠/);
+  const part = im(10, 10, [255, 255, 255]);
+  for (let i = 0; i < 49; i++) part.data.set([200, 0, 0, 255], i * 4);
+  assert.strictEqual(SH.judgePaintWait(white, part, P).ok, false, '半分に届かない違いを OK にした');
+  part.data.set([200, 0, 0, 255], 49 * 4);
+  assert.strictEqual(SH.judgePaintWait(white, part, P).ok, true, 'ちょうど半分を NG にした');
+  assert.strictEqual(SH.judgePaintWait(white, im(10, 11, [200, 0, 0]), P).ok, false, '大きさの違いを OK にした');
+  assert.strictEqual(SH.judgePaintWait(null, red, P).ok, false, '撮れなかったのを OK にした');
+});
+
 // 第1b回 載せ直し: Tab の輪の画面の「Tab を何回」は、今の画面の Tab の順（偽 DOM の木の順。正の tabindex は使わない）と合っていること。
 // サイドバーの頭に［«］が入って順が1つずれたのに、C-1 の決め（Tab 2 回）が古いままで、CI が #searchBox を撮った（取り直し待ちの間は NG にならない）
 test('画面の使いやすさ・F12: Tab の輪の画面の「Tab を何回」は、今の画面の Tab の順でちょうど want に届く', { timeout: 10000 }, async () => {
