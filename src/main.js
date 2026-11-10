@@ -1030,7 +1030,8 @@ function startEngine(eng) {
         eng.lastError = `${eng.name}が終了しました (code ${code})${tail ? `: ${tail}` : ''}${hint ? `。${hint}` : ''}`.trim();
         engineLog(eng.lastError);
         // 取り込んだエンジンが 0xC0000135（3221225781。DLL が見つからない）で落ちた: ウイルス対策が消したかもしれない。
-        // 自分のファイルを照らし直す（RF3。第0b回 Task 14）。合えばランタイムの案内（上の hint）のまま
+        // 自分のファイルを照らし直す（RF3。第0b回 Task 14）。合えば上の hint のまま（0.15.1 GV-2b: 取り込んだ GPU 版の組（runtime: 'bundled'）は
+        // ランタイムを言わない案内、前の組はランタイムの案内。照らし直しの記録の行も組で分ける: onManagedCrash）
         if ((code >>> 0) === 3221225781 && !manualGroup(eng)) onManagedCrash(eng).catch((e) => engineLog(`${eng.name}: 落ちた後の照らし直しに失敗: ${e && e.message}`));
       }
       eng.proc = null; eng.ready = false; eng.readyPromise = null;

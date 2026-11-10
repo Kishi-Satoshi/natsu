@@ -1070,6 +1070,13 @@ test('GV-4・F174: INSTALL と README（取り込むエンジンは GPU（Vulkan
   assert.ok(!ins.includes('NaTsu が［設定］→［ローカル AI］に案内を出します（取り込む前にも出ます）'), '取り込む前の案内が残っている');
   assert.ok(!/CPU で計算する形に切り替え|ここで入れたエンジンのパスを詳細設定に入れると/.test(ins), '無くなった切り替え・手で入れる節の書き足し（VQ14 (a)）がある');
   assert.ok(ins.includes('詳細設定にパスを入れた側は、アプリで取り込んだエンジンより、そちらが使われます。\n'), '手で入れる節の文が変わった');
+  // rv52 の軽い 1（2026-11-10 の持ち主の答え「2行に分ける（おすすめ）」・R52）: 困ったときの［PC の中で試す］・［起動テスト］の行を、手で入れたときと取り込んだエンジンで分ける
+  const rows = [
+    '| （手で入れたとき）［PC の中で試す］・［起動テスト］が失敗する | 情報システムの担当に Visual C++ ランタイムを入れてもらう（上の「Visual C++ ランタイム」） |',
+    '| （取り込んだエンジンで）［PC の中で試す］・［起動テスト］が失敗する | 記録（`%APPDATA%\\natsu\\engine.log`）を情報システムの担当に渡す |',
+  ];
+  assert.ok(ins.includes(`\n${rows.join('\n')}\n`), '困ったときの［PC の中で試す］・［起動テスト］の2行が無い');
+  assert.ok(!ins.includes('\n| ［PC の中で試す］・［起動テスト］が失敗する |'), '困ったときに限りの無い［PC の中で試す］・［起動テスト］の行が残っている');
   const rd = read('README.md');
   assert.ok(rd.includes(`\n${VER_151} から、取り込む文字起こしのエンジンは GPU（Vulkan）で計算できる版（NaTsu の CI が whisper.cpp を Vulkan 付きで作った物）で、GPU を使えない PC では同じエンジンが CPU で計算します（[ヘルプ](help/articles/settings/offline.md)）。\n`));
   assert.ok(rd.includes('文字起こしの whisper.cpp（MIT）をローカル実行しています（取り込むエンジンは、whisper.cpp を Vulkan 付きで NaTsu の CI が作った物。Vulkan の部品は GPU のドライバの物を使い、同梱しません。要約は各自の Claude Code）。'));

@@ -93,7 +93,8 @@ const { titleAt } = require('./titles');
 //                     0xC0000135（3221225781）で落ちる（Linux のプロセスはこの番号で終われないので、最初の起動だけ 'exit' を
 //                     その番号で出す偽の子にし、その前に whisper.dll を消す）。同意済みで偽のサーバーを開いたままにし、
 //                     main が照らし直して使うのをやめ、取り直してから使い直すのを見る（第0b回 Task 14・RF3）
-//     --crash-ok    … --crash と同じ落ち方だが、ファイルはそのまま（照らし直して合う: ランタイムの案内のまま、組は使い続ける）
+//     --crash-ok    … --crash と同じ落ち方だが、ファイルはそのまま（照らし直して合う: 落ちたときの案内のまま、組は使い続ける。
+//                     0.15.1 GV-2b: --gpu-set と組むと、取り込んだ GPU 版の組（runtime: 'bundled'）の案内と記録の行にランタイムの字が無い）
 //   0.15.1 GV-2（計画 docs/plans/2026-11-04-151.md の Task GV-2・D126。偽の whisper の GPU の型は fake-whisper.js の FAKE_GPU）:
 //     --gpu-set     … --managed と組む。取り込んだ組を GPU 版の組に見立てる（engine-small の vk: 印 vulkan・runtime のある試験のピン）
 //     --old-set     … --managed と組む。前のピンの組（印の無い engine-small）だけがそろった PC。main のピンは GPU 版の組（エンジンだけ違う）。
