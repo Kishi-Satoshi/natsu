@@ -1403,6 +1403,8 @@ const IDS_160 = [
   'tb-rel-self',   // 0.16.0 R98（M15-2）で表の末に足した行
   // 0.16.0 DR-1 直し（rv51 I1・I4・R106）で表の末（R104 の DL-1 の5行の後）に足した行
   'tb-sub-new-parent', 'tb-undo-rel-row', 'tb-undo-rel-max', 'tb-undo-rel-col', 'tb-rel-sig', 'tb-rel-dup', 'tb-rel-col-max', 'tb-rel-self-max', 'tb-sub-col-max',
+  // 0.16.0 DR-1 直し2（MQ2・rv51 I2・R108）で表の末に足した行
+  'tb-sub-col-keep', 'tb-sub-pair', 'tb-sub-get', 'vw-sub-col-del',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');

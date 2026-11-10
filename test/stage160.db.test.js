@@ -1655,6 +1655,56 @@ test('DR-1 直し・I4（rv51）: 列は 100 まで: 両側は相手のデータ
   assert.strictEqual(dbGet(db, d3).cols.length, LIMITS.dbCols);
 }));
 
+test('DR-1 直し2（MQ2・R108）: サブアイテムを入れている間は2つの列を col.remove で消せない（bad-args・何も変えない）・外すとふつうの列として消せる・入れ直すと新しい2列（前の2列は値ごとふつうのリレーション）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const p1 = rowAddA(db, d, { title: '親 一' }); const c1 = rowAddA(db, d, { title: '子 一' });   // D77 の会議の題名でない（データベースの行の題名）
+  const { sub } = ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub');
+  ok(call(db, 'rel.link', { db: d, id: c1, col: sub.parent, ids: [p1] }), 'rel.link');
+  const mid = dump(db);
+  for (const col of [sub.parent, sub.kids]) assert.strictEqual(code(call(db, 'col.remove', { db: d, col })), 'bad-args', `入れている間に ${col} を消せた`);
+  assert.deepStrictEqual(dump(db), mid);
+  assert.deepStrictEqual(dbGet(db, d).sub, sub);
+  // 外すとふつうの列: 消せる
+  ok(call(db, 'db.setSub', { db: d, on: false }), 'db.setSub off');
+  ok(call(db, 'col.remove', { db: d, col: sub.kids }), 'col.remove');
+  ok(call(db, 'col.restore', { db: d, col: sub.kids }), 'col.restore');
+  // 入れ直す: 前の2列は残り（値もそのまま）、新しい2列「親アイテム 2」「サブアイテム 2」を足す（前の値は写さない）
+  const again = ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub again').sub;
+  const info = dbGet(db, d);
+  assert.deepStrictEqual(info.sub, again);
+  assert.ok(again.parent !== sub.parent && again.kids !== sub.kids, '前の2列を使い直した');
+  assert.deepStrictEqual([sub.parent, sub.kids, again.parent, again.kids].map((id) => info.cols.find((c) => c.id === id).name), ['親アイテム', 'サブアイテム', '親アイテム 2', 'サブアイテム 2']);
+  assert.deepStrictEqual([relOf(db, c1, sub.parent), relOf(db, c1, again.parent)], [[p1], undefined]);
+  // 前の2列はふつうの列（消せる）・新しい2列は消せない
+  ok(call(db, 'col.remove', { db: d, col: sub.parent }), 'col.remove 前の列');
+  assert.strictEqual(code(call(db, 'col.remove', { db: d, col: again.parent })), 'bad-args');
+}));
+
+test('DR-1 直し2（rv51 I2・R108）: 2つの列が互いを指していない・片方が消えているときは木にしない（db.get に sub が無い・db.view は字下げの無い全部の行・ふつうの列として消せる）', T, () => withDb((db) => {
+  const d = mkDb(db);
+  const p1 = rowAddA(db, d, { title: '親 一' }); const p2 = rowAddA(db, d, { title: '親 二' }); const c1 = rowAddA(db, d, { title: '子 一' });   // D77 の会議の題名でない（データベースの行の題名）
+  const { sub } = ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub');
+  ok(call(db, 'rel.link', { db: d, id: c1, col: sub.parent, ids: [p1] }), 'rel.link');
+  const cols0 = dbGet(db, d).cols;
+  // 前の作りで残りうる形: attrs.sub はあるが、サブアイテムの列の back が無い（片側）
+  const lone = cols0.map((c) => { if (c.id !== sub.kids) return c; const x = { ...c }; delete x.back; return x; });
+  put(db, [{ op: 'set', id: d, key: 'cols', value: lone, old: cols0 }]);
+  assert.strictEqual(dbGet(db, d).sub, undefined, '互いを指していないのに sub を返す');
+  assert.deepStrictEqual(view(db, d).rows.map((r) => [r.id, r.depth || 0]), [[p1, 0], [p2, 0], [c1, 0]], '互いを指していないのに木にする');
+  // 木にしていないので、2つの列はふつうの列として消せる（画面の［削除］も灰色でない）
+  ok(call(db, 'col.remove', { db: d, col: sub.kids }), 'col.remove 片側の列');
+  ok(call(db, 'col.restore', { db: d, col: sub.kids }), 'col.restore');
+  // 列が消えている（attrs.sub は残っている）
+  const gone = cols0.map((c) => (c.id === sub.parent ? { ...c, gone: true } : c));
+  put(db, [{ op: 'set', id: d, key: 'cols', value: gone, old: lone }]);
+  assert.strictEqual(dbGet(db, d).sub, undefined, '列が消えているのに sub を返す');
+  // ［サブアイテム］を入れると新しい2列（木にしていなかったので）
+  const again = ok(call(db, 'db.setSub', { db: d, on: true }), 'db.setSub').sub;
+  assert.ok(again && again.parent !== sub.parent, '新しい2列を足さない');
+  assert.deepStrictEqual(dbGet(db, d).sub, again);
+  assert.strictEqual(code(call(db, 'rel.link', { db: d, id: c1, col: again.parent, ids: [p1, p2] })), 'bad-args', '新しい木で親が2つ');
+}));
+
 test('DR-1: preload の呼び口（relLink・relUnlink・dbSetSub・relFind・colAdd の rel・dbView の open。どれも dbCall の1回）。rel.link・rel.unlink・db.setSub は元に戻すの歩み（データベースの ID）・rel.find は読む命令', T, async () => {
   const PRE = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
   for (const cmd of ['rel.link', 'rel.unlink', 'db.setSub']) { assert.ok(UNDO_CMDS.has(cmd), cmd); assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd); }

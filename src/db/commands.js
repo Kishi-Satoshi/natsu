@@ -1704,7 +1704,8 @@ function dbGetOf(db, id) {
   if (!d) return null;
   const out = { id, title: d.title, cols: d.cols, views: d.views.map((v) => normView(d, v)), rowCount: db.prepare(HOT_QUERIES.dbRowCount).get(id).c };
   if (typeof d.attrs.icon === 'string' && d.attrs.icon) out.icon = d.attrs.icon;
-  if (isObj(d.attrs.sub)) out.sub = d.attrs.sub;
+  const sub = subOf(d);   // 0.16.0 DR-1 直し2（rv51 I2・R108）: 木にしているときだけ（列が消えている・互いを指していないなら無い）
+  if (sub) out.sub = sub;
   return out;
 }
 // 表を読む（決めたこと 30・R20）: 行を1回読み、dbView.applyView で絞り込み・並べ替え・グループ・集計をし、並べる行（shown）の from から count だけ返す
@@ -1858,12 +1859,13 @@ function rowsPaste(db, a, ctx, dry = false) {
 }
 
 // ---- リレーションとサブアイテム（0.16.0 DR-1。決めたこと 33〜38・R98）
-// サブアイテムの列（{ parent, kids }。どちらも生きているリレーションの列のときだけ）| null
+// サブアイテムの列（{ parent, kids }。どちらも生きている自分へのリレーションの列で、互いを指しているときだけ: R108）| null
 function subOf(d) {
   const s = isObj(d.attrs.sub) ? d.attrs.sub : null;
   if (!s) return null;
   const p = colIn(d.cols, s.parent); const k = colIn(d.cols, s.kids);
-  return p && k && !p.gone && !k.gone && p.type === 'rel' && k.type === 'rel' ? { parent: p.id, kids: k.id } : null;
+  const live = (c, o) => c && !c.gone && c.type === 'rel' && c.db === d.id && c.back === o;
+  return p && k && p !== k && live(p, k.id) && live(k, p.id) ? { parent: p.id, kids: k.id } : null;
 }
 // 生きている行の親（親アイテムの列の1つ目）の Map
 function subParents(db, d, pcol) {
@@ -2141,6 +2143,9 @@ function colRemove(db, a) {
   const col = colIn(d.cols, a.col);
   if (!col || col.type === 'title') throw refuse('bad-args');   // 題名の列は消せない（J-18）
   if (col.gone) return { ops: [], pageIds: [], result: { col } };
+  // 0.16.0 DR-1 直し2（MQ2・R108）: サブアイテムを入れている間は2つの列を消せない（外すのは db.setSub の off だけ）
+  const sub = subOf(d);
+  if (sub && (sub.parent === col.id || sub.kids === col.id)) throw refuse('bad-args');
   const next = { ...col, gone: true };
   const ops = [dbSet(d, 'cols', d.cols.map((c) => (c.id === col.id ? next : c)))];
   // 0.16.0 DR-1（決めたこと 36）: 両側のリレーションの片方を消すと、相手の列は片側のリレーションに戻る（相手の値は消さない。同じ命令で Ctrl+Z も一緒）

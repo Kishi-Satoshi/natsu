@@ -2540,6 +2540,20 @@ test('DR-1: 選びの窓（「行を探す」・ひらがなとカタカナを�
   } finally { l.done(); }
 });
 
+test('DR-1 直し2（MQ2・R108）: サブアイテムを入れている間は、2つの列の列のメニューの［削除］が灰色（ほかの列は押せる）・外すと押せる', T, async () => {
+  const l = await openDb();
+  try {
+    const { sub } = l.call('db.setSub', { db: l.id, on: true });
+    l.fire('onPageOpen', l.id); await l.drain(200);
+    const del = async (colId) => { await clickEl(l, head(l, colId)); const b = item(l, '削除'); const off = b.disabled; await press(l, menu(l), { key: 'Escape' }); return off; };
+    assert.deepStrictEqual([await del(sub.parent), await del(sub.kids), await del(l.c1)], [true, true, false], '入れている間の［削除］');
+    l.call('db.setSub', { db: l.id, on: false });
+    l.fire('onPageOpen', l.id); await l.drain(200);
+    assert.deepStrictEqual([await del(sub.parent), await del(sub.kids)], [false, false], '外した後の［削除］');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('DR-1: サブアイテム（データベースの「···」の［サブアイテム］・行のメニュー［サブアイテムを足す］・▸ で開け閉め・字下げ・輪は「その行の中へは入れられません」・子孫ごと消した数の知らせ・当たった子の親は灰色）', T, async () => {
   const l = await openDb();
   try {

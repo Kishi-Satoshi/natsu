@@ -11141,7 +11141,8 @@
       { label: '折り返す', on: p.wrap === true, fn: () => dbPropPatch(col.id, { wrap: p.wrap !== true }) },
       { label: '集計 ▸', fn: () => dbAggMenu(col, anchor) },
       { label: '隠す', fn: () => dbPropPatch(col.id, { show: false }), off: title },
-      { label: '削除', fn: () => { dbMenuClose(); dbWrite(() => window.koeApp.colRemove(st.id, col.id)); }, off: title },
+      // 0.16.0 DR-1 直し2（MQ2・R108）: サブアイテムを入れている間は2つの列を消せない（外すのはデータベースの「···」の［サブアイテム］から）
+      { label: '削除', fn: () => { dbMenuClose(); dbWrite(() => window.koeApp.colRemove(st.id, col.id)); }, off: title || dbSubCol(st.info, col.id) },
     );
     const m = dbMenuAt(anchor, items, 'dbcolmenu');
     m.dataset.col = colId;
