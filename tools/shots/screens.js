@@ -610,6 +610,8 @@ const SCREENS = [
   { name: 'sidebar-db-light', page: 'app', theme: 'light', get answers() { return sideDbAnswers(); }, act: OPEN_SIDE_DB },
   // 0.16.0 DX-2: ［ゴミ箱］の窓の行のまとまり（「行 題名（データベース名）」・「ほかの行 n」。足した画面。まだ基準が無い）
   { name: 'trash-pop-rows-light', page: 'app', theme: 'light', get answers() { return trashRowsAnswers(); }, act: OPEN_TRASH_ROWS },
+  // 0.16.0 DL-1 (2)（R111・R115）: 白紙のページの本文のインラインの表（頭の 🗃️・題名の欄・⤢ と、15 行の高さで中を捲る表。足した画面。まだ基準が無い）
+  { name: 'db-inline-light', page: 'app', theme: 'light', get answers() { return inlineAnswers(); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -735,9 +737,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DR-1 で足したリレーションとサブアイテムの2枚（まだ基準が無い）
 // DX-1 で足したサイドバーのデータベース（まだ基準が無い）と、Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増える new-pop-light（今の基準がある）
 // DX-2 で足した［ゴミ箱］の窓の行のまとまり（まだ基準が無い）
+// DL-1 (2) で足した白紙のページの本文のインラインの表（まだ基準が無い）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
-  'sidebar-db-light', 'trash-pop-rows-light',
+  'sidebar-db-light', 'trash-pop-rows-light', 'db-inline-light',
   'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -977,6 +980,24 @@ function blankAnswers() {
   ] };
   const row = { id: 'pb1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
   return { 'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
+}
+
+/**
+ * 0.16.0 DL-1 (2)（R111）: 白紙のページの本文のインラインの表（一覧のいちばん上の白紙のページ pi1。行 s1 は子のデータベース pd1 を指す inline: true の
+ * 子ページの行。表の答えは dbAnswers の「案件の一覧」の 20 行で、表は 15 行の高さで中を捲る）
+ */
+function inlineAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const m = { citeState: 'manual', cites: [] };
+  const d = dbAnswers();
+  const page = { id: 'pi1', kind: 'blank', title: '案件のまとめ', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [
+    { id: 'q1', type: 'heading', level: 2, text: '今月の案件', ...m },
+    { id: 's1', type: 'subpage', text: '', page: 'pd1', inline: true },
+    { id: 'q2', type: 'paragraph', text: '金額の大きい案件から先に進める。', ...m },
+  ] };
+  const row = { id: 'pi1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
+  const dbRow = { ...d['koeApp.pagesSearch'][0], parentId: 'pi1', ord: 'a' };
+  return { ...d, 'koeApp.pagesSearch': [row, dbRow, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
 }
 
 /**

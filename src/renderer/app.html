@@ -880,6 +880,17 @@
   .blk.subpage .txt:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
   .blk.subpage.gone .txt { cursor: default; color: var(--muted); text-decoration: none; }
   .blk.subpage.gone .txt:hover { background: transparent; }
+  /* 0.16.0 DL-1 (2)（R111）: 本文のインラインの表（子ページの行の inline）。行の文（📄 の題名）は出さず、頭（🗃️・題名の欄・⤢）と表。表は 15 行の高さで中を捲る */
+  .blk.dbinline { flex-wrap: wrap; }
+  .blk.dbinline > .txt { display: none; }
+  .dbhost { flex: 1 1 100%; min-width: 0; margin: 4px 0 8px; }
+  .dbhead { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .dbhead .dbtitle { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 2px 4px; }
+  .dbhead .dbtitle:hover { border-color: var(--line); }
+  .dbhead .dbexpand { font-size: 13px; padding: 0 6px; }
+  .dbbox { position: relative; }
+  .dbhost .dbscroll { max-height: calc(32px * 16); overflow: auto; }
+  .dbhost .dbgone { color: var(--muted); padding: 4px 0; }
   .bodykids { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
   .bodykids .kidshead { font-size: 12px; color: var(--text-2); margin: 0 0 4px; }
   .bodykids .kidrow { padding: 3px 6px; border-radius: 4px; cursor: pointer; color: var(--text); }
@@ -2732,7 +2743,7 @@
     // PH-5 直し 2（R56 M-1）: 一覧を読み直すたび（行の保存・ほかの窓の変更）にも呼ばれるので、段の形が同じなら描き直さない（「…」の一覧とフォーカスを残す）。
     // 変わったら描き直し、段（か「…」の一覧）にあったフォーカスは同じ段へ戻す
     // DV-4: データベースの段の題名は列とビューの答え（db.get）の題名（無題は「無題のデータベース」。一覧の1行の無題の名前は議事録の名前のため）
-    const hostInfo = !host ? null : rpSt && rpSt.id === host && rpSt.info ? rpSt.info : dbSt && dbSt.id === host && dbSt.info ? dbSt.info : null;
+    const hostInfo = !host ? null : rpSt && rpSt.id === host && rpSt.info ? rpSt.info : dbPageSt() && dbPageSt().id === host && dbPageSt().info ? dbPageSt().info : null;
     const name = (a) => (a === host && hostInfo ? oneLine(hostInfo.title) || dbUntitled() : names.has(a) ? names.get(a)[1] : oneLine(crumbPage(a).title));
     const icon = (a) => (names.has(a) ? names.get(a)[0] : pageEmoji(crumbPage(a)));
     crumbNames = new Map([...shown, ...hide].filter(Boolean).map((a) => [a, [icon(a), name(a)]]));   // 「…」の一覧も同じ名前
@@ -6216,9 +6227,9 @@
         await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
       }, false, true);
       if (dbp) {   // 0.16.0 DR-1（決めたこと 37）: データベースの［サブアイテム］（入れる・外す。印は表の列とビューを読んだ後に dbPaint が付ける）
-        const sb = mk(DB_SUB, () => dbSubSet(!(dbSt && dbSt.id === curId && dbSt.info && dbSt.info.sub)), false, true);
+        const sb = mk(DB_SUB, () => dbSubSet(!(dbPageSt() && dbPageSt().id === curId && dbPageSt().info && dbPageSt().info.sub)), false, true);
         sb.setAttribute('role', 'menuitemcheckbox'); sb.dataset.sub = '1';
-        sb.setAttribute('aria-checked', dbSt && dbSt.id === curId && dbSt.info && dbSt.info.sub ? 'true' : 'false');
+        sb.setAttribute('aria-checked', dbPageSt() && dbPageSt().id === curId && dbPageSt().info && dbPageSt().info.sub ? 'true' : 'false');
       }
       if (!rowp) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
       lookMenuItems(mk);   // 0.15.0 PL-3（決めたこと 40）: 見た目（議事録にも白紙のページにも。録音中の写しには出さない: R71）
@@ -6349,7 +6360,7 @@
     if (isRowPage(h)) {
       // 0.16.0 DX-2（決めたこと 44）: 行を戻したら、開いているそのデータベースの表を読み直す（行はサイドバーに無いので、木の行へは移らない）
       const from = trashFrom;
-      if (dbSt && dbSt.id === h.db) await dbReread(dbSt);
+      for (const st of [...dbTables.values()]) if (st.id === h.db) await dbReread(st);   // 0.16.0 DL-1 (2): 本文の表も
       await refreshTrash();
       if (trashOn) renderTrash(i);
       else focusAlive(from, $('tabBtnSettings'));   // 空になって窓を閉じたら、窓を開いた所へ
@@ -9824,10 +9835,33 @@
   const DB_AGG_LABEL = { count: '全件', values: '値のある件数', unique: '異なる値の数', empty: '空の数', filled: '空でない数', emptyPct: '空の割合', filledPct: '空でない割合',
     sum: '合計', avg: '平均', median: '中央値', min: '最小', max: '最大', range: '範囲', earliest: '最も早い', latest: '最も遅い',
     checked: 'チェック済み', unchecked: '未チェック', checkedPct: 'チェック済みの割合', uncheckedPct: '未チェックの割合' };
-  let dbSt = null;   // 開いているデータベースの表（窓のメモリ。ページを替えると捨てる）
+  // 0.16.0 DL-1 (2)（R111）: 表ごとの状態。画面にある表は dbTables（鍵 → 状態。データベースのページは 'page'、白紙のページの本文の表は行の ID）。
+  // dbSt は「いま操作している表」（押した・書いた表）。待った後は dbUse でその表に戻してから描く・書く（ほかの表を押していても取り違えない）
+  let dbSt = null;   // いま操作している表（窓のメモリ。ページを替えると捨てる）
+  const dbTables = new Map();
+  const dbOnScreen = (st) => Boolean(st) && dbTables.get(st.key) === st;
+  function dbUse(st) { if (!dbOnScreen(st)) return false; dbSt = st; return true; }
+  const dbPageSt = () => dbTables.get('page') || null;   // データベースのページの表
+  function dbForget(key) { const st = dbTables.get(key); dbTables.delete(key); if (st && st === dbSt) dbSt = null; }
+  // 表の中の部品の受け口（on…）を包み、その表を dbSt にしてから呼ぶ（1つのページに表がいくつもあるとき。描くたびに新しい部品だけを包む）
+  const DB_ON = ['onclick', 'onkeydown', 'onchange', 'oninput', 'onblur', 'onfocus', 'onmousedown', 'oncontextmenu', 'ondragstart', 'ondragover', 'ondragleave', 'ondrop', 'ondragend', 'onscroll', 'ondblclick'];
+  function dbBind(st, root) {
+    if (!st || !root) return;
+    const walk = (el) => {
+      for (const k of DB_ON) {
+        const fn = el[k];
+        if (typeof fn !== 'function' || st === fn._dbSt) continue;
+        const w = function (...a) { dbSt = st; return fn.apply(this, a); };
+        w._dbSt = st;
+        el[k] = w;
+      }
+      for (const c of el.children || []) walk(c);
+    };
+    walk(root);
+  }
   const dbStepKey = (id) => bookKey(id, 'db');
-  function dbNew(id) {
-    return { id, info: null, viewId: '', total: 0, shown: -1, sig: '', rows: new Map(), known: new Map(), heights: new Map(), agg: {}, sel: null, checked: new Set(),
+  function dbNew(id, host = null, key = 'page', linked = '') {
+    return { id, host, key, linked, wrap: null, info: null, viewId: '', total: 0, shown: -1, sig: '', rows: new Map(), known: new Map(), heights: new Map(), agg: {}, sel: null, checked: new Set(),
       editing: null, dirty: false, seq: 0, drag: null, painted: null, menu: null,
       q: '', groups: null, lines: null, rowLine: null, panel: null, tabDrag: null, colDrag: null, pdrag: null, hiddenViews: [] };   // 0.16.0 DV-3: 中の検索の語（窓のメモリ）・グループ・設定の窓
   }
@@ -9841,10 +9875,10 @@
   }
   const dbEditable = (col) => Boolean(col && DB_EDIT_TYPES.includes(col.type));
   const dbWritable = (col) => Boolean(col && dbModelView.COLS[col.type] && dbModelView.COLS[col.type].writable && col.type !== 'rel');
-  const dbScroller = () => $('pDb') && $('pDb').querySelector('.dbscroll');
+  const dbScroller = (st = dbSt) => (st && st.parts && st.parts.sc) || null;   // 0.16.0 DL-1 (2): 表ごとの捲る箱
   // 見える行の窓（行の高さは読んだ行の高さ。まだ知らない間は頭の DB_READ_MAX 行を見込む）
   function dbWin(st) {
-    const sc = dbScroller();
+    const sc = dbScroller(st);
     return dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: DB_PAD, total: dbLineN(st) });
   }
   // 0.16.0 DV-3（決めたこと 19・R76）: グループのある表は、グループの頭の行と行を1つの並び（線）にして捲る。線の値は行の番号か、頭なら -1-<グループの番号>。
@@ -9865,36 +9899,109 @@
   const dbLineN = (st) => (st.shown < 0 ? DB_READ_MAX : st.lines ? st.lines.length : st.shown);
   const dbLineAt = (st, li) => (st.lines ? st.lines[li] : li);
   const dbRowLine = (st, i) => (st.rowLine && Number.isInteger(st.rowLine[i]) ? st.rowLine[i] : i);
+  // ---- 0.16.0 DL-1 (2)（R111・決めたこと 39・R107 の画面の文）: 白紙のページの本文の表。子ページの行の inline: true はインラインの表。
+  // 頭は「🗃️」・題名の欄（手引き「無題のデータベース」・aria-label「データベースの題名」。変えると db.setTitle の1回）・⤢（title「ページで開く」）。
+  // 表の状態は行の ID を鍵に dbTables に置き、本文を描き直しても同じ部品（箱）を付け直す（読み直さない）
+  const DB_GONE_ROW = '（このデータベースは見られません）';
+  const DB_PAGE_OPEN = 'ページで開く';
+  const DB_TITLE_LABEL = 'データベースの題名';
+  const dbGridLabel = (st) => {
+    if (st.key === 'page') return oneLine(curPage && curPage.title) || dbUntitled();
+    const t = oneLine(st.info && st.info.title) || dbUntitled();
+    return st.linked ? `データベース『${t}』のリンクドビュー` : `データベース『${t}』`;
+  };
+  function dbInlineMount(el, b) {
+    el.classList.add('dbinline');
+    let st = dbTables.get(b.id);
+    if (st && (st.id !== b.page || st.linked)) { dbForget(b.id); st = null; }
+    if (st) { el.appendChild(st.wrap); return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'dbhost';
+    const head = document.createElement('div');
+    head.className = 'dbhead';
+    const ic = document.createElement('span'); ic.className = 'dbicon'; ic.setAttribute('aria-hidden', 'true'); ic.textContent = '🗃️';
+    const title = document.createElement('input');
+    title.type = 'text'; title.className = 'dbtitle';
+    title.setAttribute('placeholder', dbUntitled()); title.setAttribute('aria-label', DB_TITLE_LABEL);
+    const open = document.createElement('button');
+    open.type = 'button'; open.className = 'ghost dbexpand'; open.textContent = '⤢'; open.title = DB_PAGE_OPEN; open.setAttribute('aria-label', DB_PAGE_OPEN);
+    head.append(ic, title, open);
+    const box = document.createElement('div');
+    box.className = 'dbbox';
+    wrap.append(head, box);
+    el.appendChild(wrap);
+    dbOpen(b.page, box, b.id, '');
+    st = dbTables.get(b.id);
+    st.wrap = wrap; st.head = { title, open };
+    open.onclick = (ev) => openPageTab(st.id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
+    title.onkeydown = (ev) => { if (imeEnter(ev)) return; if (ev.key === 'Enter') { ev.preventDefault(); title.blur(); } };
+    title.onblur = () => dbTitleSave(st);
+    dbHeadPaint(st);
+  }
+  function dbHeadPaint(st) {
+    if (!st.head) return;
+    const t = st.info ? String(st.info.title || '') : '';
+    if (document.activeElement !== st.head.title) st.head.title.value = t;
+    st.head.title.disabled = !st.info;
+    st.head.open.disabled = !st.info;
+    if (st.wrap) st.wrap.classList.toggle('gone', !st.info && !st.opening);
+  }
+  // 題名の欄を離れたら、変わっていれば元のデータベースの題名に書く（db.setTitle の1回。元のデータベースの歩み: R105・R113 (j)）
+  async function dbTitleSave(st) {
+    if (!st.info || !st.head) return;
+    const v = st.head.title.value.trim();
+    if (v === String(st.info.title || '')) return;
+    const r = await dbWrite(() => window.koeApp.dbSetTitle(st.id, v));
+    if (r && dbOnScreen(st)) { st.info = { ...st.info, title: v }; dbHeadPaint(st); if (st.parts && st.parts.grid) st.parts.grid.setAttribute('aria-label', dbGridLabel(st)); }
+    refreshList();
+  }
+  // 本文の表の読みが断られた: データベースを読めなければ（ゴミ箱・無い）灰色の行にする（戻ったら知らせの読み直しで dbOpen から描く）
+  async function dbRecheck(st) {
+    let info = null;
+    try { info = await window.koeApp.dbGet(st.id, ...(st.linked ? [st.linked] : [])); } catch (_) { info = null; }
+    if (!dbOnScreen(st) || (info && Array.isArray(info.views) && info.views.length)) return;
+    if (st.editing && dbUse(st)) dbEditEnd(false);
+    st.info = null; st.parts = null; st.sig = ''; st.rows.clear();
+    dbPaint(st);
+  }
+  // 本文から消えた表（行を消した・ページを替えた）を捨てる
+  function dbSweep() {
+    const note = $('pNote');
+    for (const [k, st] of [...dbTables]) if (k !== 'page' && !(note && st.wrap && isIn(st.wrap, note))) dbForget(k);
+  }
   // データベースのページを開く（renderPage から）。同じデータベースなら表を読み直す（同じ印なら描き直さない）
   function dbShow(id) {
     const box = $('pDb');
     box.hidden = !id;
-    if (!id) { dbSt = null; box.textContent = ''; return; }
-    if (dbSt && dbSt.id === id && dbSt.info) { dbPaint(); dbLoad(true); return; }
-    dbOpen(id);
+    dbSweep();   // 0.16.0 DL-1 (2): 前のページの本文の表を捨てる（本文を描いたら paintBodyPages でもう一度）
+    const cur = dbPageSt();
+    if (!id) { dbForget('page'); box.textContent = ''; return; }
+    if (cur && cur.id === id && cur.info) { dbSt = cur; dbPaint(cur); dbLoad(true, cur); return; }
+    dbOpen(id, box, 'page');
   }
-  async function dbOpen(id) {
-    const st = dbNew(id);
+  async function dbOpen(id, host = $('pDb'), key = 'page', linked = '') {
+    const st = dbNew(id, host, key, linked);
+    dbTables.set(key, st);
     dbSt = st;
     st.opening = true;
     let info = null;
-    try { info = await window.koeApp.dbGet(id); } catch (_) { info = null; }
+    try { info = await window.koeApp.dbGet(id, ...(linked ? [linked] : [])); } catch (_) { info = null; }
     st.opening = false;
-    if (dbSt !== st) return;
+    if (!dbUse(st)) return;
     st.info = info && Array.isArray(info.views) && info.views.length ? info : null;
-    const want = dbLinkWant && dbLinkWant.id === id ? dbLinkWant.viewId : '';   // 0.16.0 DV-3（決めたこと 16）: ビューのリンクで開いた
-    dbLinkWant = null;
+    if (!st.info && key !== 'page') { dbPaint(st); return; }   // 0.16.0 DL-1 (2): 本文の表は灰色の行
+    const want = key === 'page' && dbLinkWant && dbLinkWant.id === id ? dbLinkWant.viewId : '';   // 0.16.0 DV-3（決めたこと 16）: ビューのリンクで開いた
+    if (key === 'page') dbLinkWant = null;   // 0.16.0 DL-1 (2): 本文の表はビューのリンクを使わない
     st.viewId = st.info ? (st.info.views.some((v) => v.id === want) ? want : st.info.views[0].id) : '';
-    dbPaint();
-    await dbLoad(false);
+    dbPaint(st);
+    await dbLoad(false, st);
   }
   // 窓の行を読む（force: 印が変わったかを見るために読み直す）。読んだ分の印が変わっていれば、覚えた行を捨てて窓を読み直す
   // DV-1 直し（rv44 F1・F7・R72）: 印を確かめる頼み（force）は st.check に残し、後から来た読み（捲る）に追い越されても、その読みが確かめる。
   // 印が変わったら（どの読みで知っても）窓を読み直す。読みが断られたら、表は前のまま残し、次の読みで確かめる
-  async function dbLoad(force) {
-    const st = dbSt;
+  async function dbLoad(force, st = dbSt) {
     if (!st) return;
-    if (!st.info) { if (force && !st.opening) dbOpen(st.id); return; }   // 列とビューを読めなかった: 知らせで開き直す（rv44 F1）
+    if (!st.info) { if (force && !st.opening) dbOpen(st.id, st.host, st.key, st.linked); return; }   // 列とビューを読めなかった: 知らせで開き直す（rv44 F1）
     if (!dbViewOf(st)) return;
     if (force) st.check = true;
     const seq = ++st.seq;
@@ -9923,9 +10030,9 @@
         k = j + 1;
         let r;
         const open = st.info && st.info.sub ? [...dbSubOpen(st)] : [];   // 0.16.0 DR-1: 開いたサブアイテムの行（決めたこと 38）
-        try { r = await window.koeApp.dbView(st.id, st.viewId, from, count, ...(st.q || open.length ? [st.q, ...(open.length ? [open] : [])] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 中の検索の語（決めたこと 22）
-        if (dbSt !== st || st.seq !== seq) return;
-        if (!r) { st.check = true; if (fresh || !st.painted) dbPaintRows(); return; }   // 断られた: 表は前のまま（次の読みで確かめる）
+        try { r = await window.koeApp.dbView(st.id, st.viewId, from, count, ...(st.linked ? [st.q, open, st.linked] : st.q || open.length ? [st.q, ...(open.length ? [open] : [])] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 中の検索の語（決めたこと 22）
+        if (!dbUse(st) || st.seq !== seq) return;
+        if (!r) { st.check = true; if (st.key !== 'page') { dbRecheck(st); return; } if (fresh || !st.painted) dbPaintRows(st); return; }   // 0.16.0 DL-1 (2): 本文の表は読めなくなったかを確かめる   // 断られた: 表は前のまま（次の読みで確かめる）
         if (r.sig !== st.sig) {
           const had = st.sig !== '';
           st.sig = r.sig; st.total = r.total; st.shown = r.shown; st.agg = r.agg || {};
@@ -9937,7 +10044,7 @@
           st.check = false;
           restart = true;   // 印が変わった: この読みの行のほかは窓を読み直す
           if (had && await dbInfoAgain(st, seq)) break;   // 列とビューが変わった: 骨組みから描き直して窓を読み直す
-          if (dbSt !== st || st.seq !== seq) return;
+          if (!dbUse(st) || st.seq !== seq) return;
         }
         r.rows.forEach((row, n) => {
           row._rel = r.rel && typeof r.rel === 'object' ? r.rel : {};   // 0.16.0 DR-1: リレーションの相手の題名（この読みの答え）
@@ -9949,14 +10056,14 @@
       }
       if (!restart && !(unknown && st.shown >= 0)) break;   // 初めて行の数を知ったら、その数の窓でもう一度
     }
-    if (fresh || !st.painted) dbPaintRows();
+    if (fresh || !st.painted) dbPaintRows(st);
   }
   // 印が変わったときに列とビューを読み直す（ほかの所・ほかの窓で変わった）。変わっていれば骨組みを描き直して真
   const dbInfoKey = (info) => JSON.stringify(info ? [info.title, info.cols, info.views, info.sub || null] : null);
   async function dbInfoAgain(st, seq) {
     let info = null;
-    try { info = await window.koeApp.dbGet(st.id); } catch (_) { info = null; }
-    if (dbSt !== st || st.seq !== seq || !info || !Array.isArray(info.views) || !info.views.length) return false;
+    try { info = await window.koeApp.dbGet(st.id, ...(st.linked ? [st.linked] : [])); } catch (_) { info = null; }
+    if (!dbUse(st) || st.seq !== seq || !info || !Array.isArray(info.views) || !info.views.length) return false;
     if (dbInfoKey(info) === dbInfoKey(st.info)) {   // 0.16.0 DV-3: 行の数だけが変わった: 中の検索の欄を出し入れする（表は描き直さない）
       const was = dbSearchOn(st);
       st.info.rowCount = info.rowCount;
@@ -9965,20 +10072,24 @@
     }
     st.info = info;
     if (!dbViewOf(st)) st.viewId = info.views[0].id;
-    dbPaint();
+    dbPaint(st);
     return true;
   }
   // 表の骨組み（ビューのタブ・選んだ行の帯・見出し・表・下の集計・［＋ 新しい行］）
   // 0.16.0 DV-3: タブは引っ張って並べ、入り切らないものは「他 n 件」。リストの形は見出しと下の集計を出さない（決めたこと 23）。開いている設定の窓は残す
-  function dbPaint() {
-    const st = dbSt;
-    const box = $('pDb');
+  function dbPaint(st = dbSt) {
+    if (!st) return;
+    const box = st.host;
     const searching = Boolean(st && st.parts && st.parts.q && document.activeElement === st.parts.q);
     const act = document.activeElement;   // DV-3 直し（rv48 F4・F6）: 描き直しても、設定の窓の中・タブのフォーカスを戻す
     const inPanel = Boolean(st && st.panel && act && isIn(act, st.panel.el)) ? act : null;
     const onTab = Boolean(st && st.parts && st.parts.tabs && act && isIn(act, st.parts.tabs) && act.classList.contains('dbtab'));
     box.textContent = '';
-    if (!st || !st.info) return;
+    if (st.key !== 'page') dbHeadPaint(st);   // 0.16.0 DL-1 (2): 本文の表の頭（題名の欄）
+    if (!st.info) {   // 0.16.0 DL-1 (2): 本文の表のデータベースを読めない（ゴミ箱・無い）: 灰色の行
+      if (st.key !== 'page' && !st.opening) { const g = document.createElement('div'); g.className = 'dbgone'; g.textContent = DB_GONE_ROW; box.appendChild(g); }
+      return;
+    }
     st.painted = null;
     const v = dbViewOf(st);
     const list = Boolean(v && v.layout === 'list');
@@ -9990,10 +10101,10 @@
     box.appendChild(bar);
     const sc = document.createElement('div');
     sc.className = 'dbscroll';
-    sc.onscroll = () => dbOnScroll();
+    sc.onscroll = () => dbOnScroll(st);
     const grid = document.createElement('div');
     grid.className = list ? 'dbgrid dblist' : 'dbgrid'; grid.setAttribute('role', 'grid');
-    grid.setAttribute('aria-label', oneLine(curPage && curPage.title) || dbUntitled());
+    grid.setAttribute('aria-label', dbGridLabel(st));
     grid.tabIndex = 0;
     grid.onkeydown = (ev) => dbGridKey(ev);
     const cols = dbColsOf(st);
@@ -10051,7 +10162,7 @@
     add.onclick = () => dbAddRow(null);
     box.appendChild(add);
     st.parts = { tabs, bar, sc, grid, head, all, top, body, bottom, foot };
-    for (const b of $('pMenu').querySelectorAll('.mitem')) if (b.dataset.sub === '1') b.setAttribute('aria-checked', st.info.sub ? 'true' : 'false');   // 0.16.0 DR-1: ［サブアイテム］の印
+    if (st.key === 'page') for (const b of $('pMenu').querySelectorAll('.mitem')) if (b.dataset.sub === '1') b.setAttribute('aria-checked', st.info.sub ? 'true' : 'false');   // 0.16.0 DR-1: ［サブアイテム］の印
     dbPaintTabs(st);
     if (searching && st.parts.q) st.parts.q.focus();
     dbPaintBar();
@@ -10060,10 +10171,10 @@
     if (st.panel) box.appendChild(st.panel.el);   // 0.16.0 DV-3: 設定の窓は描き直しても開いたまま（書くたびに閉じない）
     if (inPanel && st.panel && isIn(inPanel, st.panel.el)) inPanel.focus();
     if (onTab) { const t = st.parts.tabEls.find((b) => b.dataset.view === st.viewId); if (t) t.focus(); }
+    dbBind(st, box);
   }
   // 見える窓の行を描く（見えている行と上下 50 行だけ: 決めたこと 32）。編集中は描き直さない（終えてから）
-  function dbPaintRows() {
-    const st = dbSt;
+  function dbPaintRows(st = dbSt) {
     if (!st || !st.parts) return;
     if (st.editing) { st.dirty = true; return; }
     const p = st.parts;
@@ -10105,6 +10216,8 @@
       const t = [...p.body.querySelectorAll('.dbgtoggle')].find((b) => b.dataset.gkey === st.refocus.gkey);
       if (t) { st.refocus = null; t.focus({ preventScroll: true }); }
     }
+    dbBind(st, p.body);
+    dbBind(st, p.foot);
   }
   function dbWaitEl(li) {
     const el = document.createElement('div');
@@ -10209,10 +10322,9 @@
   // 書いている間にそこまで捲ったら、書いた値を決めて（書き手を閉じて）描く（描き直しを待たせて空の所を見せない）
   const DB_EDGE = 10;
   const dbDrawn = (st, i) => !st.painted || (i >= st.painted.from && i < st.painted.from + st.painted.count);
-  function dbOnScroll() {
-    const st = dbSt;
+  function dbOnScroll(st = dbSt) {
     if (!st || !st.painted || st.shown < 0 || dbLineN(st) <= 0) return;
-    const sc = dbScroller();
+    const sc = dbScroller(st);
     const seen = dbViewView.windowOf({ scrollTop: sc ? sc.scrollTop : 0, viewHeight: sc ? sc.clientHeight : 0, heights: st.heights, defaultHeight: DB_ROW_H, pad: 0, total: dbLineN(st) });
     const p = st.painted;
     const w = dbWin(st);
@@ -10230,7 +10342,7 @@
     dbPanelClose();   // 0.16.0 DV-3: 設定の窓は今のビューのもの
     st.viewId = viewId; st.sig = ''; st.shown = -1; st.rows.clear(); st.heights.clear(); st.sel = null; st.groups = null; dbLinesOf(st);
     dbPaint();
-    const sc = dbScroller(); if (sc) sc.scrollTop = 0;
+    const sc = dbScroller(st); if (sc) sc.scrollTop = 0;
     dbLoad(false);
   }
   // 行の番号（覚えた行から）
@@ -10243,7 +10355,7 @@
     const st = dbSt;
     if (!st || st.shown <= 0) return;
     const n = Math.max(0, Math.min(st.shown - 1, i));
-    const sc = dbScroller();
+    const sc = dbScroller(st);
     const w = st.painted || { from: 0, count: 0 };
     const ln = dbRowLine(st, n);   // 0.16.0 DV-3: 捲る所は線の番号（グループの頭を数える）
     if (sc && (!st.rows.has(n) || ln < w.from || ln >= w.from + w.count)) {
@@ -10253,7 +10365,7 @@
       dbPaintRows();
       await dbLoad(false);
     }
-    if (dbSt !== st) return;
+    if (!dbUse(st)) return;
     const row = st.rows.get(n);
     if (!row) return;
     dbSelect(row.id, colId);
@@ -10340,7 +10452,7 @@
       toast(code === 'too-big' ? DB_ROWS_FULL : code === 'bad-args' && bad ? bad : `変更を保存できませんでした: ${code}`);   // 0.16.0 DR-1: サブアイテムの輪は「その行の中へは入れられません」
       return null;
     }
-    if (dbSt === st) await dbLoad(true);
+    if (dbUse(st)) await dbLoad(true);
     return r;
   }
   // ---- セルの書き手（DV-1 は文字の種類だけ。Enter で決める・Esc でやめる・Tab で右へ。変換確定の Enter は抜ける: imeEnter）
@@ -10364,7 +10476,8 @@
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(false, 'stay'); return; }
       if (ev.key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, ev.shiftKey ? 'left' : 'right'); }   // DV-1 直し（rv44 F8）
     };
-    inp.onblur = () => { if (dbSt === st && st.editing && st.editing.inp === inp) dbEditEnd(true); };
+    inp.onblur = () => { if (dbUse(st) && st.editing && st.editing.inp === inp) dbEditEnd(true); };
+    dbBind(st, inp);
     inp.focus();
   }
   async function dbEditEnd(save, then) {
@@ -10386,7 +10499,7 @@
       const col = st.info.cols.find((c) => c.id === ed.col);
       if (cell && row && col) dbCellFill(st, cell, col, row);
     }
-    if (dbSt !== st) return;
+    if (!dbUse(st)) return;
     if (!st.editing && st.dirty) { st.dirty = false; dbPaintRows(); }   // DV-1 直し（rv44 F2）: ほかのセルを書いている間は描き直しを待たせたまま（その書き手を閉じるときに描く）
     if (then === 'enter' && ed.col === 'title' && last) { await dbAddRow(ed.row); return; }   // 最後の行の題名で Enter: 次の行（決めたこと 24）
     const ci = cols.indexOf(ed.col);
@@ -10402,21 +10515,21 @@
     dbEditEnd(true);
     const cells = { ...dbViewView.filterDefaults(dbViewOf(st), st.info.cols), ...(extra.cells || {}) };
     const r = await dbWrite(() => window.koeApp.rowAdd(st.id, { ...(afterId ? { afterId } : {}), ...(Object.keys(cells).length ? { cells } : {}), ...(extra.title ? { title: extra.title } : {}) }));
-    if (!r || dbSt !== st) return;
+    if (!r || !dbUse(st)) return;
     let i = dbIndexOf(st, r.id);
     if (i < 0 && Array.isArray(st.groups) && extra.gkey !== undefined) {   // DV-3 直し（rv48 F3）: グループの［＋］の行はそのグループの末（並べ替えが無ければ）へ捲る
       let start = 0; let g = null;
       for (const x of st.groups) { if (x.key === extra.gkey) { g = x; break; } if (!x.hidden) start += x.count; }
       if (!g || g.hidden || !g.count) return;
       await dbSelectAt(start + g.count - 1, 'title');
-      if (dbSt !== st) return;
+      if (!dbUse(st)) return;
       i = dbIndexOf(st, r.id);
     } else if (i < 0) {   // 窓の外（末に足した行）: 捲って読む
-      const sc = dbScroller();
+      const sc = dbScroller(st);
       if (sc) { sc.scrollTop = Number.MAX_SAFE_INTEGER; dbPaintRows(); await dbLoad(false); }
       i = dbIndexOf(st, r.id);
     }
-    if (i < 0 || dbSt !== st) return;
+    if (i < 0 || !dbUse(st)) return;
     dbSelect(r.id, 'title');
     dbEditStart(r.id, 'title');
   }
@@ -10429,7 +10542,7 @@
       for (let from = 0; from < st.shown; from += DB_READ_MAX) {
         let r = null;
         try { r = await window.koeApp.dbView(st.id, st.viewId, from, Math.min(DB_READ_MAX, st.shown - from), ...(st.q ? [st.q] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 探している語の行だけ
-        if (dbSt !== st || !r) return;
+        if (!dbUse(st) || !r) return;
         for (const row of r.rows) { st.checked.add(row.id); st.known.set(row.id, row); }
       }
     }
@@ -10437,8 +10550,7 @@
     for (const ck of st.parts.body.querySelectorAll('.dbcheck')) ck.checked = st.checked.has(ck.parentNode.parentNode.dataset.id);
     dbPaintBar();
   }
-  function dbPaintBar() {
-    const st = dbSt;
+  function dbPaintBar(st = dbSt) {
     if (!st || !st.parts) return;
     const bar = st.parts.bar;
     bar.textContent = '';
@@ -10453,13 +10565,14 @@
     mk('リンクを写す', () => dbCopyLinks());
     const set = mk('列の値を変える ▸', () => dbSetMenu(set), n > DB_SEL_MAX);
     set.setAttribute('aria-haspopup', 'menu');
+    dbBind(st, bar);
   }
   async function dbTrashChecked() {
     const st = dbSt;
     const ids = [...st.checked];
     if (!ids.length || ids.length > DB_SEL_MAX) return;
     const r = await dbWrite(() => window.koeApp.rowsTrash(st.id, ids));
-    if (!r || dbSt !== st) return;
+    if (!r || !dbUse(st)) return;
     st.checked = new Set();
     if (st.sel && ids.includes(st.sel.row)) st.sel = null;
     dbPaintBar();
@@ -10566,17 +10679,17 @@
     if (afterId === id) return;
     await dbWrite(() => window.koeApp.rowMove(st.id, id, afterId));
   }
-  document.addEventListener('dragend', () => { if (dbSt) { dbSt.drag = null; dbSt.tabDrag = null; dbSt.colDrag = null; dbSt.pdrag = null; } });   // 0.16.0 DV-3: タブ・見出し・設定の窓の ⋮⋮
+  document.addEventListener('dragend', () => { for (const st of dbTables.values()) { st.drag = null; st.tabDrag = null; st.colDrag = null; st.pdrag = null; } });   // 0.16.0 DV-3: タブ・見出し・設定の窓の ⋮⋮
   // ---- 元に戻す（データベースの歩み: 決めたこと 47・48）
   function dbUndo(dir) {
     const st = dbSt;
     if (!st) return;
     const id = st.id;
-    undoChain = undoChain.then(() => dbUndoRun(dir, id)).catch(() => {});
+    undoChain = undoChain.then(() => dbUndoRun(dir, id, st)).catch(() => {});
   }
-  async function dbUndoRun(dir, id) {
+  async function dbUndoRun(dir, id, st0) {
     await editsSettled();
-    const st = dbSt;
+    const st = dbOnScreen(st0) ? st0 : dbSt;   // 0.16.0 DL-1 (2): 押した表（待つ間にほかの表を押しても）
     if (!st || st.id !== id) return;
     const key = dbStepKey(id);
     const got = dir === 'undo' ? bookTakeUndo(undoBk, key) : bookTakeRedo(undoBk, key);
@@ -10595,7 +10708,7 @@
       else { undoBk = putBack(undoBk, key, dir, got.entry, takenAt, slotNow.undo.length); if (code !== 'locked') toast(`変更を保存できませんでした: ${code}`); }
     } else if (run.tx) undoBk = bookDone(undoBk, key, dir, run.tx);
     pruneMarks();
-    if (dbSt === st) await dbLoad(true);
+    if (dbUse(st)) await dbLoad(true);
   }
   // ================= 0.16.0 DV-4: 行を開く・行のメニュー・行のページ =================
   // 計画 docs/plans/2026-11-04-160.md の決めたこと 26・51・R49・R90〜R93。題名のセルの［開く］（Ctrl+クリックで新しいタブ）・選んだセルの Space で、
@@ -10650,7 +10763,7 @@
     const st = dbSt;
     if (!st) return;
     const r = await dbWrite(() => window.koeApp.rowsTrash(st.id, [rowId]));
-    if (!r || dbSt !== st) return;
+    if (!r || !dbUse(st)) return;
     st.checked.delete(rowId);
     if (st.sel && st.sel.row === rowId) st.sel = null;
     dbPaintBar();
@@ -10954,7 +11067,7 @@
     const st = dbSt;
     dbMenuClose();
     const r = await dbWrite(() => window.koeApp.colAdd(st.id, 'rel', undefined, undefined, { target, both }));
-    if (!r || !r.col || dbSt !== st) return;
+    if (!r || !r.col || !dbUse(st)) return;
     const h = [...st.parts.head.querySelectorAll('.dbcolbtn')].find((b) => b.parentNode.dataset.col === r.col.id);
     dbMenuInput(h || anchor, r.col.name, r.col.name, (v) => { if (v && v !== r.col.name) dbWrite(() => window.koeApp.colRename(st.id, r.col.id, v)); });
   }
@@ -10978,20 +11091,20 @@
     dbMenuClose();
     if (!st || !st.info || !st.info.sub) return;
     const r = await dbWrite(() => window.koeApp.relLink(st.id, rowId, st.info.sub.kids, [], ''));
-    if (!r || dbSt !== st) return;
+    if (!r || !dbUse(st)) return;
     const kid = Array.isArray(r.cell) ? r.cell[r.cell.length - 1] : '';
     dbSubOpen(st).add(rowId);
     await dbReread(st);
-    if (dbSt !== st || !kid) return;
+    if (!dbUse(st) || !kid) return;
     dbSelect(kid, 'title');
     if (dbCellEl(kid, 'title')) dbEditStart(kid, 'title');
   }
   // データベースの「···」の［サブアイテム］（入れる・外す）
   async function dbSubSet(on) {
-    const st = dbSt;
-    if (!st) return;
+    const st = dbPageSt();   // 0.16.0 DL-1 (2): ［サブアイテム］はデータベースのページの「···」から
+    if (!dbUse(st)) return;
     const r = await dbWrite(() => window.koeApp.dbSetSub(st.id, on));
-    if (r && dbSt === st && st.info) { st.info = { ...st.info }; await dbInfoAgain(st, st.seq); }
+    if (r && dbUse(st) && st.info) { st.info = { ...st.info }; await dbInfoAgain(st, st.seq); }
   }
   // 題名のセルの頭（サブアイテムの ▸／▾ と段の字下げ。▸ の字は CSS の content: セルの textContent は題名のまま）
   function dbSubLead(st, cell, row) {
@@ -11083,14 +11196,15 @@
       if (ev.key === 'ArrowDown' && btns.length) { ev.preventDefault(); btns[(i + 1) % btns.length].focus(); }
       if (ev.key === 'ArrowUp' && btns.length) { ev.preventDefault(); btns[(i + btns.length - 1) % btns.length].focus(); }
     };
-    $('pDb').appendChild(m);
+    st.host.appendChild(m);
     st.menu = m;
+    dbBind(st, m);
     if (btns.length) btns[0].focus();
     return m;
   }
   // 押した部品の下に置く（#pDb の中の位置）
   function dbMenuPlace(el, anchor) {
-    const box = $('pDb');
+    const box = (dbSt && dbSt.host) || $('pDb');
     if (!anchor || !box) return;
     const r = anchor.getBoundingClientRect(); const b = box.getBoundingClientRect();
     el.style.top = `${Math.max(0, r.bottom - b.top)}px`; el.style.left = `${Math.max(0, r.left - b.left)}px`;
@@ -11158,7 +11272,7 @@
     let n = 0;
     try { n = (await window.koeApp.colTypeCheck(st.id, col.id, type)).emptied; }
     catch (e) { toast(`変更を保存できませんでした: ${String((e && (e.code || e.message)) || 'internal')}`); return; }
-    if (dbSt !== st) return;
+    if (!dbUse(st)) return;
     if (n > 0 && !window.confirm(DB_TYPE_ASK(n))) return;
     await dbWrite(() => window.koeApp.colSetType(st.id, col.id, type));
   }
@@ -11212,7 +11326,7 @@
     const i = cols.findIndex((c) => c.id === col.id);
     const after = side === 'right' ? col.id : (i > 0 ? cols[i - 1].id : '');
     const r = await dbWrite(() => window.koeApp.colAdd(st.id, 'text', undefined, after));
-    if (!r || !r.col || dbSt !== st) return;
+    if (!r || !r.col || !dbUse(st)) return;
     const props = dbViewOf(st).props.filter((p) => p.col !== r.col.id);
     const at = props.findIndex((p) => p.col === col.id) + (side === 'right' ? 1 : 0);
     props.splice(Math.max(0, at), 0, { col: r.col.id, show: true, wrap: false });
@@ -11227,7 +11341,7 @@
     const m = dbMenuAt(anchor, [...DB_TYPE_LIST.map((t) => ({ label: dbModelView.COLS[t].label, fn: async () => {
       dbMenuClose();
       const r = await dbWrite(() => window.koeApp.colAdd(st.id, t));
-      if (!r || !r.col || dbSt !== st) return;
+      if (!r || !r.col || !dbUse(st)) return;
       const h = [...st.parts.head.querySelectorAll('.dbcolbtn')].find((b) => b.parentNode.dataset.col === r.col.id);
       dbMenuInput(h || anchor, r.col.name, r.col.name, (v) => { if (v && v !== r.col.name) dbWrite(() => window.koeApp.colRename(st.id, r.col.id, v)); });
     } })), { label: dbModelView.COLS.rel.label, fn: () => dbRelColMenu(anchor) }], 'dbcolmenu');   // 0.16.0 DR-1: リレーションはつなぐデータベースを選んで足す
@@ -11334,7 +11448,7 @@
       q.setAttribute('placeholder', DB_SEARCH); q.setAttribute('aria-label', DB_SEARCH);
       q.value = st.q;
       q.oninput = (ev) => { if (ev && ev.isComposing) return; dbSearchSet(q.value); };   // 変換中の語では探さない
-      q.addEventListener('compositionend', () => dbSearchSet(q.value));
+      q.addEventListener('compositionend', () => { if (dbUse(st)) dbSearchSet(q.value); });
       q.onkeydown = (ev) => {
         if (imeEnter(ev)) return;
         if (ev.key === 'Escape' && q.value !== '') { ev.preventDefault(); ev.stopPropagation(); q.value = ''; dbSearchSet(''); }
@@ -11350,6 +11464,7 @@
     tabs.appendChild(gear);
     st.parts.gear = gear;
     dbFitTabs(st);
+    dbBind(st, tabs);
   }
   // 入り切らないタブを隠して「他 n 件」に（今のタブはいつも出す。幅を測れないときは全部を出す）
   function dbFitTabs(st) {
@@ -11387,7 +11502,7 @@
       paint();
     }
   }
-  window.addEventListener('resize', () => dbFitTabs(dbSt));
+  window.addEventListener('resize', () => { for (const st of dbTables.values()) dbFitTabs(st); });
   function dbTabKey(ev, viewId) {
     const st = dbSt;
     if (!st || imeEnter(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -11407,7 +11522,7 @@
     const views = st.hiddenViews.map((id) => st.info.views.find((v) => v.id === id)).filter(Boolean);
     dbMenuAt(anchor, views.map((v) => ({ label: v.name, fn: () => {
       dbMenuClose(); dbPickView(v.id);
-      const t = dbSt === st && st.parts ? st.parts.tabEls.find((b) => b.dataset.view === v.id) : null;   // DV-3 直し2（rv49 M-a）: 選んだタブにフォーカス
+      const t = dbUse(st) && st.parts ? st.parts.tabEls.find((b) => b.dataset.view === v.id) : null;   // DV-3 直し2（rv49 M-a）: 選んだタブにフォーカス
       if (t) t.focus();
     } })), 'dbcolmenu');
   }
@@ -11461,14 +11576,14 @@
     const st = dbSt;
     dbMenuClose();
     const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { from: viewId }));
-    if (r && r.view && dbSt === st) dbPickView(r.view.id);
+    if (r && r.view && dbUse(st)) dbPickView(r.view.id);
   }
   // ビューへのリンク（ページの［リンクを写す］と同じ https の形に、ビューの印 &a=v:<ビューの ID>。開くとそのタブを選ぶ: 決めたこと 16・R75）
   async function dbViewLink(viewId) {
     const st = dbSt;
     dbMenuClose();
     const base = await linkBaseNow();
-    if (!base || !curPage || dbSt !== st) { toast('リンクを写せませんでした。'); return; }
+    if (!base || !curPage || !dbUse(st)) { toast('リンクを写せませんでした。'); return; }
     await window.koeApp.copy(`${pageRefLine(curPage, base)}&a=v:${viewId}`); toast('リンクを写しました。');
   }
   // ビューを消す（確かめる。消すのは設定だけで行は消えない。今のビューなら先に残りの最初のビューへ）
@@ -11492,7 +11607,7 @@
       const name = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
       dbMenuClose();
       const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { layout, ...(name ? { name } : {}) }));
-      if (r && r.view && dbSt === st) dbPickView(r.view.id);
+      if (r && r.view && dbUse(st)) dbPickView(r.view.id);
     };
     const m = dbMenuAt(anchor, [{ head: DB_VIEW_ADD }, { label: '表', fn: () => go('table') }, { label: 'リスト', fn: () => go('list') }], 'dbcolmenu');
     m.dataset.add = 'view';
@@ -11508,7 +11623,8 @@
   }
   // ビューのリンクで開いた（showLinkSpot から。表を読む前なら dbOpen が選ぶ）
   function dbLinkView(id, viewId) {
-    if (dbSt && dbSt.id === id && dbSt.info) { if (dbSt.info.views.some((v) => v.id === viewId)) dbPickView(viewId); return; }
+    const pg = dbPageSt();   // 0.16.0 DL-1 (2): ビューのリンクはデータベースのページの表
+    if (pg && pg.id === id && pg.info && dbUse(pg)) { if (pg.info.views.some((v) => v.id === viewId)) dbPickView(viewId); return; }
     dbLinkWant = { id, viewId };
   }
   // ---- 中の検索（決めたこと 22: 語はビューに覚えない。窓のメモリだけ）
@@ -11520,7 +11636,7 @@
     if (q === st.q) return;
     dbEditEnd(true);
     st.q = q; st.sig = ''; st.shown = -1; st.rows.clear(); st.heights.clear(); st.sel = null;
-    const sc = dbScroller(); if (sc) sc.scrollTop = 0;
+    const sc = dbScroller(st); if (sc) sc.scrollTop = 0;
     dbLoad(false);
   }
   // ---- 見出しを引っ張る（このビューの列の並び: R74）・幅を引っ張る（離したときに1回: 決めたこと 20）
@@ -11570,7 +11686,7 @@
       if (e && Number.isFinite(e.clientX)) move(e);
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
-      if (w !== w0 && dbSt === st) dbPropPatch(colId, { width: w });   // 引っ張っている間は画面だけ。離したときに view.update の1回
+      if (w !== w0 && dbUse(st)) dbPropPatch(colId, { width: w });   // 引っ張っている間は画面だけ。離したときに view.update の1回
     };
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);
@@ -11672,12 +11788,12 @@
     el.append(head, body);
     el.onkeydown = (ev) => {
       if (imeEnter(ev)) return;
-      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbPanelClose(); if (dbSt === st && st.parts && st.parts.gear) st.parts.gear.focus(); }
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbPanelClose(); if (dbUse(st) && st.parts && st.parts.gear) st.parts.gear.focus(); }
     };
     const draft = kind === '並べ替え' ? v.sort.map((s) => ({ ...s })) : kind === '絞り込み' ? JSON.parse(JSON.stringify(v.filter || { op: 'and', items: [] }))
       : kind === '列の表示' ? v.props.map((p) => ({ ...p })) : null;
     st.panel = { el, body, kind, viewId: st.viewId, draft };
-    $('pDb').appendChild(el);
+    st.host.appendChild(el);
     dbPanelPaint(st);
     const f = [...el.querySelectorAll('button, select, input')].find((x) => !x.disabled);   // DV-3 直し（rv48 F1）: NodeList に find は無い
     if (f) f.focus();
@@ -11694,13 +11810,14 @@
     else if (pn.kind === 'グループ') dbGroupPanel(st, pn);
     else dbPropsPanel(st, pn);
     if (k) { const back = [...pn.el.querySelectorAll('button, select, input')].find((x) => x.dataset.k === k); if (back) back.focus(); }
+    dbBind(st, pn.el);
   }
   async function dbPanelSave(st, patch) {
     const pn = st.panel;
     const a = document.activeElement;
     const k = pn && a && isIn(a, pn.el) ? a.dataset.k : '';
     await dbViewSave(patch, pn ? pn.viewId : st.viewId);
-    if (dbSt === st && st.panel === pn && pn) dbPanelPaint(st, k);
+    if (dbUse(st) && st.panel === pn && pn) dbPanelPaint(st, k);
   }
   // 窓の部品（印 k はフォーカスを戻すため）
   function dbSelectEl(label, choices, value, k) {
@@ -11915,7 +12032,7 @@
       const name = dbGroupName(col, g, x.key);
       const eye = document.createElement('input');
       eye.type = 'checkbox'; eye.checked = !x.hidden; eye.setAttribute('aria-label', name); eye.dataset.k = `gh${i}`;
-      eye.onchange = async () => { await dbGroupHide(x.key, !eye.checked); if (dbSt === st && st.panel === pn) dbPanelPaint(st); };
+      eye.onchange = async () => { await dbGroupHide(x.key, !eye.checked); if (dbUse(st) && st.panel === pn) dbPanelPaint(st); };
       const t = document.createElement('span'); t.className = 'dbgname'; t.textContent = name;
       const n = document.createElement('span'); n.className = 'dbgcount'; n.textContent = String(x.count);
       row.append(eye, t, n);
@@ -11960,13 +12077,14 @@
     const pop = document.createElement('div');
     pop.className = 'dbpick';
     dbMenuPlace(pop, cell);
-    $('pDb').appendChild(pop);
+    st.host.appendChild(pop);
     const ed = { row: rowId, col: colId, pick: pop };
     st.editing = ed;
     const write = (v, was) => (col.type === 'rel' ? dbWrite(() => dbRelSend(st.id, rowId, colId, was, v), dbSubCol(st.info, colId) ? DB_SUB_LOOP : '')   // 0.16.0 DR-1
       : dbWrite(() => window.koeApp.rowSetCell(st.id, rowId, colId, v)));
-    const close = (then) => { if (dbSt === st && st.editing === ed) dbEditEnd(false, then || 'stay'); };
+    const close = (then) => { if (dbUse(st) && st.editing === ed) dbEditEnd(false, then || 'stay'); };
     dbWriterInto(st, pop, col, dbModelView.cellValue(row, col), write, close, ed);
+    dbBind(st, pop);
     // DV-2 直し（rv46 I2）: 窓の外へフォーカスが動いたら決める（暦は打った値を書く。窓の中の欄の間を動くのは決めない）
     // DV-3 直し（rv48 F2）: 窓の中の押せない所（文字・余白）を押してもフォーカスを動かさない（暦が閉じない）
     pop.addEventListener('mousedown', (ev) => { const t = ev && ev.target; if (t && t.closest && !t.closest('input, button, select, textarea')) ev.preventDefault(); });
@@ -11974,13 +12092,13 @@
     if (col.type === 'date') pop.addEventListener('focusout', (ev) => {
       const to = ev && ev.relatedTarget;
       if (to && isIn(to, pop)) return;
-      if (dbSt === st && st.editing === ed) dbEditEnd(true);
+      if (dbUse(st) && st.editing === ed) dbEditEnd(true);
     });
     // DV-3 直し2（rv49 M-b）: 選びの窓は、窓の外の部品へフォーカスが本当に動いたら閉じる（選ぶたびの描き直しで行き先の無い focusout では閉じない: rv48 F10）
     else pop.addEventListener('focusout', (ev) => {
       const to = ev && ev.relatedTarget;
       if (!to || isIn(to, pop)) return;
-      if (dbSt === st && st.editing === ed) dbEditEnd(false);
+      if (dbUse(st) && st.editing === ed) dbEditEnd(false);
     });
   }
   // 閉じる（選びの窓は選ぶたびに書いたので、ここでは書かない）。表を描き直し、セルを選ぶ（then: 'stay'・'right'・'left'）
@@ -11988,7 +12106,7 @@
   async function dbPickEnd(st, ed, then, save) {
     if (ed.pick.parentNode) ed.pick.parentNode.removeChild(ed.pick);
     if (save && ed.commit) await ed.commit();
-    if (dbSt !== st) return;
+    if (!dbUse(st)) return;
     if (st.dirty && !st.editing) { st.dirty = false; dbPaintRows(); }
     if (!then) return;
     const cols = dbColsOf(st).map((c) => c.col.id);
@@ -12233,7 +12351,7 @@
   async function dbPaste(rowId, colId) {
     const st = dbSt;
     const c = await clipRead();
-    if (!c || dbSt !== st) return;
+    if (!c || !dbUse(st)) return;
     const text = typeof c.text === 'string' ? c.text : '';
     if (!text) return;
     const grid = dbGrid(text);
@@ -13855,7 +13973,9 @@
     if (el && el._txt) el._txt.focus();
   }
   // 白紙のページの本文の子ページの行を今の一覧の値で描き直し、行の無い子の一覧（#bodyKids）を作る（決めたこと 55・56・HR16）
+  const dbInHost = (ev) => Boolean(ev && ev.target && ev.target.closest && ev.target.closest('.dbhost'));
   function paintBodyPages() {
+    dbSweep();   // 0.16.0 DL-1 (2): 本文から消えた表を捨てる
     const note = $('pNote');
     const box = $('bodyKids');
     const blank = Boolean(curPage) && isBlankPage(curPage);
@@ -13932,6 +14052,7 @@
       }
       if (vt === 'subpage') { txt.tabIndex = 0; txt.setAttribute('role', 'link'); txt.onclick = (ev) => subRowOpen(el, ev); paintSubRow(el); }
       else el.classList.remove('gone');
+      el.classList.remove('dbinline');
       el.dataset.id = b.id;
       if (lock) el.dataset.locked = '1';
       for (const c of [...el.children]) if (c !== txt) el.removeChild(c);
@@ -13954,6 +14075,7 @@
       grip.onmouseup = () => { el.draggable = false; };
       el.ondragstart = (ev) => {
         // EB-4 直し（M3・R115）: 行の中で選んだ文字を引っ張るのは行の並べ替えにしない（引っ張れるのは ⠿ からだけ。文字は切り取りと貼り付けで動かす）
+        if (dbInHost(ev)) return;   // 0.16.0 DL-1 (2): 本文の表の中の引っ張り（行・タブ・見出し）は表のもの
         if (ev && ev.target && ev.target !== el) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }
         dragBlockId = b.id; el.classList.add('dragging');
         // 0.14.0 EK-4（決めたこと 30）: 選んだ行の ⠿ を引っ張ると、選んだ行の全部を動かす（blocks.move の1回）。ほかの行の ⠿ なら選びを外す
@@ -13968,7 +14090,8 @@
         dragBlockId = null; dragIds = null; clearDropMarks(rowsBoxOf(el) || $('pNote'));
       };
       if (!lock) el.insertBefore(grip, txt);
-      el.oncontextmenu = lock ? null : (ev) => { ev.preventDefault(); blockMenuOpen(el); };   // 右クリックでも同じメニュー
+      el.oncontextmenu = lock ? null : (ev) => { if (dbInHost(ev)) return; ev.preventDefault(); blockMenuOpen(el); };   // 右クリックでも同じメニュー（0.16.0 DL-1 (2): 本文の表の中は表のメニュー）
+      if (!lock && vt === 'subpage' && b.inline === true && isBodyPage(curPage)) dbInlineMount(el, b);   // 0.16.0 DL-1 (2): インラインの表
       if (!lock) {
         const plus = document.createElement('span');
         plus.className = 'plus'; plus.textContent = '＋'; plus.title = '下に行を足す（/ で型を選べます）';
@@ -14358,7 +14481,7 @@
     selClear();   // 0.14.0 EK-4（決めたこと 28・44）: 選んだ行も
     flushSegEdit();
     flushMemo();   // 0.14.0 MB-4: メモの行（録音中と録音の前の欄も）
-    if (dbSt && dbSt.editing) dbEditEnd(true);   // 0.16.0 DV-1: 書いているセル
+    for (const st of [...dbTables.values()]) if (st.editing && dbUse(st)) dbEditEnd(true);   // 0.16.0 DV-1: 書いているセル（DL-1 (2): どの表でも）
     if (rpSt && rpSt.editing) rpEditEnd(rpSt, true);   // 0.16.0 DV-4: 行のページで書いている列の値
     if (!pid || !curPage) return;
     commitTitle(pid);
@@ -15409,7 +15532,7 @@
     if (!p.message) { e.style.display = 'none'; return; }
     e.style.display = ''; e.textContent = p.message;
   });
-  window.koeApp.onPagesUpdated(() => { refreshList(); refreshTrash(); if (dbSt) dbLoad(true); });   // 0.16.0 DV-1: 開いている表も読み直す（同じ印なら描き直さない）   // 0.15.0 PH-6: ほかの窓・Claude の変更でゴミ箱も
+  window.koeApp.onPagesUpdated(() => { refreshList(); refreshTrash(); for (const st of [...dbTables.values()]) dbLoad(true, st); });   // 0.16.0 DV-1: 開いている表も読み直す（同じ印なら描き直さない）   // 0.15.0 PH-6: ほかの窓・Claude の変更でゴミ箱も
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
   // 0.13.0 RDY-3（RD13）: 受けはこの1か所。記録中のタブが録音の前のページなら置き換えずに新しいタブで開く（次の会議の準備を消さない: F86）
   function pageOpenFromMain(id, o) {

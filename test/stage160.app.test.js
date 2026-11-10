@@ -2798,3 +2798,60 @@ test('DX-2・決めたこと 44・R98 (1): 行をゴミ箱へ入れると［ゴ�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---- DL-1 (2)（R111 の (2)・R115）: 白紙のページの本文の表（表ごとの状態）
+const inlineOf = (l) => $(l, 'pNote').querySelectorAll('.dbhost');
+const rowTitles = (host) => host.querySelectorAll('.dbrow').filter((r) => r.dataset.id).map((r) => r.querySelectorAll('.dbcell').find((c) => c.dataset.col === 'title').textContent);
+const twoInline = (call) => {
+  const P = call('page.create', {}).id;
+  const b1 = call('block.insert', { pageId: P, afterBlockId: '', type: 'paragraph' }).blockId;
+  const D1 = call('db.create', { parentId: P, inline: b1 }).id;
+  call('db.setTitle', { db: D1, title: 'いちの表' });   // データベースの題名と行の題名（D77 の会議の題名でない）
+  call('row.add', { db: D1, title: 'いちの行' });   // データベースの題名と行の題名（D77 の会議の題名でない）
+  const b2 = call('block.insert', { pageId: P, afterBlockId: b1, type: 'paragraph' }).blockId;
+  const D2 = call('db.create', { parentId: P, inline: b2 }).id;
+  call('row.add', { db: D2, title: 'にの行' });   // データベースの題名と行の題名（D77 の会議の題名でない）
+  return { P, D1, D2, r1: b1, r2: b2 };
+};
+test('DL-1 (2)・F141: 白紙のページの本文の inline の子ページの行は表を描く。2つの表はそれぞれの状態（行・［＋ 新しい行］はその表のデータベースへ・表のまとまりの aria-label「データベース『題名』」）', T, async () => {
+  const l = await openDb({ before: twoInline });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const hs = inlineOf(l);
+    assert.strictEqual(hs.length, 2, '本文に表が2つ無い');
+    assert.deepStrictEqual(hs.map(rowTitles), [['いちの行'], ['にの行']], '表ごとの行でない');
+    assert.deepStrictEqual(hs.map((h) => h.querySelector('.dbgrid').getAttribute('aria-label')), ['データベース『いちの表』', 'データベース『無題のデータベース』']);
+    const n = l.called('rowAdd').length;
+    await clickEl(l, hs[1].querySelector('.dbadd'), 300);
+    assert.deepStrictEqual(l.called('rowAdd').slice(n).map((c) => c.args[0]), [l.D2], '2つ目の表の［＋ 新しい行］が2つ目のデータベースに足さない');
+    await clickEl(l, hs[0].querySelector('.dbadd'), 300);
+    assert.deepStrictEqual(l.called('rowAdd').slice(n).map((c) => c.args[0]), [l.D2, l.D1], '1つ目の表の［＋ 新しい行］が1つ目のデータベースに足さない');
+    assert.deepStrictEqual(inlineOf(l).map(rowTitles).map((t) => t.length), [2, 2], '足した行が表に出ない');
+  } finally { l.done(); }
+});
+test('DL-1 (2)・F141: インラインの表の頭は 🗃️・題名の欄（手引き「無題のデータベース」・aria-label「データベースの題名」）・⤢（title「ページで開く」）。題名を変えて離れると dbSetTitle の1回で元のデータベースの題名・⤢ でデータベースのページ。データベースをゴミ箱へ入れると灰色の行', T, async () => {
+  const l = await openDb({ before: twoInline });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const [h1, h2] = inlineOf(l);
+    const t1 = h1.querySelector('.dbtitle');
+    assert.deepStrictEqual([h1.querySelector('.dbicon').textContent, t1.value, t1.getAttribute('placeholder'), t1.getAttribute('aria-label')], ['🗃️', 'いちの表', '無題のデータベース', 'データベースの題名']);
+    assert.strictEqual(h2.querySelector('.dbtitle').value, '', '無題の題名の欄が空でない');
+    const ex = h1.querySelector('.dbexpand');
+    assert.strictEqual(ex.title, 'ページで開く');
+    t1.value = 'あたらしい表';
+    t1.dispatchEvent({ type: 'blur' }); await l.drain(200);
+    assert.deepStrictEqual(l.called('dbSetTitle').map((c) => c.args), [[l.D1, 'あたらしい表']], '題名の欄が db.setTitle の1回でない');
+    assert.strictEqual(l.call('db.get', { id: l.D1 }).title, 'あたらしい表');
+    assert.strictEqual(inlineOf(l)[0].querySelector('.dbgrid').getAttribute('aria-label'), 'データベース『あたらしい表』', '表のまとまりの名前が替わらない');
+    t1.dispatchEvent({ type: 'blur' }); await l.drain(100);
+    assert.strictEqual(l.called('dbSetTitle').length, 1, '同じ題名をもう一度書いた');
+    l.call('page.delete', { id: l.D2 });
+    l.fire('onPagesUpdated'); await l.drain(300);
+    const g = inlineOf(l)[1];
+    assert.ok(g && g.querySelector('.dbgone') && g.querySelector('.dbgone').textContent === '（このデータベースは見られません）', '灰色の行が無い');
+    assert.strictEqual(g.querySelector('.dbgrid'), null, 'ゴミ箱のデータベースの表を描いた');
+    ex.dispatchEvent({ type: 'click' }); await l.drain(300);
+    assert.strictEqual(tabOnKey(l), `page:${l.D1}`, '⤢ でデータベースのページを開かない');
+  } finally { l.done(); }
+});

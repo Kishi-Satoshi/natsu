@@ -1410,6 +1410,7 @@ const IDS_160 = [
   'tb-sub-col-keep', 'tb-sub-pair', 'tb-sub-get', 'vw-sub-col-del',
   // 0.16.0 DL-1 (1)（R113）で表の末に足した行
   'tb-linked-sig', 'tb-db-tables',
+  'vw-table-own', 'vw-inline-title',   // 0.16.0 DL-1 (2a)（R115）で表の末に足した行
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1431,7 +1432,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 DR-1 直し（rv51 I1・I4・R106）で意図して直した: R99 の道と I1 の直しを戻す9つを表の末に足した
   // 0.16.0 DR-1 直し2（MQ2・R108）で意図して直した: サブアイテムの列を消せない・互いを指しているときだけ木の4つを表の末に足した
   // 0.16.0 DL-1 (1)（R113）で意図して直した: リンクドビューの印と本文の表の上限の2つ（tb-linked-sig・tb-db-tables）を表の末に足した（tb- 81）
-  assert.strictEqual(rows.length, 104, '計画の 0.16.0 の表（tb- 81・vw- 23）が読めない');
+  // 0.16.0 DL-1 (2a)（R115）で意図して直した: 1つのページの2つの表の状態とインラインの表の題名の2つ（vw-table-own・vw-inline-title）を表の末に足した（vw- 25）
+  assert.strictEqual(rows.length, 106, '計画の 0.16.0 の表（tb- 81・vw- 25）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');
