@@ -2837,7 +2837,16 @@ process.on('exit', () => {
   const snapPages = () => store.listPages().map((p) => ({ id: p.id, summaryError: store.getPage(p.id).summaryError,
     segments: store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed) })) }));
   // 引き金を1回引き、復旧の記録の行（止めました・保留）か待ち行列が無くなるのを 3 秒まで待つ（何も起きない引き金は 3 秒で写す）
+  // 0.16.0 の CI 直し（計画 docs/plans/2026-11-04-160.md の R112。run 42735635201 の mutate-3 の元のままの赤）: 記録の行（保留）は回が終わる前に
+  // 書かれ、その後に page.get などを待つ。込んだ台では前の回が終わらないうちに次の引き金（設定の保存）を引き、「回している途中」で捨てられて
+  // 3 秒待ち切った（2回目の引き直しが tries 2 のまま）。引く前と記録の後に、回が終わる（page:pending の running: false。PH-2 直し 2 の R20 と
+  // 同じ知らせ）まで待つ（足すだけ）
+  const recoveryIdle = () => {
+    const ids = store.listPages().map((p) => p.id);
+    return waitFor(() => ids.every((id) => !handlers['page:pending']({}, { id }).running), 5000);
+  };
   const recoverOnce = async (pull) => {
+    await recoveryIdle();
     const log0 = elogLines().length;
     const req0 = segRequests();
     await pull();
@@ -2846,6 +2855,7 @@ process.on('exit', () => {
       if (elogLines().slice(log0).some((l) => /^復旧の文字起こしを(止めました|保留)/.test(l)) || !queueFilesNow().length) break;
       await sleep(50);
     }
+    await recoveryIdle();
     await sleep(200);
     return { pages: snapPages(), queue: queueNow(), wavs: segWavFiles(), requests: segRequests() - req0, log: elogLines().slice(log0) };
   };
