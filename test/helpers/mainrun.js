@@ -109,7 +109,9 @@ const { titleAt } = require('./titles');
 //     --warm-settle … 0.15.1 rv52 の直し（R51）: 会議を始める前に起動の先読みの、始めた後に会議の始めの先読みの起こしたエンジンが
 //                     終わる（engine.log の「…が終了しました」の行が起こした数に届き、1 秒の間に新しく起こさない）のを待ち、
 //                     そのときまでに起こした数を out.warmSpawns に [起動の先読みの後, 会議の始めの先読みの後] で残す
-//                     （準備の前に落ちる偽の whisper で、先読みが最初の区間の待ちと重なるかで起こした数を時刻で変えない）
+//                     （準備の前に落ちる偽の whisper で、先読みが最初の区間の待ちと重なるかで起こした数を時刻で変えない）。
+//                     rv54 の直し（R53）: 写す前に、締めの後の文字起こし待ちが残して止まる（「復旧の文字起こしを保留」）のと、
+//                     起こしたエンジンが全部終わるのを待ち、out.engineLog と out.spawns（写し）を同じときに取る
 //     出力に served（fake-whisper の served の行）・engineRootFiles（取り込み先の頭のファイルとフォルダの名前）を足す。--old-set は
 //     out.calcAtStop（記録を止める前の「文字起こしの計算:」の行）も
 //   0.15.1 GV-2b（第9版）: --gpu-state・--driver（reg.exe の偽物）・--gpu-platform・--ng-ok-at-stop と、出力の gpuState・regCalls・gpuStateAtStop・
@@ -3417,7 +3419,7 @@ process.on('exit', () => {
       await waitFor(() => spawns.length >= min && exits() >= spawns.length, 15000);
       const n = spawns.length;
       await sleep(1000);
-      if (spawns.length === n && exits() >= n) return;
+      if (spawns.length >= min && spawns.length === n && exits() >= n) return;   // rv54 の軽い 1（R53）: 時間切れの後も min に届くまで戻らない
     }
   };
   if (warmSettle) { await settleWarm(1); out.warmSpawns = [spawns.length]; }
@@ -3949,14 +3951,24 @@ process.on('exit', () => {
   out.mainWinCalls = mainWinCalls.slice();
   out.showLive = mainSent.filter((ch) => ch === 'meeting:show-live').length;
   const elog = path.join(userData, 'engine.log');
-  out.engineLog = fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
+  // 0.15.1 rv54 の重要 1（R53）: --warm-settle は、締めの後の文字起こし待ち（meeting-end）がエンジンを起こして残して止まる
+  // （「復旧の文字起こしを保留」の行。recoverySettled と同じ）のと、起こしたエンジンが全部終わる（「…が終了しました」の行が起こした数に届く）のを待ち、
+  // 記録と起こした数を同じときに写す（上の sleep(200) の間に締めの後の起こしが済むことに頼らない）
+  let warmSnap = null;
+  if (warmSettle) {
+    const exits = () => elogLines().filter((l) => l.startsWith('文字起こしエンジンが終了しました')).length;
+    await waitFor(() => recoverySettled() && exits() >= spawns.length, 15000);
+    warmSnap = { engineLog: elogLines(), spawns: spawns.slice() };
+  }
+  out.engineLog = warmSnap ? warmSnap.engineLog
+    : fs.existsSync(elog) ? fs.readFileSync(elog, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(/^\[[^\]]+\] /, '')) : [];
   out.requests = fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference'));
   out.spawnArgs = (fs.readFileSync(flog, 'utf8').split('\n').find((l) => l.startsWith('spawn ')) || '').slice(6);
   { const t = readUser('data/local-pace.json'); out.paceFile = t ? t.toString('utf8') : null; }   // 0.9.4 S-4: この PC の速さの覚え
   out.promptInfo = await handlers['prompt:info']();
   out.engineStatus = await handlers['engine:status']();
   out.engineFetchStatus = handlers['engine:fetch-status'] ? await handlers['engine:fetch-status']() : null;   // 第0b回 Task 13
-  out.spawns = spawns;
+  out.spawns = warmSnap ? warmSnap.spawns : spawns;
   out.seq = seq;
   out.atReady = atReady;
   out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));
