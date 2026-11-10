@@ -12,6 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const M = require('../src/dbModel.js');
 const V = require('../src/dbView.js');
+const PF = require('../tools/perf');
 
 const throwsBad = (fn, msg) => assert.throws(fn, (e) => e && e.code === 'bad-args', msg);
 const SEL = { id: 'c1', name: '優先度', type: 'select', opts: [{ id: 'o1', name: '高', color: 'red' }, { id: 'o2', name: '中', color: 'yellow' }, { id: 'o3', name: '低', color: 'default' }] };
@@ -456,7 +457,9 @@ test('DS-1・F139: windowOf の表（1万行・高さのばらつく行で、見
   assert.deepStrictEqual(V.windowOf({ scrollTop: 0, viewHeight: 320, heights: new Map(), defaultHeight: 32, total: 0 }), { from: 0, count: 0, before: 0, after: 0 });
 });
 
-test('DS-1・F139: 1万行の applyView（絞り込み・2つの列の並べ替え・グループ・集計・検索の語）が 200 ミリ秒以内（3 回の中央値）', () => {
+// 0.16.0 R109: 全部のテストのファイルを並べて走らせる CI（Windows の run 42722277545）で、続けた3回が同じ込み合いに当たって中央値 206 ミリ秒の赤になった
+// （この PC の1本では 36 ミリ秒）。DS-3 の速さのテストと同じく、目安を越えたときだけ PF.recheck（PG1）で間を置いた2回を計り直し、はじめと合わせた中央値で決める
+test('DS-1・F139: 1万行の applyView（絞り込み・2つの列の並べ替え・グループ・集計・検索の語）が 200 ミリ秒以内（3 回の中央値・越えたら PF.recheck で計り直す）', async () => {
   const rows = [];
   for (let i = 0; i < 10000; i += 1) {
     rows.push(row(`r${i}`, `k${String(i).padStart(5, '0')}`, `行 ${i} の題名`, {
@@ -471,16 +474,20 @@ test('DS-1・F139: 1万行の applyView（絞り込み・2つの列の並べ替�
     group: { col: 'c2' },
     agg: { c3: 'median', c5: 'range', c6: 'checkedPct' },
   };
-  const times = [];
   let out;
-  for (let k = 0; k < 3; k += 1) {
-    const t0 = process.hrtime.bigint();
-    out = V.applyView(rows, view, COLS, { now: NOW, q: '題名' });
-    times.push(Number(process.hrtime.bigint() - t0) / 1e6);
-  }
-  times.sort((a, b) => a - b);
+  const med3 = () => {
+    const times = [];
+    for (let k = 0; k < 3; k += 1) {
+      const t0 = process.hrtime.bigint();
+      out = V.applyView(rows, view, COLS, { now: NOW, q: '題名' });
+      times.push(Number(process.hrtime.bigint() - t0) / 1e6);
+    }
+    return Number(PF.median(times).toFixed(1));
+  };
+  const ms = med3();
   assert.ok(out.total > 5000 && out.total < 10000, `絞り込んだ数 ${out.total}`);
-  assert.ok(times[1] <= 200, `1万行の applyView の中央値 ${times[1].toFixed(1)} ミリ秒`);
+  const [x] = await PF.recheck([{ name: 'applyView', ms, budget: 200, ok: ms <= 200 }], async () => { await new Promise((r) => setTimeout(r, 200)); return med3(); }, { rounds: 2 });
+  assert.ok(x.ok, `1万行の applyView の中央値 ${x.ms} ミリ秒${x.tries ? `（計り直し ${x.tries.join('・')}）` : ''}`);
 });
 
 // ---------------------------------------------------------------- DS-1 直し（2026-11-07 の点検 rv38。計画の R18〜R27）
