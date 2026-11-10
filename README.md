@@ -401,6 +401,8 @@ large-v3-turbo・VAD のモデル）のエンジンを取り込みます（約 0
 置き場所は `%LOCALAPPDATA%\natsu\engine`。版・取得元・SHA-256 はアプリの中（`src/engine-manifest.js`）に
 固定してあり、途中で切れても続きから取ります。記録中は止まります。
 
+0.15.1 から、取り込む文字起こしのエンジンは GPU（Vulkan）で計算できる版（NaTsu の CI が whisper.cpp を Vulkan 付きで作った物）で、GPU を使えない PC では同じエンジンが CPU で計算します（[ヘルプ](help/articles/settings/offline.md)）。
+
 #### 手で入れる（詳しい人向け）
 
 ```powershell
@@ -678,5 +680,5 @@ npm test
 ## 実装について
 
 オリジナル実装です。Notion・Typeless 等のコードやデザイン資産は含みません。
-文字起こしの whisper.cpp（MIT）をローカル実行しています（要約は各自の Claude Code）。
+文字起こしの whisper.cpp（MIT）をローカル実行しています（取り込むエンジンは、whisper.cpp を Vulkan 付きで NaTsu の CI が作った物。Vulkan の部品は GPU のドライバの物を使い、同梱しません。要約は各自の Claude Code）。
 追加のnpm依存はなく、electron と electron-builder のみで動作します。

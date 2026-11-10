@@ -1021,3 +1021,57 @@ test('ND-4 直し: 案内の記事 dictation/dictation の Win+H の手順は Wi
   const sec = a.text.slice(a.text.indexOf('{#windows}'), a.text.indexOf('\n## ', a.text.indexOf('{#windows}')));
   assert.ok(sec.includes('（Windows 11 の画面で書いています）'), sec);
 });
+
+// ---------------------------------------------------------------- 0.15.1 GV-4（計画 docs/plans/2026-11-04-151.md の Task GV-4・F174・D126）: GPU 版の組のヘルプと案内
+// 第9版の字（「持ち主への問い（第9版）」の「第9版で変えた文」の 4〜7 と、第8版で承認したまま変わらない文）。節は「PC の中で文字起こしするとき {#when}」の後ろ（記事の終わり）
+const GPU_SEC_151 = [
+  '## GPU で文字起こしする {#gpu}',
+  '',
+  `${VER_151} から、取り込む文字起こしのエンジンは GPU（Vulkan）で計算できる版になりました。PC の中で文字起こしをするとき（つながっていないとき・［オフラインモード］の会議・中継が使えないとき）は、PC の GPU（Intel Iris Xe など）で計算します。CPU だけで計算するより、文字になるのが速く、PC が重くなりにくい見込みです。`,
+  '',
+  '- GPU を使えない PC では、同じエンジンが CPU で計算します。知らせは出しません。GPU と CPU のどちらで計算したかは、理由の記録（%APPDATA%\\natsu\\engine.log）の「文字起こしの計算:」の行で分かります。',
+  '- GPU で文字起こしのエンジンが止まったときや起動しないときは、ほかの理由でエンジンが起動しないときと同じです。その区間の音声は「文字起こし待ち」として残り、つながったときにクラウドで文字にします（［オフラインモード］ の会議は、PC の中で文字起こしできるようになってから）。',
+  '- 前の版で取り込んだ PC は、起動したときに新しいエンジン（約 20MB）だけを取り込みます（［一時停止］ しているときと、議事録の記録中は取り込みません）。取り込み終わるまでは前のエンジンで文字起こしをし、切り替えた後に前のエンジンを消します。',
+  '- 詳細設定にエンジンのパスを手で入れている PC は、今までどおりそのエンジンを使います。',
+].join('\n');
+test('GV-4・F174: settings/offline.md の節 #gpu は「PC の中で文字起こしするとき」の後ろ（記事の終わり）に第9版の字で。CPU の形への切り替え・ドライバの印・無くなった CPU 版・言い切りの語が無い。説明は変えない', { timeout: 5000 }, () => {
+  const t = read('help/articles/settings/offline.md');
+  const at = t.indexOf('\n## GPU で文字起こしする {#gpu}\n');
+  const when = t.indexOf('\n## PC の中で文字起こしするとき {#when}\n');
+  assert.ok(when > 0 && at > when, '節 #gpu が「PC の中で文字起こしするとき」の後ろに無い');
+  assert.strictEqual(t.indexOf('\n## ', at + 5), -1, '節 #gpu が記事の終わりでない');
+  const sec = t.slice(at + 1).replace(/\s+$/, '');
+  assert.strictEqual(sec, GPU_SEC_151);
+  for (const s of ['GPU を使えない PC では、同じエンジンが CPU で計算します。', '知らせは出しません。', 'engine.log', '文字起こしの計算:', '文字起こし待ち', '約 20MB',
+    '詳細設定にエンジンのパスを手で入れている PC は、今までどおりそのエンジンを使います。', '見込みです']) {
+    assert.ok(sec.includes(s), `#gpu に「${s}」が無い`);
+  }
+  assert.ok(!/CPU で計算する形に切り替え|ドライバが更新されると|CPU 版|必ず|確実に|倍速/.test(sec), '無くなった切り替え・印・CPU 版・言い切りの語がある');
+  const meta = t.slice(0, t.indexOf('\n---', 4));
+  assert.ok(meta.includes('\ndescription: ［設定］の「ローカル AI」で、PC の中の文字起こしのエンジンを取り込む（任意）。取り込まないときの動きと、使えるかの確かめ方。要約は Claude Code だけ\n'), '説明（description）を変えた');
+  // 記事の最初の「中継」は #when の決まった一言のまま（HD-8）
+  const first = plainBody(t).indexOf('中継');
+  assert.ok(first > 0 && t.slice(first + 2).startsWith(TERM_NOTES['中継']), '記事の最初の「中継」の後に決まった一言が無い');
+  // 取り込みと更新の記事から節へのリンク
+  assert.ok(read('help/articles/start/install-update.md').includes(`エンジンを取り込みます（約 0.6GB）。（${VER_151} から GPU で計算できる版。[GPU で文字起こしする](settings/offline.md#gpu)）`));
+});
+test('GV-4・F174: INSTALL と README（取り込むエンジンは GPU（Vulkan）で計算できる版・GPU を使えない PC では同じエンジンが CPU で計算・Visual C++ ランタイムを使わない。手で入れる節に書き足さない。約 0.6GB と vc_redist は残る）', { timeout: 5000 }, () => {
+  const ins = read('INSTALL.md');
+  for (const s of [
+    `- **管理者の権限は要りません。** ${VER_151} から、ローカル AI で取り込むエンジンは Visual C++ ランタイムを使いません\n  （詳細設定に手で入れたエンジンを使うときだけ、情報システムの担当が入れます。下の「Visual C++ ランタイム」）。`,
+    '- **かかるもの:** 約 0.6GB の取り込み（ディスクの空き 約 1GB）と、その時間（50Mbps で約 2 分、10Mbps で約 8 分）。\n  PC の中の文字起こしは、クラウドより精度が落ちます。',
+    `- 取り込むのは、文字起こしのエンジン（whisper.cpp。${VER_151} から GPU（Vulkan）で計算できる版）・文字起こしのモデル・VAD のモデルです。合わせて約 0.6GB です。GPU を使えない PC では、同じエンジンが CPU で計算します（どちらで計算したかは \`engine.log\` に1行）。`,
+    `詳細設定に手で入れた文字起こしのエンジン（下の「手で入れる」のスクリプトの whisper.cpp）は、Microsoft Visual C++ ランタイムを使います。\nNaTsu には入っていません。${VER_151} から［ローカル AI を使う］で取り込むエンジンは使いません（C/C++ の実行の部品を中に持ち、OpenMP の \`vcomp140.dll\` を同梱しています。Vulkan の部品 \`vulkan-1.dll\` は同梱せず、GPU のドライバの物を使います）。`,
+    '- 手で入れたエンジンで入っていない・古いときは、NaTsu が記録（`engine.log`）に1行残します（止めはしません）。',
+    'https://aka.ms/vc14/vc_redist.x64.exe']) {
+    assert.ok(ins.includes(s), `INSTALL に「${s}」が無い`);
+  }
+  assert.ok(!ins.includes('Visual C++ ランタイムが要ります（下の「Visual C++ ランタイム」）。'), 'かかるものにランタイムが残っている');
+  assert.ok(!ins.includes('NaTsu が［設定］→［ローカル AI］に案内を出します（取り込む前にも出ます）'), '取り込む前の案内が残っている');
+  assert.ok(!/CPU で計算する形に切り替え|ここで入れたエンジンのパスを詳細設定に入れると/.test(ins), '無くなった切り替え・手で入れる節の書き足し（VQ14 (a)）がある');
+  assert.ok(ins.includes('詳細設定にパスを入れた側は、アプリで取り込んだエンジンより、そちらが使われます。\n'), '手で入れる節の文が変わった');
+  const rd = read('README.md');
+  assert.ok(rd.includes(`\n${VER_151} から、取り込む文字起こしのエンジンは GPU（Vulkan）で計算できる版（NaTsu の CI が whisper.cpp を Vulkan 付きで作った物）で、GPU を使えない PC では同じエンジンが CPU で計算します（[ヘルプ](help/articles/settings/offline.md)）。\n`));
+  assert.ok(rd.includes('文字起こしの whisper.cpp（MIT）をローカル実行しています（取り込むエンジンは、whisper.cpp を Vulkan 付きで NaTsu の CI が作った物。Vulkan の部品は GPU のドライバの物を使い、同梱しません。要約は各自の Claude Code）。'));
+  assert.ok(!rd.includes('CPU で計算する形で続けます'), 'README に第8版の文が残っている');
+});

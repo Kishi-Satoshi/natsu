@@ -1424,10 +1424,9 @@ const IDS_151 = [
   'gv-wf-clobber',
   // 0.15.1 GV-2b（第9版）
   'gv-args-same', 'gv-log-state', 'gv-mark-cap', 'gv-crash-noverify', 'gv-hint-bundled',
+  // 0.15.1 GV-4
+  'gv-help-fallback',
 ];
-// 0.15.1 GV-1（計画の「変異の表」の gv- の決まり）: GV-1〜GV-3 の間は、まだ作っていないタスクの gv- の行を除いて表と比べる（ND-5 の前の BUILT_151 と同じ形）。
-// タスクを作るたびに減らし、GV-4 で表の全部（105。GV-2b で 111 から）に戻す（この並びを消す）
-const GV_TODO_151 = ['gv-help-fallback'];
 // 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
 // タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
 const GONE_151 = [
@@ -1469,9 +1468,8 @@ test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の�
   assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');
   // 0.15.1 ND-5（計画の「変異の表」の決まり・G3）で意図して変えた: 表の全部のタスクを作ったので、作ったタスクの範囲（BUILT_151）でなく、表の nd-・ps-・lb- の行とちょうど同じ（行の順）
-  // 0.15.1 GV-1（計画の「変異の表」の gv- の決まり）で意図して変えた: GV-1〜GV-3 の間は、まだ作っていない gv- の行（GV_TODO_151）を除いて比べる
-  assert.deepStrictEqual(GV_TODO_151.filter((id) => !rows.includes(id) || !/^gv-/.test(id) || IDS_151.includes(id) || MUTANTS.some((m) => m.id === id)), [], 'GV_TODO_151 が表のまだ作っていない gv- の行でない');
-  assert.deepStrictEqual(IDS_151, rows.filter((id) => !GV_TODO_151.includes(id)), 'IDS_151 が計画の「変異の表」の nd-・ps-・lb-・gv- の行（まだ作っていない gv- を除く）とちょうど同じでない（行の順）');
+  // 0.15.1 GV-4（計画の「変異の表」の gv- の決まり）で意図して変えた: GV-1〜GV-2b の間はまだ作っていない gv- の行（GV_TODO_151）を除いて比べた。GV-4 で表の全部（105）に戻した
+  assert.deepStrictEqual(IDS_151, rows, 'IDS_151 が計画の「変異の表」の nd-・ps-・lb-・gv- の行とちょうど同じでない（行の順）');
   // 前の版の頭の照らしと、並べて作る 0.16.0 の頭（tb・vw: 計画の「並べて作る決まり」の 4）に当たらない
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/]) {
     assert.deepStrictEqual(IDS_151.filter((id) => re.test(id)), [], `${re} に当たる 0.15.1 の id`);
