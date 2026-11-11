@@ -826,12 +826,12 @@ test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）
 });
 
 // 0.15.1（計画 docs/plans/2026-11-04-151.md の「CHANGELOG の 0.15.1 の節（下書き）」。Task G の後半: R56）: 版を 0.15.1 に上げる commit で、承認した下書きの字のまま
-// （持ち主が「足す（おすすめ）」と答えたヘルプセンターの1行を終わりに足して）日付つきの見出し（## natsu-v0.15.1 （2026-11-10））で CHANGELOG.md の頭（0.15.0 の節の上）へ移した。
+// （持ち主が「足す（おすすめ）」と答えたヘルプセンターの1行を終わりに足して）日付つきの見出し（## natsu-v0.15.1 （2026-11-11））で CHANGELOG.md の頭（0.15.0 の節の上）へ移した。
 // 音声入力をなくす（D114）・プライベートの見出し（D124）・ライブラリ（D125）・名前を変える・GPU 版（D126）・ヘルプセンターを書く。計画には「移した」の1行だけを残す
 test('0.15.1: CHANGELOG の 0.15.1 の節（計画の下書きから移した）は日付つきの見出しで CHANGELOG の頭（0.15.0 の節の上）にあり、音声入力をなくす・プライベート・ライブラリ・名前を変える・GPU・ヘルプセンターを書き、引いた［…］は消した2つのほかは src/ にある', () => {
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
-  assert.ok(lines.includes('## natsu-v0.15.1 （2026-11-10）'), 'CHANGELOG.md に「## natsu-v0.15.1 （2026-11-10）」の見出しが無い');
+  assert.ok(lines.includes('## natsu-v0.15.1 （2026-11-11）'), 'CHANGELOG.md に「## natsu-v0.15.1 （2026-11-11）」の見出しが無い');
   assert.ok(cl.indexOf('## natsu-v0.15.1') < cl.indexOf('## natsu-v0.15.0'), '0.15.1 の節が 0.15.0 の節の上に無い');
   assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.15.1'), '0.15.1 の節が CHANGELOG の頭に無い');
   const sec = secOf(cl, '## natsu-v0.15.1');
