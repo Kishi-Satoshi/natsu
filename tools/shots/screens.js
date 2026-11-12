@@ -612,6 +612,8 @@ const SCREENS = [
   { name: 'trash-pop-rows-light', page: 'app', theme: 'light', get answers() { return trashRowsAnswers(); }, act: OPEN_TRASH_ROWS },
   // 0.16.0 DL-1 (2)（R111・R115）: 白紙のページの本文のインラインの表（頭の 🗃️・題名の欄・⤢ と、15 行の高さで中を捲る表。足した画面。まだ基準が無い）
   { name: 'db-inline-light', page: 'app', theme: 'light', get answers() { return inlineAnswers(); }, act: OPEN_PAGE },
+  // 0.16.0 DL-1 (2b)（R105・R107・R116）: 白紙のページの本文のリンクドビュー（頭の 🗃️・題名の欄・⤢ と、自分の2つのタブ「表」「担当別」。足した画面。まだ基準が無い）
+  { name: 'db-linked-light', page: 'app', theme: 'light', get answers() { return linkedAnswers(); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -738,9 +740,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DX-1 で足したサイドバーのデータベース（まだ基準が無い）と、Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増える new-pop-light（今の基準がある）
 // DX-2 で足した［ゴミ箱］の窓の行のまとまり（まだ基準が無い）
 // DL-1 (2) で足した白紙のページの本文のインラインの表（まだ基準が無い）
+// DL-1 (2b) で足した白紙のページの本文のリンクドビュー（まだ基準が無い）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
-  'sidebar-db-light', 'trash-pop-rows-light', 'db-inline-light',
+  'sidebar-db-light', 'trash-pop-rows-light', 'db-inline-light', 'db-linked-light',
   'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
@@ -998,6 +1001,26 @@ function inlineAnswers() {
   const row = { id: 'pi1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
   const dbRow = { ...d['koeApp.pagesSearch'][0], parentId: 'pi1', ord: 'a' };
   return { ...d, 'koeApp.pagesSearch': [row, dbRow, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
+}
+
+/**
+ * 0.16.0 DL-1 (2b)（R105・R116）: 白紙のページの本文のリンクドビュー（一覧のいちばん上の白紙のページ pi1。行 s1 は最上位のデータベース pd1 を見せる dbview の行で、
+ * 自分のビューの並び「表」「担当別」を持つ。表の答えは dbAnswers の「案件の一覧」の 20 行）
+ */
+function linkedAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const m = { citeState: 'manual', cites: [] };
+  const d = dbAnswers();
+  const v1 = d['koeApp.dbGet'].views[0];
+  const views = [v1, { ...v1, id: 'v2', name: '担当別', sort: [{ col: 'c1', dir: 'asc' }] }];
+  const page = { id: 'pi1', kind: 'blank', title: '今週の進み具合', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [
+    { id: 'q1', type: 'heading', level: 2, text: '担当ごとの案件', ...m },
+    { id: 's1', type: 'dbview', text: '', db: 'pd1', views },
+    { id: 'q2', type: 'paragraph', text: '金曜の打ち合わせで進み具合を確かめる。', ...m },
+  ] };
+  const row = { id: 'pi1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
+  const dbRow = { ...d['koeApp.pagesSearch'][0], ord: 'j' };
+  return { ...d, 'koeApp.dbGet': { ...d['koeApp.dbGet'], views }, 'koeApp.pagesSearch': [row, dbRow, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
 }
 
 /**

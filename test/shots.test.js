@@ -237,7 +237,8 @@ const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'd
   'db-relation-light', 'db-subitems-light',   // 0.16.0 DR-1 で足した2枚（まだ基準が無い）
   'sidebar-db-light',   // 0.16.0 DX-1 で足した1枚（まだ基準が無い）
   'trash-pop-rows-light',   // 0.16.0 DX-2 で足した1枚（まだ基準が無い）
-  'db-inline-light'];   // 0.16.0 DL-1 (2) で足した1枚（まだ基準が無い）
+  'db-inline-light',   // 0.16.0 DL-1 (2) で足した1枚（まだ基準が無い）
+  'db-linked-light'];   // 0.16.0 DL-1 (2b) で足した1枚（まだ基準が無い）
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
 // DX-1 で Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増えるので new-pop-light（今の基準がある）を取り直す
 const RETAKEN_160 = ['settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light'];
@@ -1207,7 +1208,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 揺れなくなる（基準との比べは色の差 2 までなので、どちらの描き方でも基準と同じ）。値を今の app.html に合わせた（前の値は 477dc4fc…）
   // 0.16.0 DL-1 (2a)（R111・R115）: 表ごとの状態（dbTables・dbBind・dbUse）と、白紙のページの本文のインラインの表（頭の 🗃️・題名の欄・⤢・灰色の行・
   // 15 行の高さの表）と、その CSS。データベースのページの表は同じに描く。変わる画面は足した db-inline-light（NEW_160・RETAKE）。値を今の app.html に合わせた（前の値は 39d03ec4…）
-  assert.strictEqual(sha, 'c98972e03544b5e099dda6615d55305a867f1c22b87b31a36d5da64ad5b53d56',
+  // 0.16.0 DL-1 (2b)（R116）: 本文のリンクドビュー（dbview の行に表・自分のタブ）・/データベース と /リンクドビュー（窓とその CSS）・行のメニューの［インラインにする］
+  // ［ページの行に変える］・知らせ2つ・データベースのページの題名の db.setTitle。変わる画面は足した db-linked-light（NEW_160・RETAKE）。/ メニューの撮る画面は議事録の本文で、
+  // ［データベース］［リンクドビュー］は白紙のページの本文だけなので変わらない（R116 (h)）。値を今の app.html に合わせた（前の値は c98972e0…）
+  assert.strictEqual(sha, '0581351ab91372d0e17323a4372bfd920b1dd0aa757443322f5825801d1c8052',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

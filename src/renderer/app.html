@@ -891,6 +891,12 @@
   .dbbox { position: relative; }
   .dbhost .dbscroll { max-height: calc(32px * 16); overflow: auto; }
   .dbhost .dbgone { color: var(--muted); padding: 4px 0; }
+  /* 0.16.0 DL-1 (2b)（R107）: /リンクドビュー の窓（⠿ のメニューと同じ箱。見出し・探す欄・データベースかビューの並び・区切りの下の［新しい表から始める］） */
+  .dbpickwin { width: 280px; gap: 4px; }
+  .dbpickwin .dbpickhead { padding: 4px 6px 2px; color: var(--muted); font-size: 12px; }
+  .dbpickwin .dbpickbody { display: flex; flex-direction: column; gap: 4px; }
+  .dbpickwin .dbpicksep { margin: 4px 2px; border-top: 1px solid var(--line); }
+  .dbpickwin .snone { color: var(--muted); font-size: 13px; padding: 4px 6px; }
   .bodykids { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
   .bodykids .kidshead { font-size: 12px; color: var(--text-2); margin: 0 0 4px; }
   .bodykids .kidrow { padding: 3px 6px; border-radius: 4px; cursor: pointer; color: var(--text); }
@@ -9570,6 +9576,168 @@
     if (!q) return [{ id: SLASH_PAGE.id, group: 'types' }];
     return slashHit(SLASH_PAGE, q) ? [{ id: SLASH_PAGE.id, group: '' }] : [];
   }
+  // 0.16.0 DL-1 (2b)（決めたこと 39・40・R107 の画面の文）: 白紙のページの本文だけの［データベース］［リンクドビュー］（型の表の外。「最近使ったもの」に入れない）
+  const SLASH_DB = Object.freeze({ id: 'db:inline', label: 'データベース', md: [], words: ['でーたべーす', 'database'] });
+  const SLASH_LINKED = Object.freeze({ id: 'db:linked', label: 'リンクドビュー', md: [], words: ['りんくどびゅー', 'linked'] });
+  const SLASH_DBS = [SLASH_DB, SLASH_LINKED];
+  function slashDbHits(q, el) {
+    const k = keyOfEl(el);
+    if (!k || isMemoKey(k) || k !== curId || !isBlankPage(curPage)) return [];
+    return SLASH_DBS.filter((r) => !q || slashHit(r, q)).map((r) => ({ id: r.id, group: q ? '' : 'types' }));
+  }
+  // /データベース: 打った文字を消して保存し、打った行にインラインのデータベース（dbCreate の inline）。本文の表が 10 なら知らせる（DQ10）
+  async function slashDbPick(s) {
+    const el = s.el; const txt = el._txt;
+    rowReplace(txt, s.start, s.start + 1 + s.query.length, '');
+    setCaret(txt, s.start);
+    const pid = keyOfEl(el);
+    try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    return dbInlineCreate(pid, el.dataset.id);
+  }
+  async function dbInlineCreate(pid, rowId) {
+    flushEdits();
+    const fullBefore = pid === curId && Boolean(curPage) && flattenBlocks(curPage.blocks).length >= BODY_ROWS_MAX;
+    let r = null; let code = '';
+    try { r = await window.koeApp.dbCreate(pid, rowId); } catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
+    if (code === 'too-big') { toast(DB_TABLES_FULL); return null; }
+    if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
+    await refreshList();
+    if (curId !== pid) return r.id;
+    await openPage(pid);
+    if (fullBefore) await noteRowless(pid, r.id, true);   // 本文が 2,000 行: データベースは作り、行は無い（R33・R51 と同じ知らせ）
+    const b = curPage ? flattenBlocks(curPage.blocks).find((x) => x && x.type === 'subpage' && x.page === r.id) : null;
+    const t = b ? [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === b.id) : null;
+    const inp = t ? t.querySelector('.dbtitle') : null;
+    if (inp) inp.focus();   // 作るとすぐ題名から書ける（PH-4 の N-11 と同じ）
+    return r.id;
+  }
+  // ---- /リンクドビュー の窓（決めたこと 40・R105・R107）: 1手目はデータベース（題名で探す・ひらがなとカタカナを寄せる）、2手目は「元のビューを写す」か［新しい表から始める］。
+  // 選ぶまで打った文字は残す（Esc で閉じても何も変えない）。選ぶと打った文字を消して保存し、block.insertDbView の1回（1歩）
+  const DB_PICK_FIND = 'データベースを探す';
+  const DB_PICK_NONE = '当てはまるデータベースがありません';
+  const DB_PICK_VIEWS = '元のビューを写す';
+  const DB_PICK_NEW = '新しい表から始める';
+  const DB_TABLES_FULL = '1つのページに置けるデータベースの表は 10 までです。';   // DQ10（R115）
+  const DB_VIEW_NO_DUP = 'リンクドビューは複製できません';   // DQ11（R115）
+  let dbPick = null;   // 開いているとき { box, head, body, s, pid, rowId }
+  function dbPickClose(back) {
+    const p = dbPick;
+    if (!p) return;
+    dbPick = null;
+    if (p.box.parentNode) p.box.parentNode.removeChild(p.box);
+    const el = back ? [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === p.rowId) : null;
+    if (el && el._txt) { el._slashOff = p.s.start; el._txt.focus(); setCaret(el._txt, p.s.start + 1 + p.s.query.length); }
+  }
+  function slashLinkedPick(s) {
+    dbPickClose();
+    const el = s.el;
+    const box = document.createElement('div');
+    box.className = 'blockmenu dbpickwin'; box.setAttribute('role', 'dialog');
+    const head = document.createElement('div'); head.className = 'dbpickhead'; head.id = 'dbPickHead';
+    box.setAttribute('aria-labelledby', 'dbPickHead');
+    const body = document.createElement('div'); body.className = 'dbpickbody';
+    box.append(head, body);
+    dbPick = { box, head, body, s, pid: keyOfEl(el), rowId: el.dataset.id };
+    box.addEventListener('focusout', () => setTimeout(() => { if (dbPick && dbPick.box === box && !isIn(document.activeElement, box)) dbPickClose(); }, 0));
+    box.style.top = `${(el.offsetTop || 0) + (el.offsetHeight || 0)}px`;
+    box.style.left = `${el.offsetLeft || 0}px`;
+    popHost(el).appendChild(box);
+    if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
+    dbPickDbs();
+    return null;
+  }
+  const dbPickOpts = () => (dbPick ? [...dbPick.box.querySelectorAll('.dbopt')] : []);
+  // 窓の中のキー（偽の DOM は泡立たないので、欄と項目のそれぞれで受ける）。受けたら真
+  function dbPickKey(ev, at) {
+    if (imeEnter(ev)) return true;
+    const stop = () => { ev.preventDefault(); if (typeof ev.stopPropagation === 'function') ev.stopPropagation(); };
+    if (ev.key === 'Escape') { stop(); dbPickClose(true); return true; }
+    if (ev.key === 'Tab') { dbPickClose(); return false; }
+    const all = dbPickOpts(); const i = all.indexOf(at);
+    if (ev.key === 'ArrowDown') { stop(); const t = all[i + 1]; if (t) t.focus(); return true; }
+    if (ev.key === 'ArrowUp') { stop(); const q = dbPick.body.querySelector('input'); if (i > 0) all[i - 1].focus(); else if (q) q.focus(); return true; }
+    if (ev.key === 'Enter' || (ev.key === ' ' && at)) { stop(); const t = at || all[0]; if (t) t.onclick(); return true; }
+    return false;
+  }
+  function dbPickOpt(list, text, fn) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'dbopt'; b.setAttribute('role', 'option'); b.tabIndex = -1;
+    b.textContent = text;
+    b.onclick = fn;
+    b.onkeydown = (ev) => { dbPickKey(ev, b); };
+    list.appendChild(b);
+    return b;
+  }
+  function dbPickList() {
+    const list = document.createElement('div');
+    list.className = 'dbpicklist'; list.setAttribute('role', 'listbox'); list.setAttribute('aria-labelledby', 'dbPickHead');
+    return list;
+  }
+  function dbPickDbs() {
+    const p = dbPick;
+    p.head.textContent = DB_REL_HEAD; p.body.textContent = '';
+    const q = document.createElement('input');
+    q.type = 'text'; q.className = 'dbedit dbpickq';
+    q.setAttribute('placeholder', DB_PICK_FIND); q.setAttribute('aria-label', DB_PICK_FIND);
+    const list = dbPickList();
+    p.body.append(q, list);
+    const paint = () => {
+      list.textContent = '';
+      const f = moveFold(q.value);
+      const hits = pages.filter((x) => isDbPage(x) && typeof x.id === 'string' && (!f || moveFold(oneLine(x.title) || dbUntitled()).includes(f)));
+      if (!hits.length) { const n = document.createElement('div'); n.className = 'snone'; n.textContent = DB_PICK_NONE; list.appendChild(n); return; }
+      for (const x of hits) dbPickOpt(list, oneLine(x.title) || dbUntitled(), () => dbPickViews(x.id));
+    };
+    q.oninput = paint;
+    q.onkeydown = (ev) => { dbPickKey(ev, null); };
+    paint();
+    q.focus();
+  }
+  async function dbPickViews(db) {
+    const p = dbPick;
+    if (!p) return;
+    let info = null;
+    try { info = await window.koeApp.dbGet(db); } catch (_) { info = null; }
+    if (dbPick !== p) return;
+    p.head.textContent = DB_PICK_VIEWS; p.body.textContent = '';
+    const list = dbPickList();
+    for (const v of info && Array.isArray(info.views) ? info.views : []) dbPickOpt(list, v.name, () => dbPickPlace(db, v.id));
+    const sep = document.createElement('div'); sep.className = 'dbpicksep'; sep.setAttribute('role', 'separator');
+    list.appendChild(sep);
+    dbPickOpt(list, DB_PICK_NEW, () => dbPickPlace(db, '')).classList.add('dbnew');
+    p.body.appendChild(list);
+    if (typeof p.box.scrollIntoView === 'function') p.box.scrollIntoView({ block: 'nearest' });   // 2手目は並びが変わるので、もう一度箱の全部が見える所まで
+    dbPickOpts()[0].focus();
+  }
+  // 選んだ: 打った /… の文字を消して保存し、打った行の所にリンクドビュー（from は写す元のビュー。'' は新しい表）。1つの動作なので1歩
+  function dbPickPlace(db, from) {
+    const p = dbPick;
+    if (!p) return null;
+    dbPickClose();
+    return stepGroup(async () => {
+      const el = p.pid === curId ? [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === p.rowId) : null;
+      if (!el || !el._txt) return null;
+      const txt = el._txt; const s = p.s; const end = s.start + 1 + s.query.length;
+      if (txt.textContent.slice(s.start, end) === `/${s.query}`) { rowReplace(txt, s.start, end, ''); setCaret(txt, s.start); }
+      try { await txt._commit(p.pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+      return editAnswer(p.pid, () => dbTableSend(() => window.koeApp.blockInsertDbView(p.pid, p.rowId, db, ...(from ? [from] : []))), null);
+    });
+  }
+  // 本文の表の数（10）を越える命令の断り（too-big）は DQ10 の知らせにして null（ほかの断りは editAnswer の今の知らせ）
+  async function dbTableSend(send) {
+    try { return await send(); } catch (e) {
+      if (String((e && (e.code || e.message)) || '') !== 'too-big') throw e;
+      toast(DB_TABLES_FULL);
+      return null;
+    }
+  }
+  // 行のメニューの［インラインにする］／［ページの行に変える］（このページの子の、生きているデータベースを指す子ページの行だけ: R113 (a)）
+  function dbInlineItem(el) {
+    const b = el._b;
+    if (!b || b.type !== 'subpage' || !curPage || !isBlankPage(curPage) || keyOfEl(el) !== curId) return null;
+    if (!isDbPage(subPageOf(b))) return null;
+    return b.inline === true ? { label: 'ページの行に変える', on: false } : { label: 'インラインにする', on: true };
+  }
   // 選ぶと打った /ページ の文字を消して保存し（1歩）、開いているページの中に白紙のページを作って開く（題名にフォーカス）
   async function slashPagePick(s) {
     const el = s.el; const txt = el._txt;
@@ -9912,8 +10080,10 @@
   };
   function dbInlineMount(el, b) {
     el.classList.add('dbinline');
+    const linked = b.type === 'dbview' ? b.id : '';   // 0.16.0 DL-1 (2b)（R105）: リンクドビューは行の ID でビューを読み書きする
+    const db = linked ? b.db : b.page;
     let st = dbTables.get(b.id);
-    if (st && (st.id !== b.page || st.linked)) { dbForget(b.id); st = null; }
+    if (st && (st.id !== db || st.linked !== linked)) { dbForget(b.id); st = null; }
     if (st) { el.appendChild(st.wrap); return; }
     const wrap = document.createElement('div');
     wrap.className = 'dbhost';
@@ -9930,7 +10100,7 @@
     box.className = 'dbbox';
     wrap.append(head, box);
     el.appendChild(wrap);
-    dbOpen(b.page, box, b.id, '');
+    dbOpen(db, box, b.id, linked);
     st = dbTables.get(b.id);
     st.wrap = wrap; st.head = { title, open };
     open.onclick = (ev) => openPageTab(st.id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
@@ -10541,7 +10711,7 @@
     if (on) {
       for (let from = 0; from < st.shown; from += DB_READ_MAX) {
         let r = null;
-        try { r = await window.koeApp.dbView(st.id, st.viewId, from, Math.min(DB_READ_MAX, st.shown - from), ...(st.q ? [st.q] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 探している語の行だけ
+        try { r = await window.koeApp.dbView(st.id, st.viewId, from, Math.min(DB_READ_MAX, st.shown - from), ...(st.linked ? [st.q, [], st.linked] : st.q ? [st.q] : [])); } catch (_) { r = null; }   // 0.16.0 DV-3: 探している語の行だけ
         if (!dbUse(st) || !r) return;
         for (const row of r.rows) { st.checked.add(row.id); st.known.set(row.id, row); }
       }
@@ -11402,10 +11572,11 @@
   let dbLinkWant = null;      // ビューのリンクで開くデータベースとビュー（表を読む前に来たとき）
   const dbLive = (st) => st.info.cols.filter((c) => !c.gone && dbModelView.COLS[c.type]);
   // ビューの設定を書く（view.update の1回。歩みにしない）。どの設定の道もここを通る
+  const dbLinkedArg = (st) => (st && st.linked ? [st.linked] : []);   // 0.16.0 DL-1 (2b)（R105）: ビューの命令の linked（リンクドビューの行の ID）
   async function dbViewSave(patch, viewId) {
     const st = dbSt;
     if (st.editing) await dbEditEnd(true);   // 書いているセルは決めてから（表の形が替わる）
-    return dbWrite(() => window.koeApp.viewUpdate(st.id, viewId || st.viewId, patch));
+    return dbWrite(() => window.koeApp.viewUpdate(st.id, viewId || st.viewId, patch, ...dbLinkedArg(st)));   // 0.16.0 DL-1 (2b)（R105）: リンクドビューはその行のビュー
   }
   // ---- タブ（決めたこと 16・V-T02〜V-T04）
   function dbPaintTabs(st) {
@@ -11554,7 +11725,7 @@
     const i = views.findIndex((v) => v.id === b.dataset.view);
     const after = dbRightHalf(ev, b) ? b.dataset.view : (i > 0 ? views[i - 1].id : '');
     if (after === id) return;
-    await dbWrite(() => window.koeApp.viewMove(st.id, id, after));
+    await dbWrite(() => window.koeApp.viewMove(st.id, id, after, ...dbLinkedArg(st)));
   }
   // タブのメニュー（V-T04: 名前を変える・複製・リンクを写す・削除。最後の1つは消せない）
   function dbTabMenu(viewId, anchor) {
@@ -11575,7 +11746,7 @@
   async function dbViewCopy(viewId) {
     const st = dbSt;
     dbMenuClose();
-    const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { from: viewId }));
+    const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { from: viewId, ...(st.linked ? { linked: st.linked } : {}) }));
     if (r && r.view && dbUse(st)) dbPickView(r.view.id);
   }
   // ビューへのリンク（ページの［リンクを写す］と同じ https の形に、ビューの印 &a=v:<ビューの ID>。開くとそのタブを選ぶ: 決めたこと 16・R75）
@@ -11584,7 +11755,9 @@
     dbMenuClose();
     const base = await linkBaseNow();
     if (!base || !curPage || !dbUse(st)) { toast('リンクを写せませんでした。'); return; }
-    await window.koeApp.copy(`${pageRefLine(curPage, base)}&a=v:${viewId}`); toast('リンクを写しました。');
+    // 0.16.0 DL-1 (2b)（R105・R107）: リンクドビューのタブは置いたページのその行（b:<行の ID>。タブは選ばない）。インラインの表のタブはデータベースのページのそのビュー（R116 (e)）
+    const line = st.linked ? `${pageRefLine(curPage, base)}&a=b:${st.linked}` : st.key !== 'page' ? `${pageRefLine({ id: st.id, title: st.info.title, kind: 'database' }, base)}&a=v:${viewId}` : `${pageRefLine(curPage, base)}&a=v:${viewId}`;
+    await window.koeApp.copy(line); toast('リンクを写しました。');
   }
   // ビューを消す（確かめる。消すのは設定だけで行は消えない。今のビューなら先に残りの最初のビューへ）
   async function dbViewRemove(viewId) {
@@ -11594,7 +11767,7 @@
     if (!v || st.info.views.length <= 1) return;
     if (!window.confirm(DB_VIEW_DEL_ASK(oneLine(v.name)))) return;
     if (viewId === st.viewId) dbPickView(st.info.views.find((x) => x.id !== viewId).id);
-    await dbWrite(() => window.koeApp.viewRemove(st.id, viewId));
+    await dbWrite(() => window.koeApp.viewRemove(st.id, viewId, ...dbLinkedArg(st)));
   }
   // ［＋］: 名前の欄と［表］［リスト］（押すとそのビューを足して選ぶ。名前の欄の Enter は表。名前が空なら「表」「リスト」: V-T02）
   function dbViewAddMenu(anchor) {
@@ -11606,7 +11779,7 @@
     const go = async (layout) => {
       const name = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
       dbMenuClose();
-      const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { layout, ...(name ? { name } : {}) }));
+      const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { layout, ...(name ? { name } : {}), ...(st.linked ? { linked: st.linked } : {}) }));
       if (r && r.view && dbUse(st)) dbPickView(r.view.id);
     };
     const m = dbMenuAt(anchor, [{ head: DB_VIEW_ADD }, { label: '表', fn: () => go('table') }, { label: 'リスト', fn: () => go('list') }], 'dbcolmenu');
@@ -12462,7 +12635,7 @@
         const nb = byId.get(o.id);
         if (el === focused) {
           blockRows.dress(el, nb, '');
-          if (nb.type !== 'subpage' && (el._txt.textContent !== String(nb.text ?? '') || !sameRich(rowRich(el._txt), richOf(nb)))) paintBlock(el._txt, nb);   // 0.14.0 EB-4: 飾りも（0.15.0 PR-2: 子ページの行は題名を描く）
+          if (!isFixedB(nb) && (el._txt.textContent !== String(nb.text ?? '') || !sameRich(rowRich(el._txt), richOf(nb)))) paintBlock(el._txt, nb);   // 0.14.0 EB-4: 飾りも（0.15.0 PR-2: 子ページの行は題名を描く）
         } else {
           const ne = blockRows.make(nb, '', placeOf.get(o.id).depth, placeOf.get(o.id).parentId);
           box.insertBefore(ne, el); el.remove(); rows.set(o.id, ne);
@@ -12514,7 +12687,7 @@
     const plain = plainPasteAt === txt;
     plainPasteAt = null;
     if (revertingAt(keyOfEl(el))) return;   // EB-3 直し（R109 (4)）と同じ: 戻している間は打たせない
-    const line = el._b.type === 'divider' || el._b.type === 'subpage';   // 0.15.0 PR-2: 子ページの行も文を持たないので、下に行として足す
+    const line = el._b.type === 'divider' || isFixedB(el._b);   // 0.15.0 PR-2: 子ページの行も文を持たないので、下に行として足す（0.16.0 DL-1 (2b): リンクドビューの行も）
     const cd = ev.clipboardData;
     const t = cd ? String(cd.getData('text/plain') || '').replace(/\r\n?/g, '\n') : '';
     // 決めたこと 26: Ctrl+Shift+V は素の文字だけ（改行は行の中の改行）。R126: 変換中（IME）の貼り付けも変換を決めない（素の文字を行の中に）。
@@ -12872,7 +13045,7 @@
     const i = rows.indexOf(el);
     if (i <= 0) return null;
     // 0.15.0 PR-2（決めたこと 53・HR18）: すぐ上が子ページの行なら、つながずに子ページの行を選ぶ（1回の Backspace でページをゴミ箱へ入れない。もう一度で消す）
-    if (rows[i - 1]._b && rows[i - 1]._b.type === 'subpage') { txt._commit(pid); selRowStart(rows[i - 1]); return null; }
+    if (rows[i - 1]._b && isFixedB(rows[i - 1]._b)) { txt._commit(pid); selRowStart(rows[i - 1]); return null; }
     const intoId = rows[i - 1].dataset.id;
     const text = txt.textContent;
     // 0.14.0 EB-4（決めたこと 16・R58）: 飾りのある行は今の rich も送る（つないだ先の後ろに飾りを残す）
@@ -12916,7 +13089,7 @@
   function stepRow(el, dir) {
     const txt = el._txt;
     const r = caretRange(txt);
-    const line = el._b && (el._b.type === 'divider' || el._b.type === 'subpage');   // 区切り線と子ページの行（0.15.0 PR-2）は文を持たないので、いつも隣へ
+    const line = el._b && (el._b.type === 'divider' || isFixedB(el._b));   // 区切り線と子ページの行（0.15.0 PR-2）は文を持たないので、いつも隣へ
     if (!line && (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length))) return false;
     const rows = editRows(rowsBoxOf(el));
     const to = rows[rows.indexOf(el) + dir];
@@ -12937,7 +13110,7 @@
     // からも呼ばれるので、pid を引数で受け、別のページへ移った後は画面を触らない。
     txt._commit = (pid) => {
       if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
-      if (el._b && el._b.type === 'subpage') return undefined;   // 0.15.0 PR-2（決めたこと 53・56）: 子ページの行の文は題名を描いたもので、保存しない
+      if (el._b && isFixedB(el._b)) return undefined;   // 0.15.0 PR-2（決めたこと 53・56）: 子ページの行の文は題名を描いたもので、保存しない（0.16.0 DL-1 (2b): リンクドビューの行は文を持たない）
       if (rowsBoxOf(el) && keyOfEl(el) !== pid) return undefined;   // 0.14.0 MB-4: 別の欄の鍵では保存しない（メモの行を要約の命令で送らない）
       const b = el._b;
       const memoRow = Boolean(rowsBoxOf(el) && rowsBoxOf(el)._memoTg);
@@ -12965,7 +13138,7 @@
     txt.onkeydown = (ev) => {
       if (imeEnter(ev)) return;   // 変換確定の Enter / 変換中の Backspace は編集操作にしない
       const mod = ev.ctrlKey || ev.altKey || ev.metaKey;
-      if (el._b.type === 'subpage' && subRowKey(el, ev)) return;   // 0.15.0 PR-2（決めたこと 53）: 子ページの行の Enter・Backspace・Delete・写す・貼る
+      if (isFixedB(el._b) && subRowKey(el, ev)) return;   // 0.15.0 PR-2（決めたこと 53）: 子ページの行の Enter・Backspace・Delete・写す・貼る（0.16.0 DL-1 (2b): リンクドビューの行も）
       plainPasteAt = plainPasteKey(ev) ? txt : null;   // 0.14.0 EK-3（決めたこと 26）: Ctrl+Shift+V の次の paste は素の文字だけ（既定の貼り付けは止めない）
       // EK-4 直し（R153）: 区切り線の行は文の欄でないので、Chromium は Ctrl+V で paste の事象を出さない。キーで受け、main に読ませて貼る
       if (el._b.type === 'divider') { const ck = clipKey(ev); if (ck === 'paste' || ck === 'plain') { ev.preventDefault(); rowClipPaste(el, ck === 'plain'); return; } }
@@ -13111,8 +13284,9 @@
     const types = slashFilter(query, slashRecent);
     const colors = slashColorHits(query);   // 0.14.0 EB-5（決めたこと 21・S-03）: 語を打ったら色の項目も（型の後ろ）
     const pageIt = slashPageHits(query, el);   // 0.15.0 PH-4（決めたこと 25）: ページの本文の［ページ］（型の後ろ・色の前）
-    if (types === null && !colors.length && !pageIt.length) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
-    const items = [...(types || []), ...pageIt, ...colors];
+    const dbIt = slashDbHits(query, el);   // 0.16.0 DL-1 (2b): 白紙のページの本文の［データベース］［リンクドビュー］（［ページ］の後ろ）
+    if (types === null && !colors.length && !pageIt.length && !dbIt.length) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
+    const items = [...(types || []), ...pageIt, ...dbIt, ...colors];
     const keep = slash && slash.el === el && slash.start === start ? slash.items[slash.sel] : null;
     const sel = Math.max(0, keep ? items.findIndex((x) => x.id === keep.id && x.group === keep.group) : 0);
     if (slash && slash.el !== el) slashClose();
@@ -13139,7 +13313,7 @@
         const h = document.createElement('div'); h.className = 'shead'; h.setAttribute('role', 'presentation'); h.textContent = SLASH_HEADS[group];
         slashBox.appendChild(h);
       }
-      const row = SLASH_ROWS.find((x) => x.id === it.id) || (it.id === SLASH_PAGE.id ? SLASH_PAGE : null) || SLASH_COLORS.find((x) => x.id === it.id);
+      const row = SLASH_ROWS.find((x) => x.id === it.id) || (it.id === SLASH_PAGE.id ? SLASH_PAGE : null) || SLASH_DBS.find((x) => x.id === it.id) || SLASH_COLORS.find((x) => x.id === it.id);
       const o = document.createElement('div');
       o.className = 'sopt'; o.id = `slashOpt${i}`; o.setAttribute('role', 'option');
       o.setAttribute('aria-selected', i === s.sel ? 'true' : 'false');
@@ -13189,6 +13363,8 @@
     const crow = SLASH_COLORS.find((x) => x.id === it.id);
     if (crow) return slashColorPick(s, crow);   // 0.14.0 EB-5（決めたこと 21・S-03）: 行の色
     if (it.id === SLASH_PAGE.id) return slashPagePick(s);   // 0.15.0 PH-4（決めたこと 25）: 開いているページの中に白紙のページ
+    if (it.id === SLASH_DB.id) return slashDbPick(s);   // 0.16.0 DL-1 (2b)（決めたこと 39）: 打った行にインラインのデータベース
+    if (it.id === SLASH_LINKED.id) return slashLinkedPick(s);   // 0.16.0 DL-1 (2b)（決めたこと 40・R107）: リンクドビューを置く窓
     const row = SLASH_ROWS.find((x) => x.id === it.id);
     const el = s.el; const txt = el._txt; const b = el._b;
     const t = txt.textContent;
@@ -13378,7 +13554,7 @@
     }
     const row = SLASH_ROWS.find((x) => x.id === act.slice(5));
     if (!row || (row.key === 'divider' && !selDividerOk(ids))) return null;   // 区切り線は文も子も無い行だけ（EQ16 (a)・NR7・R65）
-    if (ids.some((id) => ((locate(blocksOfKey(pid), id) || {}).b || {}).type === 'subpage')) return null;   // PR-2 直し（R40）: 子ページの行の型は変えない（DB が全部を断る）
+    if (ids.some((id) => isFixedB((locate(blocksOfKey(pid), id) || {}).b))) return null;   // PR-2 直し（R40）: 子ページの行の型は変えない（DB が全部を断る）
     return editAnswer(pid, () => rowApi(pid).blocksTurnInto(pid, ids, row.key, row.level, row.toggle), keep);
   }
   function selDividerOk(ids, k = blockSel ? blockSel.pageId : curId) {
@@ -13675,16 +13851,19 @@
   function blockMenuOpen(el, o = {}) {
     blockMenuClose();
     const ids = Array.isArray(o.ids) ? o.ids : null;
-    if (!el || !el._b || !el._txt || (!ids && el._txt.contentEditable !== 'true' && el._b.type !== 'subpage')) return;   // 0.15.0 PR-2: 子ページの行の ⠿ も（［削除］）
+    if (!el || !el._b || !el._txt || (!ids && el._txt.contentEditable !== 'true' && !isFixedB(el._b))) return;   // 0.15.0 PR-2: 子ページの行の ⠿ も（［削除］）
     const box = document.createElement('div');
     box.className = 'blockmenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', 'ブロックのメニュー');
     blockMenu = { el, box, sub: null, ids, heads: {} };
     menuItem(box, '削除', () => blockMenuDo('remove'));
     menuItem(box, '複製', () => blockMenuDo('duplicate'));
+    // 0.16.0 DL-1 (2b)（決めたこと 39・R113 (a)）: このページの子のデータベースの行は［インラインにする］／［ページの行に変える］（block.update の inline の1回）
+    const inl = ids ? null : dbInlineItem(el);
+    if (inl) menuItem(box, inl.label, () => blockMenuDo('inline', inl.on));
     // 0.15.0 PR-2 直し（R40・決めたこと 43）: 子ページの行は型も色（飾り）も持たない。変換 ▸ は子ページの行が1つでもあれば出さず（DB が全部を断る）、
     // 色 ▸ は全部が子ページの行なら出さない（DB はほかの行だけに付ける: R37）。中の項目は番号でなく heads（2 は変換・3 は色）で引く
     const rowsHere = (ids || [el.dataset.id]).map((id) => (ids ? (locate(blocksOfKey(keyOfEl(el)), id) || {}).b : el._b)).filter(Boolean);
-    const subs = rowsHere.filter((b) => b.type === 'subpage').length;
+    const subs = rowsHere.filter(isFixedB).length;   // 0.16.0 DL-1 (2b): リンクドビューの行も型と色を持たない
     if (!subs) blockMenu.heads[2] = menuItem(box, '変換 ▸', () => blockMenuSub(true), { sub: true });
     if (subs < rowsHere.length) blockMenu.heads[3] = menuItem(box, '色 ▸', () => blockMenuSub(true, 3), { sub: true });   // 0.14.0 EB-5（決めたこと 21）: 行の色
     box.onkeydown = (ev) => {
@@ -13778,7 +13957,9 @@
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       return editAnswer(pid, () => rowApi(pid).blocksSetColor(pid, [b.id], row), () => ({ focus: b.id, caret: txt.textContent.length }));
     }
+    if (what === 'inline') return editAnswer(pid, () => dbTableSend(() => window.koeApp.blockUpdate(pid, b.id, { inline: row })), null);   // 0.16.0 DL-1 (2b)
     if (what === 'duplicate') {
+      if (b.type === 'dbview') { toast(DB_VIEW_NO_DUP); return null; }   // 0.16.0 DL-1 (2b)（R113 (d)・DQ11）: リンクドビューの行は写さない
       if (b.type === 'subpage') { toast(SUB_NO_DUP); return null; }   // 0.15.0 PR-2（決めたこと 52・BQ13 (a)）: 子ページの行は写さない
       if (subInside(b)) toast(SUB_NO_DUP);   // PR-2 直し（R41）: 中の子ページの行は写さない（ほかは写す）
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
@@ -13829,6 +14010,7 @@
       return editAnswer(pid, () => window.koeApp.blockSetOpenAll(pid, open), () => ({ focus: b.id, caret }));   // 隠れた行のフォーカスは liftFocus が先祖へ（点検 3）
     }
     try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
+    if (act === 'duplicate' && b.type === 'dbview') { toast(DB_VIEW_NO_DUP); return null; }   // 0.16.0 DL-1 (2b)（R113 (d)・DQ11）: リンクドビューの行の Ctrl+D は写さない
     if (act === 'duplicate' && b.type === 'subpage') { toast(SUB_NO_DUP); return null; }   // 0.15.0 PR-2（決めたこと 52・BQ13 (a)）: 子ページの行の Ctrl+D は写さない
     if (act === 'duplicate' && subInside(b)) toast(SUB_NO_DUP);   // PR-2 直し（R41）: 中の子ページの行は写さない（ほかは写す）
     if (act === 'duplicate') return editAnswer(pid, () => rowApi(pid).blockDuplicate(pid, b.id), (x) => ({ focus: x.blockId, caret }));
@@ -13921,10 +14103,15 @@
   // 選んだ行の複製: 子ページの行は写さない（決めたこと 52）。子ページの行だけなら知らせて null、混ざっていれば知らせてほかの行だけ
   // PR-2 直し（R41）: 写す行の中（子孫）に子ページの行があるか（DB は写しから除く: 決めたこと 52。黙って落とさず知らせる）
   const subInside = (b) => Boolean(b) && flattenBlocks(Array.isArray(b.children) ? b.children : []).some((x) => x && x.type === 'subpage');
+  // 0.16.0 DL-1 (2b)（R113 (d)・DQ11・R116 (f)）: 文を持たない行（子ページの行・リンクドビューの行）
+  const isFixedB = (b) => Boolean(b) && (b.type === 'subpage' || b.type === 'dbview');
   function dupIdsOf(pid, ids) {
     const blocks = blocksOfKey(pid);
-    const keep = ids.filter((id) => { const l = locate(blocks, id); return !(l && l.b.type === 'subpage'); });
-    if (keep.length !== ids.length || keep.some((id) => subInside((locate(blocks, id) || {}).b))) toast(SUB_NO_DUP);
+    const keep = ids.filter((id) => { const l = locate(blocks, id); return !(l && isFixedB(l.b)); });
+    // 写さない行がリンクドビューの行だけなら「リンクドビューは複製できません」、子ページの行があれば今の「ページの行は複製できません」
+    const dropped = ids.filter((id) => !keep.includes(id)).map((id) => locate(blocks, id).b);
+    if (dropped.length && dropped.every((b) => b.type === 'dbview') && !keep.some((id) => subInside((locate(blocks, id) || {}).b))) toast(DB_VIEW_NO_DUP);
+    else if (keep.length !== ids.length || keep.some((id) => subInside((locate(blocks, id) || {}).b))) toast(SUB_NO_DUP);
     return keep.length ? keep : null;
   }
   // PR-2 直し（R44・決めたこと 55）: 引っ張っているページ（アプリのページの印のある引っ張り）を、開いている白紙のページの本文に置けるか（そのページの子だけ。
@@ -14038,7 +14225,7 @@
       const txt = el._txt;
       el._b = b;
       // 0.13.0 ED-7（E5・決めたこと 5・6）: 見出しは段の class（段 2 は今の見た目のまま）。知らない型はテキストの見た目（文は出して直せる）
-      const vt = b.type === 'paragraph' || TYPED_VIEW.includes(b.type) ? b.type : 'paragraph';
+      const vt = b.type === 'dbview' ? 'dbview' : b.type === 'paragraph' || TYPED_VIEW.includes(b.type) ? b.type : 'paragraph';   // 0.16.0 DL-1 (2b): リンクドビューの行（TYPED_VIEW には入れない）
       el.className = `blk ${vt}` + (vt === 'heading' ? ` h${headingLevel(b)}` : '') + (b.type === 'todo' && b.checked ? ' done' : '');
       // 0.14.0 EB-5（決めたこと 21）: 行の色（'red' は文字の色・'red_bg' は背景の色。決まった9色のほかは描かない）
       const bc = typeof b.color === 'string' ? b.color : '';
@@ -14046,8 +14233,9 @@
       if (COLORS.includes(bcName) && bc === bcName) el.setAttribute('data-bcolor', bcName); else el.removeAttribute('data-bcolor');
       if (COLORS.includes(bcName) && bc !== bcName) el.setAttribute('data-bbg', bcName); else el.removeAttribute('data-bbg');
       if (!lock) {   // 区切り線は文の欄を持たない（フォーカスはできる）
-        txt.contentEditable = vt === 'divider' || vt === 'subpage' ? 'false' : 'true';   // 0.15.0 PR-2（決めたこと 53）: 子ページの行も文を直せない
+        txt.contentEditable = vt === 'divider' || vt === 'subpage' || vt === 'dbview' ? 'false' : 'true';   // 0.15.0 PR-2（決めたこと 53）: 子ページの行も文を直せない
         if (vt === 'divider') { txt.tabIndex = 0; txt.setAttribute('role', 'separator'); txt.setAttribute('aria-label', '区切り線'); txt.textContent = ''; }
+        else if (vt === 'dbview') { txt.textContent = ''; txt.tabIndex = -1; txt.removeAttribute('role'); txt.removeAttribute('aria-label'); }   // 0.16.0 DL-1 (2b): 文は無い（表を描く）
         else if (vt !== 'subpage') { txt.removeAttribute('tabindex'); txt.removeAttribute('role'); txt.removeAttribute('aria-label'); }
       }
       if (vt === 'subpage') { txt.tabIndex = 0; txt.setAttribute('role', 'link'); txt.onclick = (ev) => subRowOpen(el, ev); paintSubRow(el); }
@@ -14091,7 +14279,7 @@
       };
       if (!lock) el.insertBefore(grip, txt);
       el.oncontextmenu = lock ? null : (ev) => { if (dbInHost(ev)) return; ev.preventDefault(); blockMenuOpen(el); };   // 右クリックでも同じメニュー（0.16.0 DL-1 (2): 本文の表の中は表のメニュー）
-      if (!lock && vt === 'subpage' && b.inline === true && isBodyPage(curPage)) dbInlineMount(el, b);   // 0.16.0 DL-1 (2): インラインの表
+      if (!lock && ((vt === 'subpage' && b.inline === true) || vt === 'dbview') && isBodyPage(curPage)) dbInlineMount(el, b);   // 0.16.0 DL-1 (2): インラインの表（(2b): リンクドビュー）
       if (!lock) {
         const plus = document.createElement('span');
         plus.className = 'plus'; plus.textContent = '＋'; plus.title = '下に行を足す（/ で型を選べます）';
@@ -14257,6 +14445,7 @@
       if (row && row._txt && typeof row._txt._commit === 'function') { try { await row._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ } }
       if (ev.altKey) {   // K-21: Alt を押しながら落とすと、その所へ複製（1つの命令）
         const b0 = (locate(blocksOfKey(pid), id) || {}).b;   // PR-2 直し（R41・決めたこと 52）: 子ページの行は写さない・中の子ページの行は知らせて除く
+        if (b0 && b0.type === 'dbview') { toast(DB_VIEW_NO_DUP); return; }   // 0.16.0 DL-1 (2b)
         if (b0 && b0.type === 'subpage') { toast(SUB_NO_DUP); return; }
         if (subInside(b0)) toast(SUB_NO_DUP);
         await editAnswer(pid, () => (into ? rowApi(pid).blockDuplicate(pid, id, afterId, into) : rowApi(pid).blockDuplicate(pid, id, afterId)), (x) => ({ focus: x.blockId, caret: 0 }));
@@ -14272,7 +14461,7 @@
     { const drop = box.ondrop; box.ondrop = (ev) => (dragBlockId ? stepGroup(() => drop(ev)) : drop(ev)); }   // 0.14.0 EB-3（決めたこと 2）: 先に保存する打った文と動かす・複製を1歩に（落とした文字は、ほかの行の保存と分けて1歩: R117）
   }
   function renderBlocks() {
-    slashClose(); blockMenuClose();
+    slashClose(); blockMenuClose(); dbPickClose();   // 0.16.0 DL-1 (2b): /リンクドビュー の窓も
     inlineClose();   // 0.14.0 EB-5: 帯・リンクの欄・色のメニューも（欄の子を描き直すので）
     if (blockSel && !isMemoKey(blockSel.pageId)) blockSel = null;   // 0.14.0 EK-4（決めたこと 28）: 描き直すと選びを外す（選んだ行の操作の答えは selAfter が選び直す）
     selDrag = null;
@@ -14502,7 +14691,8 @@
     if (!v || v === curPage.title) { $('pTitle').textContent = curPage.title; return; }
     curPage.title = v;
     tabTitles.set(pid, v); renderTabs();
-    window.koeApp.pageSetTitle(pid, v).then(() => refreshList());
+    // 0.16.0 DL-1 (2b)（R105「1つの道」）: データベースの題名はどこで変えても db.setTitle（データベースの歩み）
+    (isDbPage(curPage) ? window.koeApp.dbSetTitle(pid, v) : window.koeApp.pageSetTitle(pid, v)).then(() => refreshList());
     askTitleType(pid, v);
   }
   // 0.11.0 V-4（P15 (a)・D79）: 自動のページで題名を直したら main に判定を聞き、今の種類と違えば種類の横に一言（種類も要約も変えない）

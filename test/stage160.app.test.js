@@ -2855,3 +2855,207 @@ test('DL-1 (2)・F141: インラインの表の頭は 🗃️・題名の欄（�
     assert.strictEqual(tabOnKey(l), `page:${l.D1}`, '⤢ でデータベースのページを開かない');
   } finally { l.done(); }
 });
+
+// ---- DL-1 (2b)（R111 の (2)・R115 (a)・R116）: リンクドビュー・/データベース・/リンクドビュー・行のメニュー・知らせ2つ・データベースのページの題名
+const bodyRow = (l, id) => $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === id);
+const slashIn = async (l, t, text) => { t.focus(); t.textContent = text; l.caret.set(t, text.length); t.dispatchEvent({ type: 'input' }); await l.drain(); };
+const slashOpts = (l) => { const m = $(l, 'pNote').querySelector('.slashmenu'); return m ? m.querySelectorAll('.sopt').map((o) => o.textContent) : []; };
+const pickWin = (l) => $(l, 'pNote').querySelector('.dbpickwin');
+const winOpts = (l) => (pickWin(l) ? pickWin(l).querySelectorAll('.dbopt') : []);
+const blockMenuItems = (l) => { const m = $(l, 'pNote').querySelector('.blockmenu'); return m ? m.querySelectorAll('.mitem') : []; };
+const hostOf = (l, rowId) => { const r = bodyRow(l, rowId); return r ? r.querySelector('.dbhost') : null; };
+const hostMenu = (h) => h.querySelector('.dbmenu');
+const hostItem = (h, label) => (hostMenu(h) ? hostMenu(h).querySelectorAll('.mitem') : []).find((b) => b.textContent === label);
+// 白紙のページ P（段落 b1・b2）・元のデータベース（題名「ケース台帳」・ビュー「表」と「担当別」）・無題のデータベース・ゴミ箱のデータベース
+const linkSetup = (call, d) => {
+  const P = call('page.create', {}).id;
+  call('page.setTitle', { id: P, title: 'まとめの頁' });   // 白紙のページの題名（D77 の会議の題名でない）
+  const b1 = call('block.insert', { pageId: P, afterBlockId: '', type: 'paragraph' }).blockId;
+  const b2 = call('block.insert', { pageId: P, afterBlockId: b1, type: 'paragraph' }).blockId;
+  call('db.setTitle', { db: d.id, title: 'ケース台帳' });   // データベースの題名（D77 の会議の題名でない）
+  const v2 = call('view.add', { db: d.id, layout: 'table', name: '担当別' }).view.id;
+  const D2 = call('db.create', {}).id;
+  const D3 = call('db.create', {}).id;
+  call('page.delete', { id: D3 });
+  return { P, b1, b2, v2, D2, D3 };
+};
+test('DL-1 (2b)・F141: 白紙のページの / メニューに［データベース］［リンクドビュー］（よみ・英語でも当たる。行のページの本文には出ない）。/データベース → dbCreate(ページ, 打った行) の1回で打った行がインラインの表', T, async () => {
+  const l = await openDb({ before: linkSetup });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const t = bodyRow(l, l.b1).querySelector('.txt');
+    await slashIn(l, t, '/');
+    assert.deepStrictEqual(slashOpts(l).slice(-3), ['ページ', 'データベース', 'リンクドビュー'], '語の無い / メニューの型の後ろに無い');
+    for (const [q, want] of [['でーたべーす', ['データベース']], ['database', ['データベース']], ['りんくどびゅー', ['リンクドビュー']], ['linked', ['リンクドビュー']]]) {
+      await slashIn(l, t, `/${q}`);
+      assert.deepStrictEqual(slashOpts(l), want, `/${q}`);
+    }
+    await slashIn(l, t, '/でーたべーす');
+    l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(); await l.drain(300);
+    assert.deepStrictEqual(l.called('dbCreate').map((c) => c.args), [[l.P, l.b1]], '/データベース が打った行で dbCreate の1回でない');
+    const b = l.call('page.get', { id: l.P }).page.blocks.find((x) => x.id === l.b1);
+    assert.ok(b && b.type === 'subpage' && b.inline === true, '打った行がインラインの子ページの行でない');
+    assert.ok(hostOf(l, l.b1), '打った行に表を描かない');
+    // 行のページの本文には出さない（議事録の本文・メモの欄にも出さない: 白紙のページの本文だけ）
+    const r0 = l.rows[0];
+    const rb = l.call('block.insert', { pageId: r0, afterBlockId: '', type: 'paragraph' }).blockId;
+    l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
+    await slashIn(l, bodyRow(l, rb).querySelector('.txt'), '/');
+    assert.ok(slashOpts(l).includes('ページ') && !slashOpts(l).includes('データベース') && !slashOpts(l).includes('リンクドビュー'), '行のページの本文に出る');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('DL-1 (2b)・F141（R107）: /リンクドビュー の窓。1手目「つなぐデータベース」・「データベースを探す」・名前（無題は「無題のデータベース」・ゴミ箱は出さない）・「当てはまるデータベースがありません」。2手目「元のビューを写す」・ビューの名前・区切りの下に［新しい表から始める］。Esc は何も置かない', T, async () => {
+  const l = await openDb({ before: linkSetup });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const t = bodyRow(l, l.b1).querySelector('.txt');
+    await slashIn(l, t, '/りんく');
+    l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(200);
+    const w = pickWin(l);
+    assert.ok(w, '窓が開かない');
+    assert.strictEqual(w.querySelector('.dbpickhead').textContent, 'つなぐデータベース');
+    const q = w.querySelector('input');
+    assert.deepStrictEqual([q.getAttribute('placeholder'), q.getAttribute('aria-label')], ['データベースを探す', 'データベースを探す']);
+    assert.ok(l.document.activeElement === q, '探す欄にフォーカスが無い');
+    assert.deepStrictEqual(winOpts(l).map((o) => o.textContent).sort(), ['ケース台帳', '無題のデータベース'], 'データベースの並びが違う（ゴミ箱を出した）');
+    q.value = 'けーす'; q.dispatchEvent({ type: 'input' }); await l.drain(60);
+    assert.deepStrictEqual(winOpts(l).map((o) => o.textContent), ['ケース台帳'], 'ひらがなで片仮名の題名が当たらない');
+    q.value = 'あてはまらない語'; q.dispatchEvent({ type: 'input' }); await l.drain(60);
+    assert.deepStrictEqual([winOpts(l).length, w.querySelector('.snone').textContent], [0, '当てはまるデータベースがありません']);
+    q.value = ''; q.dispatchEvent({ type: 'input' }); await l.drain(60);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
+    assert.strictEqual(pickWin(l).querySelector('.dbpickhead').textContent, '元のビューを写す');
+    assert.deepStrictEqual(winOpts(l).map((o) => o.textContent), ['表', '担当別', '新しい表から始める']);
+    assert.ok(pickWin(l).querySelector('.dbpicksep'), '区切りの線が無い');
+    l.key({ key: 'Escape' }, l.document.activeElement); await l.drain(100);
+    assert.ok(!pickWin(l), 'Esc で閉じない');
+    assert.deepStrictEqual(l.called('blockInsertDbView'), [], 'Esc で置いた');
+    assert.ok(l.document.activeElement === t && t.textContent === '/りんく', 'Esc で打った行へ戻らない（打った文字は残す）');
+    // もう一度（Esc で閉じた / ではもう開かないので、打ち直す）: 元のビュー「担当別」を写す → blockInsertDbView(ページ, 打った行, データベース, ビュー) の1回・打った文は消える
+    await slashIn(l, t, '');
+    await slashIn(l, t, '/りんく');
+    l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === '担当別'), 400);
+    assert.deepStrictEqual(l.called('blockInsertDbView').map((c) => c.args), [[l.P, l.b1, l.id, l.v2]]);
+    const row = l.call('page.get', { id: l.P }).page.blocks.find((x) => x.type === 'dbview');
+    assert.ok(row && row.id === l.b1 && row.views.length === 1 && row.views[0].name === '担当別', '打った行が写したビューのリンクドビューでない');
+    const h = hostOf(l, l.b1);
+    assert.ok(h, 'リンクドビューを描かない');
+    assert.strictEqual(h.querySelector('.dbgrid').getAttribute('aria-label'), 'データベース『ケース台帳』のリンクドビュー');
+    assert.deepStrictEqual(h.querySelectorAll('.dbtab').map((x) => x.textContent), ['担当別']);
+    assert.deepStrictEqual([h.querySelector('.dbtitle').value, h.querySelector('.dbexpand').title], ['ケース台帳', 'ページで開く']);
+    // ［新しい表から始める］は from 無し（ビュー「表」）
+    const t2 = bodyRow(l, l.b2).querySelector('.txt');
+    await slashIn(l, t2, '/linked');
+    l.key({ key: 'Enter', code: 'Enter' }, t2); await l.drain(200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === '新しい表から始める'), 400);
+    assert.deepStrictEqual(l.called('blockInsertDbView').map((c) => c.args)[1], [l.P, l.b2, l.id]);
+    assert.deepStrictEqual(hostOf(l, l.b2).querySelectorAll('.dbtab').map((x) => x.textContent), ['表']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('DL-1 (2b)・F141（R105）: リンクドビューのタブは自分の物（viewAdd・viewUpdate・viewRemove に linked。元のデータベースのビューは変わらない）・［リンクを写す］は置いたページのその行・列の［削除］は元のデータベースから消す', T, async () => {
+  const l = await openDb({ before: (call, d) => { const s = linkSetup(call, d); return { ...s, L: call('block.insertDbView', { pageId: s.P, afterId: s.b1, db: d.id, from: 'v1' }).blockId }; } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const h = hostOf(l, l.L);
+    const was = JSON.stringify(l.call('db.get', { id: l.id }).views);
+    await clickEl(l, h.querySelector('.dbviewadd'));
+    await clickEl(l, hostItem(h, 'リスト'), 300);
+    assert.deepStrictEqual(l.called('viewAdd').map((c) => c.args), [[l.id, { layout: 'list', linked: l.L }]], 'リンクドビューのタブを linked で足さない');
+    assert.deepStrictEqual(h.querySelectorAll('.dbtab').map((x) => x.textContent), ['表', 'リスト']);
+    const lv = l.call('db.get', { id: l.id, linked: l.L }).views;
+    const tabEl = (name) => h.querySelectorAll('.dbtab').find((x) => x.textContent === name);
+    tabEl('リスト').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(40);
+    await clickEl(l, hostItem(h, '名前を変える'));
+    const rn = hostMenu(h).querySelector('input'); rn.value = '一覧'; await press(l, rn, { key: 'Enter' }); await l.drain(200);
+    assert.deepStrictEqual(l.called('viewUpdate').map((c) => c.args), [[l.id, lv[1].id, { name: '一覧' }, l.L]]);
+    tabEl('一覧').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(40);
+    await clickEl(l, hostItem(h, 'リンクを写す'), 120);
+    assert.ok(String(l.called('copy').map((c) => c.args[0]).pop()).endsWith(`${l.P}&a=b:${l.L}`), '［リンクを写す］が置いたページのその行へのリンクでない');
+    l.window.confirm = () => true;
+    tabEl('一覧').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(40);
+    await clickEl(l, hostItem(h, '削除'), 300);
+    assert.deepStrictEqual(l.called('viewRemove').map((c) => c.args), [[l.id, lv[1].id, l.L]]);
+    assert.strictEqual(JSON.stringify(l.call('db.get', { id: l.id }).views), was, '元のデータベースのビューが変わった');
+    // 列の［削除］は元のデータベースの列（col.remove）
+    const colBtn = h.querySelectorAll('.dbcolh').find((x) => x.dataset.col === l.c1).querySelector('.dbcolbtn');
+    await clickEl(l, colBtn);
+    await clickEl(l, hostItem(h, '削除'), 300);
+    assert.deepStrictEqual(l.called('colRemove').map((c) => c.args.slice(0, 2)), [[l.id, l.c1]]);
+    assert.ok(l.call('db.get', { id: l.id }).cols.find((c) => c.id === l.c1).gone, '元のデータベースの列が消えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('DL-1 (2b)・F141（R113 (a)・DQ10・DQ11）: 行のメニュー［インラインにする］［ページの行に変える］→ blockUpdate の inline の1回。11 個目は「1つのページに置けるデータベースの表は 10 までです。」。リンクドビューの行の複製は「リンクドビューは複製できません」', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const s = linkSetup(call, d);
+    const S1 = call('db.create', { parentId: s.P }).id;   // 本文の最後の 🗃️ の行（inline 無し）
+    const kid = call('page.create', { parentId: s.P }).id;   // 📄 の行
+    const L = call('block.insertDbView', { pageId: s.P, afterId: s.b2, db: d.id }).blockId;
+    const rowOf = (pg) => call('page.get', { id: s.P }).page.blocks.find((x) => x.type === 'subpage' && x.page === pg).id;
+    return { ...s, S1, kid, L, s1: rowOf(S1), sk: rowOf(kid) };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const menuOf = async (rowId) => { const e = bodyRow(l, rowId); e.querySelector('.grip').dispatchEvent({ type: 'click' }); await l.drain(40); return blockMenuItems(l).map((b) => b.textContent); };
+    assert.ok((await menuOf(l.s1)).includes('インラインにする'), '🗃️ の行に［インラインにする］が無い');
+    assert.ok(!blockMenuItems(l).some((b) => b.textContent === 'ページの行に変える'));
+    l.key({ key: 'Escape' }, l.document.activeElement); await l.drain(40);
+    const km = await menuOf(l.sk);
+    assert.ok(!km.includes('インラインにする') && !km.includes('ページの行に変える'), '📄 の行に出る');
+    l.key({ key: 'Escape' }, l.document.activeElement); await l.drain(40);
+    await menuOf(l.s1);
+    await clickEl(l, blockMenuItems(l).find((b) => b.textContent === 'インラインにする'), 300);
+    assert.deepStrictEqual(l.called('blockUpdate').map((c) => c.args), [[l.P, l.s1, { inline: true }]]);
+    assert.ok(hostOf(l, l.s1), 'インラインにしても表を描かない');
+    await menuOf(l.s1);
+    await clickEl(l, blockMenuItems(l).find((b) => b.textContent === 'ページの行に変える'), 300);
+    assert.deepStrictEqual(l.called('blockUpdate').map((c) => c.args)[1], [l.P, l.s1, { inline: false }]);
+    assert.ok(!hostOf(l, l.s1), 'ページの行に変えても表が残る');
+    // リンクドビューの行の複製（⠿ のメニューの［複製］・Ctrl+D）は写さず知らせる
+    await menuOf(l.L);
+    await clickEl(l, blockMenuItems(l).find((b) => b.textContent === '複製'), 200);
+    assert.strictEqual($(l, 'toast').textContent, 'リンクドビューは複製できません');
+    $(l, 'toast').textContent = '';
+    const lt = bodyRow(l, l.L).querySelector('.txt');
+    l.key({ key: 'd', code: 'KeyD', ctrlKey: true }, lt); await l.drain(200);
+    assert.strictEqual($(l, 'toast').textContent, 'リンクドビューは複製できません', 'Ctrl+D で知らせない');
+    assert.deepStrictEqual(l.called('blockDuplicate'), [], 'リンクドビューの行を複製した');
+    // 11 個目: 本文の表を 10 にしてから［インラインにする］・/データベース・/リンクドビュー
+    for (let i = 0; i < 9; i += 1) l.call('db.create', { parentId: l.P, inline: l.b1 });   // リンクドビューと合わせて 10
+    l.fire('onPageOpen', l.P); await l.drain(400);
+    $(l, 'toast').textContent = '';
+    await menuOf(l.s1);
+    await clickEl(l, blockMenuItems(l).find((b) => b.textContent === 'インラインにする'), 300);
+    assert.strictEqual($(l, 'toast').textContent, '1つのページに置けるデータベースの表は 10 までです。', '［インラインにする］の 11 個目');
+    const nb = l.call('block.insert', { pageId: l.P, afterBlockId: '', type: 'paragraph' }).blockId;
+    l.fire('onPageOpen', l.P); await l.drain(400);
+    $(l, 'toast').textContent = '';
+    const tn = bodyRow(l, nb).querySelector('.txt');
+    await slashIn(l, tn, '/でーたべーす');
+    l.key({ key: 'Enter', code: 'Enter' }, tn); await l.drain(); await l.drain(300);
+    assert.strictEqual($(l, 'toast').textContent, '1つのページに置けるデータベースの表は 10 までです。', '/データベース の 11 個目');
+    $(l, 'toast').textContent = '';
+    const tn2 = bodyRow(l, nb).querySelector('.txt');
+    await slashIn(l, tn2, '/りんく');
+    l.key({ key: 'Enter', code: 'Enter' }, tn2); await l.drain(200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === '新しい表から始める'), 400);
+    assert.strictEqual($(l, 'toast').textContent, '1つのページに置けるデータベースの表は 10 までです。', '/リンクドビュー の 11 個目');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('DL-1 (2b)（R105「1つの道」）: データベースのページの頭の題名を変えると dbSetTitle の1回（pageSetTitle でない）', T, async () => {
+  const l = await openDb();
+  try {
+    const tt = $(l, 'pTitle');
+    tt.focus(); tt.textContent = 'あたらしい台帳'; tt.dispatchEvent({ type: 'blur' }); await l.drain(300);
+    assert.deepStrictEqual(l.called('dbSetTitle').map((c) => c.args), [[l.id, 'あたらしい台帳']]);
+    assert.deepStrictEqual(l.called('pageSetTitle'), [], 'データベースの題名を pageSetTitle で書いた');
+    assert.strictEqual(l.call('db.get', { id: l.id }).title, 'あたらしい台帳');
+  } finally { l.done(); }
+});
