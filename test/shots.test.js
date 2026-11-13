@@ -1214,7 +1214,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.16.0 DL-1 (2b-2)（R117）: サイドバーと本文の間の引っ張り（<script> の中だけ。見た目は変わらない）。値を今の app.html に合わせた（前の値は 0581351a…）
   // 0.16.0 DL-1 (3)（R118）: 題名のセルの Alt+→・Alt+←・選びの窓の Ctrl+Enter（<script> の中）と近道の表の写しの2行・Shift+F10 の説明。変わる画面は設定の近道の表の4枚で、
   // DV-1 からもう取り直し待ち（RETAKEN_160）。値を今の app.html に合わせた（前の値は e9ea75c3…）
-  assert.strictEqual(sha, 'c530ad6b1b3bb18f5ead59f875ec7e529ecfd90f06d8d81d0372d15cb17a3edc',
+  // 0.16.0 R119 (a)（rv51 M4）: 開いたサブアイテムの行は 2,000 まで（subOpenAdd。<script> の中だけ。見た目は変わらない）。値を今の app.html に合わせた（前の値は c530ad6b…）
+  assert.strictEqual(sha, '88aef33d240d2fa10bde40eea78cabfff9a56c34cb7f2c42c80a9b56c51ad976',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

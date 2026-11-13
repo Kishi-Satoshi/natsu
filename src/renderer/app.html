@@ -11254,11 +11254,18 @@
   }
   // サブアイテムの開け閉め（ビューごとの窓のメモリ。表を読み直す: 開いた行が替わっても行の印 sig は同じなので、覚えた行を捨てる）
   const dbSubOpen = (st) => { if (!st.subOpen) st.subOpen = new Map(); if (!st.subOpen.has(st.viewId)) st.subOpen.set(st.viewId, new Set()); return st.subOpen.get(st.viewId); };
+  // R119 (a)（rv51 M4）: 開いた行は 2,000 まで覚える（db.view の open は 2,000 まで。越えると読みが断られて表が止まる）。越えたら古く開いた行から閉じる。開き直した行は新しい側へ
+  function subOpenAdd(set, id) {
+    set.delete(id);
+    set.add(id);
+    for (const old of set) { if (set.size <= 2000) break; set.delete(old); }
+    return set;
+  }
   function dbSubToggle(rowId, on) {
     const st = dbSt;
     if (!st) return null;
     const set = dbSubOpen(st);
-    if (on === undefined ? set.has(rowId) : !on) set.delete(rowId); else set.add(rowId);
+    if (on === undefined ? set.has(rowId) : !on) set.delete(rowId); else subOpenAdd(set, rowId);
     st.refocusSub = rowId;
     return dbReread(st);
   }
@@ -11281,7 +11288,7 @@
     const r = await dbWrite(() => window.koeApp.relLink(st.id, rowId, st.info.sub.kids, [], ''));
     if (!r || !dbUse(st)) return;
     const kid = Array.isArray(r.cell) ? r.cell[r.cell.length - 1] : '';
-    dbSubOpen(st).add(rowId);
+    subOpenAdd(dbSubOpen(st), rowId);
     await dbReread(st);
     if (!dbUse(st) || !kid) return;
     dbSelect(kid, 'title');

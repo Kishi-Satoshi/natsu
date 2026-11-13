@@ -3188,3 +3188,32 @@ test('DL-1 (3)（MQ1・R104 (4)）: 近道の表に Alt+→・Alt+← と Ctrl+E
   assert.strictEqual(SHORTCUTS.find((r) => r.keys === 'Shift+F10' && r.where === 'サイドバーのページの一覧').what, '行のメニューを開く（中にページを作る・中にデータベースを作る・移動先・新しいタブで開く・削除）');
   assert.ok(row('Alt+→・Alt+←'));
 });
+
+// ---------------------------------------------------------------- R119 (a)（rv51 の点検の M4。R106・R117 (e) で残した軽微）
+const fnOfApp = (name) => {
+  const at = HTML.search(new RegExp(`\\n  (?:async )?function ${name}\\(`)) + 1;
+  assert.ok(at > 0, `app.html に ${name} が無い`);
+  return HTML.slice(at, HTML.indexOf('\n  }\n', at) + 4);
+};
+test('R119 (a)・M4: 開いたサブアイテムの行は 2,000 まで覚える（2,001 個目を開くと、いちばん古く開いた行から閉じる。開き直した行は新しい）', () => {
+  const subOpenAdd = new Function(`${fnOfApp('subOpenAdd')}\nreturn subOpenAdd;`)();   // eslint-disable-line no-new-func
+  const ids = Array.from({ length: 2001 }, (_, i) => `r${i}`);
+  const set = new Set();
+  for (const id of ids.slice(0, 2000)) subOpenAdd(set, id);
+  assert.strictEqual(set.size, 2000, '2,000 までは閉じない');
+  assert.ok(set.has('r0'));
+  subOpenAdd(set, 'r0');   // 開き直すと新しい側へ
+  subOpenAdd(set, ids[2000]);
+  assert.strictEqual(set.size, 2000, '2,001 個目で 2,000 に戻らない（db.view の open は 2,000 まで: 越えると断られて表が止まる）');
+  assert.ok(!set.has('r1'), 'いちばん古く開いた行（r1）が閉じていない');
+  assert.ok(set.has('r0') && set.has('r2') && set.has(ids[2000]), '新しく開いた行・開き直した行が残っていない');
+  assert.strictEqual([...set][set.size - 1], ids[2000], '最後に開いた行が並びの末でない');
+});
+test('R119 (a)・M4: ▸・Alt+→（dbSubKey は dbSubToggle を通る）・［サブアイテムを足す］の開く道は、どれも subOpenAdd で 2,000 までに抑える（字面で見る: 偽の DOM で 2,001 の親を開くのは重い）', () => {
+  const toggle = fnOfApp('dbSubToggle');
+  assert.match(toggle, /subOpenAdd\(set, rowId\)/, 'dbSubToggle が subOpenAdd を通らない');
+  assert.match(fnOfApp('dbSubKey'), /return dbSubToggle\(rowId, on\);/, 'Alt+→（dbSubKey）が dbSubToggle を通らない');
+  assert.match(fnOfApp('dbSubAdd'), /subOpenAdd\(dbSubOpen\(st\), rowId\)/, '［サブアイテムを足す］が subOpenAdd を通らない');
+  const script = HTML.slice(HTML.indexOf('<script>'));
+  assert.deepStrictEqual([...script.matchAll(/dbSubOpen\([^)]*\)\.add\(|\bset\.add\(rowId\)/g)].map((m) => m[0]), [], '開いた行の並びに subOpenAdd を通らずに足す所がある');
+});
