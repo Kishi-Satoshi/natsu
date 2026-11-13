@@ -5389,6 +5389,8 @@
       pageDrag = null;
       if (!s) return;
       if (typeof ev.preventDefault === 'function') ev.preventDefault();
+      // 0.16.0 DL-1 (2b-2)（決めたこと 56 (2)）: 本文の行を今の親の上へ落とした（同じ所）なら何もしない
+      if (dragBlockId && s.afterId === undefined && s.parentId === ((pages.find((p) => p && p.id === drag) || {}).parentId || null)) return;
       movePageTo(drag, s.parentId, s.afterId);
     };
   }
@@ -14118,7 +14120,17 @@
   // 行の無い子のほか、サイドバーから引っ張った子も、本文のその所へ行を動かす）
   function kidDropOk(box, ev) {
     if (!pageDrag || !isPageDrag(ev) || box !== $('pNote') || !curPage || !isBlankPage(curPage) || keyOfBox(box) !== curId) return false;
-    return pages.some((p) => p && p.id === pageDrag && p.parentId === curId);
+    const p = pages.find((x) => x && x.id === pageDrag);
+    if (!p || p.parentId === curId) return Boolean(p);
+    // 0.16.0 DL-1 (2b-2)（決めたこと 56 (1)・DQ9）: 別の親のページ（最上位・ほかのページの子・議事録の子）も。開いているページ自身と祖先は落とさない（輪になる）
+    return p.id !== curId && !pageUps(curId).includes(p.id);
+  }
+  // 親を上へたどった ID（一覧にある親だけ）
+  function pageUps(id) {
+    const out = [];
+    let p = pages.find((x) => x && x.id === id);
+    while (p && typeof p.parentId === 'string' && p.parentId && !out.includes(p.parentId)) { out.push(p.parentId); p = pages.find((x) => x && x.id === p.parentId); }
+    return out;
   }
   // PR-2 直し 3（R46）: 落とす所は、引っ張っているページの行（サイドバーから引っ張った、もう行のある子）を除いた並びで数える（本文の ⠿ の引っ張りが自分の行を除くのと同じ）
   const kidDropIndex = (box, clientY, id) => dropIndexAt(box, clientY, [...box.querySelectorAll('.blk.subpage')].filter((e) => e._b && e._b.page === id).map((e) => e.dataset.id));
@@ -14157,7 +14169,8 @@
     if (bad || curId !== pid) return;
     await openPage(pid);
     const el = [...$('pNote').querySelectorAll('.blk.subpage')].find((e) => e._b && e._b.page === id);
-    if (el && el._txt) el._txt.focus();
+    if (!el) { await noteRowless(pid, id, true); return; }   // 0.16.0 DL-1 (2b-2)（決めたこと 56 (1)）: 別の親から満杯の本文へ: ページは動き、行は無い（R33・R51 の知らせ）
+    if (el._txt) el._txt.focus();
   }
   // 白紙のページの本文の子ページの行を今の一覧の値で描き直し、行の無い子の一覧（#bodyKids）を作る（決めたこと 55・56・HR16）
   const dbInHost = (ev) => Boolean(ev && ev.target && ev.target.closest && ev.target.closest('.dbhost'));
@@ -14272,6 +14285,9 @@
         dragStartX = Number(ev.clientX) || 0;
         ev.dataTransfer.effectAllowed = 'move';
         try { ev.dataTransfer.setData('text/plain', b.id); } catch (_) { /* noop */ }
+        // 0.16.0 DL-1 (2b-2)（決めたこと 56 (2)・DQ4・DQ9）: 白紙のページの本文の子ページの行（📄・🗃️・インライン）はサイドバーへも落とせる（ページの印も置く）
+        const sp = !dragIds && b.type === 'subpage' && keyOfEl(el) === curId && isBlankPage(curPage) ? subPageOf(b) : null;
+        if (sp) { pageDrag = sp.id; try { ev.dataTransfer.setData(PAGE_DRAG_TYPE, sp.id); } catch (_) { /* 印を置けなければサイドバーには落とせない */ } }
       };
       el.ondragend = () => {
         el.draggable = false; el.classList.remove('dragging');

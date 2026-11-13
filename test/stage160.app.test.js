@@ -3059,3 +3059,67 @@ test('DL-1 (2b)（R105「1つの道」）: データベースのページの頭�
     assert.strictEqual(l.call('db.get', { id: l.id }).title, 'あたらしい台帳');
   } finally { l.done(); }
 });
+
+// ---- DL-1 (2b-2)（決めたこと 56・DQ4・DQ9・R116）: サイドバーと本文の間を引っ張る
+const PG_TYPE = 'application/x-natsu-page';
+const sideRow = (l, id) => [...$(l, 'plist').querySelectorAll('.pitem')].find((e) => e.dataset.pid === id);
+const pageDt = () => { const data = {}; return { data, effectAllowed: '', setData: (k, v) => { data[k] = v; }, types: [PG_TYPE] }; };
+test('DL-1 (2b)・F146（決めたこと 56 (1)・DQ9）: サイドバーの別の親のデータベースを白紙のページの本文へ落とす → pageMove(id, 開いているページ, undefined, { afterId }) の1回で落とした所に 🗃️ の行。開いているページとその祖先は落とせない（印を出さない）', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const s = linkSetup(call, d);
+    const Q = call('page.create', {}).id;
+    call('page.setTitle', { id: Q, title: 'うえの頁' });   // 白紙のページの題名（D77 の会議の題名でない）
+    call('page.move', { id: s.P, parentId: Q });
+    return { ...s, Q };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const box = $(l, 'pNote');
+    box.querySelectorAll('.blk').forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 100, right: 200, width: 100 }); });
+    const tryDrop = async (id) => {
+      const dt = pageDt();
+      sideRow(l, id).dispatchEvent({ type: 'dragstart', target: sideRow(l, id), clientX: 100, dataTransfer: dt });
+      const over = { preventDefault() { this.defaultPrevented = true; }, clientY: 12, clientX: 100, dataTransfer: dt };
+      box.ondragover(over);
+      const ok = over.defaultPrevented === true && box.querySelectorAll('.dropmark').length === 1;
+      if (ok) { await box.ondrop({ preventDefault() {}, clientY: 12, clientX: 100, dataTransfer: dt }); await l.drain(); await l.drain(300); }
+      else sideRow(l, id).dispatchEvent({ type: 'dragend' });
+      return ok;
+    };
+    assert.strictEqual(await tryDrop(l.Q), false, '開いているページの祖先を本文に落とせる形');
+    assert.deepStrictEqual(l.called('pageMove'), []);
+    assert.strictEqual(await tryDrop(l.id), true, '別の親のデータベースを本文に落とせない');
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[l.id, l.P, undefined, { afterId: l.b1 }]]);
+    const blocks = l.call('page.get', { id: l.P }).page.blocks;
+    assert.deepStrictEqual(blocks.map((b) => (b.type === 'subpage' ? b.page : b.id)), [l.b1, l.id, l.b2], '落とした所に行が無い');
+    assert.strictEqual(l.call('pages.list', {}).find((p) => p.id === l.id).parentId, l.P, '親が開いているページにならない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('DL-1 (2b)・F146（決めたこと 56 (2)）: 本文のインラインの表の ⠿ をサイドバーのほかの白紙のページへ落とす → pageMove の1回・元の本文に行が無い・新しい親の本文の最後に inline の無い行', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const s = linkSetup(call, d);
+    const D = call('db.create', { parentId: s.P, inline: s.b1 }).id;
+    const Q = call('page.create', {}).id;
+    call('page.setTitle', { id: Q, title: 'となりの頁' });   // 白紙のページの題名（D77 の会議の題名でない）
+    return { ...s, D, Q };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const el = bodyRow(l, l.b1);
+    const dt = pageDt();
+    el.dispatchEvent({ type: 'dragstart', target: el, clientX: 10, dataTransfer: dt });
+    assert.strictEqual(dt.data[PG_TYPE], l.D, '本文の子ページの行の引っ張りにページの印を置かない');
+    let prevented = false;
+    sideRow(l, l.Q).dispatchEvent({ type: 'dragover', clientY: 15, dataTransfer: dt, preventDefault() { prevented = true; } });
+    assert.ok(prevented, 'サイドバーに落とせない形');
+    sideRow(l, l.Q).dispatchEvent({ type: 'drop', clientY: 15, dataTransfer: dt, preventDefault() {} });
+    await l.drain(); await l.drain(400);
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[l.D, l.Q, undefined]]);
+    assert.ok(!l.call('page.get', { id: l.P }).page.blocks.some((b) => b.type === 'subpage' && b.page === l.D), '元の本文に行が残る');
+    const nb = l.call('page.get', { id: l.Q }).page.blocks;
+    assert.ok(nb.length && nb[nb.length - 1].type === 'subpage' && nb[nb.length - 1].page === l.D && nb[nb.length - 1].inline !== true, '新しい親の本文の最後に inline の無い行が無い');
+    assert.ok(!hostOf(l, l.b1), '元の本文に表が残る');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

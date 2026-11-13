@@ -1398,6 +1398,7 @@ const IDS_160 = [
   'vw-url-open', 'vw-person-cand', 'vw-view-save', 'vw-row-props',
   'vw-sidebar-rows', 'vw-db-summarize',   // 0.16.0 DX-1 で作った行
   'vw-paste-grid',
+  'vw-drag-sidebar-body', 'vw-drag-body-sidebar',   // 0.16.0 DL-1 (2b-2)（R117）で作った行（表の行の順）
   'vw-newpop-db',   // 0.16.0 DX-1 で作った行
   // 0.16.0 DV-3 直し2（rv49 M-c・R95）で足した行（表の末: R87 の写すリンクの1行）
   'vw-ref-kind',

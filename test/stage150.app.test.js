@@ -1365,26 +1365,31 @@ test('PR-2 直し 3・R47: サイドバーや「このページの中のペー�
   } finally { l.done(); }
 });
 
-test('PR-2 直し 3・R48 (1): 今の白紙のページの子でないページ（最上位の議事録・ほかのページの子）をサイドバーから本文の上へ引っ張っても、落とす印を出さず、落としても page.move を呼ばない', T, async () => {
+// 0.16.0 DL-1 (2b-2)（決めたこと 56 (1)・DQ9・M12）で意図して直した: 0.15.0 の HR12「本文とサイドバーの間は引っ張れない」を 0.16.0 で改め、別の親のページ
+// （最上位の議事録・ほかのページの子）もサイドバーから本文へ落とせる（pageMove の1回で落とした所に行）。落とせないのは開いているページ自身と祖先（輪になる）だけ（意図「落とせない所には印を出さず page.move を呼ばない」は残す）
+test('PR-2 直し 3・R48 (1): 開いている白紙のページ自身をサイドバーから本文の上へ引っ張っても、落とす印を出さず、落としても page.move を呼ばない（0.16.0: 別の親のページは落とせる）', T, async () => {
   const l = await rowsDb({ more: (call) => ({ g1: call('page.create', { parentId: call('pages.list', {}).find((p) => p.title === '週の予定').id }).id }) });
   try {
-    const { k1, g1 } = l.made;
-    rowOf(l, 'pb1').querySelector('.pi').dispatchEvent({ type: 'click' });
-    await l.drain();
-    rowOf(l, k1).querySelector('.pi').dispatchEvent({ type: 'click' });   // 孫 g1 を出す
-    await l.drain();
+    const { k1 } = l.made;
     const box = $(l, 'pNote');
-    for (const id of ['pa1', g1]) {
-      sideDrag(l, id, 40);
-      bodyRects(l);
-      box.ondragover(pageEv(32, 320));
-      assert.deepStrictEqual(marks(l), [], `${id} の引っ張りに落とす印を出した`);
-      await box.ondrop(pageEv(32, 320));
-      await l.drain(); await l.drain();
-      rowOf(l, id).dispatchEvent({ type: 'dragend' });
-    }
-    assert.deepStrictEqual(l.called('pageMove'), [], '今のページの子でないページを本文に置いた');
+    sideDrag(l, 'pb1', 40);
+    bodyRects(l);
+    box.ondragover(pageEv(32, 320));
+    assert.deepStrictEqual(marks(l), [], '開いているページ自身の引っ張りに落とす印を出した');
+    await box.ondrop(pageEv(32, 320));
+    await l.drain(); await l.drain();
+    rowOf(l, 'pb1').dispatchEvent({ type: 'dragend' });
+    assert.deepStrictEqual(l.called('pageMove'), [], '開いているページ自身を本文に置いた');
     assert.deepStrictEqual(subsIn(l), [k1, l.made.k2]);
+    // 別の親のページ（最上位の議事録）は落とせる
+    sideDrag(l, 'pa1', 40);
+    bodyRects(l);
+    box.ondragover(pageEv(32, 320));
+    assert.strictEqual(marks(l).length, 1, '別の親のページに落とす印を出さない');
+    await box.ondrop(pageEv(32, 320));
+    await l.drain(); await l.drain();
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args.slice(0, 3)), [['pa1', 'pb1', undefined]]);
+    assert.ok(subsIn(l).includes('pa1'), '落とした所に行が無い');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
