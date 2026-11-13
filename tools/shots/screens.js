@@ -242,6 +242,13 @@ const OPEN_DB_SUB = OPEN_DB_AT(`const errs = [];
   await new Promise((res) => setTimeout(res, 300));
   const t = document.querySelector('#pDb .dbrow .dbsubtog');
   if (t.getAttribute('aria-expanded') !== 'true') throw new Error('▸ を押しても開かない');
+  // 0.16.0 直し（R128）: 見本の答えは r3 の子（r4）も並べるので、r3 の ▸ も押して ▾ にする（取り直しの画面で、閉じた ▸ の下に子が写っていた）
+  const tog3 = document.querySelectorAll('#pDb .dbrow')[2].querySelector('.dbsubtog');
+  if (!tog3) throw new Error('3行目（r3）の ▸ が無い');
+  tog3.click();
+  await new Promise((res) => setTimeout(res, 300));
+  const t3 = document.querySelectorAll('#pDb .dbrow')[2].querySelector('.dbsubtog');   // 描き直しで替わるので探し直す
+  if (!t3 || t3.getAttribute('aria-expanded') !== 'true') throw new Error('r3 の ▸ を押しても開かない');
   const x0 = cell(0, 'title').getBoundingClientRect().left + parseFloat(getComputedStyle(cell(0, 'title')).paddingLeft);
   const x1 = cell(1, 'title').getBoundingClientRect().left + parseFloat(getComputedStyle(cell(1, 'title')).paddingLeft);
   if (!(x1 > x0 - 26 + 10)) throw new Error('子が字下げされない: ' + x0 + ' ' + x1);
@@ -670,6 +677,9 @@ const SCREENS = [
   { name: 'db-inline-light', page: 'app', theme: 'light', get answers() { return inlineAnswers(); }, act: OPEN_PAGE },
   // 0.16.0 DL-1 (2b)（R105・R107・R116）: 白紙のページの本文のリンクドビュー（頭の 🗃️・題名の欄・⤢ と、自分の2つのタブ「表」「担当別」。足した画面。まだ基準が無い）
   { name: 'db-linked-light', page: 'app', theme: 'light', get answers() { return linkedAnswers(); }, act: OPEN_PAGE },
+  // 0.16.0 直し（R128）: 設定の近道の表を、見出し「データベースの表のセルを選んでいるとき」まで捲った形（settings-shortcuts-light の下の方で写らない、
+  // データベースの表・ビューのタブ・リレーションの窓の行を見せる。足した画面。まだ基準が無い）
+  { name: 'settings-shortcuts-db-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; [...document.querySelectorAll('#shortcutRows th')].find((th) => th.textContent === 'データベースの表のセルを選んでいるとき').scrollIntoView({ block: 'start' })` },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -804,9 +814,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DL-1 (2) で足した白紙のページの本文のインラインの表（まだ基準が無い）
 // DL-1 (2b) で足した白紙のページの本文のリンクドビュー（まだ基準が無い）
 // 0.15.1 を出した main の取り込み（R123）: 0.15.1 で足した行の［···］のメニュー side-row-menu-light（main の基準がある）は、0.16.0 の［中にデータベースを作る］が増えるので取り直す
+// 0.16.0 直し（R128）: 近道の表をデータベースの行まで捲った settings-shortcuts-db-light（まだ基準が無い）
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
-  'sidebar-db-light', 'trash-pop-rows-light', 'db-inline-light', 'db-linked-light',
+  'sidebar-db-light', 'trash-pop-rows-light', 'db-inline-light', 'db-linked-light', 'settings-shortcuts-db-light',
   'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light',
   'side-row-menu-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
@@ -1584,6 +1595,8 @@ function judgePerf(results) {
  * 横のはみ出しを集める文（本体の画面で executeJavaScript する）→ { sw, cw, iw, offenders }。
  * offenders は、見える要素（大きさがあり、visibility・display で隠れていない）のうち、右端が窓（innerWidth）の外に出ているものの「タグ#id」か「タグ.class」。
  * 横に流れる帯（overflow-x が visible でない祖先）の中で切られて見えない部分は数えない。body・html は祖先として切らない（窓の端で切られるのが「はみ出し」）
+ * 0.16.0 直し（R128）: cut は、データベースの浮く箱（.dbmenu・.dbpick。列のメニュー・ビューの設定の窓・セルの選びの窓）のうち、窓か中を切る祖先
+ *（捲る枠は捲り棒を除いた内側・content-visibility: auto・contain の paint は枠）の端を越えて切れているもの（取り直しの画面で、捲る枠に切られた列のメニューを見逃した）
  */
 const OVERFLOW_PROBE = `(() => {
   const W = window.innerWidth;
@@ -1604,15 +1617,42 @@ const OVERFLOW_PROBE = `(() => {
     }
     if (right > W + 0.5 && offenders.length < 10) offenders.push(label(e));
   }
-  return { sw: de.scrollWidth, cw: de.clientWidth, iw: W, offenders };
+  const cut = [];
+  const POP = '.dbmenu, .dbpick';
+  const H = window.innerHeight;
+  for (const e of document.querySelectorAll(POP)) {
+    if (typeof e.matches !== 'function' || !e.matches(POP)) continue;
+    const r = e.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) continue;
+    const st = cs(e);
+    if (st.visibility === 'hidden' || st.display === 'none') continue;
+    let L = 0, T = 0, R = W, B = H;
+    for (let p = e.parentElement; p && p !== document.body && p !== de; p = p.parentElement) {
+      const ps = cs(p);
+      const scroll = ps.overflowX !== 'visible' || ps.overflowY !== 'visible';
+      const paint = ps.contentVisibility === 'auto' || /paint|strict|content/.test(String(ps.contain || ''));
+      if (!scroll && !paint) continue;
+      const pr = p.getBoundingClientRect();
+      const l = pr.left + (scroll ? p.clientLeft || 0 : 0), t = pr.top + (scroll ? p.clientTop || 0 : 0);
+      L = Math.max(L, l); T = Math.max(T, t);
+      R = Math.min(R, l + (scroll ? p.clientWidth : pr.width)); B = Math.min(B, t + (scroll ? p.clientHeight : pr.height));
+    }
+    if ((r.left < L - 0.5 || r.top < T - 0.5 || r.right > R + 0.5 || r.bottom > B + 0.5) && cut.length < 10) cut.push(label(e));
+  }
+  return { sw: de.scrollWidth, cw: de.clientWidth, iw: W, offenders, cut };
 })()`;
 
-/** OVERFLOW_PROBE の結果 → { ok, note }。ページが横に流れる（scrollWidth > clientWidth）か、窓の外へ出た要素があれば NG。計れなければ NG */
+/**
+ * OVERFLOW_PROBE の結果 → { ok, note }。ページが横に流れる（scrollWidth > clientWidth）か、窓の外へ出た要素があれば NG。計れなければ NG。
+ * 0.16.0 直し（R128）: データベースの浮く箱（.dbmenu・.dbpick）が窓か中を切る祖先の端で切れていれば（cut）NG（前の形の cut の無い答えは切れ 0 と読む）
+ */
 function judgeOverflow(r) {
   if (!r || !Number.isFinite(r.sw) || !Number.isFinite(r.cw) || !r.offenders) return { ok: false, note: 'はみ出しを計れなかった' };
   const list = Array.from(r.offenders);
-  if (r.sw <= r.cw && list.length === 0) return { ok: true, note: `はみ出し 0（幅 ${r.cw}）` };
-  return { ok: false, note: `横にはみ出す（scrollWidth ${r.sw} > clientWidth ${r.cw}${list.length ? `・窓の外: ${list.join(' ')}` : ''}）` };
+  const cut = Array.from(r.cut || []);
+  if (r.sw <= r.cw && list.length === 0 && cut.length === 0) return { ok: true, note: `はみ出し 0（幅 ${r.cw}）` };
+  if (r.sw <= r.cw && list.length === 0) return { ok: false, note: `浮く箱が窓か捲る枠の端で切れる（${cut.join(' ')}）` };
+  return { ok: false, note: `横にはみ出す（scrollWidth ${r.sw} > clientWidth ${r.cw}${list.length ? `・窓の外: ${list.join(' ')}` : ''}${cut.length ? `・切れる浮く箱: ${cut.join(' ')}` : ''}）` };
 }
 
 /** Tab を送った後のフォーカス { id, outline } → { ok, note }。決めた id にフォーカスがあり、輪（outline-style）が none でなければ OK */

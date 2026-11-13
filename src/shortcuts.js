@@ -10,13 +10,14 @@
 // 0.16.0 R96（2026-11-09 の持ち主の答え「足す…（おすすめ）」）: ビューのタブを選んでいるときの ←・→・Home・End の行を足した。
 // 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の決めたこと 29・30・D124）: 行のメニューの新しい項目の並び（Shift+F10 の行）と、Ctrl+Shift+R（ページの名前を変える）の行を足した。
 // 0.16.0 で 0.15.1 を出した main を取り込んだとき（計画 docs/plans/2026-11-04-160.md の R123・持ち主への問い MQ4）: Shift+F10 の説明は、両方の行のメニューの項目を今の並びで。
+// 0.16.0 持ち主の答え MQ10（2026-11-13・計画 docs/plans/2026-11-04-160.md の R128）: Ctrl+Shift+N の説明に、選べるデータベースを足した。
 // 画面（app.html）はこの表を写す（test/stage140.app.test.js が同じ行かを照らす）。
 
 const SHORTCUTS = Object.freeze([
   { keys: 'Ctrl+W', what: '選んでいるタブを閉じる（窓は閉じません）', where: '窓のどこでも', codes: [] },
   { keys: 'Ctrl+Tab・Ctrl+Shift+Tab', what: '次・前のタブへ', where: '窓のどこでも', codes: [] },
   { keys: 'Ctrl+P', what: '検索の窓を開く', where: '窓のどこでも', codes: [] },
-  { keys: 'Ctrl+Shift+N', what: '新しいページを作る（白紙のページか議事録を選ぶ）', where: '窓のどこでも', codes: [] },
+  { keys: 'Ctrl+Shift+N', what: '新しいページを作る（白紙のページ・議事録・データベースを選ぶ）', where: '窓のどこでも', codes: [] },
   { keys: 'Ctrl+Shift+U', what: '開いているページの親のページへ（いちばん上のページでは何もしない）', where: '窓のどこでも', codes: [] },
   { keys: 'Ctrl+Shift+P', what: '録音の一時停止・再開', where: '窓のどこでも', codes: [] },
   { keys: 'Ctrl+\\', what: 'サイドバーを畳む・出す', where: '窓のどこでも', codes: [] },

@@ -238,7 +238,8 @@ const NEW_160 = ['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'd
   'sidebar-db-light',   // 0.16.0 DX-1 で足した1枚（まだ基準が無い）
   'trash-pop-rows-light',   // 0.16.0 DX-2 で足した1枚（まだ基準が無い）
   'db-inline-light',   // 0.16.0 DL-1 (2) で足した1枚（まだ基準が無い）
-  'db-linked-light'];   // 0.16.0 DL-1 (2b) で足した1枚（まだ基準が無い）
+  'db-linked-light',   // 0.16.0 DL-1 (2b) で足した1枚（まだ基準が無い）
+  'settings-shortcuts-db-light'];   // 0.16.0 直し（R128）で意図して足した: 近道の表をデータベースの行まで捲った1枚（まだ基準が無い）
 // DV-1 で近道の表に「データベースの表のセルを選んでいるとき」の行が増えるので、settings-shortcuts-light と設定の［一般］の3枚（今の基準がある）を取り直す（RETAKEN_160。0.15.0 の R55 と同じ）
 // DX-1 で Ctrl+Shift+N の「新しいページ」に［🗃️ データベース］が増えるので new-pop-light（今の基準がある）を取り直す
 // 0.15.1 を出した main の取り込み（R123）で意図して足した: 0.15.1 の行の［···］のメニュー side-row-menu-light（main の基準がある）に［中にデータベースを作る］が増える
@@ -1279,7 +1280,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.15.1 を出した main の取り込み（R123）: 両方の直しを合わせた（変わる画面は RETAKE の NEW_160・RETAKEN_160）。値を今の app.html に合わせた
   // 0.16.0 R125（rv56）: データベースの行にも［···］・無題のデータベースの名前の欄・引っ張りの始まりで本文の引っ張りを忘れる・dbLoadSame の終わりの1行・行のメニューの注
   // （<script> の中だけ。［···］は乗せたときとフォーカスのときだけ出る。写り得るのは取り直し待ちの sidebar-db-light だけ）。値を今の app.html に合わせた（前の値は 89262e6b…）
-  assert.strictEqual(sha, '4593307eda24398d9e3e91eebf48aefdb78b1fd6025b4bdd8f0a1262f4ba085e',
+  // 0.16.0 直し（R128）: データベースのメニュー・窓を見える所に収める（dbMenuSpot・dbSeen・置き直し）・メニューの項目と［かつ］［または］の CSS・本文の表の行は中を切らない・
+  // 持ち主の答え MQ10 の Ctrl+Shift+N の説明（SHORTCUTS の写し）。変わる画面はデータベースの画面（NEW_160・RETAKE）と設定の近道の表の4枚（RETAKEN_160・RETAKE）。
+  // 値を今の app.html に合わせた（前の値は 4593307e…）
+  assert.strictEqual(sha, '1b2a32c706c948569f7c01acf0f2408264fcd9366fecf21f892e4784e179d486',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1610,4 +1614,48 @@ test('ND-5・WQ8: 違いの場所の枠（diffRegions: 色の差が TOLERANCE �
   assert.deepStrictEqual(rep[1].regions, [{ x0: 10, y0: 10, x1: 20, y1: 20 }, { x0: 600, y0: 300, x1: 700, y1: 310 }]);
   const main = read('tools/shots/main.js');
   assert.ok(main.includes("'retake-regions.json'") && main.includes('SH.retakeReport('), '撮る道具が違いの場所の一覧を書かない');
+});
+
+// ================================================================ 0.16.0 直し（R128。取り直しの画面 CI run 43426098052 で見つけた所）
+// 列のメニューと設定の窓は #pDb の中に置かれ、ページの捲る枠（#pageWrap の overflow）で右が切れていた。横のはみ出しの見張りは「祖先で切られて見えない部分は数えない」ので、
+// 切れた箱を見逃した。データベースの浮く箱（.dbmenu・.dbpick）は、窓と、中を切る祖先（捲る枠は捲り棒を除いた内側・content-visibility: auto・contain の paint）の端を越えたら「切れる」
+test('R128・浮く箱の切れ（OVERFLOW_PROBE）: データベースのメニュー・窓（.dbmenu・.dbpick）が、窓か中を切る祖先（捲る枠は捲り棒の内側）の端を越えると cut に集め、judgeOverflow は NG。収まっていれば OK', { timeout: 5000 }, () => {
+  const vm = require('node:vm');
+  const POP = /(^|\s)(dbmenu|dbpick)(\s|$)/;
+  const el = (tag, id, cls, rect, style = {}, parent = null, more = {}) => ({ tagName: tag.toUpperCase(), id, className: cls, style, parentElement: parent,
+    getBoundingClientRect: () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height }), matches: (sel) => sel === '.dbmenu, .dbpick' && POP.test(cls), ...more });
+  const run = (pops) => {
+    const body = el('body', '', '', { left: 0, top: 0, width: 1120, height: 780 });
+    const wrap = el('div', 'pageWrap', 'page', { left: 260, top: 36, width: 860, height: 744 }, { overflowX: 'auto', overflowY: 'auto' }, body, { clientLeft: 0, clientTop: 0, clientWidth: 845, clientHeight: 744 });
+    const host = el('div', 'pDb', 'dbwrap', { left: 300, top: 100, width: 700, height: 600 }, { position: 'relative' }, wrap);
+    const list = pops.map(([cls, rect]) => el('div', '', cls, rect, { position: 'absolute' }, host));
+    const doc = { documentElement: { scrollWidth: 1120, clientWidth: 1120 }, body, querySelectorAll: () => [wrap, host, ...list] };
+    const win = { innerWidth: 1120, innerHeight: 780, getComputedStyle: (e) => ({ overflowX: 'visible', overflowY: 'visible', visibility: 'visible', display: 'block', position: 'static', contentVisibility: 'visible', contain: 'none', ...e.style }) };
+    return vm.runInNewContext(SH.OVERFLOW_PROBE, { document: doc, window: win, getComputedStyle: win.getComputedStyle });
+  };
+  // 取り直しの画面の形: 列のメニューの右が捲り棒の下（1105 を越える）・選びの窓の下が窓の下の端の外
+  const bad = run([['dbmenu dbcolmenu', { left: 1032, top: 445, width: 180, height: 250 }], ['dbpick', { left: 700, top: 650, width: 220, height: 200 }]]);
+  assert.deepStrictEqual([Array.from(bad.offenders), Array.from(bad.cut)], [[], ['div.dbmenu', 'div.dbpick']], '切れた浮く箱を集めない（祖先で切られた部分として見逃す）');
+  const j = SH.judgeOverflow(bad);
+  assert.strictEqual(j.ok, false, '切れた浮く箱を OK にした');
+  assert.match(j.note, /切れ/);
+  // 収まった（捲り棒の内側の 4px 内）
+  const good = run([['dbmenu dbcolmenu', { left: 921, top: 432, width: 180, height: 250 }], ['dbmenu dbsetmenu dbpanel', { left: 801, top: 300, width: 300, height: 400 }]]);
+  assert.deepStrictEqual(Array.from(good.cut), []);
+  assert.strictEqual(SH.judgeOverflow(good).ok, true);
+  // 前の形の答え（cut の無い答え）はそのまま読める
+  assert.strictEqual(SH.judgeOverflow({ sw: 560, cw: 560, offenders: [] }).ok, true);
+  assert.strictEqual(SH.judgeOverflow({ sw: 560, cw: 560, offenders: [], cut: ['div.dbmenu'] }).ok, false);
+});
+test('R128・近道の表のデータベースの行の画面: settings-shortcuts-db-light は設定を開き、近道の表の見出し「データベースの表のセルを選んでいるとき」まで捲る（足した画面・取り直し待ち。取り直しは 24 枚）。サブアイテムの画面は開いた子のある行を両方開く', { timeout: 5000 }, () => {
+  const s = SH.SCREENS.find((x) => x.name === 'settings-shortcuts-db-light');
+  assert.ok(s && s.page === 'app' && s.theme === 'light', 'settings-shortcuts-db-light が無い');
+  const where = 'データベースの表のセルを選んでいるとき';
+  assert.ok(require('../src/shortcuts').SHORTCUTS.some((r) => r.where === where), '前提: 近道の表にデータベースの見出しが無い');
+  assert.ok(s.act.includes("document.getElementById('tabBtnSettings').click()") && s.act.includes(`th.textContent === '${where}'`) && s.act.includes("scrollIntoView({ block: 'start' })"), '設定を開いてデータベースの見出しまで捲らない');
+  assert.ok(SH.RETAKE.has('settings-shortcuts-db-light') && NEW_160.includes('settings-shortcuts-db-light'));
+  assert.strictEqual(SH.RETAKE.size, 24);
+  // db-subitems-light: 見本の答えは r1 と r3 の子を並べる（開いた形）ので、r3 の ▸ も押して ▾ にする（取り直しの画面で、閉じた ▸ の下に子が写っていた）
+  const sub = SH.SCREENS.find((x) => x.name === 'db-subitems-light');
+  assert.ok(/const tog3 = [^;]*\.dbsubtog/.test(sub.act) && sub.act.includes('tog3.click();') && sub.act.includes("t3.getAttribute('aria-expanded') !== 'true'"), 'サブアイテムの画面で r3 の ▸ を開かない');
 });

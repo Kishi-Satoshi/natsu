@@ -1322,3 +1322,13 @@ test('0.16.0 Task G: 設計書の版の表の 0.16.0 の欄・節「利用者が
   assert.ok(plan.includes('- **持ち主の答え（2026-11-13）:「データベースを足す（おすすめ）」。**'), '計画に MQ6 の答えが無い');
   assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-13）: Task G の前半まで済んだ（R127）。**'), '計画の頭の今の状態が Task G の前半でない');
 });
+
+// ---------------------------------------------------------------- 0.16.0 持ち主の答え MQ10（2026-11-13。R128）: Ctrl+Shift+N の説明にデータベース
+test('R128・MQ10: Ctrl+Shift+N の説明は「新しいページを作る（白紙のページ・議事録・データベースを選ぶ）」（SHORTCUTS・画面の写し・ヘルプの近道の表）。前の説明はどこにも無い', { timeout: 5000 }, () => {
+  const want = '新しいページを作る（白紙のページ・議事録・データベースを選ぶ）';
+  const { SHORTCUTS } = require('../src/shortcuts');
+  assert.strictEqual(SHORTCUTS.find((r) => r.keys === 'Ctrl+Shift+N').what, want, 'SHORTCUTS の Ctrl+Shift+N の説明が答えの字でない');
+  assert.ok(read('src/renderer/app.html').includes(`{ keys: 'Ctrl+Shift+N', what: '${want}', where: '窓のどこでも', codes: [] },`), '画面の写しの Ctrl+Shift+N の説明が答えの字でない');
+  assert.ok(read(fileOf('settings/hotkeys')).includes(`| [[Ctrl+Shift+N]] | ${want} |`), 'ヘルプの近道の表の Ctrl+Shift+N の説明が答えの字でない');
+  for (const f of ['src/shortcuts.js', 'src/renderer/app.html', fileOf('settings/hotkeys')]) assert.ok(!read(f).includes('白紙のページか議事録を選ぶ'), `${f} に前の説明が残る`);
+});
