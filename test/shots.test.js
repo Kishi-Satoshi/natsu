@@ -1212,7 +1212,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // ［ページの行に変える］・知らせ2つ・データベースのページの題名の db.setTitle。変わる画面は足した db-linked-light（NEW_160・RETAKE）。/ メニューの撮る画面は議事録の本文で、
   // ［データベース］［リンクドビュー］は白紙のページの本文だけなので変わらない（R116 (h)）。値を今の app.html に合わせた（前の値は c98972e0…）
   // 0.16.0 DL-1 (2b-2)（R117）: サイドバーと本文の間の引っ張り（<script> の中だけ。見た目は変わらない）。値を今の app.html に合わせた（前の値は 0581351a…）
-  assert.strictEqual(sha, 'e9ea75c39fe79afd54299146d9c3503cf81d4ac1a66819ce29eba14a6ed73c1e',
+  // 0.16.0 DL-1 (3)（R118）: 題名のセルの Alt+→・Alt+←・選びの窓の Ctrl+Enter（<script> の中）と近道の表の写しの2行・Shift+F10 の説明。変わる画面は設定の近道の表の4枚で、
+  // DV-1 からもう取り直し待ち（RETAKEN_160）。値を今の app.html に合わせた（前の値は e9ea75c3…）
+  assert.strictEqual(sha, 'c530ad6b1b3bb18f5ead59f875ec7e529ecfd90f06d8d81d0372d15cb17a3edc',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

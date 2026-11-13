@@ -3123,3 +3123,68 @@ test('DL-1 (2b)・F146（決めたこと 56 (2)）: 本文のインラインの�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---- DL-1 (3)（R111 の (3)・R104 (3)(4)・MQ1）: 題名のセルの Alt+→・Alt+←・選びの窓の Ctrl+Enter・近道の表
+test('DL-1 (3)・F147（R104 (3)）: 題名のセルを選んで Alt+→ で子のある閉じた行を開き、Alt+← で閉じる（子の無い行・題名でないセル・書いている間は何もしない）', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    call('db.setSub', { db: d.id, on: true });
+    const sub = call('db.get', { id: d.id }).sub;
+    call('rel.link', { db: d.id, id: d.rows[0], col: sub.kids, ids: [d.rows[1]] });
+    return { sub };
+  } });
+  try {
+    const [r0, r1, r2] = l.rows;
+    const ids = () => dataRows(l).map((r) => r.dataset.id);
+    assert.deepStrictEqual(ids(), [r0, r2], '閉じた親の子が出る');
+    await selectOnly(l, r0, 'title');
+    const n = views(l).length;
+    await press(l, active(l), { key: 'ArrowRight', code: 'ArrowRight', altKey: true }); await l.drain(200);
+    assert.deepStrictEqual(ids(), [r0, r1, r2], 'Alt+→ で子が出ない');
+    assert.deepStrictEqual(l.called('dbView').slice(-1)[0].args[5], [r0], 'db.view の open に入らない');
+    assert.strictEqual(cellOf(l, r0, 'title').querySelector('.dbsubtog').getAttribute('aria-expanded'), 'true');
+    await press(l, cellOf(l, r0, 'title'), { key: 'ArrowLeft', code: 'ArrowLeft', altKey: true }); await l.drain(200);
+    assert.deepStrictEqual(ids(), [r0, r2], 'Alt+← で閉じない');
+    // 子の無い行・題名でないセルでは何もしない（読み直さない・セルは動かない）
+    await selectOnly(l, r2, 'title');
+    const m = views(l).length;
+    await press(l, active(l), { key: 'ArrowRight', code: 'ArrowRight', altKey: true }); await l.drain(200);
+    await selectOnly(l, r0, l.c1);
+    await press(l, active(l), { key: 'ArrowRight', code: 'ArrowRight', altKey: true }); await l.drain(200);
+    assert.ok(active(l) && active(l).dataset.col === l.c1, '題名でないセルの Alt+→ でセルが動いた');
+    // 書いている間（題名のセルの書き手）は Alt+→ で開かない
+    await selectOnly(l, r0, 'title');
+    await press(l, active(l), { key: 'Enter', code: 'Enter' });
+    await press(l, editor(l), { key: 'ArrowRight', code: 'ArrowRight', altKey: true }); await l.drain(200);
+    await press(l, editor(l), { key: 'Escape' });
+    assert.strictEqual(views(l).length, m, '子の無い行・題名でないセル・書いている間に読み直した');
+    assert.deepStrictEqual(ids(), [r0, r2]);
+    assert.ok(n > 0);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('DL-1 (3)・F147（R104 (3)）: リレーションの選びの窓の行で Ctrl+Enter → その行のページが今のタブに開く（つなぐ・外すはしない）。［新しい行を作ってつなぐ］と探す欄の Ctrl+Enter は何もしない', T, async () => {
+  const l = await relDb();
+  try {
+    const r1 = l.rows[1];
+    await clickEl(l, cellOf(l, r1, l.rc), 200);
+    const q = picker(l).querySelector('input');
+    const n = tabKeys(l).length;
+    await press(l, q, { key: 'Enter', code: 'Enter', ctrlKey: true }); await l.drain(100);
+    const newOpt = pickOpts(l).find((b) => b.textContent === '新しい行を作ってつなぐ');
+    await press(l, newOpt, { key: 'Enter', code: 'Enter', ctrlKey: true }); await l.drain(100);
+    assert.deepStrictEqual([l.called('relLink').length, tabOnKey(l)], [0, `page:${l.id}`], '探す欄・［新しい行を作ってつなぐ］の Ctrl+Enter で何かした');
+    await press(l, pickOpts(l)[0], { key: 'Enter', code: 'Enter', ctrlKey: true }); await l.drain(300);
+    assert.deepStrictEqual([tabKeys(l).length, tabOnKey(l)], [n, `page:${l.b1}`], 'Ctrl+Enter でその行のページが今のタブに開かない');
+    assert.deepStrictEqual([l.called('relLink'), l.called('relUnlink')], [[], []], 'Ctrl+Enter でつないだ・外した');
+    assert.deepStrictEqual(cellsIn(l, r1).cells[l.rc] || [], [], 'セルが変わった');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('DL-1 (3)（MQ1・R104 (4)）: 近道の表に Alt+→・Alt+← と Ctrl+Enter（新しい効く所「リレーションの行を探す窓」）の2行・Shift+F10 の説明', () => {
+  const { SHORTCUTS } = require('../src/shortcuts');
+  const row = (keys) => SHORTCUTS.find((r) => r.keys === keys && r.where !== 'サイドバーのページの一覧' && r.where !== '要約の行を直しているとき');
+  assert.deepStrictEqual(SHORTCUTS.filter((r) => r.keys === 'Alt+→・Alt+←').map((r) => [r.what, r.where]), [['サブアイテムを開く・閉じる（題名のセルで）', 'データベースの表のセルを選んでいるとき']]);
+  assert.deepStrictEqual(SHORTCUTS.filter((r) => r.where === 'リレーションの行を探す窓').map((r) => [r.keys, r.what]), [['Ctrl+Enter', 'その行のページを開く（つなぐ・外すはしない）']]);
+  assert.strictEqual(SHORTCUTS.find((r) => r.keys === 'Shift+F10' && r.where === 'サイドバーのページの一覧').what, '行のメニューを開く（中にページを作る・中にデータベースを作る・移動先・新しいタブで開く・削除）');
+  assert.ok(row('Alt+→・Alt+←'));
+});

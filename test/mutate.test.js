@@ -1405,6 +1405,7 @@ const IDS_160 = [
   'tb-row-kids-hide', 'tb-row-move-cycle', 'vw-row-kids-tree',
   'tb-rel-self',   // 0.16.0 R98（M15-2）で表の末に足した行
   'tb-linked-copy', 'tb-linked-tabs', 'tb-db-title-undo',   // 0.16.0 DL-1 (1) で作った行（R104 の DL-1 の行。vw-sub-key・vw-rel-open-key は DL-1 (3)）
+  'vw-sub-key', 'vw-rel-open-key',   // 0.16.0 DL-1 (3)（R118）で作った行（表の行の順）
   // 0.16.0 DR-1 直し（rv51 I1・I4・R106）で表の末（R104 の DL-1 の5行の後）に足した行
   'tb-sub-new-parent', 'tb-undo-rel-row', 'tb-undo-rel-max', 'tb-undo-rel-col', 'tb-rel-sig', 'tb-rel-dup', 'tb-rel-col-max', 'tb-rel-self-max', 'tb-sub-col-max',
   // 0.16.0 DR-1 直し2（MQ2・rv51 I2・R108）で表の末に足した行

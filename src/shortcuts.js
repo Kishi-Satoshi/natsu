@@ -62,7 +62,7 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Home・End', what: '最初・最後の行へ', where: 'サイドバーのページの一覧', codes: [] },
   { keys: 'Enter', what: 'ページを今のタブで開く', where: 'サイドバーのページの一覧', codes: [] },
   { keys: 'Ctrl+Enter', what: 'ページを新しいタブで開く', where: 'サイドバーのページの一覧', codes: [] },
-  { keys: 'Shift+F10', what: '行のメニューを開く（中にページを作る・移動先・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+  { keys: 'Shift+F10', what: '行のメニューを開く（中にページを作る・中にデータベースを作る・移動先・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
   // 0.16.0 DV-1 のデータベースの表（決めたこと 51）
   { keys: '↑・↓・←・→', what: 'セルを移る', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Tab・Shift+Tab', what: '右・左のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
@@ -74,11 +74,13 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Ctrl+C', what: '選んだセルの値を写す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+V・Ctrl+Shift+V', what: '選んだセルに貼る（何行何列かは右下へ埋める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Space', what: '行のページを開く', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Alt+→・Alt+←', what: 'サブアイテムを開く・閉じる（題名のセルで）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Z', what: '元に戻す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Shift+Z・Ctrl+Y', what: 'やり直す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   // 0.16.0 R96（2026-11-09 の持ち主の答え）: データベースのビューのタブのキー（DV-3 直しの R89 (F6) で作ったキー）
   { keys: '←・→', what: 'となりのビューへ（端では反対の端へ）', where: 'ビューのタブを選んでいるとき', codes: [] },
   { keys: 'Home・End', what: '最初・最後のビューへ', where: 'ビューのタブを選んでいるとき', codes: [] },
+  { keys: 'Ctrl+Enter', what: 'その行のページを開く（つなぐ・外すはしない）', where: 'リレーションの行を探す窓', codes: [] },
 ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
 
 module.exports = { SHORTCUTS };
