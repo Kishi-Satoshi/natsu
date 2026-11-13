@@ -3241,3 +3241,32 @@ test('R120・rv53 I-1: 本文の表（インライン・リンクドビュー）
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+// rv53 I-2（2026-11-13 の持ち主の答え「表を飛ばす（おすすめ）」）: 本文の ↑・↓ はインラインの表とリンクドビューの行を飛ばす（表へは Tab か押して入る）
+test('R120 (a)・rv53 I-2: 本文の ↑・↓ はインラインの表とリンクドビューの行を飛ばして、次・前の行の文へ（表の行の見えない文の欄に入らない）', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const s = linkSetup(call, d);   // 本文: b1・b2（段落）
+    const t1 = call('block.insert', { pageId: s.P, afterBlockId: s.b1, type: 'paragraph' }).blockId;
+    const D = call('db.create', { parentId: s.P, inline: t1 }).id;   // b1・t1（インラインの表）・b2
+    call('block.update', { pageId: s.P, blockId: s.b2, patch: { text: 'にの段' } });   // 空の行はリンクドビューに替わるので、文を入れる
+    const L = call('block.insertDbView', { pageId: s.P, afterId: s.b2, db: d.id }).blockId;   // …・b2・L（リンクドビュー）
+    const b3 = call('block.insert', { pageId: s.P, afterBlockId: L, type: 'paragraph' }).blockId;
+    return { ...s, t1, D, L, b3 };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const txtOf = (id) => bodyRow(l, id).querySelector('.txt');
+    assert.ok(hostOf(l, l.t1) && hostOf(l, l.L), '表が2つ描かれていない');
+    const step = async (from, key) => { const t = txtOf(from); t.focus(); l.caret.set(t, key === 'ArrowDown' ? t.textContent.length : 0); return press(l, t, { key }); };
+    let ev = await step(l.b1, 'ArrowDown');
+    assert.ok(active(l) === txtOf(l.b2), '↓ がインラインの表の行を飛ばして次の行へ動かない');
+    assert.ok(ev.defaultPrevented, '動いた ↓ を止めない');
+    ev = await step(l.b2, 'ArrowDown');
+    assert.ok(active(l) === txtOf(l.b3), '↓ がリンクドビューの行を飛ばして次の行へ動かない');
+    await step(l.b3, 'ArrowUp');
+    assert.ok(active(l) === txtOf(l.b2), '↑ がリンクドビューの行を飛ばして前の行へ動かない');
+    await step(l.b2, 'ArrowUp');
+    assert.ok(active(l) === txtOf(l.b1), '↑ がインラインの表の行を飛ばして前の行へ動かない');
+    assert.ok(!$(l, 'pNote').querySelectorAll('.blk.dbinline').some((e) => e.querySelector('.txt') === active(l)), '表の行の文の欄にフォーカスがある');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

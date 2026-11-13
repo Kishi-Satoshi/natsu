@@ -13116,7 +13116,8 @@
     const r = caretRange(txt);
     const line = el._b && (el._b.type === 'divider' || isFixedB(el._b));   // 区切り線と子ページの行（0.15.0 PR-2）は文を持たないので、いつも隣へ
     if (!line && (!r || r[0] !== r[1] || r[0] !== (dir < 0 ? 0 : txt.textContent.length))) return false;
-    const rows = editRows(rowsBoxOf(el));
+    // 0.16.0 直し（rv53 I-2・R120 (a)。2026-11-13 の持ち主の答え「表を飛ばす（おすすめ）」）: インラインの表・リンクドビューの行（文の欄は見えない）は飛ばす。表へは Tab か押して入る
+    const rows = editRows(rowsBoxOf(el)).filter((e) => e === el || !e.classList.contains('dbinline'));
     const to = rows[rows.indexOf(el) + dir];
     if (!to) return false;
     to._txt.focus();

@@ -1216,7 +1216,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // DV-1 からもう取り直し待ち（RETAKEN_160）。値を今の app.html に合わせた（前の値は e9ea75c3…）
   // 0.16.0 R119 (a)（rv51 M4）: 開いたサブアイテムの行は 2,000 まで（subOpenAdd。<script> の中だけ。見た目は変わらない）。値を今の app.html に合わせた（前の値は c530ad6b…）
   // 0.16.0 R120（rv53 I-1）: 本文の表の中の dragover・drop を #pNote が扱わない（<script> の中だけ。見た目は変わらない）。値を今の app.html に合わせた（前の値は 88aef33d…）
-  assert.strictEqual(sha, '2dbe9b430714d41e410d31d5274ab0a16ef5d517b4c0234985d9594a8c9b887c',
+  // 0.16.0 R120 (a)（rv53 I-2）: 本文の ↑・↓ はインラインの表・リンクドビューの行を飛ばす（<script> の中だけ。見た目は変わらない）。値を今の app.html に合わせた（前の値は 2dbe9b43…）
+  assert.strictEqual(sha, '6e256433b7e60bfb909546cac10ab876cb0a20560563507470b5205ee7c3da06',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
