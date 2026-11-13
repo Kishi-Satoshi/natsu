@@ -3354,3 +3354,88 @@ test('R120・rv53 I-4: リンクドビューで列を足して Ctrl+Z → editRe
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+// rv53 軽い 1: 本文の表の数の知らせ（DQ10）は、本文にもう 10 の表があるときだけ。ほかの too-big（本文の大きさ）は今の知らせのまま
+test('R120・rv53 軽い 1: 本文の表が 10 より少ないときの too-big は「1つのページに置けるデータベースの表は 10 までです。」にしない（［インラインにする］・/データベース・/リンクドビュー は今の知らせ）', T, async () => {
+  const big = () => Promise.reject(Object.assign(new Error('too-big'), { code: 'too-big' }));
+  const l = await openDb({ returns: { blockUpdate: big, dbCreate: big, blockInsertDbView: big }, before: (call, d) => {
+    const s = linkSetup(call, d);
+    const S1 = call('db.create', { parentId: s.P }).id;   // 本文の最後の 🗃️ の行（inline 無し）
+    const s1 = call('page.get', { id: s.P }).page.blocks.find((x) => x.type === 'subpage' && x.page === S1).id;
+    return { ...s, S1, s1 };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    bodyRow(l, l.s1).querySelector('.grip').dispatchEvent({ type: 'click' }); await l.drain(40);
+    await clickEl(l, blockMenuItems(l).find((b) => b.textContent === 'インラインにする'), 300);
+    assert.strictEqual($(l, 'toast').textContent, '変更を保存できませんでした: too-big', '［インラインにする］の too-big（表は 0）に 10 の知らせを出した');
+    $(l, 'toast').textContent = '';
+    const tn = bodyRow(l, l.b1).querySelector('.txt');
+    await slashIn(l, tn, '/でーたべーす');
+    l.key({ key: 'Enter', code: 'Enter' }, tn); await l.drain(); await l.drain(300);
+    assert.strictEqual($(l, 'toast').textContent, 'ページを作れませんでした。', '/データベース の too-big（表は 0）に 10 の知らせを出した');
+    $(l, 'toast').textContent = '';
+    const tn2 = bodyRow(l, l.b2).querySelector('.txt');
+    await slashIn(l, tn2, '/りんく');
+    l.key({ key: 'Enter', code: 'Enter' }, tn2); await l.drain(200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
+    await clickEl(l, winOpts(l).find((o) => o.textContent === '新しい表から始める'), 400);
+    assert.strictEqual($(l, 'toast').textContent, '変更を保存できませんでした: too-big', '/リンクドビュー の too-big（表は 0）に 10 の知らせを出した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv53 軽い 2: インラインの表・リンクドビューの頭の題名を空にして離れたら元の題名に戻す（ページの頭の題名と同じ）。断られたら欄も元に戻す
+test('R120・rv53 軽い 2: 本文の表の題名の欄を空にして離れると元の題名に戻し db.setTitle を送らない。断られたら欄を元の題名に戻す', T, async () => {
+  let refuse = false;
+  const l = await openDb({ before: twoInline, returns: { dbSetTitle: (...a) => (refuse ? Promise.reject(Object.assign(new Error('bad-args'), { code: 'bad-args' })) : l.K.dbSetTitle(...a)) } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const t1 = inlineOf(l)[0].querySelector('.dbtitle');
+    t1.focus(); t1.value = '   '; t1.dispatchEvent({ type: 'blur' }); await l.drain(200);
+    assert.deepStrictEqual(l.called('dbSetTitle'), [], '空の題名を送った');
+    assert.strictEqual(inlineOf(l)[0].querySelector('.dbtitle').value, 'いちの表', '空にして離れても元の題名に戻らない');
+    refuse = true;
+    const t2 = inlineOf(l)[0].querySelector('.dbtitle');
+    t2.focus(); t2.value = '断られる題名'; t2.dispatchEvent({ type: 'blur' }); await l.drain(300);
+    assert.strictEqual(l.called('dbSetTitle').length, 1);
+    assert.strictEqual(inlineOf(l)[0].querySelector('.dbtitle').value, 'いちの表', '断られた題名が欄に残る');
+    assert.strictEqual(l.call('db.get', { id: l.D1 }).title, 'いちの表');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv53 軽い 3: リレーションの選びの窓の Ctrl+Enter は、その窓を開いた所の閉じ方（close('stay')）で閉じる（行のページの列の値の窓でも、表の dbEditEnd を呼ばない）
+test('R120・rv53 軽い 3: リレーションの選びの窓の行の Ctrl+Enter は close(\'stay\') で窓を閉じてからページを開く（表の dbEditEnd でない: 行のページの窓の書いている印が残らない）', () => {
+  const at = HTML.indexOf('\n  function dbRelWriter(');
+  const fn = HTML.slice(at, HTML.indexOf('\n  }\n', at));
+  const line = fn.split('\n').find((x) => x.includes("ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)"));
+  assert.ok(line, 'Ctrl+Enter の受け口が無い');
+  assert.match(line, /close\('stay'\); openPageTab\(r\.id\);/, 'Ctrl+Enter が close(\'stay\') で窓を閉じない');
+  assert.ok(!/dbEditEnd\(/.test(fn), 'dbRelWriter が表の dbEditEnd を直に呼ぶ（行のページの窓では違う表を閉じる）');
+});
+// rv53 軽い 5: データベースの行の中のページを開いているとき、そのデータベース（サイドバー）を本文へ引っ張っても落とす印を出さない（行とデータベースを通って祖先をたどる）
+test('R120・rv53 軽い 5: データベースの行の中のページの本文へ、そのデータベースをサイドバーから引っ張っても落とす印を出さない（DB に断られる落としをさせない）', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const X = call('page.create', { parentId: d.rows[0] }).id;
+    call('page.setTitle', { id: X, title: '行の中の頁' });   // 白紙のページの題名（D77 の会議の題名でない）
+    call('block.insert', { pageId: X, afterBlockId: '', type: 'paragraph' });
+    const Q = call('page.create', {}).id;
+    return { X, Q };
+  } });
+  try {
+    l.fire('onOpenLink', { id: l.X, anchor: '' }); await l.drain(300);
+    const box = $(l, 'pNote');
+    box.querySelectorAll('.blk').forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 100, right: 200, width: 100 }); });
+    const over = async (id) => {
+      const dt = pageDt();
+      sideRow(l, id).dispatchEvent({ type: 'dragstart', target: sideRow(l, id), clientX: 100, dataTransfer: dt });
+      const ev = { preventDefault() { this.defaultPrevented = true; }, clientY: 5, clientX: 100, dataTransfer: dt };
+      box.ondragover(ev);
+      const shown = dt.dropEffect === 'move' || box.querySelectorAll('.dropmark, .dropmark-after').length > 0;   // 落とせない形は preventDefault しても dropEffect が none
+      sideRow(l, id).dispatchEvent({ type: 'dragend' }); await l.drain(20);
+      return shown;
+    };
+    assert.ok(sideRow(l, l.id) && sideRow(l, l.Q), 'サイドバーにデータベースとページが無い');
+    assert.strictEqual(await over(l.id), false, '行の中のページの本文に、そのデータベースを落とす印が出る');
+    assert.strictEqual(await over(l.Q), true, 'ほかのページは落とせる（この見本の前提が崩れた）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

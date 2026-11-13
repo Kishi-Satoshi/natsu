@@ -9603,7 +9603,7 @@
     const fullBefore = pid === curId && Boolean(curPage) && flattenBlocks(curPage.blocks).length >= BODY_ROWS_MAX;
     let r = null; let code = '';
     try { r = await window.koeApp.dbCreate(pid, rowId); } catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
-    if (code === 'too-big') { toast(DB_TABLES_FULL); return null; }
+    if (code === 'too-big' && dbTablesFull(pid)) { toast(DB_TABLES_FULL); return null; }
     if (!r || typeof r.id !== 'string') { toast('ページを作れませんでした。'); return null; }
     await refreshList();
     if (curId !== pid) return r.id;
@@ -9622,6 +9622,9 @@
   const DB_PICK_VIEWS = '元のビューを写す';
   const DB_PICK_NEW = '新しい表から始める';
   const DB_TABLES_FULL = '1つのページに置けるデータベースの表は 10 までです。';   // DQ10（R115）
+  // 0.16.0 直し（rv53 軽い 1・R120）: too-big は本文の大きさ（2,000 行・1MB）でも来るので、DQ10 の知らせは本文にもう 10 の表（インラインの表・リンクドビュー）があるときだけ
+  const DB_TABLES_MAX = 10;
+  const dbTablesFull = (pid) => pid === curId && Boolean(curPage) && flattenBlocks(curPage.blocks).filter((b) => b && (b.type === 'dbview' || (b.type === 'subpage' && b.inline === true))).length >= DB_TABLES_MAX;
   const DB_VIEW_NO_DUP = 'リンクドビューは複製できません';   // DQ11（R115）
   let dbPick = null;   // 開いているとき { box, head, body, s, pid, rowId }
   function dbPickClose(back) {
@@ -9724,13 +9727,14 @@
       const txt = el._txt; const s = p.s; const end = s.start + 1 + s.query.length;
       if (txt.textContent.slice(s.start, end) === `/${s.query}`) { rowReplace(txt, s.start, end, ''); setCaret(txt, s.start); }
       try { await txt._commit(p.pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-      return editAnswer(p.pid, () => dbTableSend(() => window.koeApp.blockInsertDbView(p.pid, p.rowId, db, ...(from ? [from] : []))), null);
+      return editAnswer(p.pid, () => dbTableSend(() => window.koeApp.blockInsertDbView(p.pid, p.rowId, db, ...(from ? [from] : [])), p.pid), null);
     });
   }
   // 本文の表の数（10）を越える命令の断り（too-big）は DQ10 の知らせにして null（ほかの断りは editAnswer の今の知らせ）
-  async function dbTableSend(send) {
+  async function dbTableSend(send, pid = curId) {
     try { return await send(); } catch (e) {
       if (String((e && (e.code || e.message)) || '') !== 'too-big') throw e;
+      if (!dbTablesFull(pid)) throw e;   // rv53 軽い 1: 本文の大きさの too-big は editAnswer の今の知らせ
       toast(DB_TABLES_FULL);
       return null;
     }
@@ -10124,8 +10128,11 @@
   async function dbTitleSave(st) {
     if (!st.info || !st.head) return;
     const v = st.head.title.value.trim();
-    if (v === String(st.info.title || '')) return;
+    const was = String(st.info.title || '');
+    // 0.16.0 直し（rv53 軽い 2・R120）: 空にして離れたら元の題名に戻す（ページの頭の題名と同じ。送らない）。断られたら欄も元の題名に戻す
+    if (!v || v === was) { st.head.title.value = was; return; }
     const r = await dbWrite(() => window.koeApp.dbSetTitle(st.id, v));
+    if (!r && dbOnScreen(st)) st.head.title.value = String(st.info.title || '');
     if (r && dbOnScreen(st)) { st.info = { ...st.info, title: v }; dbHeadPaint(st); if (st.parts && st.parts.grid) st.parts.grid.setAttribute('aria-label', dbGridLabel(st)); }
     refreshList();
   }
@@ -11197,7 +11204,7 @@
         mk('dbopt', dbRelName(r), val.includes(r.id), () => pick(r.id));
         // 0.16.0 DL-1 (3)（決めたこと 35・R104 (3)・MQ1）: 行の Ctrl+Enter はその行のページを今のタブに開く（つなぐ・外すはしない。窓は閉じ、セルは変わらない）
         const b = list.lastChild; const k0 = b.onkeydown;
-        b.onkeydown = (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && !imeEnter(ev)) { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(false); openPageTab(r.id); return; } k0(ev); };
+        b.onkeydown = (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && !imeEnter(ev)) { ev.preventDefault(); ev.stopPropagation(); close('stay'); openPageTab(r.id); return; } k0(ev); };   // rv53 軽い 3（R120）: 開いた所の閉じ方で（行のページの窓も）
       }
       mk('dbopt dbnew', DB_REL_NEW, false, () => create());
     };
@@ -13992,7 +13999,7 @@
       try { await txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
       return editAnswer(pid, () => rowApi(pid).blocksSetColor(pid, [b.id], row), () => ({ focus: b.id, caret: txt.textContent.length }));
     }
-    if (what === 'inline') return editAnswer(pid, () => dbTableSend(() => window.koeApp.blockUpdate(pid, b.id, { inline: row })), null);   // 0.16.0 DL-1 (2b)
+    if (what === 'inline') return editAnswer(pid, () => dbTableSend(() => window.koeApp.blockUpdate(pid, b.id, { inline: row }), pid), null);   // 0.16.0 DL-1 (2b)
     if (what === 'duplicate') {
       if (b.type === 'dbview') { toast(DB_VIEW_NO_DUP); return null; }   // 0.16.0 DL-1 (2b)（R113 (d)・DQ11）: リンクドビューの行は写さない
       if (b.type === 'subpage') { toast(SUB_NO_DUP); return null; }   // 0.15.0 PR-2（決めたこと 52・BQ13 (a)）: 子ページの行は写さない
@@ -14159,10 +14166,17 @@
     return p.id !== curId && !pageUps(curId).includes(p.id);
   }
   // 親を上へたどった ID（一覧にある親だけ）
+  // 0.16.0 直し（rv53 軽い 5・R120）: データベースの行の中のページ（一覧の inRow）は、一覧に無い行（inRow.row）からそのデータベース（inRow.db）を通って上へたどる
   function pageUps(id) {
     const out = [];
     let p = pages.find((x) => x && x.id === id);
-    while (p && typeof p.parentId === 'string' && p.parentId && !out.includes(p.parentId)) { out.push(p.parentId); p = pages.find((x) => x && x.id === p.parentId); }
+    while (p && typeof p.parentId === 'string' && p.parentId && !out.includes(p.parentId)) {
+      const up = p.parentId;
+      out.push(up);
+      let q = pages.find((x) => x && x.id === up);
+      if (!q && p.inRow && p.inRow.row === up && typeof p.inRow.db === 'string' && p.inRow.db && !out.includes(p.inRow.db)) { out.push(p.inRow.db); q = pages.find((x) => x && x.id === p.inRow.db); }
+      p = q;
+    }
     return out;
   }
   // PR-2 直し 3（R46）: 落とす所は、引っ張っているページの行（サイドバーから引っ張った、もう行のある子）を除いた並びで数える（本文の ⠿ の引っ張りが自分の行を除くのと同じ）
