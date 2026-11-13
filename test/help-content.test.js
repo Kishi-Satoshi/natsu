@@ -1034,3 +1034,11 @@ test('DH-1: 記事が「…」で写した画面の文は、記事にその形�
 test('DH-1: 直した記事に Notion の名前が無い（ほかのアプリの名前と説明の文を写さない）', { timeout: 5000 }, () => {
   for (const ref of DH1_REFS) assert.ok(!/notion/i.test(read(fileOf(ref))), `${ref}: Notion の名前がある`);
 });
+
+// 0.16.0 R120 (c)（MQ3・M19。2026-11-13 の持ち主の答え「［＋］に5つを足す（おすすめ）」）: 列の種類の表に5行（右端の［＋］の末の並びと同じ順）
+test('R120 (c)・MQ3: find/database の列の種類の表に［作成日時］［作成者］［最終更新日時］［最終更新者］［ID］の5行（［リレーション］の後ろ・［＋］の並びの順）。この5つへ・からは変えられない', { timeout: 5000 }, () => {
+  const db = read(fileOf('find/database'));
+  const rows = tableRows(ek7Sec(db, 'columns')).map((r) => r[1]);
+  assert.deepStrictEqual(rows.slice(-6), ['［リレーション］', '［作成日時］', '［作成者］', '［最終更新日時］', '［最終更新者］', '［ID］']);
+  assert.ok(ek7Sec(db, 'columns').includes('［作成日時］・［作成者］・［最終更新日時］・［最終更新者］・［ID］へ・から変えることもできません。'), '5つの種類へ・から変えられないことが無い');
+});

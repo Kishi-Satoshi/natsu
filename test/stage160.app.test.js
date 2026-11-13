@@ -489,7 +489,9 @@ test('DV-2: 列のメニューの項目（決めたこと 13・画面の文）�
     assert.deepStrictEqual([plus.textContent, plus.getAttribute('aria-label'), plus.title], ['＋', '列を足す', '列を足す']);
     await clickEl(l, plus);
     // 0.16.0 DR-1（R99）で意図して直した: 末に［リレーション］（つなぐデータベースを選んで足す）
-    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['テキスト', '数値', '選択', '複数選択', 'ステータス', '日付', 'ユーザー', 'チェック', 'URL', 'メール', '電話', 'リレーション']);
+    // 0.16.0 R120 (c)（MQ3。2026-11-13 の持ち主の答え「［＋］に5つを足す（おすすめ）」）で意図して直した: ［リレーション］の後ろに書けない5つ
+    assert.deepStrictEqual(items(l).map((b) => b.textContent), ['テキスト', '数値', '選択', '複数選択', 'ステータス', '日付', 'ユーザー', 'チェック', 'URL', 'メール', '電話', 'リレーション',
+      '作成日時', '作成者', '最終更新日時', '最終更新者', 'ID']);
     await clickEl(l, item(l, '日付'), 120);
     assert.deepStrictEqual(l.called('colAdd').map((c) => c.args)[2], [l.id, 'date']);
     assert.strictEqual(heads(l).slice(-1)[0], '日付', '足した列が右端に出ない');
@@ -3436,6 +3438,33 @@ test('R120・rv53 軽い 5: データベースの行の中のページの本文�
     assert.ok(sideRow(l, l.id) && sideRow(l, l.Q), 'サイドバーにデータベースとページが無い');
     assert.strictEqual(await over(l.id), false, '行の中のページの本文に、そのデータベースを落とす印が出る');
     assert.strictEqual(await over(l.Q), true, 'ほかのページは落とせる（この見本の前提が崩れた）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// MQ3（M19。2026-11-13 の持ち主の答え「［＋］に5つを足す（おすすめ）」）: 右端の［＋］の種類の並びの末（11 とリレーションの後ろ）に、作成日時・作成者・
+// 最終更新日時・最終更新者・ID（今の種類の名前）。［種類 ▸］には出さない（この5つへ・この5つからは変えられない）
+test('R120 (c)・MQ3: 右端の［＋］の末に［作成日時］［作成者］［最終更新日時］［最終更新者］［ID］→ colAdd の1回で列が出る。［種類 ▸］には出ず、足した列の［種類 ▸］は灰色', T, async () => {
+  const l = await openDb();
+  try {
+    const plus = () => box(l).querySelector('.dbcoladd');
+    await clickEl(l, plus());
+    assert.deepStrictEqual(items(l).map((b) => b.textContent).slice(-6), ['リレーション', '作成日時', '作成者', '最終更新日時', '最終更新者', 'ID']);
+    const want = [['作成日時', 'ctime'], ['作成者', 'cby'], ['最終更新日時', 'mtime'], ['最終更新者', 'mby'], ['ID', 'no']];
+    for (const [i, [label, type]] of want.entries()) {
+      if (i) await clickEl(l, plus());
+      await clickEl(l, item(l, label), 200);
+      assert.deepStrictEqual(l.called('colAdd').map((c) => c.args)[i], [l.id, type], `［${label}］が colAdd(${type}) の1回でない`);
+      const nm = menu(l) && menu(l).querySelector('input');
+      if (nm) await press(l, nm, { key: 'Escape' });
+    }
+    const cols = l.call('db.get', { id: l.id }).cols.filter((c) => want.some((w) => w[1] === c.type) && c.id !== l.c4);
+    assert.deepStrictEqual(cols.map((c) => c.type), want.map((w) => w[1]), '5つの列が足されていない');
+    assert.deepStrictEqual(heads(l).slice(-5), want.map((w) => w[0]), '足した列が右端に出ない');
+    // 足した列の［種類 ▸］は灰色（この5つからは変えられない）・ほかの列の［種類 ▸］の並びに5つが無い
+    await clickEl(l, head(l, cols[4].id));
+    assert.strictEqual(item(l, '種類 ▸').disabled, true, 'ID の列の種類を変えられる');
+    await clickEl(l, head(l, l.c1)); await clickEl(l, item(l, '種類 ▸'));
+    assert.ok(!items(l).some((b) => want.some((w) => w[0] === b.textContent)), '［種類 ▸］に5つの種類が出る（この5つへは変えられない）');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

@@ -11344,6 +11344,9 @@
   const DB_PURGE_ASK = 'この列と、すべての行のこの列の値を完全に消します。元に戻せません。よろしいですか？';
   const DB_PASTED = (r) => `${r.added} 行を足し、${r.unread} 個の値は読めなかったので空にしました${r.skipped ? `（貼れない列の ${r.skipped} 個の値は貼りませんでした）` : ''}`;
   const DB_TYPE_LIST = ['text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone'];   // 足せる・変えられる種類（リレーションは DR-1）
+  // 0.16.0 R120 (c)（MQ3・M19。2026-11-13 の持ち主の答え「［＋］に5つを足す（おすすめ）」）: 右端の［＋］で足せるだけの書けない種類（［種類 ▸］には出さない:
+  // この5つへ・この5つからは変えられない）。名前は今の種類の名前（dbModel の COLS）
+  const DB_TYPE_AUTO = ['ctime', 'cby', 'mtime', 'mby', 'no'];
   const DB_FMT_LABEL = Object.freeze({ plain: '数', comma: '3桁区切り', percent: '%', yen: '円', dollar: 'ドル' });
   const DB_STATUS_HEAD = Object.freeze({ todo: '未着手', doing: '進行中', done: '完了' });
   const DB_PICK_TYPES = ['select', 'multi', 'status', 'person'];
@@ -11549,13 +11552,14 @@
     if (st.menu && st.menu.dataset.add === '1') { dbMenuClose(); return; }
     dbEditEnd(true);
     if (dbColsFull(st)) return;
-    const m = dbMenuAt(anchor, [...DB_TYPE_LIST.map((t) => ({ label: dbModelView.COLS[t].label, fn: async () => {
+    const add = (t) => ({ label: dbModelView.COLS[t].label, fn: async () => {
       dbMenuClose();
       const r = await dbWrite(() => window.koeApp.colAdd(st.id, t));
       if (!r || !r.col || !dbUse(st)) return;
       const h = [...st.parts.head.querySelectorAll('.dbcolbtn')].find((b) => b.parentNode.dataset.col === r.col.id);
       dbMenuInput(h || anchor, r.col.name, r.col.name, (v) => { if (v && v !== r.col.name) dbWrite(() => window.koeApp.colRename(st.id, r.col.id, v)); });
-    } })), { label: dbModelView.COLS.rel.label, fn: () => dbRelColMenu(anchor) }], 'dbcolmenu');   // 0.16.0 DR-1: リレーションはつなぐデータベースを選んで足す
+    } });
+    const m = dbMenuAt(anchor, [...DB_TYPE_LIST.map(add), { label: dbModelView.COLS.rel.label, fn: () => dbRelColMenu(anchor) }, ...DB_TYPE_AUTO.map(add)], 'dbcolmenu');   // 0.16.0 DR-1: リレーションはつなぐデータベースを選んで足す。R120 (c): 末に書けない5つ
     m.dataset.add = '1';
   }
   // ビューの設定（DV-2 は［消した列］だけ: 戻す・完全に消す。R-24。0.16.0 DV-3: 並べ替え・絞り込み・グループ・列の表示の窓）
