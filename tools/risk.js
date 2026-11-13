@@ -246,7 +246,7 @@ function checkPs1(rev) {
 // 中身の決まり（/writeFileSync\([^)]*\.ps1/）は読んだ後に今どおり見る。git grep は当たりが無いと 1 で終わる（空の並び）
 function ps1WriterCandidates(rev, tracked = git(['ls-files']).split('\n')) {
   const want = new Set(tracked.filter((x) => /\.(js|cjs|mjs)$/.test(x) && !x.startsWith('tools/write-ps1')));
-  const args = ['grep', '-l', '-z', '-F', '--all-match', '-e', 'writeFileSync', '-e', '.ps1'];
+  const args = ['grep', '--no-color', '-l', '-z', '-F', '--all-match', '-e', 'writeFileSync', '-e', '.ps1'];   // 0.16.0 R122（rv55 軽い 4）: color.ui=always でも名前に色の字を付けさせない
   if (rev === 'INDEX') args.push('--cached');
   else if (rev !== null) args.push(rev);
   args.push('--', '*.js', '*.cjs', '*.mjs');
@@ -916,13 +916,13 @@ function main(argv) {
   // リリース時は「前のタグ」を基準にする。既定の HEAD のままだと、
   // コミット済みの変更が差分に入らず、最も効くべき瞬間に
   // 必ず「危険な変更は見つからなかった」と言ってしまう。
+  // 0.16.0 R122（rv55 軽い 5）: ここの git も gitBuf の見張りを通す（止まった git describe は rev-list へ落ちずに、その git の引数を言って落ちる）
   if (argv.includes('--base-tag')) {
     try {
-      base = require('child_process')
-        .execFileSync('git', ['describe', '--tags', '--abbrev=0'], { cwd: ROOT }).toString().trim();
-    } catch (_) {
-      base = require('child_process')
-        .execFileSync('git', ['rev-list', '--max-parents=0', 'HEAD'], { cwd: ROOT }).toString().trim().split('\n')[0];
+      base = git(['describe', '--tags', '--abbrev=0']).trim();
+    } catch (e) {
+      if (e && e.gitStall) throw e;
+      base = git(['rev-list', '--max-parents=0', 'HEAD']).trim().split('\n')[0];
     }
   }
   const head = argv.includes('--staged') ? 'INDEX' : (argv.includes('--head') ? arg('--head') : null);

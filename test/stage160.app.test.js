@@ -3468,3 +3468,113 @@ test('R120 (c)・MQ3: 右端の［＋］の末に［作成日時］［作成者�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---- R122（rv55 の直し。f263b3c..201e21d の点検）
+// rv55 重要 1: R120 の「本文の表の中の引っ張りは表のもの」で、本文の行の ⠿ とサイドバーのページの引っ張りまで、表の上で落とせなくなった
+// （表の上は落とす印が出ず、dropEffect も none のまま）。本文の行・ページを引っ張っているときだけは、表の上でも #pNote の受け口が扱う
+const dropRig = (call) => {
+  const s = twoInline(call);
+  const b3 = call('block.insert', { pageId: s.P, afterBlockId: s.r2, type: 'paragraph' }).blockId;
+  call('block.update', { pageId: s.P, blockId: b3, patch: { text: 'さんの段' } });
+  const Q = call('page.create', {}).id;
+  call('page.setTitle', { id: Q, title: 'よその頁' });   // 白紙のページの題名（D77 の会議の題名でない）
+  return { ...s, b3, Q };
+};
+const rectRows = (box) => box.querySelectorAll('.blk').forEach((e, i) => { e.getBoundingClientRect = () => ({ top: i * 10, height: 10, bottom: i * 10 + 10, left: 100, right: 200, width: 100 }); });
+test('R122・rv55 重要 1: 本文の行の ⠿ を本文の表の上へ引っ張ると、#pNote の受け口が落とす印を出し（dropEffect move）、落とすと blockMove の1回', T, async () => {
+  const l = await openDb({ before: dropRig });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const box = $(l, 'pNote');
+    rectRows(box);
+    const el = bodyRow(l, l.b3);
+    const dt = { dropEffect: 'none', effectAllowed: '', data: {}, setData(k, v) { this.data[k] = v; }, types: ['text/plain'] };
+    el.dispatchEvent({ type: 'dragstart', target: el, clientX: 100, dataTransfer: dt });
+    const target = hostOf(l, l.r2).querySelectorAll('.dbrow').find((r) => r.dataset.id);
+    assert.ok(target, '表の行が無い');
+    let prevented = 0;
+    const over = { target, clientX: 100, clientY: 12, dataTransfer: dt, preventDefault() { prevented += 1; } };
+    box.ondragover(over);
+    assert.ok(prevented > 0, '本文の行を表の上へ引っ張ると #pNote が preventDefault しない（落とせない）');
+    assert.strictEqual(dt.dropEffect, 'move', '本文の行を表の上へ引っ張ると dropEffect が move でない');
+    assert.strictEqual(box.querySelectorAll('.dropmark').length, 1, '本文の行を表の上へ引っ張ると落とす印が出ない');
+    await box.ondrop({ ...over, preventDefault() {} }); await l.drain(300);
+    assert.deepStrictEqual(l.called('blockMove').map((c) => c.args.slice(0, 3)), [[l.P, l.b3, { afterId: l.r1 }]], '表の上へ落とした本文の行が動かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('R122・rv55 重要 1: サイドバーのページを本文の表の上へ引っ張ると、#pNote の受け口が落とす印を出し、落とすと pageMove の1回（表の中の引っ張りは表のまま: R120 の I-1 のテスト）', T, async () => {
+  const l = await openDb({ before: dropRig });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const box = $(l, 'pNote');
+    rectRows(box);
+    const dt = pageDt();
+    sideRow(l, l.Q).dispatchEvent({ type: 'dragstart', target: sideRow(l, l.Q), clientX: 100, dataTransfer: dt });
+    const target = hostOf(l, l.r2).querySelector('.dbcolh');
+    assert.ok(target, '表の見出しが無い');
+    let prevented = 0;
+    const over = { target, clientX: 100, clientY: 12, dataTransfer: dt, preventDefault() { prevented += 1; } };
+    box.ondragover(over);
+    assert.ok(prevented > 0 && box.querySelectorAll('.dropmark').length === 1, 'サイドバーのページを表の上へ引っ張ると落とす印が出ない');
+    await box.ondrop({ ...over, preventDefault() {} }); await l.drain(); await l.drain(300);
+    assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[l.Q, l.P, undefined, { afterId: l.r1 }]], '表の上へ落としたサイドバーのページが動かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv55 重要 2: 本文の表の頭の題名の欄は、表を描く dbBind の外（離れたときの受け口）なので、最後に押した表（dbSt）が別の表だと、書いた後の読み直しが
+// その別の表のデータベースになり、同じデータベースのほかの表（リンクドビュー）の題名が古いまま
+test('R122・rv55 重要 2: インラインの表の題名を変えると、2つ目の表を最後に押していても、その表から読み直し、同じデータベースのリンクドビューの題名の欄と表の名前も替わる', T, async () => {
+  const l = await openDb({ before: (call) => {
+    const s = twoInline(call);
+    const L = call('block.insertDbView', { pageId: s.P, afterId: s.r2, db: s.D1 }).blockId;
+    return { ...s, L };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    assert.strictEqual(hostOf(l, l.L).querySelector('.dbtitle').value, 'いちの表', '前提: リンクドビューの題名');
+    const c2 = hostOf(l, l.r2).querySelectorAll('.dbrow').find((r) => r.dataset.id).querySelectorAll('.dbcell').find((c) => c.dataset.col === 'title');
+    await clickEl(l, c2, 120);   // 今の表 = 2つ目の表（別のデータベース）
+    const ed = hostOf(l, l.r2).querySelector('.dbedit');
+    if (ed) await press(l, ed, { key: 'Escape' });
+    const t1 = hostOf(l, l.r1).querySelector('.dbtitle');
+    t1.value = 'あたらしい表';
+    const n = l.called('dbView').length;
+    t1.dispatchEvent({ type: 'blur' }); await l.drain(300);
+    assert.deepStrictEqual(l.called('dbSetTitle').map((c) => c.args), [[l.D1, 'あたらしい表']]);
+    // 書いた表から先に読み直す（R120 (f)。最後に押した2つ目の表からでない）
+    assert.strictEqual((l.called('dbView')[n] || { args: [] }).args[0], l.D1, '題名を変えた後に、題名を変えた表でなく最後に押した表から読み直した');
+    const h = hostOf(l, l.L);
+    assert.strictEqual(h.querySelector('.dbtitle').value, 'あたらしい表', '同じデータベースのリンクドビューの題名の欄が古いまま');
+    assert.strictEqual(h.querySelector('.dbgrid').getAttribute('aria-label'), 'データベース『あたらしい表』のリンクドビュー', '同じデータベースのリンクドビューの表の名前が古いまま');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv55 軽い 3: 書いた後の読み直しが同じデータベースの表だけで、リレーションでつないだデータベースの表（相手の行の題名・両側の列）が古いまま。
+// 画面の本文の表は全部読み直す（印 sig が同じ表は読み直しの1回だけで描き直さない）
+test('R122・rv55 軽い 3: 本文の2つの表（1つ目の列が2つ目のデータベースへのリレーション）。2つ目の表で行の題名を変えると、1つ目の表のリレーションのセルも替わる', T, async () => {
+  const l = await openDb({ before: (call) => {
+    const s = twoInline(call);
+    const v1 = call('db.get', { id: s.D1 }).views[0].id;
+    const v2 = call('db.get', { id: s.D2 }).views[0].id;
+    const x1 = call('db.view', { id: s.D1, viewId: v1, from: 0, count: 10 }).rows[0].id;
+    const x2 = call('db.view', { id: s.D2, viewId: v2, from: 0, count: 10 }).rows[0].id;
+    const rc = call('col.add', { db: s.D1, type: 'rel', name: 'つなぐ', target: s.D2, both: true }).col.id;
+    call('rel.link', { db: s.D1, id: x1, col: rc, ids: [x2] });
+    return { ...s, x1, x2, rc };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const relCell = () => hostOf(l, l.r1).querySelectorAll('.dbrow').find((r) => r.dataset.id === l.x1).querySelectorAll('.dbcell').find((c) => c.dataset.col === l.rc);
+    assert.deepStrictEqual(relCell().querySelectorAll('.dbrel').map((x) => x.textContent), ['📄 にの行'], '前提: リレーションのセル');
+    const c2 = hostOf(l, l.r2).querySelectorAll('.dbrow').find((r) => r.dataset.id === l.x2).querySelectorAll('.dbcell').find((c) => c.dataset.col === 'title');
+    await clickEl(l, c2, 120);
+    const ed = hostOf(l, l.r2).querySelector('.dbedit');
+    assert.ok(ed, '前提: 2つ目の表の題名を書いている');
+    ed.value = 'にの行かえ';
+    ed.onblur(); await l.drain(300);   // 最後の行の Enter は次の行を足すので、離れて書く
+    assert.deepStrictEqual(rowTitles(hostOf(l, l.r2)), ['にの行かえ'], '前提: 2つ目の表の題名が替わる');
+    assert.deepStrictEqual(relCell().querySelectorAll('.dbrel').map((x) => x.textContent), ['📄 にの行かえ'], 'つないだデータベースの表のリレーションのセルが古いまま');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

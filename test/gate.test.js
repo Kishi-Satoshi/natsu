@@ -124,6 +124,48 @@ test('R121: ps1WriterCandidates は writeFileSync と .ps1 の字の両方があ
   assert.ok(!head.includes('tools/write-ps1.js'), 'tools/write-ps1 を候補にした');
 });
 
+// 0.16.0 R122（rv55 軽い 4）: 持ち主の git の設定が color.ui=always（か color.grep=always）だと、git grep の名前に色の字が付き、候補が 0 になって
+// .ps1 の書き出し口の決まりが黙って外れていた。--no-color で色を付けさせない（設定は GIT_CONFIG_* の環境の変数で子の git にだけ渡す）
+test('R122・rv55 軽い 4: color.ui=always・color.grep=always の git の設定でも、ps1WriterCandidates は色の無いときと同じ候補を選ぶ（作業ツリー・HEAD・コミット予定）', { skip: !hasGit && 'git が無い', timeout: 30000 }, () => {
+  const R = require('../tools/risk');
+  const want = [null, 'HEAD', 'INDEX'].map((rev) => [...R.ps1WriterCandidates(rev)].sort());
+  assert.ok(want.every((w) => w.length >= 1), '見本が無い（このテストの前提が崩れた）');
+  const env = { ...process.env, GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'color.ui', GIT_CONFIG_VALUE_0: 'always', GIT_CONFIG_KEY_1: 'color.grep', GIT_CONFIG_VALUE_1: 'always' };
+  delete env.NODE_TEST_CONTEXT;
+  const code = "const R = require('./tools/risk'); console.log(JSON.stringify([null, 'HEAD', 'INDEX'].map((rev) => [...R.ps1WriterCandidates(rev)].sort())));";
+  const r = cp.spawnSync(process.execPath, ['-e', code], { cwd: ROOT, encoding: 'utf8', env });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.stdout.trim()), want, '色を付ける git の設定で候補が変わる（git grep に --no-color が無い）');
+});
+// 0.16.0 R122（rv55 軽い 5）: --base-tag（リリースのとき）の git describe・git rev-list は見張りの無い execFileSync だった。gitBuf を通して見張りを付け、
+// 止まった git は rev-list へ落ちずに、その git の引数を言って落ちる
+const baseTagRun = (mode) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-basetag-'));
+  const pre = path.join(dir, 'pre.js');
+  fs.writeFileSync(pre, "'use strict';\nconst cp = require('child_process'); const o = cp.execFileSync; const seen = [];\n"
+    + "cp.execFileSync = function (f, a, opt) { if (f === 'git') { seen.push([a[0], opt && opt.timeout]);"
+    + (mode === 'stall' ? " if (a[0] === 'describe') { const e = new Error('spawnSync git ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; }" : '')
+    + " } return o.call(this, f, a, opt); };\n"
+    + "process.on('exit', () => { process.stderr.write('\\nGITSEEN ' + JSON.stringify(seen) + '\\n'); });\n");
+  try {
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const r = cp.spawnSync(process.execPath, ['-r', pre, path.join('tools', 'risk.js'), '--base-tag', '--staged'], { cwd: ROOT, encoding: 'utf8', env, timeout: 120000 });
+    const m = /GITSEEN (.*)/.exec(r.stderr || '');
+    return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '', seen: m ? JSON.parse(m[1]) : null };
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+};
+test('R122・rv55 軽い 5: --base-tag の git もどれも見張り（timeout）付き。止まった git describe は rev-list へ落ちずに、その git の引数を言って落ちる', { skip: !hasGit && 'git が無い', timeout: 120000 }, () => {
+  const ok = baseTagRun('ok');
+  assert.ok(ok.seen && ok.seen.length > 0, `git の起動が見えない: ${ok.stderr.slice(-400)}`);
+  assert.ok(/基準=\S+/.test(ok.stdout), `--base-tag の基準が出ない: ${ok.stdout.slice(0, 400)}`);
+  assert.deepStrictEqual(ok.seen.filter(([, t]) => !(t > 0)).map(([c]) => c), [], '見張りの無い git がある');
+  const stall = baseTagRun('stall');
+  assert.notStrictEqual(stall.status, 0, '止まった git describe で落ちない');
+  assert.match(stall.stderr, /git describe --tags --abbrev=0 が \d+ 秒で終わらない（止まった git）/, '止まった git の引数を言わない');
+  assert.ok(stall.seen && !stall.seen.some(([c]) => c === 'rev-list'), '止まった git describe を rev-list の道へ飲んだ');
+});
+
 test('N2・F9: 台帳にある意図した移動だけ WARN「意図した移動」。台帳に無い id・枠・ファイルの離脱は今までどおり BLOCK', () => {
   const R = require('../tools/risk');
   const before = '<section id="tabNotes" class="tab active"><div class="notes"><aside class="side"><input id="searchBox"><div id="plist"></div><button id="mtToggleBtn"></button><button id="mtDiscardBtn"></button><button id="fltAll"></button><button id="fltActions"></button><button id="fltFull"></button></aside><div class="page" id="pageWrap"><div id="pTitle"></div></div></div></section>';

@@ -140,6 +140,17 @@ test('R121: 元のままの確かめが時間切れなら、そのとき走っ�
   assert.strictEqual(M.BASE_TIMEOUT_MS, 900000, '元のままの見張りが R121 の 900 秒でない');
 });
 
+// 0.16.0 R122（rv55 軽い 9）: 元のままの確かめの「最後の出力」（output: 末の 8000 文字）に、ファイルごとの時間の報告の行（# natsu-file）が混ざり、
+// 200 のファイルの行で末が埋まって、赤いテストの出力が見えなくなる。報告の行は times にだけ持ち、最後の出力には入れない
+test('R122・rv55 軽い 9: 元のままの確かめが赤いとき、最後の出力に # natsu-file の行を入れない（テストの出力は残す。ファイルごとの時間は times に）', { timeout: 20000 }, async () => {
+  const r = await M.runAll({ root: fixtureRepo({ red: true }), jobs: 1, mutants: [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], why: 'x' }] });
+  assert.deepStrictEqual(r.map((x) => x.status), ['baseline-red']);
+  assert.deepStrictEqual(r[0].base.times.files.map((x) => x.file), ['test/add.test.js'], 'ファイルごとの時間が無い（このテストの前提が崩れた）');
+  assert.ok(!/# natsu-file /.test(r[0].output), `最後の出力に # natsu-file の行がある: ${r[0].output.split('\n').filter((x) => x.includes('natsu-file')).join(' / ')}`);
+  assert.match(r[0].output, /not ok \d+ - 足し算/, '最後の出力に赤いテストの TAP が無い');
+  assert.ok(!/# natsu-file /.test(M.reportLines(r).join('\n')), '報告に # natsu-file の行がある');
+});
+
 test('G3・F10: 元のテストが赤なら、変異を試さずに止める（何でも「殺した」に見えるため）', { timeout: 20000 }, async () => {
   const r = await M.runAll({ root: fixtureRepo({ red: true }), jobs: 1, mutants: [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], why: 'x' }] });
   assert.deepStrictEqual(r.map((x) => x.status), ['baseline-red']);
@@ -1454,6 +1465,7 @@ const IDS_160 = [
   'vw-load-same', 'vw-reread-own', 'vw-reread-empty', 'vw-undo-body',   // 0.16.0 R120（rv53 I-3・I-4）で表の末に足した行
   'vw-tables-note-count', 'vw-inline-title-empty', 'vw-rel-open-close', 'vw-drop-row-ups',   // 0.16.0 R120（rv53 の軽い 1・2・3・5）で表の末に足した行
   'vw-coladd-auto',   // 0.16.0 R120 (c)（MQ3）で表の末に足した行
+  'vw-body-drag-over', 'vw-body-drag-drop', 'vw-title-reload-own', 'vw-load-related',   // 0.16.0 R122（rv55 の重要 1・2・軽い 3）で表の末に足した行
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1483,7 +1495,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 R120（rv53 I-3・I-4）で意図して直した: 同じデータベースの表の読み直し・ゴミ箱から戻した行・本文の表の Ctrl+Z の4つを表の末に足した（vw- 40）
   // 0.16.0 R120（rv53 の軽い 1・2・3・5）で意図して直した: 10 の知らせ・題名の欄・選びの窓の Ctrl+Enter・行の中のページの祖先の4つを表の末に足した（vw- 44）
   // 0.16.0 R120 (c)（MQ3）で意図して直した: 右端の［＋］の末の5つ（vw-coladd-auto）を表の末に足した（vw- 45）
-  assert.strictEqual(rows.length, 126, '計画の 0.16.0 の表（tb- 81・vw- 45）が読めない');
+  // 0.16.0 R122（rv55 の重要 1・2・軽い 3）で意図して直した: 表の上の本文の引っ張り2つ・題名の読み直し・つないだデータベースの表の読み直しの4つを表の末に足した（vw- 49）
+  assert.strictEqual(rows.length, 130, '計画の 0.16.0 の表（tb- 81・vw- 49）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');

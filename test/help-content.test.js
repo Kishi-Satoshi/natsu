@@ -1042,3 +1042,18 @@ test('R120 (c)・MQ3: find/database の列の種類の表に［作成日時］�
   assert.deepStrictEqual(rows.slice(-6), ['［リレーション］', '［作成日時］', '［作成者］', '［最終更新日時］', '［最終更新者］', '［ID］']);
   assert.ok(ek7Sec(db, 'columns').includes('［作成日時］・［作成者］・［最終更新日時］・［最終更新者］・［ID］へ・から変えることもできません。'), '5つの種類へ・から変えられないことが無い');
 });
+
+// 0.16.0 R122（rv55 軽い 6・7・8）: 記事の文をコードに合わせた。行のチェックはいつも出ていて、全部を選ぶチェックは見出しの行の頭（題名の列の見出しでない）。
+// 並べ替えの空の値は最後だが、チェックの列は昇順でチェックの無い行が先（src/dbView.js の compareCells）。ページを動かしたのは Ctrl+Z で戻らないが、
+// もう本文に行のあるページをその本文へ落としたときは本文の行の block.move（R49）で戻せる
+test('R122・rv55 軽い 6・7・8: find/database の行の選び（行の頭のチェック・表の見出しの行の頭のチェック）・並べ替えのチェックの列・find/page-tree の Ctrl+Z で戻る引っ張り', { timeout: 5000 }, () => {
+  const db = read(fileOf('find/database'));
+  const table = ek7Sec(db, 'table');
+  assert.ok(!table.includes('行に乗せると出るチェック') && !table.includes('題名の列の見出しのチェック'), 'find/database に前の行の選びの文が残る');
+  assert.ok(table.includes('行の頭のチェックで行を選びます。表では、見出しの行の頭のチェックで全部の行を選びます。'), 'find/database に行の頭のチェックと見出しの行の頭のチェックが無い');
+  const sf = ek7Sec(db, 'sort-filter');
+  assert.ok(sf.includes('空の値は、いつも最後に並びます（［チェック］の列は、昇順でチェックの無い行が先、降順でチェックのある行が先です）。'), 'find/database の並べ替えにチェックの列の並びが無い');
+  const tree = read(fileOf('find/page-tree'));
+  assert.ok(tree.includes('ページを動かしたのは [[Ctrl+Z]] では戻りません。引っ張り直すか、［移動先…］ で戻してください。'), 'find/page-tree の戻らない文が無い');
+  assert.ok(tree.includes('開いている白紙のページの本文にもう行のあるページを、サイドバーからその本文へ落としたときは、本文の行を ⠿ で動かしたのと同じで、[[Ctrl+Z]] で戻せます。'), 'find/page-tree に Ctrl+Z で戻せる引っ張りが無い');
+});

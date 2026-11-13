@@ -108,6 +108,15 @@ function runTests(cwd, tests, timeoutMs, pattern, keepAll = false) {
     const chunks = [];
     const errs = [];
     const keep = (b) => { output = (output + b.toString('utf8')).slice(-OUTPUT_KEEP); };
+    // 0.16.0 R122（rv55 軽い 9）: ファイルごとの時間の報告の行（# natsu-file。times にだけ持つ）は最後の出力に入れない（200 のファイルの行で末の
+    // 8000 文字が埋まり、赤いテストの出力が見えなくなる）。行の途中で切れた塊は、行の終わりが来てから見る
+    let errPart = '';
+    const keepErr = (b) => {
+      const t = errPart + b.toString('utf8');
+      const cut = t.lastIndexOf('\n') + 1;
+      errPart = t.slice(cut);
+      keep(t.slice(0, cut).split('\n').filter((x) => !/^# natsu-file /.test(x)).join('\n'));
+    };
     const only = typeof pattern === 'string' ? [`--test-name-pattern=${pattern}`] : [];
     const rep = keepAll ? ['--test-reporter=tap', '--test-reporter-destination=stdout', `--test-reporter=${FILE_TIMES}`, '--test-reporter-destination=stderr'] : ['--test-reporter=tap'];
     const t0 = Date.now();
@@ -115,10 +124,12 @@ function runTests(cwd, tests, timeoutMs, pattern, keepAll = false) {
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
     child.stdout.on('data', (b) => { if (keepAll) chunks.push(b); keep(b); });
-    child.stderr.on('data', (b) => { if (keepAll) errs.push(b); keep(b); });
+    child.stderr.on('data', (b) => { if (keepAll) errs.push(b); keepErr(b); });
     const tapNow = () => (keepAll ? Buffer.concat(chunks).toString('utf8') : output);
     const done = (code, extra = '') => {
       clearTimeout(timer);
+      if (errPart && !/^# natsu-file /.test(errPart)) keep(errPart);   // 行の終わりの無い末の行
+      errPart = '';
       const times = keepAll ? fileTimesOf(Buffer.concat(errs).toString('utf8')) : null;
       resolve({ code, timedOut, output: output + extra, tap: tapNow(), times, ms: Date.now() - t0 });
     };

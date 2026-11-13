@@ -10131,7 +10131,7 @@
     const was = String(st.info.title || '');
     // 0.16.0 直し（rv53 軽い 2・R120）: 空にして離れたら元の題名に戻す（ページの頭の題名と同じ。送らない）。断られたら欄も元の題名に戻す
     if (!v || v === was) { st.head.title.value = was; return; }
-    const r = await dbWrite(() => window.koeApp.dbSetTitle(st.id, v));
+    const r = await dbWrite(() => window.koeApp.dbSetTitle(st.id, v), null, st);   // 0.16.0 直し（rv55 重要 2・R122）: 題名の欄は dbBind の外。読み直すのはこの表のデータベース（最後に押した表でない）
     if (!r && dbOnScreen(st)) st.head.title.value = String(st.info.title || '');
     if (r && dbOnScreen(st)) { st.info = { ...st.info, title: v }; dbHeadPaint(st); if (st.parts && st.parts.grid) st.parts.grid.setAttribute('aria-label', dbGridLabel(st)); }
     refreshList();
@@ -10626,8 +10626,7 @@
     if (ev.key === 'ArrowDown' || ev.key === 'Enter') { ev.preventDefault(); const c = dbColsOf(st)[0]; if (c) dbSelectAt(0, c.col.id); }
   }
   // 書く命令を送って表を読み直す（断られたら一言。答えを返す）。送っている間は Ctrl+Z が待つ（inFlight）
-  async function dbWrite(send, bad) {
-    const st = dbSt;
+  async function dbWrite(send, bad, st = dbSt) {
     let r = null;
     try { r = await inFlight(send()); }
     catch (e) {
@@ -10640,10 +10639,12 @@
   }
   // 0.16.0 直し（rv53 I-3 (a)・R120）: 書いた・戻した表を読み直し、同じデータベースを見せているほかの表（本文のインラインの表・リンクドビュー）も読み直す。
   // 書いた表から先に読み、終わったら今の表（dbSt）を書いた表に戻す（書いた表が画面に無ければ前の今の表のまま）
+  // 0.16.0 直し（rv55 軽い 3・R122）: リレーションでつないだデータベースの表（相手の行の題名・両側の列の値）も変わるので、画面のほかの表も全部読み直す
+  // （印 sig が同じ表は、印を見る読みの1回だけで描き直さない。本文の表は 10 まで）
   async function dbLoadSame(st) {
     const was = dbSt;
     if (dbUse(st)) await dbLoad(true, st);
-    for (const o of [...dbTables.values()]) if (o !== st && st && o.id === st.id && dbOnScreen(o)) await dbLoad(true, o);
+    for (const o of [...dbTables.values()]) if (o !== st && st && dbOnScreen(o)) await dbLoad(true, o);
     if (!dbUse(st) && dbOnScreen(was)) dbSt = was;
   }
   // ---- セルの書き手（DV-1 は文字の種類だけ。Enter で決める・Esc でやめる・Tab で右へ。変換確定の Enter は抜ける: imeEnter）
@@ -14441,7 +14442,9 @@
   // 0.14.0 MB-4: 行の欄の引っ張って落とす受け口（要約の欄とメモの欄で同じ。動かす・複製は欄の鍵の口へ）
   function wireDrop(box) {
     box.ondragover = (ev) => {
-      if (dbInHost(ev)) return;   // 0.16.0 直し（rv53 I-1・R120）: 本文の表の中の引っ張りは表のもの（上ってきた dragover で dropEffect を none にしない）
+      // 0.16.0 直し（rv53 I-1・R120）: 本文の表の中の引っ張りは表のもの（上ってきた dragover で dropEffect を none にしない）。
+      // 0.16.0 直し（rv55 重要 1・R122）: 本文の行の ⠿・ページ（サイドバー・本文の子ページの行）を引っ張っているときは、表の上でも本文の受け口が扱う
+      if (dbInHost(ev) && !dragBlockId && !pageDrag) return;   // 表の上の dragover
       // EB-4 直し（M3・R115）: 外から引っ張ってきたものは既定の落としを止める（Chromium が HTML のまま行に入れる）。
       // EB-5 直し（R117）: 行の文の上の素の文字だけは落とせる（ondrop が素の文字を落とした所へ入れる）。ファイル・行の外は落とせない形
       // 0.15.0 PR-2 直し（R44）: 今の白紙のページの子（行の無い子）を引っ張っているときは、行と同じ落とす印を出す（下の印の描き方のまま）
@@ -14465,7 +14468,7 @@
       if (typeof mark.style.setProperty === 'function') mark.style.setProperty('--dropx', `${dx}px`);
     };
     box.ondrop = async (ev) => {
-      if (dbInHost(ev)) return;   // 0.16.0 直し（rv53 I-1・R120）: 本文の表の中の落としは表のもの
+      if (dbInHost(ev) && !dragBlockId && !pageDrag) return;   // 0.16.0 直し（rv53 I-1・R120・rv55 重要 1・R122）: 本文の表の中の落としは表のもの（本文の行・ページの落としは本文のもの）
       // 0.15.0 PR-2 直し（R44・決めたこと 55）: 今の白紙のページの子を落としたら、その所（上に見えている行の後ろ・右へずらすと上の行の子の頭）に行を置く
       if (!dragBlockId && kidDropOk(box, ev)) {
         if (typeof ev.preventDefault === 'function') ev.preventDefault();
