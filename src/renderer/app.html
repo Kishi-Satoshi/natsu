@@ -14413,6 +14413,7 @@
   // 0.14.0 MB-4: 行の欄の引っ張って落とす受け口（要約の欄とメモの欄で同じ。動かす・複製は欄の鍵の口へ）
   function wireDrop(box) {
     box.ondragover = (ev) => {
+      if (dbInHost(ev)) return;   // 0.16.0 直し（rv53 I-1・R120）: 本文の表の中の引っ張りは表のもの（上ってきた dragover で dropEffect を none にしない）
       // EB-4 直し（M3・R115）: 外から引っ張ってきたものは既定の落としを止める（Chromium が HTML のまま行に入れる）。
       // EB-5 直し（R117）: 行の文の上の素の文字だけは落とせる（ondrop が素の文字を落とした所へ入れる）。ファイル・行の外は落とせない形
       // 0.15.0 PR-2 直し（R44）: 今の白紙のページの子（行の無い子）を引っ張っているときは、行と同じ落とす印を出す（下の印の描き方のまま）
@@ -14436,6 +14437,7 @@
       if (typeof mark.style.setProperty === 'function') mark.style.setProperty('--dropx', `${dx}px`);
     };
     box.ondrop = async (ev) => {
+      if (dbInHost(ev)) return;   // 0.16.0 直し（rv53 I-1・R120）: 本文の表の中の落としは表のもの
       // 0.15.0 PR-2 直し（R44・決めたこと 55）: 今の白紙のページの子を落としたら、その所（上に見えている行の後ろ・右へずらすと上の行の子の頭）に行を置く
       if (!dragBlockId && kidDropOk(box, ev)) {
         if (typeof ev.preventDefault === 'function') ev.preventDefault();

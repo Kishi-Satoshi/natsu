@@ -3217,3 +3217,27 @@ test('R119 (a)・M4: ▸・Alt+→（dbSubKey は dbSubToggle を通る）・［
   const script = HTML.slice(HTML.indexOf('<script>'));
   assert.deepStrictEqual([...script.matchAll(/dbSubOpen\([^)]*\)\.add\(|\bset\.add\(rowId\)/g)].map((m) => m[0]), [], '開いた行の並びに subOpenAdd を通らずに足す所がある');
 });
+
+// ---------------------------------------------------------------- 0.16.0 直し（rv53 の点検 4721f5c^..f263b3c。R120）
+// rv53 I-1: 本物の窓では、本文の表の中の dragover・drop が #pNote の受け口へ上る（表の受け口は stopPropagation しない）。
+// 偽の DOM は上らないので、表の中の部品を target にして #pNote の受け口を直に呼ぶ
+test('R120・rv53 I-1: 本文の表（インライン・リンクドビュー）の中の dragover・drop は #pNote の受け口が触らない（dropEffect を none にしない・preventDefault しない）', T, async () => {
+  const l = await openDb({ before: twoInline });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const box = $(l, 'pNote');
+    const h = inlineOf(l)[0];
+    for (const target of [h.querySelectorAll('.dbrow').find((r) => r.dataset.id), h.querySelector('.dbtab'), h.querySelector('.dbcolh')]) {
+      assert.ok(target, '表の部品が無い');
+      const dt = { dropEffect: 'move', effectAllowed: 'move', types: ['text/plain'], getData: () => 'x' };
+      let prevented = 0;
+      const ev = { target, clientX: 10, clientY: 10, dataTransfer: dt, preventDefault() { prevented += 1; } };
+      box.ondragover(ev);
+      assert.strictEqual(dt.dropEffect, 'move', `表の中（${target.className}）の dragover で #pNote が dropEffect を変えた`);
+      await box.ondrop(ev); await l.drain(60);
+      assert.strictEqual(prevented, 0, `表の中（${target.className}）の dragover・drop で #pNote が preventDefault した`);
+    }
+    assert.deepStrictEqual(l.called('blockMove').concat(l.called('blocksMove'), l.called('pageMove')), [], '表の中の落としで本文の行を動かした');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

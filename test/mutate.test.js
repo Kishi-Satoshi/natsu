@@ -1415,6 +1415,7 @@ const IDS_160 = [
   'vw-table-own', 'vw-inline-title',   // 0.16.0 DL-1 (2a)（R115）で表の末に足した行
   'vw-linked-views', 'vw-linked-pick', 'vw-linked-mount', 'vw-inline-menu', 'vw-db-tables-note', 'vw-dbview-dup', 'vw-db-page-title',   // 0.16.0 DL-1 (2b)（R116）で表の末に足した行
   'vw-sub-open-cap', 'vw-sub-open-wire',   // 0.16.0 R119 (a)（rv51 M4）で表の末に足した行
+  'vw-body-table-drag',   // 0.16.0 R120（rv53 の直し）で表の末に足した行
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1439,7 +1440,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 DL-1 (2a)（R115）で意図して直した: 1つのページの2つの表の状態とインラインの表の題名の2つ（vw-table-own・vw-inline-title）を表の末に足した（vw- 25）
   // 0.16.0 DL-1 (2b)（R116）で意図して直した: リンクドビュー・/リンクドビュー の窓・行のメニュー・知らせ2つ・データベースのページの題名の7つを表の末に足した（vw- 32）
   // 0.16.0 R119 (a)（rv51 M4）で意図して直した: 開いたサブアイテムの行の上限の2つ（vw-sub-open-cap・vw-sub-open-wire）を表の末に足した（vw- 34）
-  assert.strictEqual(rows.length, 115, '計画の 0.16.0 の表（tb- 81・vw- 34）が読めない');
+  // 0.16.0 R120（rv53 の直し）で意図して直した: 本文の表の中の引っ張り（vw-body-table-drag）を表の末に足した（vw- 35）
+  assert.strictEqual(rows.length, 116, '計画の 0.16.0 の表（tb- 81・vw- 35）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');
