@@ -1283,7 +1283,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.16.0 直し（R128）: データベースのメニュー・窓を見える所に収める（dbMenuSpot・dbSeen・置き直し）・メニューの項目と［かつ］［または］の CSS・本文の表の行は中を切らない・
   // 持ち主の答え MQ10 の Ctrl+Shift+N の説明（SHORTCUTS の写し）。変わる画面はデータベースの画面（NEW_160・RETAKE）と設定の近道の表の4枚（RETAKEN_160・RETAKE）。
   // 値を今の app.html に合わせた（前の値は 4593307e…）
-  assert.strictEqual(sha, '1b2a32c706c948569f7c01acf0f2408264fcd9366fecf21f892e4784e179d486',
+  // 0.16.0 直し（R129。rv57）: データベースのメニュー・窓・選びの窓の幅を中身の幅に（CSS）・置いた所と高さの上限を付けた後に測り直す・開いた側のまま置き直す・
+  // ［列の値を変える ▸］と行のページの選びの窓も置く・長い名前の項目の「…」と吹き出し。変わる画面はデータベースの画面（NEW_160・RETAKE）。値を今の app.html に合わせた（前の値は 1b2a32c7…）
+  assert.strictEqual(sha, 'ccdf035eb265894f77664e2db63bfd19a0ee85e5114ed3d5ec4f9f6fa9f8a2b8',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1646,6 +1648,29 @@ test('R128・浮く箱の切れ（OVERFLOW_PROBE）: データベースのメニ
   // 前の形の答え（cut の無い答え）はそのまま読める
   assert.strictEqual(SH.judgeOverflow({ sw: 560, cw: 560, offenders: [] }).ok, true);
   assert.strictEqual(SH.judgeOverflow({ sw: 560, cw: 560, offenders: [], cut: ['div.dbmenu'] }).ok, false);
+});
+// 0.16.0 直し（R129。rv57 軽い 6）: 切れの見張りは軸ごと（overflow-x だけが clip で overflow-y が visible の祖先は横だけ切る）。描くのを省く枠・clip は
+// overflow-clip-margin の分だけ外まで描く（本文の行 .blk は 8px）。捲る枠（auto など）は clip margin を使わない
+test('R129・浮く箱の切れの軸と clip margin（OVERFLOW_PROBE）: 横だけ切る祖先は縦にはみ出しても切れでない・描くのを省く枠は overflow-clip-margin の内なら切れでない', { timeout: 5000 }, () => {
+  const vm = require('node:vm');
+  const POP = /(^|\s)(dbmenu|dbpick)(\s|$)/;
+  const el = (tag, cls, rect, style = {}, parent = null, more = {}) => ({ tagName: tag.toUpperCase(), id: '', className: cls, style, parentElement: parent,
+    getBoundingClientRect: () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height }), matches: (sel) => sel === '.dbmenu, .dbpick' && POP.test(cls), ...more });
+  const run = (pstyle, rect) => {
+    const body = el('body', '', { left: 0, top: 0, width: 1120, height: 780 });
+    const p = el('div', 'blk', { left: 300, top: 100, width: 700, height: 300 }, pstyle, body, { clientLeft: 0, clientTop: 0, clientWidth: 700, clientHeight: 300 });
+    const pop = el('div', 'dbmenu', rect, { position: 'absolute' }, p);
+    const doc = { documentElement: { scrollWidth: 1120, clientWidth: 1120 }, body, querySelectorAll: () => [p, pop] };
+    const win = { innerWidth: 1120, innerHeight: 780, getComputedStyle: (e) => ({ overflowX: 'visible', overflowY: 'visible', visibility: 'visible', display: 'block', position: 'static', contentVisibility: 'visible', contain: 'none', overflowClipMargin: '0px', ...e.style }) };
+    return Array.from(vm.runInNewContext(SH.OVERFLOW_PROBE, { document: doc, window: win, getComputedStyle: win.getComputedStyle }).cut);
+  };
+  const clipX = { overflowX: 'clip', overflowY: 'visible' };
+  assert.deepStrictEqual(run(clipX, { left: 400, top: 300, width: 200, height: 250 }), [], '横だけ切る祖先の下へ出た（縦は切られない）浮く箱を切れにした');
+  assert.deepStrictEqual(run(clipX, { left: 900, top: 120, width: 200, height: 100 }), ['div.dbmenu'], '横だけ切る祖先の右で切れた浮く箱を集めない');
+  const cv = { contentVisibility: 'auto', overflowClipMargin: '8px' };
+  assert.deepStrictEqual(run(cv, { left: 400, top: 200, width: 200, height: 205 }), [], '描くのを省く枠の overflow-clip-margin の内（5px）を切れにした');
+  assert.deepStrictEqual(run(cv, { left: 400, top: 200, width: 200, height: 212 }), ['div.dbmenu'], '描くのを省く枠の overflow-clip-margin の外（12px）を集めない');
+  assert.deepStrictEqual(run({ overflowX: 'auto', overflowY: 'auto', overflowClipMargin: '8px' }, { left: 400, top: 200, width: 200, height: 205 }), ['div.dbmenu'], '捲る枠に clip margin を使った');
 });
 test('R128・近道の表のデータベースの行の画面: settings-shortcuts-db-light は設定を開き、近道の表の見出し「データベースの表のセルを選んでいるとき」まで捲る（足した画面・取り直し待ち。取り直しは 24 枚）。サブアイテムの画面は開いた子のある行を両方開く', { timeout: 5000 }, () => {
   const s = SH.SCREENS.find((x) => x.name === 'settings-shortcuts-db-light');

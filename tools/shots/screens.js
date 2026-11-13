@@ -1597,6 +1597,7 @@ function judgePerf(results) {
  * 横に流れる帯（overflow-x が visible でない祖先）の中で切られて見えない部分は数えない。body・html は祖先として切らない（窓の端で切られるのが「はみ出し」）
  * 0.16.0 直し（R128）: cut は、データベースの浮く箱（.dbmenu・.dbpick。列のメニュー・ビューの設定の窓・セルの選びの窓）のうち、窓か中を切る祖先
  *（捲る枠は捲り棒を除いた内側・content-visibility: auto・contain の paint は枠）の端を越えて切れているもの（取り直しの画面で、捲る枠に切られた列のメニューを見逃した）
+ * 0.16.0 直し（R129。rv57 軽い 6）: 切るのは軸ごと（overflow-x だけが clip なら横だけ）。描くのを省く枠と clip は overflow-clip-margin の分だけ外まで描く（捲る枠は使わない）
  */
 const OVERFLOW_PROBE = `(() => {
   const W = window.innerWidth;
@@ -1629,13 +1630,15 @@ const OVERFLOW_PROBE = `(() => {
     let L = 0, T = 0, R = W, B = H;
     for (let p = e.parentElement; p && p !== document.body && p !== de; p = p.parentElement) {
       const ps = cs(p);
-      const scroll = ps.overflowX !== 'visible' || ps.overflowY !== 'visible';
       const paint = ps.contentVisibility === 'auto' || /paint|strict|content/.test(String(ps.contain || ''));
-      if (!scroll && !paint) continue;
+      const cx = paint || ps.overflowX !== 'visible', cy = paint || ps.overflowY !== 'visible';
+      if (!cx && !cy) continue;
+      const m = parseFloat(ps.overflowClipMargin) || 0;
+      const mx = ps.overflowX === 'visible' || ps.overflowX === 'clip' ? m : 0, my = ps.overflowY === 'visible' || ps.overflowY === 'clip' ? m : 0;
       const pr = p.getBoundingClientRect();
-      const l = pr.left + (scroll ? p.clientLeft || 0 : 0), t = pr.top + (scroll ? p.clientTop || 0 : 0);
-      L = Math.max(L, l); T = Math.max(T, t);
-      R = Math.min(R, l + (scroll ? p.clientWidth : pr.width)); B = Math.min(B, t + (scroll ? p.clientHeight : pr.height));
+      const l = pr.left + (p.clientLeft || 0), t = pr.top + (p.clientTop || 0);
+      if (cx) { L = Math.max(L, l - mx); R = Math.min(R, l + (p.clientWidth || pr.width) + mx); }
+      if (cy) { T = Math.max(T, t - my); B = Math.min(B, t + (p.clientHeight || pr.height) + my); }
     }
     if ((r.left < L - 0.5 || r.top < T - 0.5 || r.right > R + 0.5 || r.bottom > B + 0.5) && cut.length < 10) cut.push(label(e));
   }

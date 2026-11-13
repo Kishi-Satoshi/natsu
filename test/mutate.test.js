@@ -1468,6 +1468,11 @@ const IDS_160 = [
   // 0.16.0 R128（取り直しの画面の直し）で表の末に足した行
   'vw-menu-left-clamp', 'vw-menu-flip', 'vw-menu-seen', 'vw-menu-place-after', 'vw-panel-replace', 'vw-pick-replace', 'vw-dbmenu-mitem-css', 'vw-dbinline-paint',
   'vw-shots-cut', 'vw-shots-cut-judge', 'vw-shots-keys-screen',
+  // 0.16.0 R129（点検 rv57 の直し）で表の末に足した行
+  'vw-menu-measure-again', 'vw-menu-measure-scrollbar', 'vw-menu-width-css', 'vw-pick-width-css', 'vw-panel-width-css', 'vw-menu-spot-side', 'vw-panel-keep-side', 'vw-menu-maxh-reset',
+  'vw-pick-grow', 'vw-rel-grow', 'vw-date-grow', 'vw-pick-scroll-css', 'vw-setmenu-place', 'vw-setmenu-replace', 'vw-setmenu-writer-replace', 'vw-rp-pick-place',
+  'vw-dbmenu-maxwidth-css', 'vw-dbmenu-ellipsis-css', 'vw-dbmenu-title', 'vw-input-replace', 'vw-relcol-replace', 'vw-gone-replace', 'vw-viewadd-replace',
+  'vw-shots-cut-axis', 'vw-shots-cut-margin',
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1501,7 +1506,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 R123（0.15.1 を出した main の取り込み）で意図して直した: データベースの名前を変える［名前を変える］の2つを表の末に足した（vw- 51）
   // 0.16.0 R125（rv56 の直し）で意図して直した: データベースの行の［···］・無題のデータベースの名前の欄・残った本文の引っ張り・書いた後の今の表の4つを表の末に足した（vw- 55）
   // 0.16.0 R128（取り直しの画面の直し）で意図して直した: 浮く箱の置き方6つ・メニューの見た目2つ・撮る道具の切れの見張り2つと近道の表の画面1つの11を表の末に足した（vw- 66）
-  assert.strictEqual(rows.length, 147, '計画の 0.16.0 の表（tb- 81・vw- 66）が読めない');
+  // 0.16.0 R129（rv57 の直し）で意図して直した: 浮く箱の幅と測り直し・開いた側・育つ箱・置いていなかった箱・長い名前の項目・R128 の置き直し・撮る道具の切れの軸の25を表の末に足した（vw- 91）
+  assert.strictEqual(rows.length, 172, '計画の 0.16.0 の表（tb- 81・vw- 91）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');

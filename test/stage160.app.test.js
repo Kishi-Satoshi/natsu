@@ -3696,17 +3696,21 @@ test('R128・はみ出す浮く箱（置き方）: 押した部品の下に左�
   const h = { left: 300, top: 100 };
   const a = (left, top, w = 120, hh = 32) => ({ left, top, right: left + w, bottom: top + hh, width: w, height: hh });
   // 入る: 押した部品の下・左を揃える（箱を入れる所の中の位置）
-  assert.deepStrictEqual(dbMenuSpot(a(400, 400), h, { width: 180, height: 250 }, v), { left: 100, top: 332, maxHeight: 0 });
+  assert.deepStrictEqual(dbMenuSpot(a(400, 400), h, { width: 180, height: 250 }, v), { left: 100, top: 332, maxHeight: 0, side: 'down' });
   // 右を越える（見えていない右の列の見出しからも）: 見える所の右の 4px 内へ寄せる
-  assert.deepStrictEqual(dbMenuSpot(a(1000, 400), h, { width: 180, height: 250 }, v), { left: 621, top: 332, maxHeight: 0 });
-  assert.deepStrictEqual(dbMenuSpot(a(1300, 400), h, { width: 180, height: 250 }, v), { left: 621, top: 332, maxHeight: 0 });
+  assert.deepStrictEqual(dbMenuSpot(a(1000, 400), h, { width: 180, height: 250 }, v), { left: 621, top: 332, maxHeight: 0, side: 'down' });
+  assert.deepStrictEqual(dbMenuSpot(a(1300, 400), h, { width: 180, height: 250 }, v), { left: 621, top: 332, maxHeight: 0, side: 'down' });
   // 見える所より広い箱は左の端から（左の端より左へは出さない）
-  assert.deepStrictEqual(dbMenuSpot(a(400, 400), h, { width: 900, height: 100 }, v), { left: -36, top: 332, maxHeight: 0 });
+  assert.deepStrictEqual(dbMenuSpot(a(400, 400), h, { width: 900, height: 100 }, v), { left: -36, top: 332, maxHeight: 0, side: 'down' });
   // 下に入らず上に入る: 上に開く（下の端が押した部品の上）
-  assert.deepStrictEqual(dbMenuSpot(a(400, 700), h, { width: 180, height: 300 }, v), { left: 100, top: 300, maxHeight: 0 });
+  assert.deepStrictEqual(dbMenuSpot(a(400, 700), h, { width: 180, height: 300 }, v), { left: 100, top: 300, maxHeight: 0, side: 'up' });
   // どちらにも入らない: 下が広ければ下に開いて高さを下の残りに、上が広ければ見える所の上の端から上の残りまで
-  assert.deepStrictEqual(dbMenuSpot(a(400, 300), h, { width: 300, height: 600 }, v), { left: 100, top: 232, maxHeight: 444 });
-  assert.deepStrictEqual(dbMenuSpot(a(400, 500), h, { width: 300, height: 600 }, v), { left: 100, top: -60, maxHeight: 460 });
+  assert.deepStrictEqual(dbMenuSpot(a(400, 300), h, { width: 300, height: 600 }, v), { left: 100, top: 232, maxHeight: 444, side: 'down' });
+  assert.deepStrictEqual(dbMenuSpot(a(400, 500), h, { width: 300, height: 600 }, v), { left: 100, top: -60, maxHeight: 460, side: 'up' });
+  // 0.16.0 直し（R129。rv57 軽い 3）: 返すのは開いた側（side）も。開いた後の置き直しは、開いた側を渡すとその側のまま高さだけを見える所までにする（上に入っても下のまま）
+  assert.deepStrictEqual(dbMenuSpot(a(400, 500), h, { width: 300, height: 400 }, v, 'down'), { left: 100, top: 432, maxHeight: 244, side: 'down' });
+  assert.deepStrictEqual(dbMenuSpot(a(400, 500), h, { width: 300, height: 200 }, v, 'up'), { left: 100, top: 200, maxHeight: 0, side: 'up' });
+  assert.deepStrictEqual(dbMenuSpot(a(400, 300), h, { width: 300, height: 400 }, v, 'up'), { left: 100, top: -60, maxHeight: 260, side: 'up' });
 });
 // 偽の DOM の要素の大きさ（浮く箱は作ってから測るので、印で決める。画面に入れる前は 0）と、見える所（窓の幅・高さと捲る枠 #pageWrap の内側）を本物の形に置く
 function seenRig(l, size) {
@@ -3716,7 +3720,11 @@ function seenRig(l, size) {
   Element.prototype.getBoundingClientRect = function rect() {
     const cls = String(this.className || '');
     if (!attached(this)) return base.call(this);   // 本物と同じく、画面に入れる前の箱は大きさ 0
-    for (const [k, s] of Object.entries(size)) if (cls.split(/\s+/).includes(k)) return { left: 0, top: 0, right: s.width, bottom: s.height, width: s.width, height: s.height, x: 0, y: 0 };
+    for (const [k, f] of Object.entries(size)) {   // 0.16.0 直し（R129）: 大きさは要素の関数でもよい（置いた left・中身・高さの上限で変わる箱）
+      if (!cls.split(/\s+/).includes(k)) continue;
+      const s = typeof f === 'function' ? f(this) : f;
+      return { left: 0, top: 0, right: s.width, bottom: s.height, width: s.width, height: s.height, x: 0, y: 0 };
+    }
     return base.call(this);
   };
   l.window.innerWidth = 1120; l.window.innerHeight = 780;
@@ -3746,7 +3754,8 @@ test('R128・はみ出す浮く箱（画面）: 右の端の列の見出しの�
     assert.deepStrictEqual([p.style.left, p.style.top], ['501px', '200px'], '設定の窓が見える所に収まらない（右へはみ出すか、下に開いて切れる）');
     gear._rect = { left: 600, top: 300, width: 20, height: 20 };
     await clickEl(l, btnIn(p, '条件を足す'));
-    assert.deepStrictEqual([panel(l).style.left, panel(l).style.top], ['300px', '220px'], '設定の窓の中身を描き直しても置き直さない');
+    // 0.16.0 直し（R129。rv57 軽い 3）で意図して直した: 描き直しは開いた側（上）のまま置き直す（前は下に入れば下へ跳んだ: ['300px', '220px']）
+    assert.deepStrictEqual([panel(l).style.left, panel(l).style.top, panel(l).style.maxHeight], ['300px', '-60px', '260px'], '設定の窓の中身を描き直しても置き直さない');
     await clickEl(l, box(l).querySelector('.dbsetbtn'));   // ⚙ をもう一度押すと窓が閉じる
     assert.ok(!panel(l), '前提: 設定の窓が閉じない');
     // セルの選びの窓（選択の列のセル。右の端のセル）
@@ -3773,4 +3782,201 @@ test('R128・データベースのメニューの見た目（CSS）: 項目は�
   assert.strictEqual(S.declsFor(rules, '.dbhost', { at: '' }).position, 'relative', '本文の表のメニューの置き場所の基が表の行（.blk）のまま');
   assert.strictEqual(S.declsFor(rules, '.blk.dbinline', { at: '' })['content-visibility'], 'visible', '本文の表の行が中を切る（メニューが行の外で切れ、下の行の下に隠れる）');
   for (const r of rules) if (/\.dbmenu \.mitem|\.dbfop/.test(r.sel)) assert.ok(!r.nested, `${r.sel} が CSS のネストの中`);
+});
+// ================================================================ 0.16.0 直し（R129。点検 rv57 の重要と軽い 2〜5）
+// 浮く箱の大きさは、中身の見える要素の数で決める（中身が増えると高さが増える）。高さの上限（style.maxHeight）を置いた箱はその高さまで（本物と同じ）
+const shownIn = (e) => e.children.filter((c) => !c.hidden).reduce((n, c) => n + 1 + shownIn(c), 0);
+const grow = (w = 220) => (e) => { let h = 10 + 20 * shownIn(e); const mh = parseFloat(e.style.maxHeight); if (mh > 0) h = Math.min(h, mh); return { width: w, height: h }; };
+// 窓の下の近くの部品（上端 at）から上に開いた箱の、箱を入れる所（上端 base）の中の上端（今の中身の大きさで置いたとき）
+const upTop = (el, at, base = 100, w = 220) => `${at - grow(w)(el).height - base}px`;
+test('R129・浮く箱の幅（rv57 重要）: 右の端の近くで幅が縮んで高さが増える箱は、置いた所で測り直して上か下かを決める。メニュー・設定の窓・選びの窓の幅は表の入れ物の幅によらない（CSS）', T, async () => {
+  const l = await openDb({ before: withTypes });
+  // 本物の Chromium の形: 左の端（0）で測ると 456×44、右の端の近く（left 400）に置くと幅が縮んで字が折り返り 302×90（rv57 の測り）
+  const back = seenRig(l, { dbmenu: (e) => (parseFloat(e.style.left) > 300 ? { width: 302, height: 90 } : { width: 456, height: 44 }) });
+  try {
+    head(l, l.c3)._rect = { left: 1050, top: 690, width: 180, height: 32 };
+    await clickEl(l, head(l, l.c3));
+    assert.ok(menu(l), '前提: 列のメニューが開かない');
+    // 下の残りは 54（44 は入るが 90 は入らない）・上は 650: 置いた所の 302×90 で上に開く
+    assert.deepStrictEqual([menu(l).style.left, menu(l).style.top, menu(l).style.maxHeight || ''], ['345px', '500px', ''], '左の端で測った大きさで上か下かを決めた（置いた所で縮んだ箱が下で切れる）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { back(); l.done(); }
+  // 高さを見える所までにすると捲り棒の分（15px）だけ幅が増える設定の窓（手元の Electron の測り: 393 → 408）。増えた幅で右の端に収める
+  const l2 = await openDb({ before: withTypes });
+  const back2 = seenRig(l2, { dbpanel: (e) => (parseFloat(e.style.maxHeight) > 0 ? { width: 408, height: parseFloat(e.style.maxHeight) } : { width: 393, height: 463 }), dbmenu: { width: 180, height: 120 } });
+  try {
+    box(l2).querySelector('.dbsetbtn')._rect = { left: 1000, top: 380, width: 20, height: 20 };
+    const p = await openPanel(l2, '絞り込み');
+    assert.ok(p, '前提: 絞り込みの窓が開かない');
+    // 下の残りは 376（463 は入らない）・上は 340: 下に開いて高さ 376。幅 408 で右（1105 - 4）に収める
+    assert.deepStrictEqual([p.style.left, p.style.top, p.style.maxHeight], ['393px', '300px', '376px'], '捲り棒で広がった幅で左を決め直さない（設定の窓が捲る枠の右で切れる）');
+    assert.deepStrictEqual(l2.errors.map(fmt), []);
+  } finally { back2(); l2.done(); }
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  const d = (sel) => S.declsFor(rules, sel, { at: '' });
+  assert.deepStrictEqual([d('.dbmenu').width, d('.dbmenu')['max-width']], ['max-content', 'min(360px, calc(100vw - 8px))'], 'メニューの幅が表の入れ物の右の端までの幅で縮む');
+  assert.deepStrictEqual([d('.dbpanel')['max-width']], ['min(520px, calc(100vw - 8px))'], '設定の窓の幅の上限が窓の幅を越える');
+  assert.deepStrictEqual([d('.dbpick').width, d('.dbpick')['max-width']], ['max-content', 'min(320px, calc(100vw - 8px))'], '選びの窓の幅が表の入れ物の右の端までの幅で縮む');
+});
+test('R129・育つ浮く箱（rv57 軽い 2）: 選びの窓は、後から届くユーザーの名前・打って絞った候補・暦の終わりの日・リレーションの探した行の大きさで置き直す（開いた側のまま）。選びの窓は中で捲れる', T, async () => {
+  const l = await openDb({ before: withTypes, returns: { pagesActionView: () => ({ actions: [], people: [{ name: '総務係', count: 2 }, { name: '庶務係', count: 1 }], total: 3 }) } });
+  const back = seenRig(l, { dbpick: grow() });
+  try {
+    // ユーザーのセル（窓の下の近く: 上に開く）。候補の名前は書き手を置いた後に届く
+    const cell = cellOf(l, l.rows[0], l.c9);
+    cell._rect = { left: 400, top: 700, width: 180, height: 32 };
+    await clickEl(l, cell);
+    assert.ok(picker(l), '前提: ユーザーの選びの窓が開かない');
+    assert.deepStrictEqual(opts(l).map((b) => b.textContent), ['経理係', '総務係', '庶務係'], '前提: 後から届く名前が無い');
+    assert.deepStrictEqual([picker(l).style.left, picker(l).style.top], ['100px', upTop(picker(l), 700)], '後から届いた名前の大きさで置き直さない（上に開いた窓が部品に重なるか、下で切れる）');
+    // 打って絞る: 候補が減った大きさで、上に開いたまま置き直す
+    const q = picker(l).querySelector('input');
+    q.value = '総'; q.dispatchEvent({ type: 'input' }); await l.drain(40);
+    assert.deepStrictEqual(opts(l).map((b) => b.textContent), ['総務係']);
+    assert.deepStrictEqual([picker(l).style.left, picker(l).style.top], ['100px', upTop(picker(l), 700)], '打って絞った大きさで置き直さない（上に開いた窓が部品から離れて浮く）');
+    await press(l, q, { key: 'Escape' });
+    assert.ok(!picker(l), '前提: 選びの窓が閉じない');
+    // 暦: 「終わりの日」を入れると欄が増える → 増えた大きさで置き直す
+    const dc = cellOf(l, l.rows[0], l.c8);
+    dc._rect = { left: 400, top: 700, width: 180, height: 32 };
+    await clickEl(l, dc, 60);
+    assert.ok(picker(l), '前提: 暦が開かない');
+    const t0 = picker(l).style.top;
+    const endBox = picker(l).querySelectorAll('.dbdatecheck input')[0];
+    endBox.checked = true; endBox.dispatchEvent({ type: 'change' }); await l.drain(20);
+    assert.notStrictEqual(upTop(picker(l), 700), t0, '前提: 終わりの日の欄で暦の大きさが変わらない');
+    assert.deepStrictEqual([picker(l).style.left, picker(l).style.top], ['100px', upTop(picker(l), 700)], '暦の終わりの日の欄を入れた大きさで置き直さない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { back(); l.done(); }
+  // リレーションのセル: つなぐ行は探してから届く
+  const r = await relDb();
+  const back2 = seenRig(r, { dbpick: grow() });
+  try {
+    const cell = cellOf(r, r.rows[1], r.rc);
+    cell._rect = { left: 400, top: 700, width: 180, height: 32 };
+    await clickEl(r, cell, 120);
+    assert.ok(picker(r), '前提: リレーションの窓が開かない');
+    assert.ok(pickOpts(r).length >= 4, '前提: 探した行が届かない');
+    assert.deepStrictEqual([picker(r).style.left, picker(r).style.top], ['100px', upTop(picker(r), 700)], '探した行が届いた大きさで置き直さない');
+    assert.deepStrictEqual(r.errors.map(fmt), []);
+  } finally { back2(); r.done(); }
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  assert.strictEqual(S.declsFor(rules, '.dbpick', { at: '' })['overflow-y'], 'auto', '高さを見える所までにした選びの窓・暦が中で捲れず、はみ出す');
+});
+test('R129・置いていなかった浮く箱（rv57 軽い 2）: 選んだ行の［列の値を変える ▸］のメニューと、行のページの列の値の選びの窓も見える所に収める（中身を変えたら置き直す）', T, async () => {
+  const l = await openDb({ before: withTypes });
+  const back = seenRig(l, { dbmenu: grow(200), dbpick: grow() });
+  try {
+    const checks = () => box(l).querySelectorAll('.dbcheck');
+    checks()[0].checked = true; checks()[0].dispatchEvent({ type: 'change' }); await l.drain();
+    const bar = box(l).querySelector('.dbselbar');
+    assert.strictEqual(bar.hidden, false, '前提: 選択の帯が出ない');
+    bar._rect = { left: 300, top: 690, width: 700, height: 36 };
+    const setBtn = bar.querySelectorAll('button').find((b) => b.textContent === '列の値を変える ▸');
+    setBtn._rect = { left: 1000, top: 694, width: 110, height: 28 };
+    await clickEl(l, setBtn);
+    const m = bar.querySelector('.dbmenu');
+    assert.ok(m, '前提: 列の値を変えるメニューが開かない');
+    // 右は捲る枠の捲り棒の内側（1105 - 4 - 200 = 901）へ寄せ、下に入らないので上に開く
+    assert.deepStrictEqual([m.style.left, m.style.top], ['601px', upTop(m, 694, 690, 200)], '［列の値を変える ▸］のメニューが見える所に収まらない（窓の右と下で切れる）');
+    await clickEl(l, m.querySelectorAll('.mitem').find((b) => b.textContent === 'メモ'));
+    assert.ok(m.querySelector('.dbedit'), '前提: 値の欄が無い');
+    assert.deepStrictEqual([m.style.left, m.style.top], ['601px', upTop(m, 694, 690, 200)], '列を選んで中身を値の欄に変えた大きさで置き直さない');
+    await press(l, m.querySelector('.dbedit'), { key: 'Escape' });
+    // チェックの列は「チェック済み」「未チェック」の2つに替わる → その大きさで置き直す
+    await clickEl(l, setBtn);
+    const m2 = bar.querySelector('.dbmenu');
+    await clickEl(l, m2.querySelectorAll('.mitem').find((b) => b.textContent === '済み'));
+    assert.deepStrictEqual(m2.querySelectorAll('.mitem').map((b) => b.textContent), ['チェック済み', '未チェック'], '前提: チェックの書き手が無い');
+    assert.deepStrictEqual([m2.style.left, m2.style.top], ['601px', upTop(m2, 694, 690, 200)], '列を選んでチェックの書き手に替えた大きさで置き直さない');
+    await clickEl(l, setBtn);
+    // 行のページの列の値（窓の下の近く: 上に開く）
+    const r0 = l.rows[0];
+    l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
+    propOf(l, '優先度')._rect = { left: 280, top: 700, width: 800, height: 34 };
+    propV(l, '優先度')._rect = { left: 450, top: 702, width: 600, height: 30 };
+    await clickEl(l, propV(l, '優先度'), 60);
+    const pop = propOf(l, '優先度').querySelector('.dbpick');
+    assert.ok(pop, '前提: 行のページの選びの窓が開かない');
+    assert.deepStrictEqual([pop.style.left, pop.style.top], ['170px', upTop(pop, 702, 700)], '行のページの選びの窓が見える所に収まらない（窓の下で切れる）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { back(); l.done(); }
+});
+test('R129・設定の窓は開いた側のまま（rv57 軽い 3）: 条件を足して大きくなっても上へ跳ばず、高さを見える所までにして中で捲る。置き直すときは高さの上限を外してから測る', T, async () => {
+  const l = await openDb({ before: withTypes });
+  let H = 250;
+  const back = seenRig(l, { dbpanel: (e) => { const mh = parseFloat(e.style.maxHeight); return { width: 300, height: mh > 0 ? Math.min(H, mh) : H }; }, dbmenu: { width: 180, height: 120 } });
+  try {
+    const gear = box(l).querySelector('.dbsetbtn');
+    gear._rect = { left: 600, top: 500, width: 20, height: 20 };
+    const p = await openPanel(l, '絞り込み');
+    assert.ok(p, '前提: 絞り込みの窓が開かない');
+    // 下の残りは 256: 250 は入るので下に開く
+    assert.deepStrictEqual([p.style.left, p.style.top, p.style.maxHeight || ''], ['300px', '420px', ''], '前提: 設定の窓が ⚙ の下に開かない');
+    // 条件を足して 400 に（下に入らず上に入る）: 下のまま、高さを下の残りまでにする
+    H = 400;
+    await clickEl(l, btnIn(panel(l), '条件を足す'));
+    assert.deepStrictEqual([panel(l).style.left, panel(l).style.top, panel(l).style.maxHeight], ['300px', '420px', '256px'], '中身を描き直すと設定の窓が上へ跳ぶ（開いた側を保たない）');
+    // ⚙ が上へ動いて下に広く入る（窓の大きさが変わった形）: 前の高さの上限で測らず、上限を外す
+    gear._rect = { left: 600, top: 100, width: 20, height: 20 };
+    await clickEl(l, btnIn(panel(l), '条件を足す'));
+    assert.deepStrictEqual([panel(l).style.top, panel(l).style.maxHeight], ['20px', ''], '前の高さの上限を付けたまま測る（入る所でも窓が縮んだまま）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { back(); l.done(); }
+});
+test('R129・中身を足してから置き直すメニュー（rv57 軽い 5）: 列の名前の欄・つなぐデータベース・消した列・ビューを足す名前の欄は、足した中身の大きさで置く', T, async () => {
+  const l = await relDb({ noCol: true });
+  const back = seenRig(l, { dbmenu: grow(200) });
+  const low = (el) => { el._rect = { left: 400, top: 740, width: 120, height: 32 }; return el; };
+  try {
+    // 列の名前を変える（列のメニューの中身を1行の欄に替える）
+    await clickEl(l, low(head(l, l.c1)));
+    await clickEl(l, item(l, '名前を変える'));
+    assert.ok(menu(l).querySelector('.dbmenuinput'), '前提: 名前の欄が無い');
+    assert.deepStrictEqual([menu(l).style.left, menu(l).style.top], ['100px', upTop(menu(l), 740, 100, 200)], '列の名前の欄を入れた大きさで置き直さない');
+    await press(l, menu(l).querySelector('.dbmenuinput'), { key: 'Escape' });
+    // 右端の［＋］の［リレーション］（つなぐデータベースの窓にチェックの行を足す）
+    await clickEl(l, low(box(l).querySelector('.dbcoladd')), 40);
+    await clickEl(l, item(l, 'リレーション'), 60);
+    assert.ok(menu(l).querySelector('input.dbrelboth'), '前提: チェックの行が無い');
+    assert.deepStrictEqual([menu(l).style.left, menu(l).style.top], ['100px', upTop(menu(l), 740, 100, 200)], 'つなぐデータベースの窓をチェックの行を入れた大きさで置き直さない');
+    await press(l, menu(l).querySelector('.mitem'), { key: 'Escape' });
+    // 消した列（列を1つ消してから、⚙ の［消した列］）
+    await clickEl(l, head(l, l.c2)); await clickEl(l, item(l, '削除'), 120);
+    await clickEl(l, low(box(l).querySelector('.dbsetbtn'))); await clickEl(l, item(l, '消した列'));
+    assert.ok(menu(l).querySelector('.dbgone'), '前提: 消した列の行が無い');
+    assert.deepStrictEqual([menu(l).style.left, menu(l).style.top], ['100px', upTop(menu(l), 740, 100, 200)], '消した列の行を入れた大きさで置き直さない');
+    await press(l, menu(l).querySelector('button'), { key: 'Escape' });
+    // ビューを足す［＋］（名前の欄を足す）
+    await clickEl(l, low(box(l).querySelector('.dbviewadd')));
+    assert.ok(menu(l).querySelector('input'), '前提: ビューの名前の欄が無い');
+    assert.deepStrictEqual([menu(l).style.left, menu(l).style.top], ['100px', upTop(menu(l), 740, 100, 200)], 'ビューの名前の欄を入れた大きさで置き直さない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { back(); l.done(); }
+});
+test('R129・長い名前のメニューの項目（rv57 軽い 4）: 項目は1行で、メニューの幅の上限で「…」にして切れた項目だけ名前全体を吹き出しに（title）', T, async () => {
+  const LONG = 'とても長い名前の列'.repeat(6);
+  const l = await openDb({ before: (call, d) => { call('col.add', { db: d.id, type: 'text', name: LONG }); } });
+  const sw = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollWidth');
+  const cw = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+  // 項目の字の幅は 1 字 14px・メニューの中の項目の幅は 330px（メニューの幅の上限 360px から余白を除く）
+  Object.defineProperty(Element.prototype, 'scrollWidth', { configurable: true, get() { return this.classList.contains('mitem') ? String(this.textContent).length * 14 : undefined; } });
+  Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get() { return this.classList.contains('mitem') ? 330 : undefined; } });
+  try {
+    const checks = () => box(l).querySelectorAll('.dbcheck');
+    checks()[0].checked = true; checks()[0].dispatchEvent({ type: 'change' }); await l.drain();
+    const bar = box(l).querySelector('.dbselbar');
+    await clickEl(l, bar.querySelectorAll('button').find((b) => b.textContent === '列の値を変える ▸'));
+    const its = bar.querySelectorAll('.dbmenu .mitem');
+    assert.deepStrictEqual(its.map((b) => [b.textContent, b.getAttribute('title')]), [['メモ', null], ['金額', null], ['済み', null], [LONG, LONG]], '切れた項目に名前全体の吹き出しが無い（切れない項目に付く）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally {
+    if (sw) Object.defineProperty(Element.prototype, 'scrollWidth', sw); else delete Element.prototype.scrollWidth;
+    if (cw) Object.defineProperty(Element.prototype, 'clientWidth', cw); else delete Element.prototype.clientWidth;
+    l.done();
+  }
+  const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
+  const m = S.declsFor(rules, '.dbmenu .mitem', { at: '' });
+  assert.deepStrictEqual([m['white-space'], m.overflow, m['text-overflow']], ['nowrap', 'hidden', 'ellipsis'], 'メニューの項目が長い名前で切れずに広がる（「…」にならない）');
+  for (const r of rules) if (/^\.dbmenu\b|^\.dbpanel\b|^\.dbpick\b/.test(r.sel)) assert.ok(!r.nested, `${r.sel} が CSS のネストの中`);
 });

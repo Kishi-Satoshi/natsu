@@ -394,11 +394,13 @@
   .dbselbar { position: relative; display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: 13px; }
   .dbselbar[hidden] { display: none; }
   .dbselcount { color: var(--text); font-weight: 500; margin-right: 6px; }
-  .dbmenu { position: absolute; top: 100%; left: 6px; z-index: 20; min-width: 180px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); display: flex; flex-direction: column; overflow-y: auto; }
+  .dbmenu { position: absolute; top: 100%; left: 6px; z-index: 20; min-width: 180px; width: max-content; max-width: min(360px, calc(100vw - 8px)); padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); display: flex; flex-direction: column; overflow-y: auto; }
   /* 0.16.0 直し（R128）: データベースのメニューの項目は、ほかのメニュー（.privmenu・.blockmenu）と同じ平らな行（できない項目は灰色・選んでいる項目に ✓）。
      ✓ の付く項目のあるメニューは、どの項目も ✓ の分だけ字下げして揃える。高さを見える所までにしたメニューは中で捲る（overflow-y） */
+  /* 0.16.0 直し（R129。rv57 重要・軽い 4）: 幅は中身の幅（表の入れ物の右の端までの幅で縮めない: 置いた所で折り返して高さが変わらない）。上限は 360px と窓の幅。
+     長い名前（ビュー・選択肢・データベース・列）の項目は1行のまま「…」にし、切れた項目だけ名前全体を吹き出しに（dbMenuPlace） */
   .dbmenu .mitem { background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px; text-align: left;
-    padding: 6px 10px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+    padding: 6px 10px; border-radius: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dbmenu .mitem:hover, .dbmenu .mitem:focus { background: var(--hover); outline: none; }
   .dbmenu .mitem:disabled { color: var(--muted); cursor: default; background: transparent; }
   .dbmenu:has(.mitem[aria-checked]) .mitem { padding-left: 26px; }
@@ -461,7 +463,7 @@
   .dbmenuinput { padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; }
   .dbgone { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
   .dbgonename { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dbpick { position: absolute; z-index: 20; min-width: 220px; max-width: 320px; padding: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
+  .dbpick { position: absolute; z-index: 20; min-width: 220px; width: max-content; max-width: min(320px, calc(100vw - 8px)); overflow-y: auto; padding: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }   /* 0.16.0 直し（R129）: 幅は中身の幅・高さを見える所までにした窓と暦は中で捲る */
   .dbpickq { padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; }
   .dbpicklist { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
   .dbpickhead { padding: 4px 4px 0; color: var(--muted); font-size: 12px; }
@@ -491,7 +493,7 @@
   .dbcolh { position: relative; }
   .dbresize { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 1; }
   .dbresize:hover { background: var(--hover); }
-  .dbpanel { min-width: 300px; max-width: 520px; max-height: 60vh; overflow: auto; gap: 4px; }
+  .dbpanel { min-width: 300px; max-width: min(520px, calc(100vw - 8px)); max-height: 60vh; overflow: auto; gap: 4px; }
   .dbpanelbody { display: flex; flex-direction: column; gap: 4px; padding: 2px 4px 4px; }
   .dbpanel select, .dbpanel .dbmenuinput { font: inherit; font-size: 13px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); }
   .dbsortrow, .dbfcond, .dbgrow, .dbproprow, .dbfhead, .dbffoot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; position: relative; }
@@ -11524,6 +11526,7 @@
       if (ev.key === 'ArrowUp' && items.length) { ev.preventDefault(); items[(i + items.length - 1) % items.length].focus(); }
     };
     st.parts.bar.appendChild(m);
+    dbMenuPlace(m, from, st.parts.bar);   // 0.16.0 直し（R129。rv57 軽い 2）: 選択の帯の下の CSS の置き場所でなく、見える所に収める
     st.menu = m;
     if (items.length) items[0].focus();
   }
@@ -11532,7 +11535,7 @@
     const m = st && st.menu;
     if (!m) return;
     m.textContent = '';
-    if (!dbEditable(col)) { dbSetValueWriter(st, m, col); return; }   // 0.16.0 DV-2: 選択肢・ユーザー・日付・チェックは種類ごとの書き手
+    if (!dbEditable(col)) { dbSetValueWriter(st, m, col); dbMenuAgain(m); return; }   // 0.16.0 DV-2: 選択肢・ユーザー・日付・チェックは種類ごとの書き手（R129: 書き手の大きさで置き直す）
     const inp = document.createElement('input');
     inp.type = 'text'; inp.className = 'dbedit';
     inp.setAttribute('aria-label', col.name);
@@ -11549,6 +11552,7 @@
       if (ids.length && ids.length <= DB_SEL_MAX) await dbWrite(() => window.koeApp.rowsSetCell(st.id, ids, col.id, typed.value));
     };
     m.appendChild(inp);
+    dbMenuAgain(m);   // 0.16.0 直し（R129。rv57 軽い 2）: 列の並びを値の欄に替えた大きさで、開いた側のまま置き直す
     inp.focus();
   }
   // ---- 行の ⋮⋮ で上下に（並べ替えの無いビューだけ: 決めたこと 17・27）
@@ -11796,6 +11800,7 @@
       : rpWrite(st, () => window.koeApp.rowSetCell(st.id, st.row, colId, x)));
     const close = () => { if (st.editing === ed) rpEditEnd(st, false); };
     dbWriterInto(st, pop, col, dbModelView.cellValue(row, col), write, close, ed);
+    dbMenuPlace(pop, v, v.parentNode);   // 0.16.0 直し（R129。rv57 軽い 2）: 値の下の CSS の置き場所でなく、表と同じく見える所に収める（中身を入れた後に測る）
     pop.addEventListener('mousedown', (ev) => { const t = ev && ev.target; if (t && t.closest && !t.closest('input, button, select, textarea')) ev.preventDefault(); });   // 表と同じ（rv48 F2）
     if (col.type === 'date') pop.addEventListener('focusout', (ev) => {   // 暦は窓の外へ動いたら決める（表と同じ: R82・rv48 F10）
       const to = ev && ev.relatedTarget;
@@ -11923,6 +11928,7 @@
         b.onkeydown = (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && !imeEnter(ev)) { ev.preventDefault(); ev.stopPropagation(); close('stay'); openPageTab(r.id); return; } k0(ev); };   // rv53 軽い 3（R120）: 開いた所の閉じ方で（行のページの窓も）
       }
       mk('dbopt dbnew', DB_REL_NEW, false, () => create());
+      dbMenuAgain(host);   // 0.16.0 直し（R129。rv57 軽い 2）: 探した行が届いた大きさで、開いた側のまま置き直す
     };
     const find = async () => {
       const my = ++seq;
@@ -12136,43 +12142,58 @@
   // 押した部品の下に置く（表の入れ物 box の中の位置）。0.16.0 直し（R128。取り直しの画面で列のメニューと設定の窓が窓の右の端で切れた）:
   // 見える所に収める（dbMenuSpot）。箱の大きさを測るので、箱を入れて中身を入れた後に呼ぶ（中身が変われば呼び直す）。大きさは左の端に置いて測る
   //（右の端の近くに置いたままだと、幅が縮んで測れる）。高さは CSS の決まり（設定の窓の 60vh）に戻してから測る
-  function dbMenuPlace(el, anchor, box = (dbSt && dbSt.host) || $('pDb')) {
+  // 0.16.0 直し（R129。rv57 重要）: 幅は CSS で中身の幅にした（.dbmenu・.dbpick の width: max-content）が、置いた所で測り直してから上か下かと高さを決める
+  //（置いた所で幅が縮んで字が折り返ると、左の端で測った高さより高い）。高さの上限を付けた後にもう一度測り、捲り棒で広がった幅で左を決め直す。side（'down'・'up'）を渡すと、その側のまま置き直す（開いた後の置き直し: dbMenuAgain）。
+  // 置いた箱と押した部品と側は箱に覚える（el.dbAt）。切れた（「…」の）項目だけ名前全体を吹き出しに（ビューのタブと同じ: R96）
+  function dbMenuPlace(el, anchor, box = (dbSt && dbSt.host) || $('pDb'), side) {
     if (!anchor || !box) return;
     el.style.maxHeight = ''; el.style.left = '0px';
     const r = el.getBoundingClientRect();
-    const at = dbMenuSpot(anchor.getBoundingClientRect(), box.getBoundingClientRect(), { width: r.width, height: r.height }, dbSeen(box));
-    el.style.top = `${at.top}px`; el.style.left = `${at.left}px`;
+    const a = anchor.getBoundingClientRect(); const h = box.getBoundingClientRect(); const v = dbSeen(box);
+    const { left } = dbMenuSpot(a, h, { width: r.width, height: r.height }, v, side);
+    el.style.left = `${left}px`;
+    const r2 = el.getBoundingClientRect();
+    const at = dbMenuSpot(a, h, { width: r.width, height: r2.height }, v, side);
+    el.style.top = `${at.top}px`;
     if (at.maxHeight > 0) el.style.maxHeight = `${at.maxHeight}px`;
+    const r3 = el.getBoundingClientRect();   // 高さを見える所までにすると捲り棒の分だけ幅が増える（中身の幅の箱）: 増えた幅で左を決め直す
+    if (r3.width > r.width) el.style.left = `${dbMenuSpot(a, h, { width: r3.width, height: r2.height }, v, at.side).left}px`;
+    el.dbAt = { anchor, box, side: at.side };
+    for (const b of el.querySelectorAll('.mitem')) if (b.scrollWidth > b.clientWidth) b.setAttribute('title', b.textContent);
+  }
+  // 0.16.0 直し（R129。rv57 軽い 2・3）: 開いた浮く箱の中身が変わった（後から届いた名前・打って絞った候補・暦の欄・描き直した設定の窓）ら、開いた側のまま置き直す
+  function dbMenuAgain(el) {
+    const at = el && el.dbAt;
+    if (at && el.parentNode) dbMenuPlace(el, at.anchor, at.box, at.side);
   }
   // 0.16.0 直し（R128）: 浮く箱（列のメニュー・ビューの設定の窓・セルの選びの窓と暦）を置く所。押した部品の矩形 a の下に左を揃えて置き、
   // 見える所 v の右を越えれば左へ寄せ（左の端より左へは出さない）、下に入らず上に入れば上に開く。どちらにも入らなければ広い方に開き、
-  // 高さをそこまでにする（箱の中で捲る）。端からは 4px 離す。返すのは、箱を入れる所の矩形 h の中の位置と高さの上限（0 は上限なし）
-  function dbMenuSpot(a, h, size, v) {
+  // 高さをそこまでにする（箱の中で捲る）。端からは 4px 離す。返すのは、箱を入れる所の矩形 h の中の位置と高さの上限（0 は上限なし）と開いた側
+  // 0.16.0 直し（R129。rv57 軽い 3）: side（'down'・'up'）を渡すとその側に開き、入らなければ高さをその側の残りまでにする（開いた後に中身が増えても跳ばない）
+  function dbMenuSpot(a, h, size, v, side) {
     const M = 4;
     const left = Math.max(v.left + M, Math.min(a.left, v.right - M - size.width));
     const below = v.bottom - M - a.bottom; const above = a.top - M - v.top;
+    const up = side ? side === 'up' : size.height > below && (size.height <= above || above > below);
     let top = a.bottom; let maxHeight = 0;
-    if (size.height > below) {
-      if (size.height <= above) top = a.top - size.height;
-      else if (above > below) { top = v.top + M; maxHeight = above; }
-      else maxHeight = Math.max(0, below);
-    }
-    return { left: Math.round(left - h.left), top: Math.round(top - h.top), maxHeight: Math.floor(maxHeight) };
+    if (up && size.height <= above) top = a.top - size.height;
+    else if (up) { top = v.top + M; maxHeight = above; }
+    else if (size.height > below) maxHeight = Math.max(0, below);
+    return { left: Math.round(left - h.left), top: Math.round(top - h.top), maxHeight: Math.floor(maxHeight), side: up ? 'up' : 'down' };
   }
   // 0.16.0 直し（R128）: 表の入れ物 box から見える所（窓と、box とその祖先のうち中を切るものの内側の重なり）。捲る枠（overflow が visible でない）は
-  // 捲り棒を除いた内側、描くのを省く・中を切る枠（content-visibility: auto・contain の paint）は枠そのもの。測れない窓の幅・高さは端なし
+  // 捲り棒を除いた内側。測れない窓の幅・高さは端なし。0.16.0 直し（R129。rv57 軽い 5）: 描くのを省く枠（content-visibility: auto・contain の paint）は
+  // 見ない（表の入れ物の祖先に無い: 本文の表の行は .blk.dbinline で visible。R128 (b)）
   function dbSeen(box) {
     const v = { left: 0, top: 0, right: Number(window.innerWidth) || Infinity, bottom: Number(window.innerHeight) || Infinity };
     for (let p = box; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
       const cs = window.getComputedStyle(p) || {};
-      const scroll = (cs.overflowX && cs.overflowX !== 'visible') || (cs.overflowY && cs.overflowY !== 'visible');
-      const paint = cs.contentVisibility === 'auto' || /paint|strict|content/.test(String(cs.contain || ''));
-      if (!scroll && !paint) continue;
+      if (!((cs.overflowX && cs.overflowX !== 'visible') || (cs.overflowY && cs.overflowY !== 'visible'))) continue;
       const r = p.getBoundingClientRect();
-      const l = r.left + (scroll ? Number(p.clientLeft) || 0 : 0); const t = r.top + (scroll ? Number(p.clientTop) || 0 : 0);
+      const l = r.left + (Number(p.clientLeft) || 0); const t = r.top + (Number(p.clientTop) || 0);
       v.left = Math.max(v.left, l); v.top = Math.max(v.top, t);
-      v.right = Math.min(v.right, l + (scroll ? Number(p.clientWidth) || r.width : r.width));
-      v.bottom = Math.min(v.bottom, t + (scroll ? Number(p.clientHeight) || r.height : r.height));
+      v.right = Math.min(v.right, l + (Number(p.clientWidth) || r.width));
+      v.bottom = Math.min(v.bottom, t + (Number(p.clientHeight) || r.height));
     }
     return v;
   }
@@ -12782,7 +12803,7 @@
     else if (pn.kind === '絞り込み') pn.body.appendChild(dbFilterGroup(st, pn, pn.draft, 1, 'f', null));
     else if (pn.kind === 'グループ') dbGroupPanel(st, pn);
     else dbPropsPanel(st, pn);
-    if (pn.el.parentNode && st.parts && st.parts.gear) dbMenuPlace(pn.el, st.parts.gear, st.host);   // 0.16.0 直し（R128）: 描いた中身の大きさで ⚙ の下に置き直す（見える所に収める）
+    if (pn.el.parentNode && st.parts && st.parts.gear) dbMenuPlace(pn.el, st.parts.gear, st.host, pn.el.dbAt && pn.el.dbAt.side);   // 0.16.0 直し（R128）: 描いた中身の大きさで ⚙ の下に置き直す（見える所に収める）。R129（rv57 軽い 3）: 開いたときの側のまま
     if (k) { const back = [...pn.el.querySelectorAll('button, select, input')].find((x) => x.dataset.k === k); if (back) back.focus(); }
     dbBind(st, pn.el);
   }
@@ -13175,6 +13196,7 @@
         b.onkeydown = (ev) => key(ev, b);
         list.appendChild(b);
       }
+      dbMenuAgain(host);   // 0.16.0 直し（R129。rv57 軽い 2）: 後から届いた名前・打って絞った候補・選んだ印の大きさで、開いた側のまま置き直す
     };
     const opts = () => [...list.querySelectorAll('.dbopt')];
     const key = (ev, b) => {
@@ -13256,7 +13278,10 @@
     const hasTime = box('時刻', Boolean(v.time));
     const today = document.createElement('button');
     today.type = 'button'; today.className = 'ghost'; today.textContent = '今日';
-    const sync = () => { end.hidden = !hasEnd.c.checked; time.hidden = !hasTime.c.checked; endTime.hidden = !(hasEnd.c.checked && hasTime.c.checked); };
+    const sync = () => {
+      end.hidden = !hasEnd.c.checked; time.hidden = !hasTime.c.checked; endTime.hidden = !(hasEnd.c.checked && hasTime.c.checked);
+      dbMenuAgain(host);   // 0.16.0 直し（R129。rv57 軽い 2）: 終わりの日・時刻の欄を出し入れした大きさで、開いた側のまま置き直す
+    };
     hasEnd.c.onchange = sync; hasTime.c.onchange = sync;
     today.onclick = () => { const d = new Date(); start.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; start.focus(); };
     const row1 = document.createElement('div'); row1.className = 'dbdaterow'; row1.append(start, time, today);
