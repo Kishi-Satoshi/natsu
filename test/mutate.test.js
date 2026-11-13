@@ -1464,6 +1464,7 @@ const IDS_160 = [
   'vw-coladd-auto',   // 0.16.0 R120 (c)（MQ3）で表の末に足した行
   'vw-body-drag-over', 'vw-body-drag-drop', 'vw-title-reload-own', 'vw-load-related',   // 0.16.0 R122（rv55 の重要 1・2・軽い 3）で表の末に足した行
   'vw-rename-db', 'vw-rename-db-reload',   // 0.16.0 R123（0.15.1 を出した main の取り込み）で表の末に足した行
+  'vw-side-db-more', 'vw-rename-db-blank', 'vw-body-drag-forget', 'vw-load-same-back',   // 0.16.0 R125（rv56 の直し）で表の末に足した行
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1495,7 +1496,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 R120 (c)（MQ3）で意図して直した: 右端の［＋］の末の5つ（vw-coladd-auto）を表の末に足した（vw- 45）
   // 0.16.0 R122（rv55 の重要 1・2・軽い 3）で意図して直した: 表の上の本文の引っ張り2つ・題名の読み直し・つないだデータベースの表の読み直しの4つを表の末に足した（vw- 49）
   // 0.16.0 R123（0.15.1 を出した main の取り込み）で意図して直した: データベースの名前を変える［名前を変える］の2つを表の末に足した（vw- 51）
-  assert.strictEqual(rows.length, 132, '計画の 0.16.0 の表（tb- 81・vw- 51）が読めない');
+  // 0.16.0 R125（rv56 の直し）で意図して直した: データベースの行の［···］・無題のデータベースの名前の欄・残った本文の引っ張り・書いた後の今の表の4つを表の末に足した（vw- 55）
+  assert.strictEqual(rows.length, 136, '計画の 0.16.0 の表（tb- 81・vw- 55）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');

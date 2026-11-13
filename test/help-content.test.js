@@ -1255,3 +1255,14 @@ test('R122・rv55 軽い 6・7・8: find/database の行の選び（行の頭の
   assert.ok(tree.includes('ページを動かしたのは [[Ctrl+Z]] では戻りません。引っ張り直すか、［移動先…］ で戻してください。'), 'find/page-tree の戻らない文が無い');
   assert.ok(tree.includes('開いている白紙のページの本文にもう行のあるページを、サイドバーからその本文へ落としたときは、本文の行を ⠿ で動かしたのと同じで、[[Ctrl+Z]] で戻せます。'), 'find/page-tree に Ctrl+Z で戻せる引っ張りが無い');
 });
+
+// 0.16.0 R125（MQ5。2026-11-13 の持ち主の答え「ヘルプに例外を足す（おすすめ）」）: サイドバー・ライブラリの［名前を変える］でデータベースの名前を変えるのは
+// db.setTitle（データベースの歩み: R123 (c)）なので、表の中で変えたときと同じく、表のセルを選んでいるときの Ctrl+Z で戻せる
+test('R125・MQ5: find/page-tree の #rename に、データベースの名前は表のセルを選んでいるときの Ctrl+Z で戻せる例外（戻せない文の後ろ）', { timeout: 5000 }, () => {
+  const ren = ek7Sec(read(fileOf('find/page-tree')), 'rename');
+  const no = '名前を変えるのは [[Ctrl+Z]] で戻せません（ページの頭の題名と同じです）。';
+  const yes = 'データベースの名前は、表の中で変えたときと同じで、表のセルを選んでいるときの [[Ctrl+Z]] で戻せます。';
+  assert.ok(ren.includes(no), '#rename に戻せない文が無い');
+  assert.ok(ren.includes(yes), '#rename にデータベースの名前の例外が無い');
+  assert.ok(ren.indexOf(no) < ren.indexOf(yes), '#rename の例外が戻せない文の後ろに無い');
+});

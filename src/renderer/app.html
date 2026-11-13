@@ -5525,19 +5525,23 @@
       } else { ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p); }   // 0.15.0 PH-4: 白紙のページは 📄
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.title;
       el.append(ic, t);
-      if (!listSel.on && !isDbPage(p)) {   // 0.16.0 DX-1（決めたこと 42・R30）: データベースの中にはページを作らない
-        // 行に乗せると右端に［＋］（その中に白紙のページを作る: N-09）。Tab の並びには入れない（キーボードは行のメニューの［中にページを作る］）
-        const add = document.createElement('button');
-        add.type = 'button'; add.className = 'padd'; add.textContent = '＋'; add.tabIndex = -1;
-        add.title = 'この中にページを作る'; add.setAttribute('aria-label', 'この中にページを作る');
-        add.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); createPageIn(p.id); };
-        // 0.15.1 PS-3（決めたこと 29）: ［＋］の左に［···］（行のメニュー。キーボードは今どおり Shift+F10・メニューのキー）
+      if (!listSel.on) {
+        // 0.15.1 PS-3（決めたこと 29）: 行に乗せると右端に［···］（行のメニュー。キーボードは今どおり Shift+F10・メニューのキー）。
+        // 0.16.0 直し（rv56・R125）: データベースの行にも出す（データベースの行に無いのは ▸ と［＋］だけ）
         const more = document.createElement('button');
         more.type = 'button'; more.className = 'pmore'; more.textContent = '···'; more.tabIndex = -1;
         more.title = 'ページのメニュー'; more.setAttribute('aria-label', 'ページのメニュー');
         more.setAttribute('aria-hidden', 'true');   // 0.15.1 PS-3 直し 2（R43）: マウスだけの部品（キーボードは Shift+F10）。フォーカスした行の読み上げに入れない
         more.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); openTreeMenu(p.id); };
-        el.append(more, add);
+        el.append(more);
+      }
+      if (!listSel.on && !isDbPage(p)) {   // 0.16.0 DX-1（決めたこと 42・R30）: データベースの中にはページを作らない
+        // ［···］の右に［＋］（その中に白紙のページを作る: N-09）。Tab の並びには入れない（キーボードは行のメニューの［中にページを作る］）
+        const add = document.createElement('button');
+        add.type = 'button'; add.className = 'padd'; add.textContent = '＋'; add.tabIndex = -1;
+        add.title = 'この中にページを作る'; add.setAttribute('aria-label', 'この中にページを作る');
+        add.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); createPageIn(p.id); };
+        el.append(add);
       }
       el.setAttribute('title', rowTitle(p));
       asOption(el, p.id === curId, (ev) => (listSel.on ? pickRow(p.id, ev) : openFromList(p.id, ev)));
@@ -5582,8 +5586,9 @@
     if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
     return r.id;
   }
-  // 行のメニュー（右クリック・Shift+F10・メニューのキー）: ［中にページを作る］［移動先…］［新しいタブで開く］［削除］（HR4。［移動先…］は PH-5: R24）。
-  // 0.15.1 PS-3（決めたこと 29）: 行の［···］でも開き、［リンクを写す］［名前を変える］を足して6つの並びにし、区切りの下に押せない「最終更新 年/月/日 時:分」
+  // 行のメニュー（右クリック・Shift+F10・メニューのキー・行の［···］）: ［リンクを写す］［名前を変える］［移動先…］［中にページを作る］［中にデータベースを作る］
+  // ［新しいタブで開く］［削除］の7つ（HR4・PH-5 の R24・0.15.1 PS-3 の決めたこと 29・0.16.0 DX-1 の決めたこと 43。R123 で重ねた）。データベースの行は中に作る2つが
+  // 無い5つ。区切りの下に押せない「最終更新 年/月/日 時:分」
   let treeMenu = null;   // 開いているとき { id, box, where }
   function closeTreeMenu(back) {
     const m = treeMenu;
@@ -5661,7 +5666,8 @@
   }
   const renameWhere = (el) => (el && el.parentNode === $('libRows') ? 'library' : 'tree');
   // 0.15.1 PS-3 直し 2（R43）: 一覧の行の名前が無題の代わりの字（src/pagerules.js）なら、欄は空で始め、代わりの字は手引きに出す
-  const untitledName = (p) => (p && p.kind === 'blank' ? blankUntitled() : '(無題の議事録)');
+  // 0.16.0 直し（rv56・R125）: データベースは「無題のデータベース」（src/pagerules.js。R99）
+  const untitledName = (p) => (p && p.kind === 'blank' ? blankUntitled() : p && p.kind === 'database' ? dbUntitled() : '(無題の議事録)');
   // 名前の欄から行へ渡さないキー（木の動き）。ほかのキー（Ctrl+W・Ctrl+Tab・Ctrl+P・Ctrl+\ など）は窓の近道へ届く
   const RENAME_TREE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', ' ', 'F10', 'ContextMenu', 'Escape']);
   function startRename(id, where = 'tree') {
@@ -5956,6 +5962,9 @@
   document.addEventListener('dragstart', forgetPageDrag, true);
   document.addEventListener('dragend', forgetPageDrag, true);
   document.addEventListener('drop', forgetPageDrag);
+  // 0.16.0 直し（rv56・R125）: 本文の行の ⠿ の引っ張りも、引っ張りの始まり（document の捕まえる段）で忘れる。描き直しで元の行が替わると行の dragend が
+  // 来ず、残った dragBlockId で本文の表の中の引っ張りを #pNote が扱ってしまう（R122 の守り）。本文の行の dragstart はこの後に新しく覚える
+  document.addEventListener('dragstart', () => { dragBlockId = null; dragIds = null; }, true);
   async function movePageTo(id, parentId, afterId) {
     let bad = '';
     const from = (pages.find((p) => p && p.id === id) || {}).parentId || '';
@@ -11330,14 +11339,15 @@
     return r;
   }
   // 0.16.0 直し（rv53 I-3 (a)・R120）: 書いた・戻した表を読み直し、同じデータベースを見せているほかの表（本文のインラインの表・リンクドビュー）も読み直す。
-  // 書いた表から先に読み、終わったら今の表（dbSt）を書いた表に戻す（書いた表が画面に無ければ前の今の表のまま）
+  // 書いた表から先に読む。ほかの表を読み直すと、そのたびに今の表（dbSt）が読んだ表になるので、終わりに今の表を書いた表にする
+  //（書いた表が画面に無ければ前の今の表。0.16.0 直し（rv56・R125）: 2つの場合を1行に書いた）
   // 0.16.0 直し（rv55 軽い 3・R122）: リレーションでつないだデータベースの表（相手の行の題名・両側の列の値）も変わるので、画面のほかの表も全部読み直す
   // （印 sig が同じ表は、印を見る読みの1回だけで描き直さない。本文の表は 10 まで）
   async function dbLoadSame(st) {
     const was = dbSt;
     if (dbUse(st)) await dbLoad(true, st);
     for (const o of [...dbTables.values()]) if (o !== st && st && dbOnScreen(o)) await dbLoad(true, o);
-    if (!dbUse(st) && dbOnScreen(was)) dbSt = was;
+    if (dbOnScreen(st)) dbSt = st; else if (dbOnScreen(was)) dbSt = was;
   }
   // ---- セルの書き手（DV-1 は文字の種類だけ。Enter で決める・Esc でやめる・Tab で右へ。変換確定の Enter は抜ける: imeEnter）
   function dbEditStart(rowId, colId) {

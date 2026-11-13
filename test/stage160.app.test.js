@@ -2640,6 +2640,8 @@ test('DX-1・決めたこと 42: サイドバーのデータベースは 🗃️
     assert.strictEqual(d.querySelector('.t').textContent, '無題のデータベース');
     assert.ok(!d.classList.contains('kids') && d.getAttribute('aria-expanded') === null, 'データベースに ▸ がある');
     assert.ok(d.querySelector('.padd') === null, 'データベースの行に［＋］（中にページを作る）がある');
+    // R125（rv56 重要）: 行に乗せると出る［···］（行のメニュー）は、データベースの行にもある（0.15.1 の PS-3。無いのは ▸ と［＋］だけ）
+    assert.ok(d.querySelector('.pmore'), 'データベースの行に［···］（行のメニュー）が無い');
     assert.ok(sideOf(l, l.blank).querySelector('.padd'), '白紙のページの［＋］が無い');
     assert.deepStrictEqual(sideRows(l).map((e) => e.dataset.pid), [l.blank, l.id], 'データベースの行がサイドバーに出る');
     // 引っ張り: データベースの真ん中は印が出ず呼ばない・上の4分の1は前へ
@@ -3606,4 +3608,78 @@ test('R123: サイドバーの行のメニューの［名前を変える］で�
     assert.strictEqual(h.querySelector('.dbgrid').getAttribute('aria-label'), 'データベース『あたらしい台帳』のリンクドビュー', 'リンクドビューの表の名前が古いまま');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
+});
+
+// ---- R125（rv56 の直し。0.15.1 を出した main の取り込みの点検）
+// rv56 軽い（無題のデータベース）: 名前を変える欄は、一覧の名前が無題の代わりの字なら空で始め、代わりの字は手引きに出す（R43）。データベースの代わりの字は
+// 「無題のデータベース」（src/pagerules.js）なので、それを本当の名前として欄に入れていた
+test('R125・rv56 軽い（無題のデータベース）: サイドバーの無題のデータベースの［名前を変える］は欄が空で始まり、手引きが「無題のデータベース」。空のまま Enter は何も送らない', T, async () => {
+  const l = await openDb();
+  try {
+    l.fire('onPagesUpdated'); await l.drain(120);
+    assert.strictEqual(sideOf(l, l.id).querySelector('.t').textContent, '無題のデータベース', '前提: 無題のデータベースの一覧の名前');
+    await openTreeMenuOf(l, l.id);
+    await clickEl(l, treeMenuItems(l).find((b) => b.textContent === '名前を変える'), 60);
+    const inp = $(l, 'plist').querySelector('input.pren');
+    assert.ok(inp, '名前を変える欄が出ない');
+    assert.strictEqual(inp.value, '', '無題のデータベースの名前を変える欄に「無題のデータベース」が字として入る');
+    assert.strictEqual(inp.getAttribute('placeholder'), '無題のデータベース', '無題のデータベースの名前を変える欄の手引きが無い');
+    l.key({ key: 'Enter' }, inp); await l.drain(); await l.drain(200);
+    assert.deepStrictEqual(l.called('dbSetTitle').concat(l.called('pageSetTitle')), [], '空のまま決めて名前を送った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv56 軽い（残った本文の ⠿ の引っ張り）: R122 の守り（dbInHost(ev) && !dragBlockId && !pageDrag）は dragBlockId が消えていることに頼る。
+// dragBlockId を消すのは行の dragend と #pNote の drop だけで、描き直しで元の行が替わると dragend が来ない（PH-3 直しの R28 (1) と同じ）。
+// 引っ張りの始まり（document の捕まえる段）で前の本文の引っ張りを忘れる。本文の行の dragstart はその後に新しく覚える
+test('R125・rv56 軽い（残った本文の ⠿ の引っ張り）: 本文の行の dragend が来なかった後に本文の表の中で行を引っ張ると、#pNote は落とす印を出さず blockMove しない。次の本文の ⠿ の引っ張りは今どおり表の上でも落とせる', T, async () => {
+  const l = await openDb({ before: dropRig });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const box = $(l, 'pNote');
+    rectRows(box);
+    const dt = () => ({ dropEffect: 'none', effectAllowed: '', data: {}, setData(k, v) { this.data[k] = v; }, types: ['text/plain'] });
+    // 本文の段落の ⠿ を引っ張り始め、dragend が来ない（描き直しで元の行が替わった）
+    const d1 = dt();
+    l.key({ type: 'dragstart' });   // 捕まえる段（document が先）
+    bodyRow(l, l.b3).dispatchEvent({ type: 'dragstart', target: bodyRow(l, l.b3), clientX: 100, dataTransfer: d1 });
+    // 本文の表の中で行の ⋮⋮ を引っ張り始める（document の捕まえる段が先・表の行の受け口が後）
+    const trow = hostOf(l, l.r1).querySelectorAll('.dbrow').find((r) => r.dataset.id);
+    assert.ok(trow && trow.querySelector('.dbgrip'), '前提: 表の行の ⋮⋮ が無い');
+    const d2 = { dropEffect: 'move', effectAllowed: '', data: {}, setData(k, v) { this.data[k] = v; }, types: ['application/x-natsu-row'] };
+    l.key({ type: 'dragstart' });
+    trow.querySelector('.dbgrip').dispatchEvent({ type: 'dragstart', target: trow.querySelector('.dbgrip'), dataTransfer: d2 });
+    let prevented = 0;
+    const over = { target: trow, clientX: 100, clientY: 12, dataTransfer: d2, preventDefault() { prevented += 1; } };
+    box.ondragover(over);
+    assert.strictEqual(prevented, 0, '表の中の行の引っ張りで #pNote が preventDefault した（前の本文の引っ張りが残る）');
+    assert.strictEqual(d2.dropEffect, 'move', '表の中の行の引っ張りで #pNote が dropEffect を変えた');
+    assert.strictEqual(box.querySelectorAll('.dropmark').length + box.querySelectorAll('.dropmark-after').length, 0, '表の中の行の引っ張りで本文の落とす印が出た');
+    await box.ondrop(over); await l.drain(300);
+    assert.deepStrictEqual(l.called('blockMove').concat(l.called('blocksMove')), [], '表の中の行の落としで、前に引っ張った本文の行を動かした');
+    // 次の本文の ⠿ の引っ張り（document の捕まえる段の後に行の dragstart）は今どおり表の上でも落とせる（R122）
+    const d3 = dt();
+    l.key({ type: 'dragstart' });
+    bodyRow(l, l.b3).dispatchEvent({ type: 'dragstart', target: bodyRow(l, l.b3), clientX: 100, dataTransfer: d3 });
+    let p3 = 0;
+    const over3 = { target: trow, clientX: 100, clientY: 12, dataTransfer: d3, preventDefault() { p3 += 1; } };
+    box.ondragover(over3);
+    assert.ok(p3 > 0 && d3.dropEffect === 'move', '捕まえる段で忘れた後の本文の ⠿ の引っ張りを、表の上で落とせない');
+    await box.ondrop({ ...over3, preventDefault() {} }); await l.drain(300);
+    assert.deepStrictEqual(l.called('blockMove').map((c) => c.args.slice(0, 3)), [[l.P, l.b3, { afterId: l.r1 }]], '本文の ⠿ の引っ張りを表の上へ落とせない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv56 軽い（今の表）: dbLoadSame は画面のほかの表も読み直し、そのたびに今の表（dbSt）が読んだ表になる。終わりに今の表を書いた表にする
+//（書いた表が画面に無ければ前の今の表）。表を押す・打つ受け口は dbBind で今の表を決め直し、書いた後の続きは dbUse(st) で戻すので、
+// 画面に見える違いが無い。字面で見る（R120 (h) 3 と同じ。テストの口は本物に足さない）
+test('R125・rv56 軽い（今の表）: dbLoadSame はほかの表を読み直した後に、今の表を書いた表にする（無ければ前の今の表）', { timeout: 5000 }, () => {
+  const at = HTML.indexOf('  async function dbLoadSame(st) {');
+  assert.ok(at > 0, 'dbLoadSame が無い');
+  const body = HTML.slice(at, HTML.indexOf('\n  }\n', at));
+  const lines = body.split('\n').map((s) => s.trim()).filter((s) => s && !s.startsWith('//'));
+  const others = lines.findIndex((s) => s.startsWith('for (const o of [...dbTables.values()])'));
+  assert.ok(others > 0, 'dbLoadSame がほかの表を読み直さない');
+  assert.strictEqual(lines[lines.length - 1].replace(/\s*\/\/.*$/, ''), 'if (dbOnScreen(st)) dbSt = st; else if (dbOnScreen(was)) dbSt = was;', 'dbLoadSame の終わりに今の表を書いた表（無ければ前の今の表）にしない');
+  assert.strictEqual(others, lines.length - 2, 'ほかの表を読み直した後に今の表を決めていない');
 });
