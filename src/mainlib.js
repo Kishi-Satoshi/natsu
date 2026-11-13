@@ -1719,7 +1719,7 @@ const HELP_ARTICLES = Object.freeze([
   'record/start-stop', 'record/pause', 'record/pc-only', 'record/status-line', 'record/meeting-detect',
   'summary/how-summaries', 'summary/summary-types', 'summary/meeting-quality', 'summary/citations', 'summary/edit-summary',
   'dictation/dictation',
-  'find/search', 'find/page-tree', 'find/page-look', 'find/delete-and-backups',
+  'find/search', 'find/page-tree', 'find/database', 'find/page-look', 'find/delete-and-backups',
   'settings/appearance', 'settings/account', 'settings/offline', 'settings/hotkeys',
   'trouble/banners', 'trouble/login-trouble', 'trouble/transcription-stops', 'trouble/slow-pc', 'trouble/claude-summary-fails',
   'admin/stop-person', 'admin/seats', 'admin/relay-limits',

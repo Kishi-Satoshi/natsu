@@ -1,7 +1,7 @@
 ---
 title: ホットキー
-description: 音声入力と議事録のホットキーを変える。ほかのアプリと重なったとき。NaTsu の窓の中だけで効くキー（Ctrl+W・要約とメモの行の近道）の一覧
-updated: 2026-11-08
+description: 音声入力と議事録のホットキーを変える。ほかのアプリと重なったとき。NaTsu の窓の中だけで効くキー（Ctrl+W・要約とメモの行の近道・データベースの表のキー）の一覧
+updated: 2026-11-13
 sources: README.md, src/renderer/app.html, src/main.js, src/mainlib.js, src/settings.js, src/shortcuts.js
 related: dictation/dictation, summary/edit-summary, record/start-stop
 ---

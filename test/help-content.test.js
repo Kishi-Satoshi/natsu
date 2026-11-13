@@ -936,3 +936,101 @@ test('R80: find/delete-and-backups と find/page-tree に、0.15.0 より前の�
   // CHANGELOG の 0.15.0 の節にも、持ち主が承認した文がそのまま
   assert.ok(read('CHANGELOG.md').includes('今までに消した議事録も［ゴミ箱］に並び、戻せます。'), 'CHANGELOG に前の版で消した議事録の文が無い');
 });
+
+// ---------------------------------------------------------------- 0.16.0 DH-1（計画 docs/plans/2026-11-04-160.md の Task DH-1・R119 (b)）
+// データベース（表とリスト・ビュー・列・消した列・リレーション・サブアイテム・インラインとリンクドビュー・行のページ・表のキー・上限）の記事と、
+// 直した記事（ページの中のページ・検索・ゴミ箱・ホットキー・Claude から読む・全体像）。承認済みの文は字のまま（R107 の2つ・R71 (3)）
+const DH1_REFS = ['find/database', 'find/page-tree', 'find/search', 'find/delete-and-backups', 'settings/hotkeys', 'start/claude-mcp', 'start/overview'];
+const DH1_DB_KEYS = ['データベースの表のセルを選んでいるとき', 'ビューのタブを選んでいるとき', 'リレーションの行を探す窓'];
+test('DH-1: 直した記事の ［…］ はアプリにある文字だけで、updated は 2026-11-13 から。pre は使わない。site.json の find の page-tree の次に database があり、説明に「データベース」。HELP_ARTICLES も同じ並び', { timeout: 5000 }, () => {
+  const app = L.appLabelText(ROOT);
+  for (const ref of DH1_REFS) {
+    const a = articles.find((x) => x.ref === ref);
+    assert.ok(a, `${ref} の記事が無い`);
+    assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${ref}: アプリに無い ［…］`);
+    assert.ok(metaOf(a).updated >= '2026-11-13', `${ref}: updated を直した日にしていない`);
+    assert.ok(!/<pre|```/.test(a.text), `${ref}: pre の要素を使った`);
+  }
+  const find = site.categories.find((c) => c.id === 'find');
+  assert.strictEqual(find.articles[find.articles.indexOf('page-tree') + 1], 'database', 'site.json の find の page-tree の次に database が無い');
+  assert.ok(find.description.includes('データベース'), 'find の説明に「データベース」が無い');
+  assert.ok(read('src/mainlib.js').includes("'find/page-tree', 'find/database', 'find/page-look'"), 'HELP_ARTICLES に find/database が無い');
+  const db = read(fileOf('find/database'));
+  for (const id of ['create', 'table', 'views', 'sort-filter', 'columns', 'gone', 'relation', 'subitems', 'inline', 'row', 'keys', 'limits']) assert.ok(db.includes(`{#${id}}`), `find/database に {#${id}} の節が無い`);
+  for (const w of ['［🗃️ データベース］', '［中にデータベースを作る］', '/データベース', '/リンクドビュー', '［＋ 新しい行］', '［列の値を変える ▸］', '［並べ替えを足す］', '［条件を足す］', '［空のグループを隠す］', '［消した列］', '［完全に消す］', '［新しい行を作ってつなぐ］', '［サブアイテム］', '［サブアイテムを足す］', '［ページの行に変える］', '［インラインにする］', '［新しい表から始める］', '[[Alt+→]]', '[[Space]]']) {
+    assert.ok(db.includes(w), `find/database に ${w} が無い`);
+  }
+  // 直した記事に新しい働き
+  assert.ok(read(fileOf('find/page-tree')).includes('［中にデータベースを作る］') && read(fileOf('find/page-tree')).includes('［🗃️ データベース］'), 'find/page-tree にデータベースを作る道が無い');
+  assert.ok(read(fileOf('find/page-tree')).includes('データベースの中へページを入れることはできません'), 'find/page-tree にデータベースの中へ入れないことが無い');
+  assert.ok(read(fileOf('find/page-tree')).includes('サイドバーと本文の間'), 'find/page-tree にサイドバーと本文の間の引っ張りが無い');
+  assert.ok(read(fileOf('start/overview')).includes('](find/database.md)'), 'start/overview から find/database へのリンクが無い');
+});
+
+test('DH-1: find/database の近道の表は、データベースの3つの効く所の SHORTCUTS と一字ずつ同じ（並びも）', { timeout: 5000 }, () => {
+  const got = tableRows(ek7Sec(read(fileOf('find/database')), 'keys'));
+  const want = SHORTCUTS.filter((r) => DH1_DB_KEYS.includes(r.where)).map((r) => [r.where, keyCell(r.keys), r.what]);
+  assert.ok(want.length >= 15, 'SHORTCUTS にデータベースの行が少ない（このテストの前提が崩れた）');
+  assert.deepStrictEqual(got, want, 'find/database の近道の表が SHORTCUTS と違う（src/shortcuts.js の表を写す）');
+});
+
+test('DH-1（R71 (3)・R107）: 承認済みの3つの文が字のまま。「1つのデータベースの行は 10,000 まで」「消した列は戻せます」「計算式とロールアップは後の版」の字がある。Claude からの絞り込みは後の版', { timeout: 5000 }, () => {
+  const db = read(fileOf('find/database'));
+  for (const w of [
+    '完全に消した列の値は、操作の記録と控えを整理するまで、NaTsu のデータの中にしばらく残ります。',   // R71 (3)
+    'リンクドビューやインラインの表の列のメニューで［削除］した列は、元のデータベースから消えます（ほかのビューやリンクドビューからも消えます）。［ビューの設定］の［消した列］から戻せます。そのビューで見せたくないだけなら［隠す］を使います（隠すのはそのビューだけです）。',   // R107
+    'リンクドビューで変えた列と題名は、元のデータベースの Ctrl+Z で戻せます。リンクドビューのタブ（並べ替えや絞り込み）は、そのリンクドビューだけのものです。',   // R107
+    '1つのデータベースの行は 10,000 まで', '消した列は戻せます', '計算式とロールアップは後の版',
+  ]) assert.ok(db.includes(w), `find/database に「${w}」が無い`);
+  const mcp = read(fileOf('start/claude-mcp'));
+  assert.ok(mcp.includes('{#database}') && mcp.includes('後の版'), 'start/claude-mcp にデータベースの節と、絞り込みは後の版が無い');
+});
+
+// 記事が「…」で写した画面の文は、記事にその形であり、その文を作るコードの文字列にもある（PH-8 直しの hasLiteral と同じ照らし）
+const DH1_QUOTES = [
+  ['find/database', '無題のデータベース', [['src/renderer/app.html', 'q', '無題のデータベース']]],
+  ['find/database', '名前', [['src/db/commands.js', 'q', '名前']]],
+  ['find/database', '並べ替えを外すと、手で並べられます', [['src/renderer/app.html', 'q', '並べ替えを外すと、手で並べられます']]],
+  ['find/database', '行 … 件をゴミ箱に入れました（Ctrl+Z で戻せます）', [['src/renderer/app.html', 't', '行 ${n} 件をゴミ箱に入れました（Ctrl+Z で戻せます）']]],
+  ['find/database', 'ビューを足す', [['src/renderer/app.html', 'q', 'ビューを足す']]],
+  ['find/database', '他 … 件', [['src/renderer/app.html', 't', '他 ${st.hiddenViews.length} 件']]],
+  ['find/database', 'この中を探す', [['src/renderer/app.html', 'q', 'この中を探す']]],
+  ['find/database', 'ビュー『名前』を削除します。並べ替えや絞り込みの設定も消えます。行は消えません。', [['src/renderer/app.html', 't', 'ビュー『${name}』を削除します。並べ替えや絞り込みの設定も消えます。行は消えません。']]],
+  ['find/database', 'この列の値として読めませんでした。', [['src/renderer/app.html', 'q', 'この列の値として読めませんでした。']]],
+  ['find/database', '種類を変えると、… 個の値が読めずに空になります。よろしいですか？（Ctrl+Z で戻せます）', [['src/renderer/app.html', 't', '種類を変えると、${n} 個の値が読めずに空になります。よろしいですか？（Ctrl+Z で戻せます）']]],
+  ['find/database', 'この列と、すべての行のこの列の値を完全に消します。元に戻せません。よろしいですか？', [['src/renderer/app.html', 'q', 'この列と、すべての行のこの列の値を完全に消します。元に戻せません。よろしいですか？']]],
+  ['find/database', 'つなぐデータベース', [['src/renderer/app.html', 'q', 'つなぐデータベース']]],
+  ['find/database', '相手のデータベースにも列を作る', [['src/renderer/app.html', 'q', '相手のデータベースにも列を作る']]],
+  ['find/database', '行を探す', [['src/renderer/app.html', 'q', '行を探す']]],
+  ['find/database', '親アイテム', [['src/db/commands.js', 'q', '親アイテム']]],
+  ['find/database', 'その行の中へは入れられません', [['src/renderer/app.html', 'q', 'その行の中へは入れられません']]],
+  ['find/database', '元のビューを写す', [['src/renderer/app.html', 'q', '元のビューを写す']]],
+  ['find/database', 'リンクドビューは複製できません', [['src/renderer/app.html', 'q', 'リンクドビューは複製できません']]],
+  ['find/database', '（このデータベースは見られません）', [['src/renderer/app.html', 'q', '（このデータベースは見られません）']]],
+  ['find/database', '1つのデータベースの行は 10,000 までです。', [['src/renderer/app.html', 'q', '1つのデータベースの行は 10,000 までです。']]],
+  ['find/database', '列は 100 までです。', [['src/renderer/app.html', 'q', '列は 100 までです。']]],
+  ['find/database', 'ビューは 20 までです。', [['src/renderer/app.html', 'q', 'ビューは 20 までです。']]],
+  ['find/database', '1回に貼れるのは 2,000 個の値までです。', [['src/renderer/app.html', 'q', '1回に貼れるのは 2,000 個の値までです。']]],
+  ['find/database', '1つのページに置けるデータベースの表は 10 までです。', [['src/renderer/app.html', 'q', '1つのページに置けるデータベースの表は 10 までです。']]],
+  ['find/database', '新しいページ', [['src/renderer/app.html', 'h', 'newPopHead', '新しいページ']]],
+  ['find/search', '場所: 🗃️ データベース名 ・ ', [['src/renderer/app.html', 't', "場所: 🗃️ ${oneLine(p.dbTitle) || '無題のデータベース'} ・ ${s1.textContent}"]]],
+  ['find/delete-and-backups', 'このデータベースと行 … 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）', [['src/renderer/app.html', 't', 'このデータベースと行 ${n} 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）']]],
+  ['find/delete-and-backups', '行 題名（データベース名）', [['src/renderer/app.html', 't', "行 ${name}（${oneLine(h.dbTitle) || '無題のデータベース'}）"]]],
+  ['find/delete-and-backups', 'ほかの行 …', [['src/renderer/app.html', 't', '・ほかの行 ${n}']]],
+  ['start/claude-mcp', 'データベース（行 …）', [['src/mcp/format.js', 't', 'データベース（行 ${Number(n) || 0}）']]],
+  ['start/claude-mcp', '## 列', [['src/mcp/format.js', 'q', '## 列']]],
+  ['start/claude-mcp', '## 行', [['src/mcp/format.js', 'q', '## 行']]],
+  ['start/claude-mcp', '行は NaTsu で見てください（Claude からの絞り込みは 0.18.0 の道具で）', [['src/mcp/format.js', 'q', '行は NaTsu で見てください（Claude からの絞り込みは 0.18.0 の道具で）']]],
+];
+test('DH-1: 記事が「…」で写した画面の文は、記事にその形であり、その文を作るコードの文字列にもある（知らせ・確かめの文を直すと記事も直す）', { timeout: 5000 }, () => {
+  const src = new Map();
+  const code = (f) => { if (!src.has(f)) src.set(f, read(f)); return src.get(f); };
+  for (const [ref, quote, lits] of DH1_QUOTES) {
+    assert.ok(read(fileOf(ref)).includes(`「${quote}」`), `${ref} に「${quote}」が無い`);
+    for (const [f, kind, a, b] of lits) assert.ok(hasLiteral(code(f), kind, a, b), `${ref} の「${quote}」を作る文字列が ${f} に無い（画面の文を変えたら記事も直す）: ${a}`);
+  }
+});
+
+test('DH-1: 直した記事に Notion の名前が無い（ほかのアプリの名前と説明の文を写さない）', { timeout: 5000 }, () => {
+  for (const ref of DH1_REFS) assert.ok(!/notion/i.test(read(fileOf(ref))), `${ref}: Notion の名前がある`);
+});
