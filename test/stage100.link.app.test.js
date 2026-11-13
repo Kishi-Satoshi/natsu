@@ -86,20 +86,25 @@ const rows = (l) => l.byId.get('plist').querySelectorAll('.pitem');
 const rowOf = (l, id) => rows(l).find((r) => r.dataset.pid === id);
 const boxOf = (r) => r.querySelector('.pchk');
 const press = async (l, el, o = {}) => { el.dispatchEvent({ type: 'click', ...o }); await l.drain(); };
+// 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出しの右の［選ぶ］は、見出しの［···］のメニューの［ページを選ぶ］（id listSelect を引き継ぐ）に移った。
+// 選ぶ形に入るのは［···］→［ページを選ぶ］で、選ぶ形かは押した形（aria-pressed）でなく行のチェックボックスで見る
+const startSel = async (l) => { await press(l, l.byId.get('privMore')); await press(l, l.byId.get('listSelect')); };
+const selOn = (l) => rows(l).some((r) => boxOf(r));
 const lineOf = (id, title, date) => `NaTsu の議事録「${title}」（${date}）${ORIGIN}/open#p=${id}`;
 
 test('D70: ［選ぶ］で行の 🎙️ がチェックボックス（role=checkbox・aria-checked）になり、2行を押すと頭に「2 件を選んでいます」（role=status）と［リンクを写す］［やめる］。押した行のページは開かない', T, async () => {
   const l = await openList();
   const sel = l.byId.get('listSelect');
-  assert.ok(sel, '［選ぶ］が無い');
-  assert.strictEqual(sel.textContent, '選ぶ');
-  assert.strictEqual(sel.getAttribute('aria-pressed'), 'false');
+  assert.ok(sel, '［ページを選ぶ］が無い');
+  assert.deepStrictEqual([sel.textContent, sel.getAttribute('role')], ['ページを選ぶ', 'menuitem']);
+  assert.strictEqual(selOn(l), false);
   assert.strictEqual(l.byId.get('selBar').hidden, true, '0 件で頭の枠が出ている');
   assert.ok(rows(l).every((r) => !boxOf(r) && r.querySelector('.pi')), '選ぶ前にチェックボックスがある');
-  await press(l, sel);
-  assert.strictEqual(sel.getAttribute('aria-pressed'), 'true');
+  await startSel(l);
+  assert.strictEqual(selOn(l), true);
   assert.ok(rows(l).every((r) => boxOf(r) && boxOf(r).getAttribute('role') === 'checkbox' && boxOf(r).getAttribute('aria-checked') === 'false' && !r.querySelector('.pi')), 'チェックボックスに替わらない');
-  assert.strictEqual(l.byId.get('selBar').hidden, true, '0 件のときに頭の枠を出した');
+  // 0.15.1 PS-2 直し（計画 docs/plans/2026-11-04-151.md の R42・持ち主の答え 2026-11-08）で意図して変えた: 選ぶ形の間はいつも頭の枠と［やめる］を出す（0 件の［リンクを写す］は押せない）
+  assert.deepStrictEqual([l.byId.get('selBar').hidden, l.byId.get('selCount').textContent, l.byId.get('selCopy').disabled], [false, '', true], '0 件のときに頭の枠と［やめる］が出ない');
   await press(l, rowOf(l, 'pa1'));
   await press(l, rowOf(l, 'pc3'));
   assert.deepStrictEqual(l.called('pageGet'), [], '選ぶ形の間に押した行のページを開いた');
@@ -117,19 +122,19 @@ test('D70: ［選ぶ］で行の 🎙️ がチェックボックス（role=chec
 
 test('D70・決めたこと 101: ［リンクを写す］で koeApp.copy に選んだ会議の行（一覧の並び・決めたこと 100 の形）を改行でつないで渡し、「2 件のリンクを写しました。」。写した後も選ぶ形のまま', T, async () => {
   const l = await openList();
-  await press(l, l.byId.get('listSelect'));
+  await startSel(l);
   await press(l, rowOf(l, 'pc3'));
   await press(l, rowOf(l, 'pa1'));
   await press(l, l.byId.get('selCopy'));
   assert.deepStrictEqual(l.called('copy').map((c) => c.args), [[`${lineOf('pa1', T1, '2026-10-20')}\n${lineOf('pc3', T3, '2026-10-09')}`]]);
   assert.strictEqual(l.byId.get('toast').textContent, '2 件のリンクを写しました。');
-  assert.strictEqual(l.byId.get('listSelect').getAttribute('aria-pressed'), 'true', '写した後に選ぶ形が終わった');
+  assert.strictEqual(selOn(l), true, '写した後に選ぶ形が終わった');
   assert.strictEqual(l.byId.get('selCount').textContent, '2 件を選んでいます');
 });
 
 test('D70: Shift＋押すで前に押した行からの範囲を、押した行の向きにそろえる', T, async () => {
   const l = await openList();
-  await press(l, l.byId.get('listSelect'));
+  await startSel(l);
   await press(l, rowOf(l, 'pa1'));
   await press(l, rowOf(l, 'pc3'), { shiftKey: true });
   assert.deepStrictEqual(rows(l).map((r) => boxOf(r).getAttribute('aria-checked')), ['true', 'true', 'true']);
@@ -137,20 +142,21 @@ test('D70: Shift＋押すで前に押した行からの範囲を、押した行�
   assert.deepStrictEqual(rows(l).map((r) => boxOf(r).getAttribute('aria-checked')), ['false', 'false', 'true']);
 });
 
-test('D70: Esc・［やめる］・もう一度［選ぶ］で選ぶ形が終わり、🎙️ に戻る（選びも消える）。終わった後の押しはページを開く', T, async () => {
-  for (const how of ['esc', 'cancel', 'toggle']) {
+// 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: もう一度［選ぶ］を押して終える道は無い（［ページを選ぶ］は選ぶ形に入るだけ）。Esc と［やめる］で見る
+test('D70: Esc・［やめる］で選ぶ形が終わり、🎙️ に戻る（選びも消える）。終わった後の押しはページを開く', T, async () => {
+  for (const how of ['esc', 'cancel']) {
     const l = await openList();
-    await press(l, l.byId.get('listSelect'));
+    await startSel(l);
     await press(l, rowOf(l, 'pa1'));
     if (how === 'esc') { const ev = l.key({ key: 'Escape' }); await l.drain(); assert.strictEqual(ev.defaultPrevented, true); }
-    else await press(l, l.byId.get(how === 'cancel' ? 'selCancel' : 'listSelect'));
-    assert.strictEqual(l.byId.get('listSelect').getAttribute('aria-pressed'), 'false', how);
+    else await press(l, l.byId.get('selCancel'));
+    assert.strictEqual(selOn(l), false, how);
     assert.ok(rows(l).every((r) => !boxOf(r) && r.querySelector('.pi')), `${how}: 🎙️ に戻らない`);
     assert.strictEqual(l.byId.get('selBar').hidden, true, how);
     await press(l, rowOf(l, 'pb2'));
     assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]), ['pb2'], `${how}: 終わった後にページを開かない`);
     // もう一度選ぶ形にすると、前の選びは残っていない
-    await press(l, l.byId.get('listSelect'));
+    await startSel(l);
     assert.ok(rows(l).every((r) => boxOf(r).getAttribute('aria-checked') === 'false'), `${how}: 前の選びが残った`);
   }
 });
@@ -158,7 +164,7 @@ test('D70: Esc・［やめる］・もう一度［選ぶ］で選ぶ形が終わ
 test('D70: 一覧が変わって（消した・録音を始めた）見えなくなった行の選びは外れる', T, async () => {
   let list = LIST3;
   const l = await openList(LIST3, { pagesSearch: () => list });
-  await press(l, l.byId.get('listSelect'));
+  await startSel(l);
   await press(l, rowOf(l, 'pa1'));
   await press(l, rowOf(l, 'pb2'));
   list = LIST3.filter((p) => p.id !== 'pb2');
@@ -172,7 +178,7 @@ test('D70: 一覧が変わって（消した・録音を始めた）見えなく
 test('D70: 51 件選んで写すと 50 行で「50 件まで写しました。」', T, async () => {
   const many = Array.from({ length: 51 }, (_, i) => ({ id: `pm${String(i).padStart(2, '0')}`, title: titleAt(new Date(Date.UTC(2026, 8, 1 + (i % 28), 1, i))), date: '2026-09-01', durationSec: 60, hasSummary: true }));
   const l = await openList(many);
-  await press(l, l.byId.get('listSelect'));
+  await startSel(l);
   await press(l, rowOf(l, 'pm00'));
   await press(l, rowOf(l, 'pm50'), { shiftKey: true });
   assert.strictEqual(l.byId.get('selCount').textContent, '51 件を選んでいます');

@@ -215,29 +215,31 @@ test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったペ�
   await l.drain();
   assert.ok(menuOf(), '右クリックで行のメニューが出ない');
   assert.strictEqual(menuOf().getAttribute('role'), 'menu');
-  // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にページを作る］の次に［中にデータベースを作る］を足した
+  // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にページを作る］の次に［中にデータベースを作る］を足した（0.15.1 を出した main の取り込み: R123）
+  // 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・決めたこと 29）で意図して変えた: 行のメニューは［リンクを写す］［名前を変える］［移動先…］［中にページを作る］［新しいタブで開く］［削除］の6つ（項目は名前で引く）
+  const item = (label) => menuOf().querySelectorAll('.mitem').find((b) => b.textContent === label);
   assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map((b) => [b.textContent, b.getAttribute('role')]),
-    [['中にページを作る', 'menuitem'], ['中にデータベースを作る', 'menuitem'], ['移動先…', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
+    [['リンクを写す', 'menuitem'], ['名前を変える', 'menuitem'], ['移動先…', 'menuitem'], ['中にページを作る', 'menuitem'], ['中にデータベースを作る', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
   assert.ok(l.document.activeElement === menuOf().querySelectorAll('.mitem')[0], 'メニューの1つ目にフォーカスが無い');
   l.key({ key: 'ArrowDown' }, menuOf());
-  assert.strictEqual(l.document.activeElement.textContent, '中にデータベースを作る');
+  assert.strictEqual(l.document.activeElement.textContent, '名前を変える');
   l.key({ key: 'Escape' }, menuOf());
   await l.drain();
   assert.deepStrictEqual([menuOf() === null, focused(l)], [true, 'pa2'], 'Esc で閉じて行へ戻らない');
   await key(l, 'pa2', { key: 'F10', shiftKey: true });
   assert.ok(menuOf(), 'Shift+F10 で行のメニューが出ない');
-  menuOf().querySelectorAll('.mitem')[0].dispatchEvent({ type: 'click' });
+  item('中にページを作る').dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args), [['pa1'], ['pa2']], '［中にページを作る］が行の中に作らない');
   assert.ok(menuOf() === null, '［中にページを作る］の後もメニューが残る');
-  await key(l, 'pa3', { key: 'ContextMenu' });   // 0.16.0 DX-1 で意図して変えた: ［中にデータベースを作る］を足したので、［新しいタブで開く］は4つ目・［削除］は5つ目
-  menuOf().querySelectorAll('.mitem')[3].dispatchEvent({ type: 'click' });
+  await key(l, 'pa3', { key: 'ContextMenu' });
+  item('新しいタブで開く').dispatchEvent({ type: 'click' });
   await l.drain();
   assert.ok($(l, 'tabbar').querySelectorAll('.tabitem').some((t) => t.dataset.key === 'page:pa3'), '［新しいタブで開く］で開かない');
   assert.strictEqual($(l, 'tabbar').querySelectorAll('.tabitem').length, 2, '新しいタブで開かない');
   // ［削除］は確かめる（この台の confirm は［キャンセル］なので消さない）
   await key(l, 'pa3', { key: 'ContextMenu' });
-  menuOf().querySelectorAll('.mitem')[4].dispatchEvent({ type: 'click' });
+  item('削除').dispatchEvent({ type: 'click' });   // 0.15.1 PS-3（決めたこと 29）で意図して変えた: 行のメニューの項目は6つになったので名前で引く
   await l.drain();
   assert.deepStrictEqual(l.called('pageDelete'), [], '確かめずに消した');
   assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -577,7 +579,8 @@ test('PH-4: 見出し「議事録」の行の［＋］・行の［＋］・/ペ�
   try {
     const head = $(l, 'newPageBtn');
     assert.ok(head, '見出しの［＋］が無い');
-    assert.deepStrictEqual([head.textContent, head.getAttribute('title'), head.getAttribute('aria-label')], ['＋', 'ページを作る', 'ページを作る']);
+    // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・決めたこと 22）で意図して変えた: 吹き出しは「ページを追加」（場所は見出しの行の右。押した答えは同じ）
+    assert.deepStrictEqual([head.textContent, head.getAttribute('title'), head.getAttribute('aria-label')], ['＋', 'ページを追加', 'ページを追加']);
     head.dispatchEvent({ type: 'click' });
     await l.drain();
     const made = l.called('pageCreate');
@@ -1759,8 +1762,9 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   rowOf(l, 'k1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
   await l.drain();
   const menu = l.document.querySelector('.treemenu');
-  // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にデータベースを作る］を足した（［移動先…］は3つ目）
-  assert.deepStrictEqual(menu.querySelectorAll('.mitem').map((b) => b.textContent), ['中にページを作る', '中にデータベースを作る', '移動先…', '新しいタブで開く', '削除']);
+  // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にデータベースを作る］を足した（R123）
+  // 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・決めたこと 29）で意図して変えた: 行のメニューは［リンクを写す］［名前を変える］［移動先…］［中にページを作る］［新しいタブで開く］［削除］の6つ
+  assert.deepStrictEqual(menu.querySelectorAll('.mitem').map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '中にデータベースを作る', '新しいタブで開く', '削除']);
   menu.querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(opts(), ['', 'pa3', 'pa2', 'k2', 'pa1'], '候補が木の順でないか、自分（k1）・子孫（g1）が出る');
@@ -1796,7 +1800,7 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   // ［いちばん上へ］（Enter で頭の行）→ pageMove(k1, '')
   rowOf(l, 'k1').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
   await l.drain();
-  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });   // 0.16.0 DX-1 で意図して変えた: ［移動先…］は3つ目
+  l.document.querySelector('.treemenu').querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' });   // 0.15.1 PS-3（決めたこと 29）で意図して変えた: 行のメニューの項目は6つになったので名前で引く
   await l.drain();
   l.key({ key: 'Enter' }, $(l, 'moveSearch'));
   await l.drain();
@@ -1804,7 +1808,7 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   // 行のメニューから開いた窓の Esc は、その行へフォーカスを戻す
   rowOf(l, 'pa3').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
   await l.drain();
-  l.document.querySelector('.treemenu').querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });   // 0.16.0 DX-1 で意図して変えた
+  l.document.querySelector('.treemenu').querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' });   // 0.15.1 PS-3（決めたこと 29）で意図して変えた: 行のメニューの項目は6つになったので名前で引く
   await l.drain();
   l.key({ key: 'Escape' }, $(l, 'moveSearch'));
   await l.drain();
@@ -2081,6 +2085,35 @@ test('PH-5 直し 2・R56 M-6: Ctrl+Shift+U は検索の窓・［移動先…］
   } finally { r.done(); }
 });
 
+// 0.15.1 PS-4（計画 docs/plans/2026-11-04-151.md の R9・R34・D125）で意図して変えた: ND-3 の Ctrl+W の場面（R9）を、ページを閉じずに移るライブラリのタブへ移る形に
+// 戻した（開いたページは裏に残るので、renderKids の「選んでいるタブがそのページか」の照らしだけが子ページの一覧を出さない）
+test('PH-5 直し 2・R56 M-6・0.15.1 ND-3（R9）・PS-4: 議事録の子ページの一覧は、ページを開いたままライブラリのタブへ移ってから読み直しても出さない', T, async () => {
+  const l = await boot();
+  l.fire('onPageOpen', 'pa2'); await l.drain();
+  $(l, 'paneBtnNote').dispatchEvent({ type: 'click' });
+  assert.strictEqual($(l, 'pKids').hidden, false, '前提: 子ページの一覧が出る');
+  $(l, 'privLib').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').dataset.key, 'library', '前提: ライブラリのタブを選んでいる');
+  l.fire('onPagesUpdated'); await l.drain();
+  assert.strictEqual($(l, 'pKids').hidden, true, 'ライブラリのタブで一覧を読み直すと、裏のページの子ページの一覧が出てしまった（出さないはず）');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('0.15.1 PS-4（R9・R12 の申し送り）: 書きかけの題名は、ライブラリのタブへ移る前に保存する（pageSetTitle の1回）。戻るとページは開いたまま（読み直さない）', T, async () => {
+  const l = await boot({ returns: { pageSetTitle: () => ({ ok: true }) } });
+  l.fire('onPageOpen', 'pa2'); await l.drain();
+  const t = $(l, 'pTitle');
+  t.focus();
+  t.textContent = '書きかけの題名';
+  const n = l.called('pageGet').length;
+  $(l, 'privLib').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa2', '書きかけの題名']], 'ライブラリへ移る前に書きかけの題名を保存しない');
+  $(l, 'tabbar').querySelector('[data-key="page:pa2"]').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(l.called('pageGet').length, n, 'ライブラリから戻るとページを読み直した');
+  assert.strictEqual($(l, 'pTitle').textContent, '書きかけの題名');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
 test('PH-5 直し 2・R56 M-2・M-6: ［移動先…］と「新しいページ」は後ろの全面を押すと閉じてフォーカスを戻す。窓の中のフォーカスを取れない所を押してもフォーカスは外れない（mousedown の既定を止める）。探す欄の Tab は窓の外へ出ない', T, async () => {
   const l = await boot();
   l.fire('onPageOpen', 'pa3'); await l.drain();
@@ -2167,11 +2200,16 @@ test('PH-5 直し 2・R56 M-3・M-4: 「新しいページ」の［議事録］�
 });
 
 test('PH-5 直し 2・R56 M-6: 議事録の子ページの一覧は、そのページのタブを選んでいるときだけ（ほかのタブで一覧を読み直しても出さない）', T, async () => {
-  const l = await boot();
+  // 0.15.1 ND-3: 録音の前のページ（［＋ 新しい議事録］）を開けるように、meetingPrepare と状態（prep）を答える
+  let prep = null;
+  const l = await boot({ returns: { meetingPrepare: () => { prep = { memo: '', meetingType: null }; return { ok: true }; },
+    meetingStatus: () => ({ active: false, finalizing: false, memo: '', segments: [], pending: 0, cloud: true, prep }) } });
   l.fire('onPageOpen', 'pa2'); await l.drain();
   $(l, 'paneBtnNote').dispatchEvent({ type: 'click' });
   assert.strictEqual($(l, 'pKids').hidden, false, '前提: 子ページの一覧が出る');
-  $(l, 'tabBtnDictation').dispatchEvent({ type: 'click' }); await l.drain();
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、ほかのタブは［＋ 新しい議事録］の録音の前のページ（live）のタブ
+  $(l, 'mtToggleBtn').click(); await l.drain();
+  assert.ok($(l, 'tabbar').querySelector('[aria-selected="true"]').dataset.key !== 'page:pa2', '前提: ほかのタブを選んだ');
   l.fire('onPagesUpdated'); await l.drain();
   assert.strictEqual($(l, 'pKids').hidden, true, 'ほかのタブで一覧を読み直すと、子ページの一覧が出る');
   assert.deepStrictEqual(l.errors.map(fmt), []);

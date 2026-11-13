@@ -3,6 +3,7 @@
 // 中身は数十 KB。gen: 2 は「更新でピンが変わった」組（文字起こしのモデルが変わる）。
 // 0.10.0 LS-3（D59）で意図して直した: 要約の組（llama の zip・モデル）を外した（本物の MANIFEST と同じく文字起こしの組だけ）。
 // sameDest: true は、gen 2 の文字起こしのモデルを gen 1 と同じ置き場所にする（place-in-use の試し）。
+// 0.15.1 GV-2（D126）: vk: true は、エンジンを GPU 版の組に見立てる（中身の違う zip・置き場所 whisper-1.0.0-vk・印 vulkan: true と runtime: 'bundled'）。
 const http = require('http');
 const crypto = require('crypto');
 const { makeZip } = require('./zipwrite');
@@ -17,7 +18,7 @@ const bytes = (n, seed) => {
 };
 const freeze = (o) => { if (o && typeof o === 'object') { Object.values(o).forEach(freeze); Object.freeze(o); } return o; };
 
-async function smallSet({ gen = 1, sameDest = false, missing = [], onHit = null } = {}) {
+async function smallSet({ gen = 1, sameDest = false, missing = [], onHit = null, vk = false } = {}) {
   const bodies = {};
   const zipItem = (id, group, dir, strip, exe, used, extra, seed) => {
     const ents = used.map(([name, n]) => ({ name, data: bytes(n, seed + name) }));
@@ -31,8 +32,11 @@ async function smallSet({ gen = 1, sameDest = false, missing = [], onHit = null 
     return { id, group, kind: 'file', role, label: id, version: String(seed), size: b.length, sha256: sha(b), dest, license: 'MIT（試験）' };
   };
   const items = [
-    zipItem('whisper-engine', 'whisper', 'whisper-1.0.0', 'Release/', 'whisper-server.exe',
-      [['Release/whisper-server.exe', 3000], ['Release/whisper.dll', 2000], ['Release/ggml.dll', 1000]], [['Release/test-extra.exe', 500]], 'w1'),
+    vk ? { ...zipItem('whisper-engine', 'whisper', 'whisper-1.0.0-vk', 'Release/', 'whisper-server.exe',
+      [['Release/whisper-server.exe', 3100], ['Release/whisper.dll', 2100], ['Release/ggml.dll', 1100], ['Release/ggml-vulkan.dll', 900]], [['Release/test-extra.exe', 500]], 'w1vk'),
+    version: '1.0.0', vulkan: true, runtime: 'bundled' }
+      : zipItem('whisper-engine', 'whisper', 'whisper-1.0.0', 'Release/', 'whisper-server.exe',
+        [['Release/whisper-server.exe', 3000], ['Release/whisper.dll', 2000], ['Release/ggml.dll', 1000]], [['Release/test-extra.exe', 500]], 'w1'),
     fileItem('whisper-vad', 'whisper', 'vad', 'models/vad.bin', 3000, 'vad1'),
     fileItem('whisper-model', 'whisper', 'model', gen === 2 && !sameDest ? 'models/w-model-2.bin' : 'models/w-model.bin', 40000, `wm${gen}`),
   ];

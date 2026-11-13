@@ -1,7 +1,7 @@
 ---
 title: ネットワークが不安定なときの会議（［オフラインモード］）
 description: ネットワークが不安定なとき・つながらないときに、その会議の文字起こしを PC の中に固定するボタン。押すときと、効く範囲（守秘の機能ではありません）
-updated: 2026-10-27
+updated: 2026-11-07
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, src/mainlib.js, docs/plans/2026-10-24-130.md
 related: start/what-natsu-does, record/start-stop, start/login
 ---
@@ -48,5 +48,4 @@ Web 会議の始めに出るパネルの ⌄ から「オフラインモード�
 ## 効かないもの {#not-covered}
 
 - 押す前の区間（もう送ってあります）。
-- 音声入力（ホットキー）の音声。音声入力は、今までどおり中継へ送ります。中継へ送りたくない話は、音声入力で入れないでください。
 - 要約と、Claude に議事録を読んでもらうとき（文字起こしの文は Claude（Anthropic）へ送られます）。

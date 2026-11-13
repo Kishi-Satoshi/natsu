@@ -25,6 +25,19 @@ const CP932_NIHONGO = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]);
 // 今の利用者がふつうに持っている設定（30 のキー。localThreads は CPU の移し替えに当たらない 3）
 // 0.9.0 O-1（設計書 D25）で意図して変えた: 0.9.0 の置き場所 pillSlot を足した（0.9.0 で一度起動した人の形）。前の版が書いた pillPos・pillCustom は
 // 知らないキーとして残っている（0.9.0 は読み書きしない）。pillSlot があるので、起動の前の位置の直し（migratePillSlot）はこの設定を書き直さない
+// 読めない間の登録 → 読み直し（retrySettingsRead）→ その後に globalShortcut.register へ渡したキーと、登録しているキー
+async function reloadHotkeyAct(c) {
+  const gs = c.electron.globalShortcut;
+  const keys = ['Alt+M', 'Control+Alt+M'];
+  c.out.before = keys.filter((k) => gs.isRegistered(k));
+  const reg = gs.register;
+  const calls = [];
+  gs.register = (acc, cb) => { calls.push(acc); return reg(acc, cb); };
+  c.timers.retrySettingsRead[0]();
+  c.out.got = (await c.handlers['settings:get']()).meetingHotkey;
+  c.out.calls = calls;
+  c.out.after = keys.filter((k) => gs.isRegistered(k));
+}
 const TYPICAL = {
   localServerExe: 'C:\\engine\\whisper-server.exe', localModelPath: 'C:\\engine\\ggml-model.bin', localPort: 8990, localThreads: 3,
   vadModelPath: '', useVad: true, suppressNst: true, sumServerExe: '', sumModelPath: '', sumPort: 8991, sumThreads: 3, language: 'ja',
@@ -124,27 +137,25 @@ const PILL_SETTINGS = {
 module.exports = {
   TYPICAL, HISTORY, UI, OLD_DRAFT, WS, OLD_KEY_TEXT, PILL_SETTINGS,
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
-    act: async (c) => { c.out.got = await c.handlers['settings:get'](); c.out.history = await c.handlers['history:get'](); } },
+    act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },
   utf16: { files: { 'settings.json': Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify({ theme: 'dark', micId: 'マイク' }), 'utf16le')]) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   // 0.9.0 O-1 で意図して変えた: 壊れた録音バーの値は pillSlot（pillPos は知らないキーになったので直さない）
-  repair: { files: { 'settings.json': pretty({ ...TYPICAL, maxHistory: -1, pillSlot: 5, futureKey: { a: 1 } }) } },
-  falselike: { files: { 'settings.json': pretty({ ...TYPICAL, autoPaste: 'false' }) } },
+  // 0.15.1 ND-1（計画 docs/plans/2026-11-04-151.md の決めたこと 4・D114）で意図して変えた: maxHistory と autoPaste は表から外した知らないキー（直さず値のまま残す）。
+  // 直す項目は segmentSec（範囲の外）で見て、壊れた maxHistory は値のまま残ることを見る。"false" の文字は soundFeedback で見る
+  repair: { files: { 'settings.json': pretty({ ...TYPICAL, maxHistory: -1, segmentSec: 5, pillSlot: 5, futureKey: { a: 1 } }) } },
+  falselike: { files: { 'settings.json': pretty({ ...TYPICAL, soundFeedback: 'false' }) } },
   'broken-json': { files: { 'settings.json': '{"theme":"da' }, act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   ansi: { files: { 'settings.json': Buffer.concat([Buffer.from('{"micId":"'), CP932_NIHONGO, Buffer.from('"}')]) } },
-  'history-broken': { files: { 'settings.json': pretty(TYPICAL), 'history.json': '[{"id":"h1","text":"途中' },
-    act: async (c) => { c.out.history = await c.handlers['history:get'](); } },
+  // 0.15.1 ND-2（D114）で意図して変えた: main は history.json を読まない（壊れていても退けない）。場面はファイルを置いて起動するだけ
+  'history-broken': { files: { 'settings.json': pretty(TYPICAL), 'history.json': '[{"id":"h1","text":"途中' } },
   partial: { files: { 'settings.json': ({ base }) => JSON.stringify({ ...base, autoLaunch: false }) } },
   allowlist: { files: { 'settings.json': pretty({ ...TYPICAL, futureKey: { a: 1 } }) },
     act: async (c) => { c.out.saved = await c.handlers['settings:save']({}, { ...UI({ theme: 'light' }), evil: 'x', dataDir: 'C:\\old', constructor: 'y' }); } },
   // 計画の外で足した場面（履歴の形の確かめを押さえるテストが無かったため）: JSON としては読めるが配列でない history.json
-  'history-shape': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty({ id: 'h1', text: '配列でない' }) },
-    act: async (c) => { c.out.history = await c.handlers['history:get'](); } },
-  // 計画の外で足した場面（N10 を押さえるテストが無かったため）: history.json の名前の変更がずっと失敗する
-  'history-save-fail': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
-    faults: [{ op: 'rename', match: /history\.json$/, code: 'EBUSY', times: Infinity }],
-    act: async (c) => { c.out.cleared = await c.handlers['history:clear'](); c.out.history = await c.handlers['history:get'](); } },
+  'history-shape': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty({ id: 'h1', text: '配列でない' }) } },
+  // 0.15.1 ND-2: history-save-fail（履歴の全消しを保存できない）は履歴の全消しと一緒に消した
   // 第1a回 Task 2-3: 書けないとき・読めないとき
   'save-fail': { files: { 'settings.json': pretty(TYPICAL) },
     faults: [{ op: 'rename', match: /settings\.json$/, code: 'EBUSY', times: 7 }],   // 1 回の保存の試し（1 + RENAME_WAITS の 6）を全部失敗させる
@@ -191,41 +202,24 @@ module.exports = {
       c.out.retriesBefore = (c.timers.retrySettingsRead || []).length;
       c.timers.retrySettingsRead[0]();
       c.out.retriesDuring = c.timers.retrySettingsRead.length;
+      // 0.15.1 ND-2（R21）: 音声入力の場面（unreadable-dictation）が見ていた「待っている読み直しの時計はいつも1つ」を、会議の最中にもう1回読み直して見る
+      const pending = () => (c.timers.retrySettingsRead || []).length - (c.clearedTimers.retrySettingsRead || 0);
+      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
+      c.out.retriesDuring2 = c.timers.retrySettingsRead.length;
+      c.out.pendingDuring = pending();
       c.out.themeDuring = (await c.handlers['settings:get']()).theme;
       c.out.discard = await c.handlers['meeting:discard']();
       c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
       c.out.themeAfter = (await c.handlers['settings:get']()).theme;
-    } },
-  // 同じ読み直しを、音声入力（ホットキー）の最中に呼ぶ。#57 の守りの state === 'recording' の側。
-  // 待っている読み直しの時計はいつも1つだけ（後へ回すたびに前のを止める）
-  'unreadable-dictation': { files: { 'settings.json': ({ base }) => pretty({ ...TYPICAL, ...base }) },
-    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],
-    act: async (c) => {
-      const onDisk = JSON.parse(c.read('settings.json').toString('utf8'));
-      const pending = () => (c.timers.retrySettingsRead || []).length - (c.clearedTimers.retrySettingsRead || 0);
-      c.out.saveWhileUnreadable = await c.handlers['settings:save']({}, UI({ theme: 'light', localServerExe: onDisk.localServerExe, localModelPath: onDisk.localModelPath }));
-      c.out.hotkeyRegistered = typeof c.shortcuts[TYPICAL.hotkey] === 'function';
-      c.shortcuts[TYPICAL.hotkey]();   // 音声入力を始める
-      c.out.retriesBefore = (c.timers.retrySettingsRead || []).length;
-      c.timers.retrySettingsRead[0]();
-      c.out.retriesDuring = c.timers.retrySettingsRead.length;
-      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
-      c.out.retriesDuring2 = c.timers.retrySettingsRead.length;
-      c.out.themeDuring = (await c.handlers['settings:get']()).theme;
-      c.out.pendingDuring = pending();
-      c.listeners['overlay:cancel-request']({ sender: c.wins[0] && c.wins[0].webContents });   // 音声入力を取り消す（idle に戻る。0.14.0 EK-6 直し2: 録音バーの窓から）
-      c.timers.retrySettingsRead[c.timers.retrySettingsRead.length - 1]();
-      c.out.themeAfter = (await c.handlers['settings:get']()).theme;
       c.out.pendingAfter = pending();
     } },
-  'history-unreadable': { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
-    faults: [{ op: 'read', match: /history\.json$/, code: 'EBUSY', times: 7 }],
-    act: async (c) => {
-      c.out.cleared = await c.handlers['history:clear']();
-      c.out.textWhileUnreadable = c.read('history.json').toString('utf8');
-      c.timers.retryHistoryRead[0]();
-      c.out.after = await c.handlers['history:get']();
-    } },
+  // 0.15.1 ND-1・PS-1 直し（2026-11-08 の点検 M3）: 起動で読めなかった settings.json が読めるようになったら、議事録のキーが既定と違うときだけ
+  // そのキーを登録し直す（applyReloadedSettings の枝。第1a回からテストが無かった）。-same は既定と同じキー（登録し直さない）
+  'unreadable-hotkey': { files: { 'settings.json': pretty({ ...TYPICAL, meetingHotkey: 'Control+Alt+M' }) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }], act: (c) => reloadHotkeyAct(c) },
+  'unreadable-hotkey-same': { files: { 'settings.json': pretty({ ...TYPICAL, meetingHotkey: 'Alt+M' }) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }], act: (c) => reloadHotkeyAct(c) },
+  // 0.15.1 ND-2: unreadable-dictation（音声入力の最中の設定の読み直し）・history-unreadable（読めない履歴）は音声入力と一緒に消した
   // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
   // 0.9.0 O-1 で意図して変えた: 録音バーを動かすと、窓の中心に一番近い置き場所の名前を pillSlot にまとめ書きする（pillCustom は置いたまま
   // 変わらない）。動かす先は左上（top-left）と右上（top-right）を交互にして、合図の前と後で名前が変わるようにした。move の後の moved は
@@ -433,19 +427,14 @@ module.exports = {
       }));
     } },
   // 第2a1回 M-2b（ST12・RF10）: 議事録の DB を使えない（--db-down: SQLite に trigram が無く、自分の確かめが通らない）。
-  // 設定・画面の覚え書き・音声入力の履歴は今までどおり読み書きでき、会議は下書きに残り、知らせ D1 が1回出る
+  // 設定・画面の覚え書きは今までどおり読み書きでき、会議は下書きに残り、知らせ D1 が1回出る（0.15.1 ND-2 で音声入力の1回を外した）
   'db-down': { engine: true, dbDown: true, files: { 'settings.json': ({ base }) => JSON.stringify(base) },
     act: async (c) => {
       const saved = await c.handlers['settings:save']({}, { theme: 'light' });
       const onDisk = JSON.parse(c.read('settings.json').toString('utf8'));
       c.out.settingsSaved = Boolean(saved) && saved.ok !== false && onDisk.theme === 'light';
       c.out.uiSet = await c.handlers['ui:set']({}, { sidebar: { width: 300, collapsed: false } });
-      const hk = (await c.handlers['settings:get']()).hotkey;
-      c.shortcuts[hk]();   // 音声入力を1回
-      c.listeners['audio:done']({}, { buffer: new Uint8Array(c.toneWav(3)), durationMs: 3000 });
-      await c.waitFor(() => (c.handlers['history:get']() || []).length > 0, 10000);
-      c.out.history = c.handlers['history:get']();
-      // 音声入力の後片付け（貼り付け）が済んで待機に戻るまでは「処理中です」で断られる。戻ったら会議を始める
+      // 待機になるまでは断られることがある。始まるまで試す
       for (let i = 0; i < 200; i++) {
         c.out.start = await c.handlers['meeting:toggle']();
         if (c.out.start && c.out.start.ok) break;
@@ -1174,6 +1163,16 @@ module.exports = {
       c.out.ui = await c.handlers['ui:get']({});
       c.out.set = await c.handlers['ui:set']({}, { emojiRecent: ['🌸', '🦕', '🚀'] });
       c.out.again = await c.handlers['ui:get']({});
+    } },
+  // 0.15.1 PS-1（計画 docs/plans/2026-11-04-151.md の決めたこと 24・32・F158）: ui:get はサイドバーのセクション（sections）を照らして渡す（壊れた項目だけ既定）。
+  // ui:set で送った形を覚えて次の ui:get に出す（後の版のセクションも残す）。ライブラリのタブ（'library'）も覚える。覚え書きの無い起動は既定
+  'ws-sections-get': { files: { 'settings.json': pretty(TYPICAL) },
+    local: { [WS_FILE]: WS({ sections: { private: { open: false, sort: 'x', show: 10 }, favorites: { open: false } } }) },
+    act: async (c) => {
+      c.out.ui = await c.handlers['ui:get']({});
+      c.out.set = await c.handlers['ui:set']({}, { sections: { private: { open: true, sort: 'edited', show: 5 }, favorites: { open: false } }, tabs: { open: ['library'], active: 'library' } });
+      c.out.again = await c.handlers['ui:get']({});
+      c.out.none = { sections: require('../../src/winstate').sectionsOf({}) };
     } },
   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・F116）: 白紙のページの page:summarize は断る（Claude Code を呼ばない・ページを書かない）。
   // 画面と同じ役 app の口で白紙のページを作り、ページの rev・更新の時刻と、呼んだ子のプロセスを見る

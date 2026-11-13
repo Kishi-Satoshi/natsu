@@ -364,9 +364,9 @@ test('あとの直し (c): 記録の符号は英大文字と _ の 2〜40 文字
   assert.strictEqual(localFailCode({ code: 'A'.repeat(40) }), 'A'.repeat(40));
 });
 
-// あとの直し (c): 区間の番号（opts.seg）を渡すのは、議事録の区間・［もう一度］・復旧の3か所。音声入力は渡さない
+// あとの直し (c): 区間の番号（opts.seg）を渡すのは、議事録の区間・［もう一度］・復旧の3か所（0.15.1 ND-2 で音声入力を外した）
 // （［もう一度］と復旧の失敗の行は場面の照らしに出ないので、呼び出しの字面で見る）
-test('あとの直し (c): transcribeAuto に区間の番号を渡すのは議事録の区間・［もう一度］・復旧の3か所で、音声入力は渡さない', () => {
+test('あとの直し (c): transcribeAuto に区間の番号を渡すのは議事録の区間・［もう一度］・復旧の3か所', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const body = (from) => {
     const i = src.indexOf(from);
@@ -389,7 +389,6 @@ test('あとの直し (c): transcribeAuto に区間の番号を渡すのは議�
     const args = callArgs(body(fn));
     assert.ok(args.includes(`seg: ${seg} `) || args.includes(`seg: ${seg},`) || args.includes(`seg: ${seg}}`), `${fn}: ${args}`);
   }
-  assert.ok(!/\bseg:/.test(callArgs(body('async function handleDictationAudio('))), '音声入力が区間の番号を渡している');
 });
 
 sceneTest('起動テストは /inference に正しい WAV の無音を実際に送り、返事の異常を見逃さない', async (need) => {

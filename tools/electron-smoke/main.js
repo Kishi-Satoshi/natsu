@@ -6,7 +6,8 @@
  * 次の 19 を確かめる（CHECKS）。
  *   1〜4. utilityProcess と MessageChannelMain の口で、sandbox の隠れた窓（preload）と往復する。子を落として起こし直す。
  *         子の中で node:sqlite を開く。kill() の終わりの番号を見る
- *   5・6. mainlib の copyPrivate・deliverText を本物の clipboard で動かす（44 では Promise を返す。C1）
+ *   5・6. mainlib の copyPrivate を本物の clipboard で動かす（44 では Promise を返す。C1）。6 は 0.15.0 まで音声入力の貼り付け（deliverText）の
+ *         後の戻しで見ていたが、0.15.1 ND-1 で deliverText を消したので、前の文字（「abc」）を copyPrivate で置き直して読み返す形にした（R24）
  *   7.    画面の取り込みを断る（loopback.chooseDisplayMedia の null）と、main は投げない（C7）
  *   8〜12. 第1a回 SEC1: 別の session（natsu-sec-smoke）に本物の security.install を付け、守りの確かめ用のページ
  *         （sec-app.html を本体、sec-overlay.html を録音バーの代わりに）で、sandbox・ヘッダーの CSP・マイクと画面の取り込みの
@@ -81,7 +82,7 @@ const CHECKS = [
   [3, '子（utilityProcess）の中で node:sqlite が開ける'],
   [4, 'utilityProcess の kill() の終わりの番号は 0（第2a1回の「落ちたのか止めたのかは印で区別する」の前提）'],
   [5, 'clipboard を mainlib.copyPrivate で書いて読み返せる（44 では Promise）'],
-  [6, 'mainlib.deliverText の貼り付けの後、元の「abc」に戻る（[object Promise] にならない）'],
+  [6, '前の文字（「abc」）を mainlib.copyPrivate で置き直すと、読み返しが「abc」になる（[object Promise] にならない）'],
   [7, '画面の取り込みを断る（loopback.chooseDisplayMedia の null）と、main は投げず、画面の getDisplayMedia は失敗で返る'],
   [8, 'sandbox: true の窓の preload で process.sandboxed が真'],
   [9, 'CSP（main がヘッダーで付ける）: ハッシュで許したインラインの script は動き、後から差し込んだ script は止まる'],
@@ -164,7 +165,7 @@ function exitCodeOf(results, checks = CHECKS) {
 }
 
 /**
- * 5 と 6。clipboard（本物か偽物）を mainlib の copyPrivate・deliverText に渡す。常駐 PowerShell は居ない（paster は null）
+ * 5 と 6。clipboard（本物か偽物）を mainlib の copyPrivate に渡す。常駐 PowerShell は居ない（paster は null）
  * ので、copyPrivate は clipboard で書く（'electron'）。時計は縮める。
  * @returns {Promise<Array<{ n: number, ok: boolean, note: string }>>}
  */
@@ -173,11 +174,6 @@ async function clipboardChecks(clip) {
     clip,
     paster: () => null,
     sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 50))),
-    autoPaste: true,
-    fg: Promise.resolve(''),
-    simulatePaste: async () => 'ok',
-    notice: () => {},
-    later: (fn) => setTimeout(fn, 10),
   };
   const out = [];
   try {
@@ -188,10 +184,10 @@ async function clipboardChecks(clip) {
   } catch (e) { out.push({ n: 5, ok: false, note: `投げた: ${msgOf(e)}` }); }
   try {
     await lib.copyPrivate('abc', d);
-    const r = await lib.deliverText('口述の試し', d);
-    await wait(100);
+    await lib.copyPrivate('写しの試し', d);
+    const r = await lib.copyPrivate('abc', d);
     const back = await lib.readClip(clip);
-    out.push({ n: 6, ok: back === 'abc', note: `deliverText は ${r}、100ms 後のクリップボードは ${JSON.stringify(back)}` });
+    out.push({ n: 6, ok: back === 'abc', note: `置き直しの copyPrivate は ${r}、読み返しは ${JSON.stringify(back)}` });
   } catch (e) { out.push({ n: 6, ok: false, note: `投げた: ${msgOf(e)}` }); }
   return out;
 }

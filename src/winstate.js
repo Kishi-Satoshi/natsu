@@ -20,6 +20,8 @@
  *     重なり無しで新しい順に 24 まで
  *   - 0.9.0 U-1（SP3・D24）: 設定はタブでなくポップアップで開くので、前の版が覚えた settings は黙って落とす
  *     （無いページとして数えない。数えると main が「無いページのタブを N 個外した」と事実と違う記録を書く）
+ *   - 0.15.1 ND-1（D114・決めたこと 5・F152）: 音声入力を無くしたので、前の版が覚えた dictation のタブも同じく黙って落とす
+ *     （開いていたタブが音声入力だけなら、起動はタブ無し。知らせは出さない）
  *
  * 壊れた項目だけを既定に戻し、ほかの項目は残す。v が 1 でなくても読めるものは読む
  * （後の版の覚え書きを古い版で開いても落ちない）。
@@ -29,6 +31,7 @@
 const path = require('path');
 const blockEdit = require('./blockEdit');   // 0.13.0 ED-5（EQ8 (b)）: / メニューの「最近使ったもの」の照らし（recentCheck）
 const emojiDict = require('./emojiDict');   // 0.15.0 PL-1: 最近使ったアイコンの照らし（isPageIcon）
+const sideSection = require('./sideSection');   // 0.15.1 PS-1: サイドバーのセクションの畳み・並べ替え・表示の数の照らし（normSections）
 
 const DEFAULT_SIZE = { width: 1120, height: 780 };
 const MIN_SIZE = { width: 820, height: 560 };
@@ -40,8 +43,11 @@ const MAX_TABS = 20;
 
 // 0.16.0 DX-1（決めたこと 45）: データベースの行のページのタブ（行の ID は r＋36 進）も覚える
 const TAB_PAGE_RE = /^page:[pr][a-z0-9]{1,40}$/;
-const TAB_FIXED = ['dictation'];
-const TAB_RETIRED = 'settings';   // 0.8.0 までの設定のタブ（読むときに黙って落とす）
+// 0.15.1 ND-1（D114・計画 docs/plans/2026-11-04-151.md の決めたこと 5）: 音声入力のタブを無くした。
+// 0.15.1 PS-1（D125・決めたこと 32）: ページでない決まったタブはライブラリ（'library'）だけ（起動し直しても戻す）
+const TAB_FIXED = ['library'];
+// 読むときに黙って落とす前の版のタブ（数えない）: 0.8.0 までの設定のタブ（0.9.0 U-1）と、0.15.0 までの音声入力のタブ（0.15.1 ND-1）
+const TAB_RETIRED = Object.freeze(['settings', 'dictation']);
 // 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行の ID（ページの ID の形。タブの鍵の page: の後ろと同じ形）と、覚える数の上限
 const TREE_ID_RE = /^p[a-z0-9]{1,40}$/;
 const TREE_MAX = 500;
@@ -73,6 +79,8 @@ function defaults() {
     slashRecent: [],   // 0.13.0 ED-5（決めたこと 37〜40）: / メニューで選んだ鍵だけ（新しい順に3つまで。会議の題名・行の文・ID は持たない）
     tree: { open: [] },   // 0.15.0 PH-1（決めたこと 19）: サイドバーの木で開いている行のページの ID（題名は持たない）
     emojiRecent: [],   // 0.15.0 PL-1（決めたこと 37）: アイコンの選びで最近使った絵文字（辞書の絵文字だけ・新しい順に 24 まで）
+    // 0.15.1 PS-1（D124・決めたこと 24・PQ5）: サイドバーのセクションの畳み・並べ替え・表示の数（その PC の見た目。後の版のセクションも残す）
+    sections: { private: { ...sideSection.SECTION_DEFAULT } },
   };
 }
 
@@ -132,7 +140,7 @@ function filterTabs(tabs, exists) {
   const open = [];
   let dropped = 0;
   for (const k of tabs.open) {
-    if (k === TAB_RETIRED) continue;
+    if (TAB_RETIRED.includes(k)) continue;
     let keep = tabKeyOk(k) && !open.includes(k) && open.length < MAX_TABS;
     if (keep && exists && k.startsWith('page:')) {
       try { keep = Boolean(exists(k.slice('page:'.length))); } catch (_) { keep = false; }
@@ -227,6 +235,11 @@ function normalize(raw, displays) {
     state.emojiRecent = normEmojiRecent(raw.emojiRecent);
     if (JSON.stringify(state.emojiRecent) !== JSON.stringify(raw.emojiRecent)) repaired.push('emojiRecent');
   }
+  if (raw.sections !== undefined) {   // 0.15.1 PS-1（決めたこと 24・F158）: 項目ごとに照らす（壊れた項目だけ既定に戻し、ほかは残す）
+    const n = sideSection.normSections(raw.sections);
+    state.sections = n.sections;
+    if (n.repaired) repaired.push('sections');
+  }
   return { state, repaired };
 }
 
@@ -259,6 +272,11 @@ function copyState(s) {
   return JSON.parse(JSON.stringify(s));
 }
 
+// 0.15.1 PS-1（F158）: ui:get が画面へ渡すセクション（写し。覚え書きに無い・壊れていれば既定）
+function sectionsOf(state) {
+  return copyState(sideSection.normSections(state && state.sections).sections);
+}
+
 function applyUi(state, patch) {
   const next = copyState(state);
   if (!isObj(patch)) return next;
@@ -274,11 +292,12 @@ function applyUi(state, patch) {
   if (patch.slashRecent !== undefined) next.slashRecent = blockEdit.recentCheck(patch.slashRecent);
   if (isObj(patch.tree) && Array.isArray(patch.tree.open)) next.tree = normTree(patch.tree);   // 0.15.0 PH-1: 画面から来た開け閉めも同じ照らし
   if (patch.emojiRecent !== undefined) next.emojiRecent = normEmojiRecent(patch.emojiRecent);   // 0.15.0 PL-1: 画面から来た最近使ったものも同じ照らし
+  if (patch.sections !== undefined) next.sections = sideSection.normSections(patch.sections).sections;   // 0.15.1 PS-1: 画面から来たセクションも同じ照らし
   return next;
 }
 
 module.exports = {
-  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS, TREE_MAX, EMOJI_RECENT_MAX,
+  DEFAULT_SIZE, MIN_SIZE, MAX_EDGE, VISIBLE_MIN, ZOOM_STEPS, SIDEBAR, MAX_TABS, TREE_MAX, EMOJI_RECENT_MAX, TAB_RETIRED,
   statePath, defaults, shapeOk, normalize, onScreen, boundsOf,
-  zoomDir, stepZoom, tabKeyOk, keepTabs, applyUi,
+  zoomDir, stepZoom, tabKeyOk, keepTabs, applyUi, sectionsOf,
 };

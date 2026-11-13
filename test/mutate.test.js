@@ -177,8 +177,8 @@ const IDS_1A = [
   'js-bom', 'js-utf16', 'js-fatal', 'js-busy-ebusy', 'js-read-waits', 'js-shape', 'js-maxbytes', 'js-quarantine-unreadable',
   'js-fsync', 'js-wx', 'js-rename-retry', 'js-tmp-cleanup', 'js-readonly', 'js-same-text',
   'js-prune-ms', 'js-prune-keep', 'js-copy-dedupe', 'js-clean-wav', 'js-timer-throw', 'js-unref', 'js-flush-retry', 'js-discard',
-  'st-port-low', 'st-maxhistory-default', 'st-unknown-keep', 'st-builtin-notfalse', 'st-false-like', 'st-allowlist',
-  'mn-writeback', 'mn-startup-notice', 'mn-history-paste', 'mn-save-warning', 'mn-unreadable-nowrite', 'mn-reread-get', 'mn-reload-dictation', 'mn-reload-one-timer',
+  'st-port-low', 'st-unknown-keep', 'st-builtin-notfalse', 'st-false-like', 'st-allowlist',
+  'mn-writeback', 'mn-startup-notice', 'mn-save-warning', 'mn-unreadable-nowrite', 'mn-reread-get', 'mn-reload-one-timer',
   'mn-flush-session-end', 'mn-flush-suspend', 'mn-flush-hide', 'mn-exit-flush', 'mn-temps', 'mn-draft-keep', 'mn-draft-name', 'mn-recovery-quarantine',
   'mn-recovery-retry', 'mn-recovery-rewrite', 'mn-log-reason',   // mn-transcript-notice は第2a1回 M-2b で外した（起動で元の JSON を退けないので、退けた文字起こしの知らせ N17 が無い）
   'sr-index-nofsync', 'sr-page-report', 'sr-transcript-report', 'sr-index-keep', 'up-pkg-no-quarantine', 'ei-unreadable-nowrite',
@@ -367,7 +367,7 @@ const IDS_1D = [
   'ra-stall-silent', 'ra-stall-n', 'ra-stall-drop-wav', 'ra-problem-sticky', 'ra-problem-offline', 'ra-login-clear', 'ra-retry-once', 'ra-retry-localonly',
   'ra-discard-keep-quiet', 'ra-finalize-keep-quiet', 'ra-text-no-reset', 'ra-retry-no-pending', 'ra-seg-fail-why', 'ra-memo-scale-floor', 'ra-ui-banner-text', 'ra-ui-stt-live',
   'ra-notify-visible', 'ra-notify-once', 'ra-notify-codes', 'ra-notify-text', 'ra-notify-throw-guard', 'ra-notify-focused', 'ra-restart-recording', 'ra-restart-finalizing',
-  'ra-apply-recording', 'ra-tray-late', 'ra-ui-restart-result', 'ra-restart-stops', 'ra-restart-quitting', 'ra-start-quitting', 'ra-dictate-quitting',
+  'ra-apply-recording', 'ra-tray-late', 'ra-ui-restart-result', 'ra-restart-stops', 'ra-restart-quitting', 'ra-start-quitting',
   // 第1d回 Task G-3（作り替え: Cloudflare Access のログイン。計画の「作り替えの変異」の「足す変異」を「変異確認」の表へ移した 60 個）
   ...IDS_1D_ACCESS_ADDED(),
   // 第1d回 統合（G-4 の前）: W-5 の点検の直しのテストに当てる3つ（exp の境目・access がそろう前の 503・ASCII でないメール）
@@ -414,7 +414,8 @@ test('G3: 第1d回の変異が一覧にそろい、IDS_1D は計画の「変異�
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-19-1d.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = [...table.matchAll(/^\| ([a-z0-9]+(?:-[a-z0-9]+)+) \|/gm)].map((x) => x[1]);
-  assert.deepStrictEqual([...rows].sort(), [...IDS_1D].sort());
+  // 0.15.1 ND-2 で意図して変えた: 表の行から GONE_151 を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual([...rows].filter((id) => !GONE_151.includes(id)).sort(), [...IDS_1D].sort());
   // 中継（relay/）と出し方の変異は、Electron の場面を使わない中継のテストで殺す（CI の mutate を短く保つ）。ゲートの変異はゲートのテストで殺す
   for (const id of IDS_1D.filter((x) => x.startsWith('rl-'))) {
     const m = byId.get(id);
@@ -613,14 +614,14 @@ test('G3: help-overview の変異が一覧にそろい、IDS_HELP_OVERVIEW と�
 // 0.9.0（G-1 で perf の6つ、G-2 で計画 docs/plans/2026-10-20-090.md の「変異確認」の表の全部）
 const IDS_090 = [
   'op-chosen-manual', 'op-chosen-managed', 'op-chosen-consent', 'op-chosen-fetching', 'op-cloud-likely', 'op-start-refuse', 'op-start-chosen',
-  'op-start-cloud', 'op-dict-refuse', 'op-status-cloud', 'op-kept-wav', 'op-kept-text', 'op-kept-refused', 'op-k1-first', 'op-recover-kept',
+  'op-start-cloud', 'op-status-cloud', 'op-kept-wav', 'op-kept-text', 'op-kept-refused', 'op-k1-first', 'op-recover-kept',
   'op-kept-banner', 'op-kept-login', 'op-kept-segfailed', 'op-kept-notify', 'op-kept-notice-text', 'op-start-k1', 'op-public-kept', 'op-auto-retry',
   'op-auto-retry-cap', 'op-auto-retry-stopping', 'op-kept-empty', 'op-summary-wait', 'op-auto-summary', 'op-queue-skip', 'op-watcher',
   'op-watcher-offline', 'op-log-once', 'op-hold-log-once', 'op-watch-engine', 'op-relogin-kick', 'op-localonly-queue',
-  'op-localonly-needs', 'op-status-needs', 'op-dict-keep', 'op-dict-nopaste', 'op-dict-readd', 'op-dict-dup', 'op-dict-broken', 'op-ui-neutral',
+  'op-localonly-needs', 'op-status-needs', 'op-ui-neutral',
   'op-ui-startup-jump', 'op-ui-signin-account', 'op-ui-fetch-label', 'op-ui-test-hidden', 'op-ui-banner-signin', 'op-ui-notice-signin',
   'op-shots-retake', 'sp-tab-open', 'sp-open-sec', 'sp-esc-hotkey', 'sp-inert', 'sp-focus-back', 'sp-keys-behind', 'sp-restore-settings',
-  'sp-winstate-fixed', 'sp-esc-global', 'sp-nav-blue', 'sp-sec-show', 'sp-search-nfkc', 'sp-search-esc', 'sp-help-live', 'sp-help-args',
+  'sp-winstate-fixed', 'sp-nav-blue', 'sp-sec-show', 'sp-search-nfkc', 'sp-search-esc', 'sp-help-live', 'sp-help-args',
   'sp-section-keep', 'sp-hotkey-tab', 'rp-slot-default', 'rp-nearest-tie', 'rp-migrate-once', 'rp-migrate-display', 'rp-legacy-keep', 'rp-pad',
   'rp-ceil', 'rp-anchor', 'rp-size-repeat', 'rp-snap-write', 'rp-form', 'rp-migrate-startup', 'rp-drag-defer', 'rp-display-keep', 'rp-move-fallback',
   'rp-pill-flex', 'rp-shots-watchdog', 'rp-dots-silent', 'rp-dots-five', 'rp-spk-sea', 'rp-spk-hidden', 'rp-warn-sticky', 'rp-title-key',
@@ -703,10 +704,10 @@ test('G-1 決めたこと 117: mutate.js は --part と --only を一緒に受�
 
 // 0.9.0 の各レーンの点検で足した変異（計画の表の行の場面・lib の分け・点検する人が殺せなかった行に場面を足して殺したもの）
 const IDS_090_REVIEW = [
-  'op-start-refuse-scene', 'op-recover-kept-lib', 'op-kept-login-scene', 'op-kept-notify-scene', 'op-p1', 'op-dict-delete', 'op-dict-refuse-lib',
-  'rv-consent-unreadable', 'rv-dict-user-deleted', 'rv-kept-banner-clear', 'rv-localonly-exec-guard', 'rv-dict-save-before-unlink', 'rv-dict-empty-before-unlink',
-  'op-watch-cloudonly-dict', 'op-watch-cloudonly-item', 'op-watch-cloudonly-throw', 'op-dict-rename-retry', 'op-finalize-s3',
-  'op-ui-startup-await', 'op-ui-chosen-missing', 'sp-showlive-close', 'sp-liveshown-modal', 'sp-esc-unregister', 'op-ui-search-hidden',
+  'op-start-refuse-scene', 'op-recover-kept-lib', 'op-kept-login-scene', 'op-kept-notify-scene', 'op-p1',
+  'rv-consent-unreadable', 'rv-kept-banner-clear', 'rv-localonly-exec-guard',
+  'op-watch-cloudonly-item', 'op-watch-cloudonly-throw', 'op-finalize-s3',
+  'op-ui-startup-await', 'op-ui-chosen-missing', 'sp-showlive-close', 'sp-liveshown-modal', 'op-ui-search-hidden',
   'rp-size-form', 'rp-self-move', 'rp-meeting-error-show', 'rp-hidden-status', 'rp-snap-patch',
 ];
 test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異確認」の表の id とちょうど同じ（点検で足した変異も一覧にある）', { timeout: 5000 }, () => {
@@ -718,7 +719,8 @@ test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異�
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = new Set([...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id'));
   // 0.10.0 LS-2 で外した変異（GONE_LS2。op-sum-text）は 0.9.0 の計画の表に残るが、一覧と IDS_090 からは外した
-  assert.deepStrictEqual([...rows].filter((id) => !GONE_LS2.includes(id)).sort(), [...IDS_090].sort());
+  // 0.15.1 ND-2 で意図して変えた: GONE_151 も同じく除く
+  assert.deepStrictEqual([...rows].filter((id) => !GONE_LS2.includes(id) && !GONE_151.includes(id)).sort(), [...IDS_090].sort());
   // 0.9.0 の変異は、どれも決まったテストのファイルを持ち、なぜ戻すと困るかを書く
   for (const m of MUTANTS.filter((x) => IDS_090.includes(x.id) || IDS_090_REVIEW.includes(x.id))) {
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${m.id}: tests`);
@@ -729,7 +731,7 @@ test('G3: 0.9.0 の変異が一覧にそろい、IDS_090 は計画の「変異�
 // 0.9.1（計画 docs/plans/2026-10-21-091.md の「変異確認」の表。Task Q-6 で全部を入れた）
 const IDS_091 = [
   'q-loud-window', 'q-loud-hop', 'q-loud-unreadable', 'q-silent-level', 'q-gate-off', 'q-echo-off', 'q-echo-terms', 'q-echo-sample', 'q-echo-join',
-  'q-echo-tail', 'q-echo-tail-min', 'q-echo-dict-level', 'q-echo-dict-flag', 'q-repeat-two', 'q-repeat-quiet', 'q-echo-stall', 'q-quiet-ask',
+  'q-echo-tail', 'q-echo-tail-min', 'q-repeat-two', 'q-repeat-quiet', 'q-echo-stall', 'q-quiet-ask',
   'q-quiet-grace', 'q-quiet-speech', 'q-quiet-keep', 'q-quiet-off', 'q-quiet-wall', 'q-quiet-paused', 'q-quiet-resume', 'q-quiet-failed',
   'q-quiet-empty-loud', 'q-quiet-stopping', 'q-quiet-stop-close', 'q-quiet-note-close', 'q-recover-silent-route', 'q-trim', 'q-trim-end',
   'q-done-notice', 'q-setting-pick', 'q-ui-keep',
@@ -740,7 +742,8 @@ test('G3: 0.9.1 の変異が一覧にそろい、IDS_091 は計画の「変異�
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-21-091.md'), 'utf8');
   const table = plan.slice(plan.indexOf('## 変異確認'), plan.indexOf('## ゲート'));
   const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
-  assert.deepStrictEqual([...rows].sort(), [...IDS_091].sort());
+  // 0.15.1 ND-2 で意図して変えた: 表の行から GONE_151 を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual([...rows].filter((id) => !GONE_151.includes(id)).sort(), [...IDS_091].sort());
   for (const id of IDS_091) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
@@ -801,7 +804,7 @@ const IDS_094 = [
   'lt-fetch', 'lt-destroy', 'lt-restart', 'wd-late-text', 'wd-down-text', 'wd-late-banner', 'ka-live-late', 'ka-live-down',
   'ka-recover-late', 'ka-recover-error', 'ka-held-retry', 'ka-old-queue', 'ka-skip-wav', 'ka-skip-auto', 'ka-rec-busy',
   'rx-buffer', 'rx-cl-cap', 'rx-head', 'rx-count', 'rx-refund', 'rx-sec', 'rx-compat', 'rx-fixed', 'rx-fields', 'rx-keys',
-  'pc-proc', 'pc-relay-local', 'pc-local-only', 'pc-cloud', 'pc-dict', 'sg-hold-health',
+  'pc-proc', 'pc-relay-local', 'pc-local-only', 'pc-cloud', 'sg-hold-health',
   'ci-noon', 'pc-after-local',
   'dt-say-dedupe', 'dt-rejoin', 'dt-why', 'dt-count', 'dt-trigger',
   'wv-weights', 'wv-same-phase', 'wv-silent', 'wv-bar-reduced', 'wv-page-dots', 'wv-page-blue',
@@ -818,8 +821,9 @@ test('G3・0.9.4 S-8: 0.9.4 の変異が一覧にそろい、IDS_094 は計画�
   const rows = [...table.matchAll(/^\| ([a-z][a-z0-9-]*) \|/gm)].map((m) => m[1]).filter((id) => id !== 'id');
   assert.deepStrictEqual(IDS_094.filter((id) => !rows.includes(id)), [], '計画の表に無い id');
   // 0.9.4 S-8 で意図して足した: IDS_094 は計画の「変異確認」の表とちょうど同じ（表の id は全部 IDS_094 にある）
-  assert.deepStrictEqual(rows.filter((id) => !IDS_094.includes(id)), [], 'IDS_094 に無い表の id');
-  assert.strictEqual(rows.length, IDS_094.length, '表の行の数が IDS_094 と違う');
+  // 0.15.1 ND-2 で意図して変えた: 表の行から GONE_151 を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual(rows.filter((id) => !IDS_094.includes(id) && !GONE_151.includes(id)), [], 'IDS_094 に無い表の id');
+  assert.strictEqual(rows.filter((id) => !GONE_151.includes(id)).length, IDS_094.length, '表の行の数が IDS_094 と違う');
   assert.strictEqual(new Set(IDS_094).size, IDS_094.length);
   for (const id of IDS_094) {
     const m = byId.get(id);
@@ -1035,7 +1039,7 @@ test('G3・0.12.0: 0.12.0 の変異が一覧にそろい、IDS_120 は計画の�
 const IDS_121 = [
   'lv-three', 'lv-blip-reset', 'lv-start', 'lv-other-app', 'lv-seen-twice', 'lv-ids', 'lv-ids-browser', 'lv-panel-first', 'lv-no-app', 'lv-lost', 'lv-gap', 'lv-bad-sample',
   'lv-pause', 'lv-setting',   // LV-1
-  'lv-watch-meeting', 'lv-watch-dictate', 'lv-watch-leave-off',   // LV-2
+  'lv-watch-meeting', 'lv-watch-leave-off',   // LV-2
   'lv-log-name',   // LV-3
   'lv-statelog',   // LV-2
   'lv-stop-by', 'lv-stop-twice', 'lv-notice', 'lv-notice-once', 'lv-notice-hidden', 'lv-notice-wrong', 'lv-notice-click', 'lv-quiet-wins', 'lv-trim',   // LV-3
@@ -1065,8 +1069,9 @@ test('G3・0.12.1 LV-6: 0.12.1 の変異が一覧にそろい、IDS_121 は計�
   assert.ok(IDS_121.filter((id) => !/^lv-/.test(id)).every((id) => /^rv-/.test(id)), 'IDS_121 の点検の直しの変異が rv- で始まらない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_121.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
-  assert.deepStrictEqual(rows.filter((id) => !IDS_121.includes(id)), [], 'IDS_121 に無い計画の「変異確認」の表の行（作っていない変異）');
-  assert.deepStrictEqual(IDS_121, rows, 'IDS_121 が計画の表（行の順）とちょうど同じでない');
+  // 0.15.1 ND-2 で意図して変えた: 表の行から GONE_151 を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual(rows.filter((id) => !IDS_121.includes(id) && !GONE_151.includes(id)), [], 'IDS_121 に無い計画の「変異確認」の表の行（作っていない変異）');
+  assert.deepStrictEqual(IDS_121, rows.filter((id) => !GONE_151.includes(id)), 'IDS_121 が計画の表（行の順）とちょうど同じでない');
   for (const id of IDS_121) {
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
@@ -1087,7 +1092,7 @@ const IDS_130 = [
   'ed-md-copy', 'ed-row-redraw', 'ed-type-any', 'ed-level-range', 'ed-bad-offset', 'ed-split-text', 'ed-split-dup', 'ed-split-top', 'ed-split-view', 'ed-merge-caret',
   'ed-merge-divider', 'ed-turn-drop', 'ed-divider-text', 'ed-lock-new', 'ed-split-mark', 'ed-turn-manual', 'ed-head-back', 'ed-move-after', 'ed-old-heading',
   'ed-unknown-type', 'ed-md-level', 'ed-mcp-types', 'ed-view-manual-head', 'ed-split-client', 'ed-split-blur', 'ed-ime-enter', 'ed-ime-md', 'ed-shift-enter',
-  'ed-paste-html', 'ed-slash-esc', 'ed-esc-meeting', 'ed-plus-menu', 'ed-save-no-steal', 'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',
+  'ed-paste-html', 'ed-slash-esc', 'ed-plus-menu', 'ed-save-no-steal', 'ed-drop-index', 'ed-alt-dup', 'ed-grip-menu',
   'ed-zoom-shift0', 'ed-key-scope', 'ed-ctrl-enter', 'ed-help-article', 'ed-regen-ask', 'ed-regen-struct', 'ed-regen-clear', 'ed-regen-noop', 'ed-late-answer',
   // 時計のずれ（clk-。2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」。CLK-1〜CLK-3 で作りながら足す。計画の clk- の表の行の順）
   'clk-resume', 'clk-resume-in-pause', 'clk-pause-subtract', 'clk-one-interval', 'clk-reopen-recheck', 'clk-page-paused',
@@ -1127,8 +1132,9 @@ test('G3・0.13.0 ED-8: IDS_130 は計画の「変異確認」の 0.13.0 の表�
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const ed = [...table.matchAll(/^\| (ed-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
   assert.strictEqual(ed.length, 61);
-  assert.deepStrictEqual(IDS_130.filter((id) => /^ed-/.test(id)), ed);
-  assert.strictEqual(IDS_130.length, 92);
+  // 0.15.1 ND-2 で意図して変えた: 表の行から GONE_151（ed-esc-meeting）を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual(IDS_130.filter((id) => /^ed-/.test(id)), ed.filter((id) => !GONE_151.includes(id)));
+  assert.strictEqual(IDS_130.length, 92 - 1);
 });
 // 0.13.0 CLK（2026-10-27 の持ち主の答え「録音バーとページの両方を直す（おすすめ）」）: 時計のずれの変異（clk-）は、計画の「変異確認」の clk- の表とちょうど同じ（行の順）
 test('G3・0.13.0 CLK: IDS_130 の clk- は計画の「変異確認」の clk- の表とちょうど同じ（行の順・6）', { timeout: 5000 }, () => {
@@ -1204,9 +1210,9 @@ test('NE-5・G3・0.13.1: IDS_131 は計画の「変異確認」の edn- の表�
 // 直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足し、LN-6 で表とちょうど同じかを見る。ln- は前の版の照らし（^(ed|rdy|clk)-・^edn-・^lg-・^lv- など）に当たらない
 const IDS_132 = [
   'ln-harness-final', 'ln-fails-full', 'ln-fails-nested',
-  'ln-offline-pc', 'ln-dict-resume', 'ln-progress-each', 'ln-left-count',
+  'ln-offline-pc', 'ln-progress-each', 'ln-left-count',
   'ln-ban-order', 'ln-ban-unread', 'ln-ban-offline', 'ln-ban-local', 'ln-ban-signin',
-  'ln-ask-boot', 'ln-ask-start', 'ln-ask-dict', 'ln-ask-offline', 'ln-ask-noblock', 'ln-ask-focus', 'ln-ask-refocus', 'ln-ask-snooze', 'ln-ask-parent', 'ln-ask-card',
+  'ln-ask-boot', 'ln-ask-start', 'ln-ask-offline', 'ln-ask-noblock', 'ln-ask-focus', 'ln-ask-refocus', 'ln-ask-snooze', 'ln-ask-parent', 'ln-ask-card',
   'ln-retry-busy', 'ln-retry-held', 'ln-leave-wait',
   'ln-nudge-bottom', 'ln-nudge-center', 'ln-nudge-workarea', 'ln-nudge-slot', 'ln-nudge-menu-up',
   'ln-force-once',
@@ -1245,8 +1251,9 @@ test('LN-6・G3・0.13.2: IDS_132 は計画の「変異確認」の ln- の表�
   const at = plan.search(/^## 変異確認（直しを1つ戻すと/m);
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   const rows = [...table.matchAll(/^\| (ln-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
-  assert.deepStrictEqual(IDS_132, rows);
-  assert.strictEqual(IDS_132.length, 39);
+  // 0.15.1 ND-2 で意図して変えた: 表の行から GONE_151（ln-dict-resume・ln-ask-dict）を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual(IDS_132, rows.filter((id) => !GONE_151.includes(id)));
+  assert.strictEqual(IDS_132.length, 39 - 2);
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/]) {
     assert.deepStrictEqual(IDS_132.filter((id) => re.test(id)), [], `${re} に当たる ln- の id`);
   }
@@ -1287,11 +1294,8 @@ const IDS_140 = [
   // 0.14.0 EK-5（表の行の順に、EK-4 の行の後と EK-2 の行の間に入れた）
   'ek-menu-default', 'ek-ctrl-w-live', 'ek-ctrl-w-last', 'ek-shortcut-table',
   // 0.14.0 EK-6（表の行の順に、EK-5 の行の間に入れた）
-  'ek-dict-ime', 'ek-dict-clip', 'ek-dict-target', 'ek-dict-meeting', 'ek-dict-esc', 'ek-dict-reset', 'ek-dict-other', 'ek-dict-nowhere',
-  'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-dict-seq', 'ek-esc-order', 'ek-dict-end', 'ek-dict-starting', 'ek-dict-login',
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「前の版の変異の片付け」）で、画面の NaTsu の中の音声入力の変異（GONE_151）を外した
   'ek-ctrl-w-starting', 'ek-shortcut-131',
-  'ek-cancel-sender', 'ek-ime-blur',   // 0.14.0 DQ-3 直し2（R202。EK-6 直し2 の R201 の変異）
-  'ek-dict-hidden', 'ek-dict-cancel-proc',   // 0.14.0 EK-6 直し3（R207）
   // 0.14.0 EK-2 の続き
   'ek-move-ai-head', 'ek-many-divider-kids', 'ek-paste-top', 'ek-paste-inside',
   'ek-paste-kids', 'ek-md-nest', 'ek-paste-deep-limit',
@@ -1311,22 +1315,14 @@ const IDS_140 = [
   'mo-ready-busy', 'mo-grip-tab', 'mo-open-save',
   'mo-setdoc-lock',
   'mo-copy-plain',
-  // 0.14.0 DQ-1（表の行の順に）
-  'dq-filler-same', 'dq-repeat', 'dq-repeat-word', 'dq-guard',
-  'dq-guard-short',   // 0.14.0 DQ-1 直し（R195）
-  'dq-guard-half', 'dq-guard-cp',   // 0.14.0 DQ-1 直し2（R198）
-  'dq-guard-ws', 'dq-guard-mark', 'dq-guard-lines-len',   // 0.14.0 DQ-4 直し（R205）
-  'dq-lines-text',
+  // 0.14.0 DQ-1（表の行の順に。口述の整えの dq-repeat ほか・DQ-1 直しと直し2・DQ-4 直しの dq-guard- は 0.15.1 ND-1 で GONE_151 へ外した）
+  'dq-filler-same',
   // 0.14.0 DQ-2（表の行の順に。dq-relay-store は 2026-11-02 の P10 で足した: R192）
   'dq-relay-auth', 'dq-relay-prompt', 'dq-relay-store', 'dq-relay-size', 'dq-relay-cap', 'dq-relay-log',
   'dq-relay-blank',   // 0.14.0 DQ-3 直し2（R202。DQ-2 直しの R199 の変異）
   'dq-relay-mark',   // 0.14.0 DQ-4 直し（R205）
-  // 0.14.0 DQ-3（表の行の順に。dq-long-send は DQ-1 直しで作った: R195）
-  'dq-local-send', 'dq-off-send', 'dq-long-send', 'dq-wait', 'dq-late-swap', 'dq-fallback', 'dq-meeting', 'dq-log-text', 'dq-history-raw', 'dq-filler-off',
-  'dq-lines-natsu',   // 0.14.0 DQ-4
-  'dq-lines-ai',   // 0.14.0 DQ-4 直し（R205）
-  'dq-tidy-login', 'dq-tidy-hold',
-  'dq-tidy-reject',   // 0.14.0 DQ-3 直し2（R202）
+  // 0.14.0 DQ-3（表の行の順に。DQ-1 直しで作った dq-long-send は 0.15.1 ND-1 で GONE_151 へ外した）
+  'dq-meeting', 
 ];
 test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の「変異確認」の表の行とちょうど同じ（行の順）。eb-・ek-・mo-・dq- の変異は IDS_140 にある。どれも決まったテストのファイルを持ち、why が 0.14.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1347,7 +1343,8 @@ test('G3・0.14.0: 0.14.0 の変異が一覧にそろい、IDS_140 は計画の�
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_140.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
   // 0.14.0 EK-7 直し（R208）: IDS_140 は表の行とちょうど同じ（行の順）。前は表の行の一部でも通り、表の ek-help-article が変異に無いのを見落とした
-  assert.deepStrictEqual(IDS_140, rows, 'IDS_140 が表の行とちょうど同じでない（表の行の変異が無い・行の順でない）');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」）で意図して変えた: 表の行から、直しそのものが無くなった GONE_151 を除いて比べる（前の版の計画の表は書き換えない）
+  assert.deepStrictEqual(IDS_140, rows.filter((id) => !GONE_151.includes(id)), 'IDS_140 が表の行（GONE_151 を除く）とちょうど同じでない（表の行の変異が無い・行の順でない）');
   // 0.15.0 PH-1（計画 docs/plans/2026-11-03-150.md の「意図して変えるテスト」）で意図して変えた: 0.15.0 の頭（ph・pl）にも当たらない
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(ph|pl)-/]) {
     assert.deepStrictEqual(IDS_140.filter((id) => re.test(id)), [], `${re} に当たる 0.14.0 の id`);
@@ -1466,6 +1463,7 @@ const IDS_160 = [
   'vw-tables-note-count', 'vw-inline-title-empty', 'vw-rel-open-close', 'vw-drop-row-ups',   // 0.16.0 R120（rv53 の軽い 1・2・3・5）で表の末に足した行
   'vw-coladd-auto',   // 0.16.0 R120 (c)（MQ3）で表の末に足した行
   'vw-body-drag-over', 'vw-body-drag-drop', 'vw-title-reload-own', 'vw-load-related',   // 0.16.0 R122（rv55 の重要 1・2・軽い 3）で表の末に足した行
+  'vw-rename-db', 'vw-rename-db-reload',   // 0.16.0 R123（0.15.1 を出した main の取り込み）で表の末に足した行
 ];
 function planRows160() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-160.md'), 'utf8');
@@ -1496,7 +1494,8 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   // 0.16.0 R120（rv53 の軽い 1・2・3・5）で意図して直した: 10 の知らせ・題名の欄・選びの窓の Ctrl+Enter・行の中のページの祖先の4つを表の末に足した（vw- 44）
   // 0.16.0 R120 (c)（MQ3）で意図して直した: 右端の［＋］の末の5つ（vw-coladd-auto）を表の末に足した（vw- 45）
   // 0.16.0 R122（rv55 の重要 1・2・軽い 3）で意図して直した: 表の上の本文の引っ張り2つ・題名の読み直し・つないだデータベースの表の読み直しの4つを表の末に足した（vw- 49）
-  assert.strictEqual(rows.length, 130, '計画の 0.16.0 の表（tb- 81・vw- 49）が読めない');
+  // 0.16.0 R123（0.15.1 を出した main の取り込み）で意図して直した: データベースの名前を変える［名前を変える］の2つを表の末に足した（vw- 51）
+  assert.strictEqual(rows.length, 132, '計画の 0.16.0 の表（tb- 81・vw- 51）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');
@@ -1509,4 +1508,134 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.16.0 '), `${id}: why`);
   }
+});
+// 0.15.1（計画 docs/plans/2026-11-04-151.md の「変異の表」の nd-・ps-・lb- の表）: 音声入力をなくした守り（nd-）・プライベートのセクションと行の「···」の守り（ps-）・
+// ライブラリの守り（lb-）。タスクを作るたびに表の行の順で足す（R1。載せる順は計画と違い ND-4・ND-3・ND-2・ND-1 の順: 計画の R1）。頭は前の版の照らしにも 0.16.0 の頭（tb・vw）にも当たらない
+const IDS_151 = [
+  // 0.15.1 ND-1（表の行の順に）
+  'nd-set-keep', 'nd-set-save', 'nd-ws-tab', 'nd-hk-side', 'nd-hk-fallback', 'nd-hk-save',
+  'nd-hk-reload',   // ND-1・PS-1 直し（R36）
+  // 0.15.1 ND-2（表の行の順に）
+  'nd-hk-dict', 'nd-esc-global', 'nd-history-read', 'nd-history-write', 'nd-dictwait-keep', 'nd-ipc-history', 'nd-audio-done', 'nd-overlay-mode',
+  'nd-tidy-send',   // ND-1
+  'nd-tray-items', 'nd-tray-tip',
+  'nd-tray-icon',   // ND-1（点検の軽い指摘 M4: R29）
+  'nd-restart-meeting', 'nd-engine-lock',
+  'nd-login-moments',   // ND-1
+  // 0.15.1 ND-3（表の行の順に）
+  'nd-preload-api', 'nd-side-row', 'nd-ui-tabs', 'nd-set-rows', 'nd-ui-word',
+  // 0.15.1 ND-4（表の行の順に）
+  'nd-help-word', 'nd-help-src', 'nd-help-cite',
+  // 0.15.1 ND-3（表の行の順に）
+  'nd-winh-note',
+  // 0.15.1 PS-1・PS-2（表の行の順に）
+  'ps-ws-norm', 'ps-ws-unknown',   // PS-1
+  'ps-ws-item',   // ND-1・PS-1 直し（R36）
+  'ps-head-text', 'ps-head-fold', 'ps-head-aria', 'ps-head-hide', 'ps-fold-save', 'ps-fold-restore', 'ps-sort-save', 'ps-add-unfold', 'ps-add-top', 'ps-open-keep',
+  'ps-fold-selend', 'ps-bottom-pin', 'ps-menu-select',   // PS-2
+  'ps-sel-bar', 'ps-sel-focus', 'ps-sel-keep',   // PS-2 直し（R42）
+  'ps-menu-esc', 'ps-tree-label',   // PS-2
+  'ps-sort-edited', 'ps-sort-level',   // PS-1
+  'ps-sort-drag',   // PS-2
+  'ps-show-limit', 'ps-show-kids',   // PS-1
+  'ps-more-open',   // PS-2
+  'ps-row-more', 'ps-row-items', 'ps-row-footer', 'ps-ren-ime', 'ps-ren-esc', 'ps-ren-one',   // PS-3
+  'ps-ren-inplace', 'ps-ren-empty', 'ps-row-aria',   // PS-3 直し 2（R43）
+  'ps-ren-line',   // PS-1
+  'ps-ren-key', 'ps-shortcut-row',   // PS-3
+  'ps-help-head',   // PS-5
+  'lb-open',   // PS-2
+  'lb-tab-keep',   // PS-1
+  'lb-rows',   // PS-4
+  'lb-rel-time', 'lb-sort-name',   // PS-1
+  'lb-sort-num',   // ND-1・PS-1 直し（R36）
+  'lb-sort-dir',   // PS-4
+  'lb-sort-level', 'lb-search',   // PS-1
+  'lb-new', 'lb-text', 'lb-kids',   // PS-4
+  'lb-press-hold', 'lb-open-focus', 'lb-move-back', 'lb-sel-menu', 'lb-sort-aria',   // PS-4 直し（R44）
+  // 0.15.1 GV-1（計画の「変異の表」の gv- の行の順に。PC の中の文字起こしを GPU 版に: D126）
+  // 0.15.1 GV-2b（第9版）で意図して変えた: CPU の形・試している印・ドライバの印の 11（gv-cleanup-keep・gv-plan-manual・gv-plan-mark・gv-plan-driver・
+  // gv-state-norm・gv-ng-args・gv-silent-cpu・gv-crash-cpu・gv-resend-cpu・gv-trying・gv-ng-noloop）を消し（GONE_151 には移さない: VR23）、5 を足した
+  'gv-pin-id', 'gv-pin-vulkan', 'gv-cand-current', 'gv-consent', 'gv-update-auto', 'gv-log-fail', 'gv-log-lost', 'gv-log-path',
+  // 0.15.1 GV-2（表の行の順に）
+  'gv-rt-bundled', 'gv-rt-prev',
+  // 0.15.1 GV-3
+  'gv-wf-clobber',
+  // 0.15.1 GV-2b（第9版）
+  'gv-args-same', 'gv-log-state', 'gv-mark-cap', 'gv-crash-noverify', 'gv-hint-bundled',
+  // 0.15.1 GV-4
+  'gv-help-fallback',
+  // 0.15.1 GV-2b 直し（rv52 の重要 1: R51）
+  'gv-ready-once',
+];
+// 0.15.1 で直しそのものが無くなった前の版の変異（計画の「前の版の変異の片付け」の GONE_151 の表。一覧と各版の IDS から外し、前の版の計画の表は書き換えない）。
+// タスクを作るたびに足す（ND-5 で計画の表とちょうど同じかを見る）
+const GONE_151 = [
+  // ND-3: 画面の NaTsu の中の音声入力（0.14.0 EK-6。U4 を取りやめた: D114）
+  'ek-dict-ime', 'ek-dict-target', 'ek-dict-esc', 'ek-dict-transcript', 'ek-dict-markup', 'ek-dict-one-step', 'ek-esc-order', 'ek-ime-blur', 'ek-dict-hidden',
+  // ND-2: main の音声入力（計画の「前の版の変異の片付け」の GONE_151 の表。直しそのものが無くなった・音声入力の録音中が来ないので同じ答えになった）
+  'mn-reload-dictation', 'ra-dictate-quitting',
+  'op-dict-keep', 'op-dict-nopaste', 'op-dict-readd', 'op-dict-dup', 'op-dict-broken', 'op-dict-delete', 'rv-dict-user-deleted', 'rv-dict-save-before-unlink',
+  'rv-dict-empty-before-unlink', 'op-watch-cloudonly-dict', 'sp-esc-global', 'sp-esc-unregister',
+  'op-dict-rename-retry',   // 計画の表に無かった（R14）: 音声入力の音声を残す一時ファイルの名前の変更のやり直し（keepDictation）が無い
+  'q-echo-dict-flag', 'pc-dict', 'lv-watch-dictate', 'ed-esc-meeting', 'ln-dict-resume', 'ln-ask-dict',
+  'ek-dict-clip', 'ek-dict-meeting', 'ek-dict-reset', 'ek-dict-other', 'ek-dict-nowhere', 'ek-dict-seq', 'ek-dict-end', 'ek-dict-starting', 'ek-dict-login',
+  'ek-cancel-sender', 'ek-dict-cancel-proc',
+  'dq-local-send', 'dq-off-send', 'dq-wait', 'dq-late-swap', 'dq-fallback', 'dq-log-text', 'dq-history-raw', 'dq-lines-natsu', 'dq-lines-ai',
+  'dq-tidy-login', 'dq-tidy-hold', 'dq-tidy-reject',
+  // ND-2: 変異を殺していたテスト（D21 の音声入力の始め方・BQ24 (a) の整え）を音声入力と一緒に消したので、計画の表より先に外した（部品は ND-1 で消す: R14）
+  'op-dict-refuse', 'dq-filler-off',
+  // ND-1: 設定・lib・整えの音声入力の部品（計画の「前の版の変異の片付け」の GONE_151 の表。maxHistory の直し・履歴・音声入力の始めを断る文・
+  // hintEcho の音声入力の枝・口述の整えの tidyRules・tidyGuard・linesToText・tidyBody が無い）
+  'st-maxhistory-default', 'mn-history-paste', 'op-dict-refuse-lib', 'q-echo-dict-level',
+  'dq-repeat', 'dq-repeat-word', 'dq-guard', 'dq-guard-short', 'dq-guard-half', 'dq-guard-cp', 'dq-guard-ws', 'dq-guard-mark', 'dq-guard-lines-len',
+  'dq-lines-text', 'dq-long-send',
+];
+function planRows151() {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-151.md'), 'utf8');
+  const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異の表」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  return [...table.matchAll(/^\| ((?:nd|ps|lb|gv)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);   // 0.15.1 GV-1 で gv を足した
+}
+test('G3・0.15.1: 0.15.1 の変異が一覧にそろい、IDS_151 は計画の「変異の表」の nd-・ps-・lb- の行とちょうど同じ（行の順。0.15.1 ND-5 で作ったタスクの範囲から表の全部に）。nd-・ps-・lb- の変異は IDS_151 にある。どれも決まったテストのファイルを持ち、why が 0.15.1 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_151.filter((id) => !byId.has(id)), [], 'IDS_151 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_151).size, IDS_151.length, 'IDS_151 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => /^(nd|ps|lb|gv)-/.test(m.id) && !IDS_151.includes(m.id)).map((m) => m.id), [], 'IDS_151 に無い 0.15.1 の頭の変異がある');   // 0.15.1 GV-1 で gv を足した
+  const rows = planRows151();
+  assert.strictEqual(rows.length, 106, '計画の 0.15.1 の表（nd- 31・ps- 40・lb- 17・gv- 18）が読めない');   // 0.15.1 GV-2b 直し（rv52 の重要 1: R51）で gv-ready-once を足した（105 → 106）   // 0.15.1 GV-2b（第9版）で gv- を 23 → 17 に（111 → 105）   // 0.15.1 GV-1 で表の頭に gv を足した（88 → 111: 計画の「変異の表」の gv- の決まり）   // PS-4 直しで lb-press-hold・lb-open-focus・lb-move-back・lb-sel-menu・lb-sort-aria を足した（83 → 88: R44）   // PS-3 直し 2 で ps-ren-inplace・ps-ren-empty・ps-row-aria を足した（80 → 83: R43）   // PS-2 直しで ps-sel-bar・ps-sel-focus・ps-sel-keep を足した（77 → 80: R42）   // ND-1・PS-1 直しで nd-hk-reload・ps-ws-item・lb-sort-num を足した（74 → 77: R36）   // 0.15.1 ND-1 で nd-tray-icon を足した（73 → 74: R29）
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_151.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
+  assert.deepStrictEqual(IDS_151, rows.filter((id) => IDS_151.includes(id)), 'IDS_151 が表の行の順でない');
+  // 0.15.1 ND-5（計画の「変異の表」の決まり・G3）で意図して変えた: 表の全部のタスクを作ったので、作ったタスクの範囲（BUILT_151）でなく、表の nd-・ps-・lb- の行とちょうど同じ（行の順）
+  // 0.15.1 GV-4（計画の「変異の表」の gv- の決まり）で意図して変えた: GV-1〜GV-2b の間はまだ作っていない gv- の行（GV_TODO_151）を除いて比べた。GV-4 で表の全部（105）に戻した
+  assert.deepStrictEqual(IDS_151, rows, 'IDS_151 が計画の「変異の表」の nd-・ps-・lb-・gv- の行とちょうど同じでない（行の順）');
+  // 前の版の頭の照らしと、並べて作る 0.16.0 の頭（tb・vw: 計画の「並べて作る決まり」の 4）に当たらない
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/]) {
+    assert.deepStrictEqual(IDS_151.filter((id) => re.test(id)), [], `${re} に当たる 0.15.1 の id`);
+  }
+  for (const ids of [IDS_140, IDS_150]) assert.deepStrictEqual(ids.filter((id) => /^(nd|ps|lb|gv)-/.test(id)), [], '前の版の IDS に 0.15.1 の頭');   // 0.15.1 GV-1 で gv を足した
+  for (const id of IDS_151) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.15.1 '), `${id}: why`);
+  }
+});
+test('G3・0.15.1: GONE_151 の変異は一覧にも、どの版の IDS にも無く、どれも計画の「前の版の変異の片付け」の GONE_151 の表にある', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(GONE_151.filter((id) => ids.has(id)), [], '外した変異が一覧に残っている');
+  assert.strictEqual(new Set(GONE_151).size, GONE_151.length, 'GONE_151 に重なり');
+  for (const list of [IDS_1A, IDS_1B, IDS_1D, IDS_090, IDS_090_REVIEW, IDS_091, IDS_094, IDS_121, IDS_130, IDS_132, IDS_140, IDS_150, IDS_151]) {
+    assert.deepStrictEqual(list.filter((id) => GONE_151.includes(id)), [], 'GONE_151 の変異が IDS に残っている');
+  }
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-04-151.md'), 'utf8');
+  const at = plan.indexOf('**`GONE_151`');
+  assert.ok(at > 0, '計画に GONE_151 の表が無い');
+  const table = plan.slice(at, plan.indexOf('（見込みの数', at));
+  for (const id of GONE_151) assert.ok(table.includes(`\`${id}\``), `${id} が計画の GONE_151 の表に無い`);
+  // 0.15.1 ND-5（F154・G3）: GONE_151 は計画の表の id とちょうど同じ（表の2つ目の列の id。外す理由の文の中の id は数えない）
+  const inTable = table.split('\n').map((l) => l.split('|')).filter((c) => c.length >= 4 && /`[a-z]/.test(c[2])).flatMap((c) => [...c[2].matchAll(/`([a-z0-9-]+)`/g)].map((m) => m[1]));
+  assert.deepStrictEqual([...inTable].sort(), [...GONE_151].sort(), 'GONE_151 が計画の「前の版の変異の片付け」の表とちょうど同じでない');
+  assert.strictEqual(GONE_151.length, 70);
 });

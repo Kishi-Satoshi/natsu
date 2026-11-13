@@ -1,7 +1,7 @@
 ---
 title: 会議の検出の通知（「AI 議事録を始める」のパネル）
 description: Web 会議が始まったら画面の下の中央に出る小さなパネル。何を見て出すか・押したとき・出さないようにする方法。会議を出たら録音を止めること
-updated: 2026-10-28
+updated: 2026-11-07
 sources: src/main.js, src/mainlib.js, src/meetleave.js, src/renderer/nudge.html, src/renderer/app.html, docs/plans/2026-10-22-093.md, docs/plans/2026-10-24-121.md, docs/plans/2026-10-24-130.md
 related: record/start-stop, record/pc-only, settings/appearance
 ---
@@ -13,7 +13,7 @@ Teams・Zoom・Webex・Slack・ブラウザ（Chrome・Edge・Firefox。Google M
 パネルの明るさは、Windows の明るい・暗いに合わせます。
 
 > [!NOTE]
-> NaTsu は会議を見つけるために音を聞きません。Windows の「マイクを使っているアプリ」の記録（Windows の［設定］→［プライバシーとセキュリティ］→［マイク］の「最近のアクティビティ」と同じ記録）だけを見ます。窓の題名や URL は読まず、何も外へ送りません。
+> NaTsu は会議を見つけるために音を聞きません。Windows の「マイクを使っているアプリ」の記録（Windows の **設定** → **プライバシーとセキュリティ** → **マイク** の「最近のアクティビティ」と同じ記録）だけを見ます。窓の題名や URL は読まず、何も外へ送りません。
 
 ## 押したとき {#start}
 
@@ -28,10 +28,10 @@ Teams・Zoom・Webex・Slack・ブラウザ（Chrome・Edge・Firefox。Google M
 
 ## 出ないとき {#not-shown}
 
-- 録音しているとき（議事録・音声入力）は出ません。
+- 録音しているとき（議事録）は出ません。
 - 同じ会議では1度だけです。会議のつなぎ直しやマイクの切り替えでは、もう一度は出ません。
 - NaTsu を起動したときに、もう会議の途中なら1度だけ出ます。
-- ブラウザは「どのタブか」が分からないので、ブラウザがマイクを使えば出ます（音声入力のサイトなどでも出ます）。出したくなければ「（アプリ）では出さない」にしてください。
+- ブラウザは「どのタブか」が分からないので、ブラウザがマイクを使えば出ます（声で入力するサイトなどでも出ます）。出したくなければ「（アプリ）では出さない」にしてください。
 - NaTsu 自身と、ほかのメモ取りのアプリ（Notion など）がマイクを使っても出ません。
 - Windows でだけ動きます。
 

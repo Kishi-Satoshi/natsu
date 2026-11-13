@@ -4,7 +4,7 @@
  * 撮るのは tools/shots/main.js（Electron の main）。ここには、撮る画面の並び・偽の橋の名前と見本の答え・
  * 同じ画面を2回撮ったときの揺れの判定・基準との比べ・CSP の違反の行の見分け・開く速さの判定・終了コードを置く。
  *
- * 画面は今日の日付で文字を変える（relTime の「N時間前」・dueInfo の「N日超過」・音声入力の「今日の入力」）。
+ * 画面は今日の日付で文字を変える（relTime の「N時間前」・dueInfo の「N日超過」。0.15.1 で音声入力の「今日の入力」は無くなった）。
  * 撮るときは時計を FIXED_NOW に止め、時間帯を TIME_ZONE にし、アニメーションを FREEZE_CSS で止める。
  * 見本の日付は、どれも止めた時計より前の決まった日にする（基準を取った次の日に CI が赤にならない）。
  *
@@ -46,27 +46,31 @@ const SIGNIN_STT = { route: 'local', lastTextAt: FIXED_NOW - 12000, segSec: 75,
   problem: { code: 'no-login', action: 'signin', text: 'ログインしていないため PC で文字起こししています。［ログイン］を押してログインすると、クラウドで文字起こしします。' } };
 
 // 一覧の1行目を開く（今の画面と同じ）
-const OPEN_PAGE = "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()";
+// 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 一覧の見出しは「プライベート」（押すと畳む）になったので、
+// 見出し「議事録」を押してからページを開く手順を、押さずに開く形にした（見出しを押していたのはページを開く前の何もしない一手）
+const OPEN_PAGE = "document.querySelector('#plist .pitem').click()";
 // サイドバーを畳む。第1b回 B-2 の前は［«］が無いので何もしない
 const COLLAPSE_SIDE = "(document.getElementById('sideCollapse') || { click() {} }).click()";
 // 検索の窓を開く（第1b2回 L-2 の［🔍 検索］）。L-2 の前は押す物が無いので何もしない
 const OPEN_PALETTE = "(document.getElementById('sideSearch') || { click() {} }).click()";
 // タブ3つ（ページ・音声入力・ページ）を開いて、最後にページを選ぶ。ページを開くのは非同期なので、押すたびに少し待つ（返す promise を main が待つ）。
 // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブで開かない（ポップアップ）ので、3つ目は2行目のページを新しいタブ（Ctrl+クリック）で開く
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面」・D114）で意図して変えた: 音声入力のタブが無くなったので、ページの3つ（1行目・2行目と
+// 3行目を新しいタブ（Ctrl+クリック））を開いて、最後に1行目のページを選ぶ
 const OPEN_THREE_TABS = `(async () => {
   const w = () => new Promise((r) => setTimeout(r, 150));
   const item = (i) => document.querySelectorAll('#plist .pitem')[i || 0];
-  document.getElementById('tabBtnNotes').click(); item().click(); await w();
-  document.getElementById('tabBtnDictation').click(); await w();
+  item().click(); await w();
   item(1).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
-  document.getElementById('tabBtnNotes').click(); item().click(); await w();
+  item(2).dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await w();
+  item().click(); await w();
   return 1;
 })()`;
 // 0.15.0 PH-3: 1行目のページを開いて（非同期なので少し待つ）、子のある閉じた行（p2）のアイコンの所を ▸ にした形。
 // PH-3 直し（R26）: 撮る窓は見せない窓（show: false）でフォーカスを持たず :focus も :hover も当たらない（CI run 41705176203 の画像で ▸ が出なかった）ので、
 // 乗せた・フォーカスした行の CSS（.pitem.kids:hover .pe・.tw）と同じ形を行の style で当てる（focus() で一覧を捲らない）
 const FOCUS_TREE = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   const row = document.querySelector('#plist .pitem.kids[data-pid="p2"]');
   row.querySelector('.pe').style.visibility = 'hidden';
@@ -75,14 +79,14 @@ const FOCUS_TREE = `(async () => {
 })()`;
 // 0.15.0 PH-5: 6 段目のページ（d5）を開いて（祖先の行は開いた覚え書き）、パンくずの「…」を押して隠れた段の一覧を出す
 const OPEN_DEEP = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem[data-pid="d5"]').click();
+  document.querySelector('#plist .pitem[data-pid="d5"]').click();
   await new Promise((r) => setTimeout(r, 300));
   document.querySelector('#crumb [data-crumb="more"]').click();
   return 1;
 })()`;
 // 0.15.0 PH-5: 子のある議事録（一覧の1行目 p1）を開いて、［AI 要約］の欄の最後の「このページの中のページ」まで捲る
 const OPEN_KIDS = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   document.getElementById('pKids').scrollIntoView({ block: 'end' });
@@ -90,7 +94,7 @@ const OPEN_KIDS = `(async () => {
 })()`;
 // 0.15.0 PH-5: サイドバーの木の p2 を開いて「···」の［移動先…］を押す（候補は p2 と子孫を除いた木の順・場所つき）
 const OPEN_MOVE = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem[data-pid="p2"]').click();
+  document.querySelector('#plist .pitem[data-pid="p2"]').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('pMore').click();
   [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '移動先…').click();
@@ -98,7 +102,7 @@ const OPEN_MOVE = `(async () => {
 })()`;
 // 0.15.0 PH-5: 1行目のページを開いて Ctrl+Shift+N（「新しいページ」の選び）
 const OPEN_NEW = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true, bubbles: true }));
   return 1;
@@ -106,7 +110,6 @@ const OPEN_NEW = `(async () => {
 // 0.16.0 DX-1: サイドバーのデータベース（🗃️・▸ と［＋］が無い。一覧に混じった行は出さない）の行のメニュー（中に作る2つが無い）を開く。
 // 本物の Chromium で、データベースの行のアイコンと、行が出ていないことを確かめる（違えば投げて「撮れない」）
 const OPEN_SIDE_DB = `(async () => {
-  document.getElementById('tabBtnNotes').click();
   await new Promise((r) => setTimeout(r, 300));
   const row = document.querySelector('#plist .pitem[data-pid="pd1"]');
   if (!row || row.querySelector('.pi').textContent !== '🗃️' || row.querySelector('.padd')) throw new Error('サイドバーのデータベースの行の形が違う');
@@ -114,12 +117,12 @@ const OPEN_SIDE_DB = `(async () => {
   row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
   await new Promise((r) => setTimeout(r, 100));
   const m = document.querySelector('.treemenu');
-  if (!m || [...m.querySelectorAll('.mitem')].map((b) => b.textContent).join('|') !== '移動先…|新しいタブで開く|削除') throw new Error('データベースの行のメニューが違う');
+  if (!m || [...m.querySelectorAll('.mitem')].map((b) => b.textContent).join('|') !== 'リンクを写す|名前を変える|移動先…|新しいタブで開く|削除') throw new Error('データベースの行のメニューが違う');
   return 1;
 })()`;
 // 0.16.0 DX-2: OPEN_TRASH と同じに［ゴミ箱］を開き、本物の Chromium で行のまとまりの2行の文を確かめる（違えば投げて「撮れない」）
 const OPEN_TRASH_ROWS = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('tabBtnTrash').click();
   await new Promise((r) => setTimeout(r, 100));
@@ -129,7 +132,7 @@ const OPEN_TRASH_ROWS = `(async () => {
 })()`;
 // 0.15.0 PH-6: 1行目のページを開いて、サイドバーの［🗑️ ゴミ箱］を押す
 const OPEN_TRASH = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('tabBtnTrash').click();
   return 1;
@@ -138,7 +141,7 @@ const OPEN_TRASH = `(async () => {
 // 0.16.0 DR-1 の CI（run 42572852010）で、決まった 300 ミリ秒ではページを開き終わらずに［アイコン］を押し、窓が出ないまま撮った（2回の撮りで違う: 揺れ）。
 // ページの題名が出るまで待ってから押し、窓が出るまで待つ（出なければ投げて「撮れない」）
 const OPEN_ICON = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   const until = async (ok, what) => { for (let i = 0; i < 50 && !ok(); i++) await new Promise((r) => setTimeout(r, 100)); if (!ok()) throw new Error(what); };
   await until(() => document.getElementById('pTitle').textContent !== '', 'ページが開かない');
   await new Promise((r) => setTimeout(r, 100));
@@ -148,7 +151,7 @@ const OPEN_ICON = `(async () => {
 })()`;
 // 0.15.0 PL-3: 1行目のページを開いて「···」のメニューを開き、［書体 ▸］を押して 標準・明朝・等幅 を出す
 const OPEN_LOOK_MENU = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('pMore').click();
   [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '書体 ▸').click();
@@ -157,7 +160,7 @@ const OPEN_LOOK_MENU = `(async () => {
 // 0.16.0 DV-1: 1行目のデータベースを開いて（表を読むので少し待つ）、3行目の「状態」のセルを選ぶ
 // 0.16.0 DV-2 で意図して直した: ステータスのセルは押すと選びの窓が開くので、Esc で窓を閉じて選んだだけの形にする
 const OPEN_DB_AT = (then) => `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 500));
   const cell = (row, col) => [...document.querySelectorAll('#pDb .dbrow')][row].querySelector('.dbcell[data-col="' + col + '"]');
   ${then}
@@ -245,21 +248,21 @@ const OPEN_DB_SUB = OPEN_DB_AT(`const errs = [];
   if (errs.length) throw new Error('画面のエラー: ' + errs.join(' / '));`);
 // 0.10.0 L-1: 1行目のページを開いて（非同期なので少し待つ）、「···」のメニュー（［コピー］［リンクを写す］［削除］）を開く
 const OPEN_PAGE_MENU = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('pMore').click();
   return 1;
 })()`;
 // 0.10.0 LS-2 の見直し（取り直しの見比べで、要約の無いページは「文字起こし」の欄で開き、鍵の一言が写っていなかった）: ページを開いてから［AI 要約］の欄を押す
 const OPEN_PAGE_SUMMARY = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   return 1;
 })()`;
 // 0.11.0 V-1: ページを開いてメモのタブにし、会議の種類の欄を一覧の形にして中身（自動・群・種類）を見せる
 const OPEN_TYPE_LIST = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnMemo').click();
   // 欄の高さ（.typeSel の 22px）を外して、一覧の形で全部の項目を見せる（R22 (3)）
@@ -268,7 +271,7 @@ const OPEN_TYPE_LIST = `(async () => {
 })()`;
 // 0.12.0 SP-4: ページを開いて文字起こしのタブにする（札・重なり・文ごとの行）
 const OPEN_PAGE_SCRIPT = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnScript').click();
   document.getElementById('pScript').scrollIntoView({ block: 'start' });   // 文字起こしの行（札・重なり・文ごとの行）が全部見えるように捲る
@@ -283,7 +286,7 @@ const OPEN_READY = `(async () => {
 // 0.13.0 ED-5（計画 docs/plans/2026-10-24-130.md の「取り直す画面（RETAKE）」）: ページの要約の1つ目の箇条書き（b2）の終わりに「 /」と語を打ち、
 // / メニューを開いた形（本物の Chromium の getSelection でカーソルを行の終わりに置き、input を起こす）
 const OPEN_SLASH = (q) => `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
@@ -295,7 +298,7 @@ const OPEN_SLASH = (q) => `(async () => {
 })()`;
 // 0.13.0 ED-6（E1・決めたこと 24）: ページの要約の1つ目の箇条書き（b2）の ⠿ を押してメニューを開き、［変換 ▸］の中を開いた形
 const OPEN_BLOCK_MENU = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.grip').click();
@@ -305,7 +308,7 @@ const OPEN_BLOCK_MENU = `(async () => {
 // 0.14.0 EB-5（計画 docs/plans/2026-10-26-140.md の決めたこと 19〜21）: 行 b2 の頭の4文字を選んで道具の帯を出し、then を続ける（リンクの欄・色のメニュー）
 // EB-5 直し: tail なら行の文の終わりの4字を選ぶ（拡大 200% で右へ寄った選びの帯と色のメニューが欄の幅に収まるかを撮る）
 const SELECT_MARKS = (then, tail = false) => `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
@@ -324,7 +327,7 @@ const LINK_REFUSED = `t.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', c
 const COLOR_OPEN = "document.querySelector('#markBar .mb-color').click();";
 // 0.14.0 EK-4（計画 docs/plans/2026-10-26-140.md の決めたこと 28）: 行 b2 で Esc を押して行を選び、Shift+↓ を2回で3行を選んだ形（選んだ行の地の色）
 const SELECT_ROWS = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   const t = [...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === 'b2').querySelector('.txt');
@@ -337,7 +340,7 @@ const SELECT_ROWS = `(async () => {
 })()`;
 // 0.13.0 ED-7（E5）: ページを開いて［AI 要約］の欄の頭まで捲る（新しい型の行が全部見えるように。撮った画像の確かめで、欄が窓の下に切れていた）
 const OPEN_TYPES = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnNote').click();
   document.querySelector('#pNote .blk').scrollIntoView({ block: 'start' });
@@ -345,7 +348,7 @@ const OPEN_TYPES = `(async () => {
 })()`;
 // 0.14.0 MB-4: ページ（か録音中のページ）を開いてメモのタブにし、メモの行の頭まで捲る
 const OPEN_MEMO = (page) => `(async () => {
-  ${page ? "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();" : ''}
+  ${page ? "document.querySelector('#plist .pitem').click();" : ''}
   await new Promise((r) => setTimeout(r, 300));
   document.getElementById('paneBtnMemo').click();
   const b = document.querySelector('#pMemo .memorows'); if (b) b.scrollIntoView({ block: 'center' });
@@ -353,7 +356,7 @@ const OPEN_MEMO = (page) => `(async () => {
 })()`;
 // 0.11.0 V-2: ページを開き、打ち合わせの質のカードまで捲る
 const OPEN_QUALITY = `(async () => {
-  document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click();
+  document.querySelector('#plist .pitem').click();
   await new Promise((r) => setTimeout(r, 300));
   const c = document.getElementById('qualityCard'); if (c) c.scrollIntoView({ block: 'end' });
   return 1;
@@ -365,9 +368,50 @@ const LIVE_PICK_SALES = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
   return 1;
 })()`;
+// 0.15.1 PS-2（D124）: 見出し「プライベート」を押して畳む（1行目のページを開いた後）
+const FOLD_PRIVATE = `${OPEN_PAGE}; document.getElementById('privHead').click()`;
+// 見出しの右の3つは乗せたとき・フォーカスがあるときだけ出る（PQ6）。撮る窓は :hover も :focus-within も当たらない（0.15.0 PH-3 直し R26 と同じ）ので、
+// 乗せた行の CSS（.privrow:hover の地と .ph-btn の opacity: 1）と同じ形を style で当てる
+const SHOW_PRIVATE_BTNS = "document.getElementById('privRow').style.background = 'var(--hover)'; for (const id of ['privLib', 'newPageBtn', 'privMore']) document.getElementById(id).style.opacity = '1'";
+// 見出しの［···］を開き、［並べ替え: 手動 ›］の下のメニュー（手動・最終更新）を開いた形
+const PRIVATE_MENU = `(async () => {
+  ${SHOW_PRIVATE_BTNS};
+  document.getElementById('privMore').click();
+  document.getElementById('privSort').click();
+  await new Promise((r) => setTimeout(r, 150));
+  return 1;
+})()`;
+// 0.15.1 PS-3（D124）: 1行目のページを開いて、その行の［···］で行のメニュー（6つの項目と最終更新の行）を開いた形。行の［···］と［＋］は乗せたときだけ出る
+//（撮る窓は :hover が当たらない）ので、乗せた行の CSS と同じ形を style で当てる
+const ROW_MENU = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${OPEN_PAGE}; await w(200);
+  const row = document.querySelector('#plist .pitem');
+  row.style.background = 'var(--hover)';
+  for (const b of row.querySelectorAll('.pmore, .padd')) b.style.display = 'inline-flex';
+  row.querySelector('.pmore').click(); await w(150);
+  return 1;
+})()`;
+// 0.15.1 PS-3（D124）: 2行目で Ctrl+Shift+R を押して、行の題名の所の名前を変える欄を出した形（今の題名を全部選んだ形）
+const ROW_RENAME = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${OPEN_PAGE}; await w(200);
+  const row = document.querySelectorAll('#plist .pitem')[1];
+  row.focus();
+  row.dispatchEvent(new KeyboardEvent('keydown', { key: 'R', code: 'KeyR', ctrlKey: true, shiftKey: true, bubbles: true })); await w(150);
+  return 1;
+})()`;
+// 0.15.1 PS-4（D125）: 見出しの ↗ でライブラリのタブを開く（探す形は語「見積」を入れて木を崩した形）
+const OPEN_LIBRARY = "document.getElementById('privLib').click()";
+const LIBRARY_SEARCH = `(async () => {
+  document.getElementById('privLib').click();
+  await new Promise((r) => setTimeout(r, 150));
+  const q = document.getElementById('libSearch'); q.value = '見積'; q.dispatchEvent(new Event('input'));
+  await new Promise((r) => setTimeout(r, 150));
+  return 1;
+})()`;
 // 0.10.0 L-2: 左の一覧の［選ぶ］を押し、1行目と3行目を選ぶ（頭の枠「2 件を選んでいます」と［リンクを写す］［やめる］）
 const SELECT_TWO = `(() => {
-  document.getElementById('tabBtnNotes').click();
   document.getElementById('listSelect').click();
   const rows = () => document.querySelectorAll('#plist .pitem');
   rows()[0].click(); rows()[2].click();
@@ -404,10 +448,10 @@ const LATE_STT = { route: 'local', lastTextAt: FIXED_NOW - 95000, segSec: 75, sl
 const SLOW_SEG = '（文字起こし待ち: 会議の後で文字起こしします）';
 const SIGNED_OUT = { ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' } };
 const SCREENS = [
-  { name: 'notes-empty-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click()" },
-  { name: 'notes-page-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()" },
-  { name: 'notes-page-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnNotes').click(); document.querySelector('#plist .pitem').click()" },
-  { name: 'dictation-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnDictation').click()" },
+  // 0.15.1 PS-2（D124）で意図して変えた: notes-empty-light は起動したままの形（見出しを押す手順は無い。押していた goNotes は、開いたタブの無い起動では何もしなかった）
+  { name: 'notes-empty-light', page: 'app', theme: 'light' },
+  { name: 'notes-page-light', page: 'app', theme: 'light', act: OPEN_PAGE },
+  { name: 'notes-page-dark', page: 'app', theme: 'dark', act: OPEN_PAGE },
   { name: 'settings-light', page: 'app', theme: 'light', act: "document.getElementById('tabBtnSettings').click()" },
   { name: 'settings-dark', page: 'app', theme: 'dark', act: "document.getElementById('tabBtnSettings').click()" },
   // 第1b回で足した画面（C-2 で基準を取るまでは取り直し待ち）
@@ -555,10 +599,6 @@ const SCREENS = [
   { name: 'memo-blocks-light', page: 'app', theme: 'light', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
   { name: 'memo-blocks-dark', page: 'app', theme: 'dark', get answers() { return memoBlocksAnswers(); }, act: OPEN_MEMO(true) },
   { name: 'live-memo-blocks-light', page: 'app', theme: 'light', get answers() { return liveMemoAnswers(); }, act: OPEN_MEMO(false) },
-  // 0.14.0 DQ-3（計画の「取り直す画面（RETAKE）」・BQ27 (a)）: 設定の［録音］の「文字起こし」のカードまで捲った形（「フィラー除去」の下の「口述の文を AI で整える」）と、
-  // 音声入力の履歴の［元の文をコピー］のある行。足した画面（まだ基準が無い）。カードに1行増える settings-record-light・settings-record-dark・settings-record-zoom200-light は取り直す
-  { name: 'settings-dictation-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; ${NAV('setNavRecord')}; document.getElementById('aiTidy').closest('.card').scrollIntoView({ block: 'start' })` },
-  { name: 'history-tidy-light', page: 'app', theme: 'light', get answers() { return { 'koeApp.getHistory': HISTORY_TIDY }; }, act: "document.getElementById('tabBtnDictation').click()" },
   // 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の「取り直す画面（RETAKE）」）: サイドバーの木（3 段より深い開いた行・閉じた行・フォーカスした ▸・深い段の字下げ）。
   // 足した画面（まだ基準が無い）。拡大 200% でも題名が切れずに並ぶ
   { name: 'sidebar-tree-light', page: 'app', theme: 'light', get answers() { return treeAnswers(); }, act: FOCUS_TREE },
@@ -590,6 +630,22 @@ const SCREENS = [
   { name: 'page-menu-look-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true, font: 'serif' }); }, act: OPEN_LOOK_MENU },
   // PL-3 直し（R77）: 小さい文字の拡大 200%（狭い窓の題名は標準の狭い窓より小さい）
   { name: 'look-small-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ small: true }); }, act: OPEN_PAGE },
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・D124）: 見出し「プライベート」を畳んだサイドバーの明暗（印 ›・下の［設定］が同じ所）・
+  // 見出しの右の ↗・［＋］・［···］と開いた［···］のメニューと［並べ替え ›］の下のメニュー・表示 5 と［もっと見る］・拡大 200% の見出しの行。足した画面（まだ基準が無い）
+  { name: 'side-private-folded-light', page: 'app', theme: 'light', act: FOLD_PRIVATE },
+  { name: 'side-private-folded-dark', page: 'app', theme: 'dark', act: FOLD_PRIVATE },
+  { name: 'side-private-menu-light', page: 'app', theme: 'light', act: PRIVATE_MENU },
+  { name: 'side-private-more-light', page: 'app', theme: 'light', get answers() { return moreAnswers(); } },
+  { name: 'side-private-zoom200-light', page: 'app', theme: 'light', zoom: 2, act: `${OPEN_PAGE}; ${SHOW_PRIVATE_BTNS}` },
+  // 0.15.1 PS-3（計画の「取り直す画面（RETAKE）」・D124）: 行の［···］のメニュー（6つと最終更新の行）と、行の中の名前を変える欄。足した画面（まだ基準が無い）
+  { name: 'side-row-menu-light', page: 'app', theme: 'light', act: ROW_MENU },
+  { name: 'side-row-rename-light', page: 'app', theme: 'light', act: ROW_RENAME },
+  // 0.15.1 PS-4（計画の「取り直す画面（RETAKE）」・D125）: ライブラリ（題・種類のタブ・探す欄・［＋ 新しいページ］・表・相対の日時・▸）の明暗・拡大 200% と、
+  // 探したとき（木を崩して場所付き）。サイドバーの木と同じ見本（0.15.0 PH-3 の treeAnswers）。足した画面（まだ基準が無い）
+  { name: 'library-light', page: 'app', theme: 'light', get answers() { return treeAnswers(); }, act: OPEN_LIBRARY },
+  { name: 'library-dark', page: 'app', theme: 'dark', get answers() { return treeAnswers(); }, act: OPEN_LIBRARY },
+  { name: 'library-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return treeAnswers(); }, act: OPEN_LIBRARY },
+  { name: 'library-search-light', page: 'app', theme: 'light', get answers() { return treeAnswers(); }, act: LIBRARY_SEARCH },
   // 0.16.0 DV-1（計画 docs/plans/2026-11-04-160.md の「取り直す画面」）: データベースの表（20 行・7 種類の列・下の集計・選んだセル）の明暗と拡大 200%（横に捲れて見出しが切れない）。
   // 足した画面（まだ基準が無い）
   { name: 'db-table-light', page: 'app', theme: 'light', get answers() { return dbAnswers(); }, act: OPEN_DB },
@@ -731,6 +787,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 議事録の子ページの一覧・［移動先…］・新しいページ・ゴミ箱の窓・アイコンの選び・全幅・小さい文字と書体・「···」の見た目の項目、取り直した 7 枚: 設定の［一般］の3枚と近道の表・
 // / メニュー・「···」の2枚）に「0.15.0の画面はこの見た目でよいです」（2026-11-06）と答えたので、CI run 41936731119（622444a）の artifact 13374567273 の .after.png（27 枚。
 // edit-slash-light・edit-slash-dark は今の基準とバイトが同じで artifact に出なかったので替えていない）をバイトのまま基準にし、空に戻した（基準は 195 枚）
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面（RETAKE）」・D114）: サイドバーの下の［🎤 音声入力］の行が無くなり、［🗑️ ゴミ箱］［⚙️ 設定］が上へ上がるので、
+// サイドバーの出ている app の画面の全部（サイドバーを畳んだ notes-collapsed-light のほか。105 枚）を取り直し待ちにした。録音バーと会議の知らせのパネルは変わらない（WQ1）
+// 0.15.1（版を 0.15.1 に上げる commit。Task G の後半: R56）: 持ち主が取り直しの見比べ（違いのある画面 105 枚: サイドバーの［🎤 音声入力］の行が無くなり、一覧の見出しが
+// 「プライベート」になる・設定の行と ⓘ の吹き出しの文。新しい画面 11 枚: プライベートを畳んだ明暗・［···］のメニュー・もっと見る・拡大 200%・行のメニュー・名前を変える欄・
+// ライブラリの4枚）に「この見た目でよい（おすすめ）」（2026-11-10）と答えたので、CI run 42752361720（ba0be5a）の artifact 13733319867 の .after.png（116 枚）を
+// バイトのまま基準にし、空に戻した（基準は 203 枚）
 // 0.16.0（計画 docs/plans/2026-11-04-160.md の「取り直す画面（RETAKE）」）: DV-1 で足したデータベースの表の明暗と拡大 200% の3枚（まだ基準が無い）と、
 // 近道の表に「データベースの表のセルを選んでいるとき」の行が増える設定の4枚（settings-shortcuts-light と［一般］の3枚。今の基準がある）
 // DV-2 で足した列のメニュー・選択肢の選び・暦の3枚（まだ基準が無い）
@@ -741,10 +803,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DX-2 で足した［ゴミ箱］の窓の行のまとまり（まだ基準が無い）
 // DL-1 (2) で足した白紙のページの本文のインラインの表（まだ基準が無い）
 // DL-1 (2b) で足した白紙のページの本文のリンクドビュー（まだ基準が無い）
+// 0.15.1 を出した main の取り込み（R123）: 0.15.1 で足した行の［···］のメニュー side-row-menu-light（main の基準がある）は、0.16.0 の［中にデータベースを作る］が増えるので取り直す
 const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
   'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
   'sidebar-db-light', 'trash-pop-rows-light', 'db-inline-light', 'db-linked-light',
-  'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light']);
+  'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light',
+  'side-row-menu-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -819,18 +883,6 @@ const LIST = [
   { id: 'p1', title: PAGE.title, date: '2026-10-16', durationSec: 1820, createdAt: PAGE.createdAt, updatedAt: PAGE.updatedAt, meetingType: 'standup', hasSummary: true },
   { id: 'p2', title: lib.meetingTitleAt('2026-10-09T05:00:00.000Z', JST_MIN), date: '2026-10-09', durationSec: 2710, createdAt: '2026-10-09T05:00:00.000Z', updatedAt: '2026-10-09T05:50:00.000Z', meetingType: 'general', hasSummary: true },
   { id: 'p3', title: lib.meetingTitleAt('2026-10-01T08:00:00.000Z', JST_MIN), date: '2026-10-01', durationSec: 905, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:20:00.000Z', meetingType: 'general', hasSummary: false },
-];
-const HISTORY = [
-  // 止めた時計（10/18 09:00 日本時間）の 30 分前。「今日の入力」と「30分前」が出る
-  { id: 'h1', text: '明日の打ち合わせは10時からに変更になりました。資料は前日までに共有します。', createdAt: '2026-10-17T23:30:00.000Z', durationSec: 9, chars: 38, procMs: 1400 },
-  { id: 'h2', text: '見積もりの件、承知しました。来週の水曜までにお送りします。', createdAt: '2026-10-16T06:12:00.000Z', durationSec: 7, chars: 29, procMs: 1100 },
-  { id: 'h3', text: '会議室の予約をお願いします。', createdAt: '2026-10-01T02:05:00.000Z', durationSec: 3, chars: 13, procMs: 800 },
-];
-// 0.14.0 DQ-3（決めたこと 55）: いちばん上の行は AI で整えた口述（raw は文字起こしのまま）。［元の文をコピー］が出る。ほかは今の見本のまま（raw の無い行）
-const HISTORY_TIDY = [
-  { id: 'h0', text: '明日の会議は、資料を見てから決めます。', raw: 'えーと、明日の会議は、あの、あの、資料を見てから決めます。', tidy: 'ai',
-    createdAt: '2026-10-17T23:50:00.000Z', durationSec: 5, chars: 19, procMs: 1600 },
-  ...HISTORY,
 ];
 
 /**
@@ -967,6 +1019,24 @@ function dbAnswers(kind = '') {
       { id: 'q2', type: 'todo', text: '先方に単価を確かめる', checked: false, citeState: 'manual', cites: [] },
       { id: 'q3', type: 'paragraph', text: '前回の見積もりとの差を書き足す。', citeState: 'manual', cites: [] },
     ] } } } : {}),
+  };
+}
+
+/**
+ * 0.15.1 PS-2（D124）: 表示 5 と［もっと見る］。いちばん上に8つのページ（見本の議事録3つと白紙のページ5つ）。表示の数は uiState の sections（覚えた形）
+ */
+function moreAnswers() {
+  const blank = (id, title, at) => ({ id, title, date: at.slice(0, 10), durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'blank' });
+  const tops = [
+    blank('pm5', '採用の進め方', '2026-10-17T05:00:00.000Z'),
+    blank('pm4', '見積もりの内訳', '2026-10-17T04:00:00.000Z'),
+    blank('pm3', '次回の議題', '2026-10-17T03:00:00.000Z'),
+    blank('pm2', 'プロジェクトの資料', '2026-10-17T02:00:00.000Z'),
+    blank('pm1', '数の根拠', '2026-10-17T01:00:00.000Z'),
+  ];
+  return {
+    'koeApp.pagesSearch': [...tops, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
+    'koeApp.uiState': { sections: { private: { open: true, sort: 'manual', show: 5 } } },
   };
 }
 
@@ -1302,7 +1372,6 @@ function fixtures() {
     'koeApp.meetingTypes': lib.typesForView(),   // 0.11.0 V-1・V-5: { types, selectable }
     'koeApp.memoTypes': memoTypes.listMemoTypes(),
     'koeApp.appVersion': { version: '0.4.0', repo: '' },   // 版を上げても画面が変わらないように決まった値
-    'koeApp.getHistory': HISTORY,
     'koeApp.meetingStatus': { active: false, paused: false, startedAt: null, segments: [] },
     'koeApp.pagesSearch': LIST,
     'koeApp.pagesSearchFull': { hits: [], total: 0, truncated: false },
@@ -1408,9 +1477,81 @@ function compareAll({ baseDir, outDir, shots, png, fs, tolerance = TOLERANCE }) 
     write(`${name}.before.png`, baseBuf);
     write(`${name}.after.png`, png.encodePng(shot));
     write(`${name}.diff.png`, png.encodePng(d.image));
-    out.push({ name, status: d.sizeMismatch ? 'size' : 'diff', count: d.count, box: d.box });
+    out.push({ name, status: d.sizeMismatch ? 'size' : 'diff', count: d.count, box: d.box, regions: diffRegions(base, shot, { tolerance }) });   // 0.15.1 ND-5（WQ8）
   }
   return out;
+}
+
+/**
+ * 0.15.1 ND-5（計画 docs/plans/2026-11-04-151.md の WQ8）: 基準と今の画像の違いの場所の枠。色の差が tolerance を越える画素を、cell 画素の升目に
+ * 落として 8 方向につながった升の塊ごとにまとめ、塊の中の違う画素をちょうど囲む → [{ x0, y0, x1, y1 }]（上から・左から）。同じなら空。
+ * 大きさが違えば画像の全部の1つ。升目でまとめるので、cell より近い違いは1つの枠になる（字の1つずつに枠を作らない）
+ */
+function diffRegions(a, b, { tolerance = TOLERANCE, cell = 8 } = {}) {
+  if (a.width !== b.width || a.height !== b.height) return [{ x0: 0, y0: 0, x1: Math.max(a.width, b.width) - 1, y1: Math.max(a.height, b.height) - 1 }];
+  const { width: w, height: h } = a;
+  const cw = Math.ceil(w / cell);
+  const ch = Math.ceil(h / cell);
+  const cells = new Array(cw * ch).fill(null);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      let differs = false;
+      for (let k = 0; k < 4; k++) if (Math.abs(a.data[i + k] - b.data[i + k]) > tolerance) { differs = true; break; }
+      if (!differs) continue;
+      const c = Math.floor(y / cell) * cw + Math.floor(x / cell);
+      const r = cells[c];
+      if (!r) cells[c] = { x0: x, y0: y, x1: x, y1: y };
+      else { r.x0 = Math.min(r.x0, x); r.y0 = Math.min(r.y0, y); r.x1 = Math.max(r.x1, x); r.y1 = Math.max(r.y1, y); }
+    }
+  }
+  const seen = new Uint8Array(cw * ch);
+  const out = [];
+  for (let c = 0; c < cells.length; c++) {
+    if (!cells[c] || seen[c]) continue;
+    seen[c] = 1;
+    const box = { ...cells[c] };
+    const stack = [c];
+    while (stack.length) {
+      const q = stack.pop();
+      const cx = q % cw;
+      const cy = Math.floor(q / cw);
+      const r = cells[q];
+      box.x0 = Math.min(box.x0, r.x0); box.y0 = Math.min(box.y0, r.y0); box.x1 = Math.max(box.x1, r.x1); box.y1 = Math.max(box.y1, r.y1);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
+          const n = ny * cw + nx;
+          if (cells[n] && !seen[n]) { seen[n] = 1; stack.push(n); }
+        }
+      }
+    }
+    out.push(box);
+  }
+  return out.sort((p, q) => p.y0 - q.y0 || p.x0 - q.x0);
+}
+/** 枠の全部が、どれかの場所の中にあるか（場所の外に1画素でもはみ出せば偽。枠が無ければ真） */
+function onlyIn(regions, areas) {
+  return (regions || []).every((r) => (areas || []).some((a) => r.x0 >= a.x0 && r.y0 >= a.y0 && r.x1 <= a.x1 && r.y1 <= a.y1));
+}
+// サイドバーの所（既定の幅 260px と幅のつまみ 4px。拡大率を掛ける）。0.15.1 の取り直し（音声入力の行・見出しの行）はここに出る見込み
+const SIDE_AREA_PX = 264;
+function sideArea(zoom = 1) {
+  return { x0: 0, y0: 0, x1: Math.round(SIDE_AREA_PX * (Number(zoom) || 1)) - 1, y1: SIZE.height - 1 };
+}
+/**
+ * 取り直し待ちの画面ごとの違いの場所の一覧（CI の成果物 retake-regions.json の中身）: [{ name, status, count, regions, onlySide }]。
+ * onlySide はサイドバーの所だけが違うか（基準と同じ画面は書かない。基準の無い画面・大きさの違う画面は偽 = 画像で見てもらう）
+ * 0.15.1 Task G の後半（R56）で意図して変えた: 取り直し待ちの一覧を引数でも渡せる（既定は RETAKE。取り直し待ちを空に戻した後も、テストが決まった一覧で形を見られるように）
+ */
+function retakeReport(compare, retake = RETAKE) {
+  const zoomOf = (n) => (SCREENS.find((s) => s.name === n) || {}).zoom || 1;
+  return (compare || []).filter((c) => retake.has(c.name) && c.status !== 'same').map((c) => ({
+    name: c.name, status: c.status, count: c.count || 0, regions: c.regions || [],
+    onlySide: c.status === 'diff' && onlyIn(c.regions || [], [sideArea(zoomOf(c.name))]),
+  }));
 }
 
 /**
@@ -1561,6 +1702,7 @@ function ensureContentSize(win, size) {
 }
 
 module.exports = {
+  diffRegions, onlyIn, sideArea, retakeReport,   // 0.15.1 ND-5（WQ8）
   SIZE, OVERLAY_SIZE, SHOT_AREA, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
   WAVE_SPEECH, NUDGE_SIZE, NUDGE_PROBE, nudgeWindowFor, detectAnswers,
   PANEL_PROBE, PANEL_PROBE_SCALES, PANEL_PROBE_STATES, judgePanel, panelWindowFor, shotSizeFor, watchdogMs,

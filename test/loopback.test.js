@@ -105,11 +105,7 @@ test('相手の声の取り込みは既定でオフ', () => {
   assert.ok(appHtml.includes("$('useSystemAudio').checked = Boolean(s.useSystemAudio)"));
 });
 
-test('音声入力の開始に systemAudio を混ぜない（常にマイクだけ）', () => {
-  const dictation = main.match(/sendToOverlay\('overlay:start', \{ mode: 'dictation'[^}]*\}/);
-  assert.ok(dictation, '音声入力の開始が見つからない');
-  assert.ok(!dictation[0].includes('systemAudio'), '音声入力の経路に混ざっている');
-});
+// 0.15.1 ND-2（D114）: 音声入力の開始は無くなった（録音バーを起こすのは会議の1か所だけ: test/stage151.main.test.js の F156）
 
 test('マイクの解放が micStream と sysStream を止めている', () => {
   // ここを落とすと録音後もマイクが開きっぱなしになり、

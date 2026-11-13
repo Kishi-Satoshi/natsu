@@ -75,7 +75,7 @@ async function openSaved(returns = {}, before = async () => {}) {
   const l = await load(APP, { now: T0, returns: { pagesSearch: () => PAGES, pageGet, ...returns } });
   await l.drain();
   await before(l);
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
   await click(l, 'paneBtnScript');
   return l;
@@ -171,7 +171,9 @@ test('LN-6: 記事『ログインする』に自動で開く窓の節（{#ask}�
   // ログインする
   const login = art('start/login');
   const ask = sec(login, 'ask');
-  for (const w of ['自動で開', '起動', '会議', '音声入力', '×', '起動し直すまで', 'オフライン', 'オフラインモード', '録音の途中', '帯']) assert.ok(ask.includes(w), `{#ask} の節に「${w}」が無い`);
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 自動で開く時は起動と会議の始めの2つ（音声入力の始めは無くなった: 決めたこと 14）
+  for (const w of ['自動で開', '起動', '会議', '×', '起動し直すまで', 'オフライン', 'オフラインモード', '録音の途中', '帯']) assert.ok(ask.includes(w), `{#ask} の節に「${w}」が無い`);
+  assert.ok(!ask.includes('音声入力'), '{#ask} の節に音声入力');
   assert.ok(!login.includes('押したときだけ開きます'), '「押したときだけ開きます」が残っている');
   assert.match(sec(login, 'notes'), /録音中にログインが切れても、窓は勝手に開きません/);
   // 会議の検出
@@ -187,7 +189,8 @@ test('LN-6: 記事『ログインする』に自動で開く窓の節（{#ask}�
   assert.ok(rows[0][1].includes('［ログイン］'), rows[0][1]);
   // 文字起こしが遅い・文字起こしが止まる・文字起こしの状態と帯
   const after = sec(art('trouble/slow-pc'), 'after');
-  for (const w of ['ログインしていて', 'クラウド', '［もう一度文字起こし］', '残り', '音声入力']) assert.ok(after.includes(w), `『会議が終わった後』に「${w}」が無い`);
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議か音声入力が終わると」の音声入力を外した
+  for (const w of ['ログインしていて', 'クラウド', '［もう一度文字起こし］', '残り']) assert.ok(after.includes(w), `『会議が終わった後』に「${w}」が無い`);
   const stops = art('trouble/transcription-stops');
   for (const w of ['［もう一度文字起こし］', '残り']) assert.ok(stops.includes(w), `『文字起こしが止まる』に「${w}」が無い`);
   const status = sec(art('record/status-line'), 'banner');
@@ -195,6 +198,7 @@ test('LN-6: 記事『ログインする』に自動で開く窓の節（{#ask}�
   assert.ok(status.includes('いちばん先'), 'ログインに関わる帯がいちばん先に出ることが書いていない');
   for (const rel of ['start/login', 'record/meeting-detect', 'trouble/banners', 'trouble/slow-pc', 'trouble/transcription-stops', 'record/status-line']) {
     assert.deepStrictEqual(L.missingLabels(art(rel), labels), [], `${rel} の［…］にアプリに無い言葉`);
-    assert.match(art(rel), /\nupdated: 2026-10-28\n/, `${rel} の updated`);
+    // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力の字を外した記事（start/login・record/meeting-detect・trouble/slow-pc）は後の日
+    assert.ok((art(rel).match(/\nupdated: (\S+)\n/) || [])[1] >= '2026-10-28', `${rel} の updated`);
   }
 });

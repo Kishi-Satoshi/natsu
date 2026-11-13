@@ -1,5 +1,5 @@
 /*
- * NaTsu — 音声入力・議事録ツール（オンラインはクラウドの文字起こし、オフラインは手元の whisper。要約は各自の Claude Code）
+ * NaTsu — 議事録ツール（オンラインはクラウドの文字起こし、オフラインは手元の whisper。要約は各自の Claude Code）
  *
  * 0.10.0（D59）で要約のローカル AI（llama.cpp）を外した。つながらないときの要約は「要約待ち」にし、つながったら作る。
  * 議事録はページとブロックの構造で保存し、
@@ -36,7 +36,7 @@ const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b,
 const mtype = require('./meetingType');
 const memoTypes = require('./memoTypes');
 const memoDoc = require('./memoDoc');   // 0.14.0 MB-3: メモの行（照らし・素の文字・雛形の行）
-const dictTidy = require('./dictTidy');   // 0.14.0 DQ-1: 口述の整え（つなぎ言葉の決まり・繰り返し・AI の答えの照らし）
+const dictTidy = require('./dictTidy');   // 0.14.0 DQ-1。0.15.1 ND-2 から会議の区間の文のつなぎ言葉の決まり（dropFillers）だけを使う
 const quality = require('./quality');
 const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
@@ -106,11 +106,11 @@ const {
   idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, typesForView,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
-  cloudLikely, offlineChosen, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT, SUMMARY_WAIT_TEXT, summaryRetryPick,
+  cloudLikely, offlineChosen, startPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT, SUMMARY_WAIT_TEXT, summaryRetryPick,
   SILENT_DBFS, SPEECH_DBFS, wavLoudestDbfs, hintFold, hintEcho,
   localTimeoutMs,
 } = require('./mainlib');
-// クリップボードの読み書き（mainlib.copyPrivate・deliverText）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
+// クリップボードの読み書き（mainlib.copyPrivate）は main.js の同じ名前の包みとぶつかるので、lib から呼ぶ
 const lib = require('./mainlib');
 // 議事録のリンクの形と照らし（0.10.0 LN-1。純粋。住所の頭 LINK_ORIGIN の1か所: 決めたこと 154）
 const natsulink = require('./natsulink');
@@ -130,7 +130,6 @@ const APP_TITLE = 'NaTsu';
 
 const CPU_OLD_DEFAULT_THREADS = Math.max(4, Math.floor(os.cpus().length / 2));
 const CPU_DEFAULT_THREADS = Math.max(4, os.cpus().length - 2);
-const MIN_RECORD_MS = 400;
 // メモはプロンプトにそのまま前置きされるので、文脈を食い潰さない範囲に収める
 const MEMO_MAX = 1500;
 const ENGINE_READY_TIMEOUT_MS = 90000;
@@ -140,8 +139,8 @@ const DEFAULT_SETTINGS = defaultSettings(os.cpus().length);
 
 // ---------------------------------------------------------------- 状態
 let settings = { ...DEFAULT_SETTINGS };
-let history = [];
-let state = 'idle'; // idle | recording | processing | meeting | meeting-finalizing
+// 0.15.1 ND-2（D114）: 音声入力をなくしたので recording・processing にはならない（会議と分け合う判定の行は字を変えずに残す: 計画の決めたこと 6）
+let state = 'idle'; // idle | meeting | meeting-finalizing
 let tray = null;
 let trayIconIdle = null;
 let trayIconRec = null;
@@ -204,15 +203,6 @@ function updatePowerBlock() {
 let pasterProc = null;
 // 常駐 PowerShell の応答を待っている人（送った順に受け取る。mainlib.parsePasterLine）
 const pasterWaiters = [];
-// 音声入力を始めたときの前面ウィンドウ（HWND）。貼り付け先が変わっていれば貼らない（#54）
-let dictationFg = Promise.resolve('');
-const FG_REPLY_MS = 300;      // fg の応答待ち。常駐が起動中なら間に合わず ''（従来どおり確認なしで貼る）
-// 0.14.0 EK-6（決めたこと 40〜42・79）: NaTsu の中の音声入力の入れ先を画面に聞いた答え（Promise<{ ok, seq }>。null はほかのアプリ: 今の道）と、後に回したログインの窓
-let dictWhere = null;
-let dictLoginLater = false;
-// 0.14.0 EK-6 直し3（R207）: 止めた後の文字起こし・整えの間（processing）に画面の Esc（dictation:cancel）で捨てた NaTsu の中の口述の入れ先（dictWhere と同じ Promise）
-let dictDropped = null;
-const PASTE_REPLY_MS = 1500;  // paste の応答待ち。無応答なら貼れたものとして扱う（unknown）
 let programmaticMove = false;
 let recoveredPageId = null;
 // データフォルダ（<userData>/data）を開けなかった理由。画面が出てから1回知らせる（createMainWindow）
@@ -234,11 +224,10 @@ let pendingSegs = 0;
 const segLane = new WeakMap();
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
-const historyPath = () => path.join(app.getPath('userData'), 'history.json');
 
 // ---------------------------------------------------------------- 永続化
-// 設定と履歴は src/jsonfile.js の部品で読み書きする（第1a回 JS1〜JS3・JS5・JS6・P16）。
-// - 読む: BOM 付き・UTF-16 も読む。壊れていたら消さずに .broken-<時刻> へ退けて既定（設定）か空（履歴）で始める。
+// 設定は src/jsonfile.js の部品で読み書きする（第1a回 JS1〜JS3・JS5・JS6・P16。0.15.1 ND-2 から音声入力の履歴 history.json は読み書きしない: D114）。
+// - 読む: BOM 付き・UTF-16 も読む。壊れていたら消さずに .broken-<時刻> へ退けて既定で始める。
 //   設定は項目ごとに読み（settings.js の readSettings）、壊れた項目だけ直したら、元を写しで残して直した設定を
 //   すぐ1回書き戻す（次の起動ではもう知らせない）。知らないキーは残す。
 // - 書く: 一時ファイルに全部書いて fsync してから名前を変える（writeJsonFile）。書き手は1つのファイルに1つ。
@@ -250,13 +239,10 @@ const NOTICE = {
   settingsBroken: (name) => `設定のファイルが壊れていたので、既定の設定で起動しました。壊れたファイルは ${name} として残してあります。`,
   settingsEncoding: (name) => `設定のファイルの文字の形式（Shift-JIS など）を読めなかったので、既定の設定で起動しました。元のファイルは ${name} として残してあります。メモ帳で「UTF-8」を選んで保存し直すと読めます。`,
   settingsFalseLike: (label, raw) => `設定の「${label}」は、ファイルに "${raw}" と書かれていたため、今までどおりオンのままにしました。オフにするときは設定の画面で切ってください。`,
-  historyBroken: (name) => `音声入力の履歴のファイルが壊れていたので、空の履歴で始めました。元のファイルは ${name} として残してあります。`,
-  historyNotSaved: '音声入力の履歴の変更を保存できませんでした。次の変更のときにもう一度保存します。',
   settingsBusy: '設定のファイルをほかのプログラムが使っていて読めませんでした。読めるまでは既定の設定で動き、設定は保存しません。少し後にもう一度読みます。',
   settingsReloaded: '設定のファイルを読めたので、保存してある設定に切り替えました。読めない間に画面で変えた設定は保存していません。',
   settingsReadOnly: '設定のファイルが読み取り専用になっているため、管理者が決めた設定として使います。画面で変えた設定は保存されません（次の起動で元に戻ります）。',
   settingsNotSaved: '設定を保存できませんでした。次の変更のときにもう一度保存します',   // 設計書の文のまま（N7）
-  historyBusy: '音声入力の履歴のファイルをほかのプログラムが使っていて読めませんでした。読めるまでは新しい履歴を保存せずに持っておき、少し後にもう一度読みます。',
   // 録音の控え（第1a回 Task 2-5。N12・N13・N15・N16。議事録のファイルの N11・N17 は、第2a1回から起動で元の JSON に触れないので無い）
   draftBusy: '前回の会議の下書きを、ほかのプログラムが使っていて今は読めません。消さずに残してあり、少し後にもう一度復旧を試します。',
   recoveryBroken: (name) => `文字起こし待ちの記録が壊れていたので、${name} として残しました。残っていた音声は7日後に片付けます。`,
@@ -461,7 +447,6 @@ async function checkDailySnapshot() {
 //   読み直しは RETRY_READ_MS の間隔で（使い切ったら止め、設定の画面を開いたときだけ読み直す）
 // - 'readonly': 読み取り専用の settings.json（管理者が決めた設定）。その起動で1回だけ知らせる
 let settingsState = 'ok';     // 'ok' | 'unreadable' | 'readonly'
-let historyState = 'ok';      // 'ok' | 'unreadable'
 const RETRY_READ_MS = [3000, 10000, 30000];
 const notWritable = () => Object.assign(new Error('読めない間は書かない'), { code: 'NOT_WRITABLE' });
 // fsync が効かない場所（ネットワークのフォルダなど）。書くのは続け、記録はその起動で1回だけ
@@ -474,10 +459,6 @@ function noteFsyncOnce(code) {
 function writeSettingsFile(value, { retry }) {
   if (settingsState === 'unreadable') throw notWritable();
   J.writeJsonFile(settingsPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce });
-}
-function writeHistoryFile(value, { retry }) {
-  if (historyState === 'unreadable') throw notWritable();
-  J.writeJsonFile(historyPath(), value, { waits: retry ? J.RENAME_WAITS : [], onFsyncUnsupported: noteFsyncOnce });
 }
 // まとめ書きの間隔（第1a回 JS7）。今の録音バーの待ちと同じ 350ms のまま（Task 5-1。Windows の CI の 4 回の計りで、設定の大きさの
 // 書き込み＋fsync の p95 が 7.53〜32.69ms で、決め方の 100ms まで）
@@ -497,7 +478,6 @@ const WRITE_DELAY_MS = batchMs();
 // 書き手。1つのファイルに1つ。設定の画面の保存は now（すぐ同期で書く）、録音バーの位置は set（まとめ書き）で、
 // 同じ書き手なので古い中身で互いを上書きしない
 const settingsWriter = J.makeBatchWriter({ name: 'settings.json', write: writeSettingsFile, delayMs: WRITE_DELAY_MS, log: engineLog });
-const historyWriter = J.makeBatchWriter({ name: 'history.json', write: writeHistoryFile, delayMs: WRITE_DELAY_MS, log: engineLog });
 // 画面の覚え書き（第1b回 N6・P15・P16）。窓の大きさと位置・最大化・拡大の倍率・サイドバーの幅と畳み・開いているタブを
 // %LOCALAPPDATA%\natsu\window-state.json に覚える（Roaming の userData に置かない。照らしは src/winstate.js）。
 // 作り直せる小さなファイルなので、壊れていたら退けて既定で開き（控えは3つまで: JS2）、知らせ W1 を1回。読めなければ
@@ -535,7 +515,8 @@ function loadWinState() {
   let displays = [];
   try { displays = screen.getAllDisplays(); } catch (_) { displays = []; }
   winState = W.normalize(raw, displays).state;
-  const rawOpen = raw && raw.tabs && Array.isArray(raw.tabs.open) ? raw.tabs.open.length : 0;
+  // 0.15.1 ND-1（D114・決めたこと 5・F152）: 前の版のタブ（0.9.0 の設定・0.15.0 までの音声入力）は黙って落とし、外した数に数えない（無いページではない）
+  const rawOpen = raw && raw.tabs && Array.isArray(raw.tabs.open) ? raw.tabs.open.filter((k) => !W.TAB_RETIRED.includes(k)).length : 0;
   winTabsDropped = Math.max(0, rawOpen - winState.tabs.open.length);
   if (r.state === 'ok') winStateLastSet = JSON.stringify(winState);
 }
@@ -661,59 +642,6 @@ function retrySettingsRead() {
   if (notes.length) noticeMainWin(notes.join('　'));
 }
 
-// → 履歴の配列。投げない
-function loadHistoryFromDisk() {
-  const r = J.loadJsonFile(historyPath(), { shape: Array.isArray });
-  if (r.state === 'ok') return r.value;
-  if (r.state === 'broken') {
-    const name = path.basename(r.movedTo);
-    engineLog(`履歴: 壊れていたので退けて空の履歴で始めました（${r.reason}、${name}）`);
-    startupNotices.push(NOTICE.historyBroken(name));
-    return [];
-  }
-  // 読めない: 読み直せるまで書かずに持っておく（RF22・N14）
-  if (r.state === 'unreadable') {
-    historyState = 'unreadable';
-    engineLog(`履歴: 読めなかったので、読めるまで新しい履歴を保存せずに持っておきます（${r.code}）`);
-    startupNotices.push(NOTICE.historyBusy);
-  }
-  return [];
-}
-
-// 読めなかった履歴を読み直す。読めたら、読めない間の履歴（新しい順）とファイルの履歴を id で合わせ、maxHistory で
-// 切って書く。まだ読めなければ RETRY_READ_MS の次を予約する（使い切ったら止める）。名前はこのまま（mainrun が捕まえる）
-let historyRetryTimer = null;
-let historyRetryIdx = 0;
-function retryHistoryRead() {
-  if (historyRetryTimer) { clearTimeout(historyRetryTimer); historyRetryTimer = null; }
-  if (historyState !== 'unreadable') return;
-  const r = J.loadJsonFile(historyPath(), { shape: Array.isArray });
-  if (r.state === 'unreadable') {
-    if (historyRetryIdx < RETRY_READ_MS.length) historyRetryTimer = setTimeout(retryHistoryRead, RETRY_READ_MS[historyRetryIdx++]);
-    return;
-  }
-  historyState = 'ok';
-  const fromFile = r.state === 'ok' ? r.value : [];
-  if (r.state === 'broken') {
-    const name = path.basename(r.movedTo);
-    engineLog(`履歴: 読み直したら壊れていたので退けました（${r.reason}、${name}）`);
-    noticeMainWin(NOTICE.historyBroken(name));
-  }
-  const merged = lib.mergeHistory(history, fromFile, settings.maxHistory);
-  history = merged.list;
-  historyWriter.discard();
-  engineLog('履歴: 読めたので、ファイルの履歴と合わせました');
-  if (merged.changed) saveHistoryOrNotice();
-  sendToMainWin('history:updated', history);
-}
-
-// 履歴の削除・全消しの保存。書けなければ知らせる（N10）
-function saveHistoryOrNotice() {
-  const w = historyWriter.now(history);
-  // 読めない間（N14 で「保存せずに持っておく」と知らせ済み）は知らせを重ねない
-  if (!w.ok && !(w.error && w.error.code === 'NOT_WRITABLE')) noticeMainWin(NOTICE.historyNotSaved);
-}
-
 // 古い既定のスレッド数の移し替えは、今どおりメモリの中だけ（直しに数えない。知らせも写しも書き戻しも無い）。
 // 起動のときと、読めなかった設定を読み直して切り替えたとき（retrySettingsRead）に通す
 function migrateOldThreads(s) {
@@ -735,11 +663,7 @@ function loadStores() {
     settingsRetryIdx = 1;
   }
   migrateOldThreads(settings);
-  history = loadHistoryFromDisk();
-  if (historyState === 'unreadable') {
-    historyRetryTimer = setTimeout(retryHistoryRead, RETRY_READ_MS[0]);
-    historyRetryIdx = 1;
-  }
+  // 0.15.1 ND-2（D114・計画の決めたこと 3）: 前の音声入力の履歴（history.json）は読まない・書かない・消さない・退けない（ファイルはそのまま残す）
   // 保存先は <userData>/data だけ。開けない（容量・権限など）と store.initDrafts は投げる。ここは
   // app.whenReady の中なので、投げると単一起動の鍵を持ったまま窓が出ず、次に起動しても何も
   // 起きない。だから受け止めて理由を持ち、画面が出てから知らせる（黙って続けると、議事録が
@@ -951,6 +875,9 @@ function readFileHead(file, max = 4 * 1048576) {
 }
 function engineRuntimeIssue(eng) {
   if (process.platform !== 'win32') return RUNTIME_OK;
+  // 0.15.1 GV-2（D126・決めたこと 48）: 取り込んだ GPU 版の組（今のピンの runtime: 'bundled' の印。前の組には付かない）は Visual C++ ランタイムを
+  // つながないので照らさない（記録の行も書かない）。前の組（上流の CPU 版）と詳細設定の手のパスは今のまま照らす
+  if (!manualGroup(eng) && managed.whisper && managed.whisper.runtime === 'bundled') return RUNTIME_OK;
   const key = `whisper|${engineExe(eng)}`;
   if (!runtimeIssueCache.has(key)) {
     runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(engineExe(eng)), system32Dir(), readFileHead), { whisper: true }));
@@ -968,6 +895,8 @@ function forgetRuntimeIssues() {
 // Windows 以外・取り込めない PC は null
 function managedRuntimeIssue() {
   if (process.platform !== 'win32' || !ENGINE_HOME.supported) return null;
+  // 0.15.1 GV-2（決めたこと 48）: 取り込む組（今のピン）が Visual C++ ランタイムを使わなければ、取り込む前の欄に案内を出さない
+  if (MANIFEST.items.some((i) => i.group === 'whisper' && i.kind === 'zip' && i.runtime === 'bundled')) return null;
   const exe = engineInstall.layout(ENGINE_HOME.root, MANIFEST).whisper.exe;
   const key = `whisper|${exe}`;
   if (!runtimeIssueCache.has(key)) runtimeIssueCache.set(key, vcRuntimeIssue(vcRuntimeVersions(path.dirname(exe), system32Dir(), readFileHead), { whisper: true }));
@@ -995,6 +924,29 @@ function portInUse(port, tries = 5) {
     }
     return true;
   })();
+}
+
+// ---------------------------------------------------------------- 0.15.1 GV-2b（D126・第9版）: 取り込んだ GPU 版の組は、いつも今の引数のまま起こす
+// （-ng を足さない・印を付けない・起こし直さない）。GPU で動いたかは engine.log の「文字起こしの計算:」の1行だけ（決めたこと 49・50・55）。
+// 取り込んだ GPU 版の組か: 使う候補に vulkan の印があり、手のパスでない
+const gpuSetOf = (eng) => eng === whisperEng && !manualGroup(eng) && Boolean(managed.whisper && managed.whisper.vulkan);
+// Visual C++ ランタイムを使わない組か（落ちたときの案内と照らし直しの行: 決めたこと 46・54）: 使う候補に runtime: 'bundled' の印があり、手のパスでない
+const bundledOf = (eng) => eng === whisperEng && !manualGroup(eng) && Boolean(managed.whisper && managed.whisper.runtime === 'bundled');
+// 準備までの標準エラーの1行から、見分けの印の行だけを持つ（文は持たない。VR22）: whisper_backend_init_gpu: の行と落ちた行は 32 行まで、
+// 装置の行（ggml_vulkan: で始まるほかの行）は別に 16 行まで（装置や警告の行が多くても、GPU の行を落とさない）
+function gpuKeepLine(eng, l) {
+  const K = lib.GPU_LOG_MARKS;
+  const mark = l.startsWith(K.using) || l.startsWith(K.failed) || l.startsWith(K.noGpu) || K.lost.some((m) => l.includes(m));
+  const dev = !mark && l.startsWith(K.device);
+  if (mark && eng.gpuLines.length < 32) eng.gpuLines.push(l);
+  else if (dev && eng.gpuDevs.length < 16) eng.gpuDevs.push(l);
+}
+// 準備ができた（/health が 200）: 見分けて記録に1行書き、持った行を捨てる。答えで止めない（none・init-failed は whisper が同じプロセスのまま CPU で計算する）
+function gpuReadyLog(eng) {
+  const g = lib.gpuLogState([...eng.gpuDevs, ...eng.gpuLines]);
+  eng.gpuLines = []; eng.gpuDevs = []; eng.gpuPart = '';
+  const line = g.state === 'gpu' ? lib.gpuLogLine('gpu', { device: g.device }) : lib.gpuLogLine('cpu', { why: g.state });
+  if (line) engineLog(line);
 }
 
 // 起動は非同期（ポートの空きを見てから spawn する）。戻り値の Promise は spawn まで
@@ -1028,6 +980,9 @@ function startEngine(eng) {
     if (quitting) return;
     if (eng.proc) return;
     eng.sig = engineSignature(eng);
+    // 0.15.1 GV-2b（決めたこと 50）: 取り込んだ GPU 版の組なら、準備までの印の行を持つ（起こすたびに空にする）
+    eng.gpuSet = gpuSetOf(eng);
+    eng.gpuLines = []; eng.gpuDevs = []; eng.gpuPart = '';
     // cwd = exe のフォルダ。英数字以外のモデルのパスはそこからの相対で渡す（RF1）。
     // ggml が cwd の ggml-*.dll を読むので、別のエンジンのフォルダで起動しない（RF11）
     const plan = engineSpawnPlan(engineExe(eng), engineSpawnArgs(eng), { whisper: eng === whisperEng });
@@ -1053,6 +1008,12 @@ function startEngine(eng) {
     p.stderr.on('data', (d) => {
       if (eng.proc !== p) return;
       eng.stderrTail = (eng.stderrTail + d.toString()).slice(-1500);
+      // 0.15.1 GV-2b: 取り込んだ GPU 版の組は、準備までの行から見分けの印の行だけを持つ（準備の後は読まない）
+      if (eng.gpuSet && !eng.ready) {
+        const parts = (eng.gpuPart + d.toString()).split(/\r?\n/);
+        eng.gpuPart = parts.pop().slice(-2000);
+        for (const l of parts) gpuKeepLine(eng, l);
+      }
     });
     p.on('error', (e) => {
       if (eng.proc !== p) return;
@@ -1064,11 +1025,13 @@ function startEngine(eng) {
       if (!quitting && !eng.stopping) {
         const tail = eng.stderrTail.split('\n').filter(Boolean).slice(-3).join(' / ');
         // 0xC0000135（ランタイムかファイルが無い）などは、何をすればよいかの案内を足す（RF3・RF4）
-        const hint = engineExitHint(code, Date.now() - startedAt);
+        // 0.15.1 GV-2b（決めたこと 54・K17）: 取り込んだ GPU 版の組（runtime: 'bundled'）はランタイムを言わない案内
+        const hint = engineExitHint(code, Date.now() - startedAt, { bundled: bundledOf(eng) });
         eng.lastError = `${eng.name}が終了しました (code ${code})${tail ? `: ${tail}` : ''}${hint ? `。${hint}` : ''}`.trim();
         engineLog(eng.lastError);
         // 取り込んだエンジンが 0xC0000135（3221225781。DLL が見つからない）で落ちた: ウイルス対策が消したかもしれない。
-        // 自分のファイルを照らし直す（RF3。第0b回 Task 14）。合えばランタイムの案内（上の hint）のまま
+        // 自分のファイルを照らし直す（RF3。第0b回 Task 14）。合えば上の hint のまま（0.15.1 GV-2b: 取り込んだ GPU 版の組（runtime: 'bundled'）は
+        // ランタイムを言わない案内、前の組はランタイムの案内。照らし直しの記録の行も組で分ける: onManagedCrash）
         if ((code >>> 0) === 3221225781 && !manualGroup(eng)) onManagedCrash(eng).catch((e) => engineLog(`${eng.name}: 落ちた後の照らし直しに失敗: ${e && e.message}`));
       }
       eng.proc = null; eng.ready = false; eng.readyPromise = null;
@@ -1123,7 +1086,11 @@ function ensureEngineReady(eng) {
         const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
         // 応答を待つ間に再起動されていたら、その応答は古い（または他の）プロセスのもの
         if (eng.proc !== p) continue;
-        if (res.ok || res.status === 404) { eng.ready = true; return true; }
+        if (res.ok || res.status === 404) {
+          eng.ready = true;
+          if (eng.gpuSet) gpuReadyLog(eng);   // 0.15.1 GV-2b（決めたこと 50・55）: 準備ができるたびに1行
+          return true;
+        }
       } catch (e) {
         // 接続先の URL 自体が組み立てられない（ポートが不正）なら、90秒待っても
         // 直らない。「起動中」と区別して設定の問題だと分かる文で返す。
@@ -1355,7 +1322,8 @@ async function onManagedCrash(eng) {
   const c = managed[g];
   if (!c) return;
   const checked = await engineInstall.verifyCandidates({ [g]: c });
-  if (checked[g]) { engineLog(`${eng.name}: 落ちた後に取り込んだファイルを照らし直しました（合っています。Visual C++ ランタイムを確かめてください）`); return; }
+  // 0.15.1 GV-2b（決めたこと 46・K17）: 取り込んだ GPU 版の組（runtime: 'bundled'）はランタイムを使わないので、確かめるように書かない
+  if (checked[g]) { engineLog(`${eng.name}: 落ちた後に取り込んだファイルを照らし直しました（${c.runtime === 'bundled' ? '合っています' : '合っています。Visual C++ ランタイムを確かめてください'}）`); return; }
   if (managed[g] !== c) return;   // 照らしている間に切り替わった
   managed = { ...managed, [g]: null };
   managedCands = { ...managedCands, [g]: c };
@@ -1868,12 +1836,10 @@ let loginOpen = null;   // { win, promise, pinned, stop(r) } 開いている窓�
 // 0.13.2 LN-4（持ち主の答え PQ3「NaTsu を起動し直すまで出さない」・LR4・LR19。持ち主の試作の「起動のたびに戻す一時の項目」）: 自動で開いた窓をログインせずに
 // 閉じた（× か失敗）。起動の間だけのメモリ（設定にもファイルにも書かない）。ログインすると忘れる
 let loginSnoozed = false;
-// 0.13.2 LN-4（持ち主の答え LA1・PQ1 の B）: ログインしていないときに、起動・会議の始め・音声入力の始めで、今のログインの窓を自動で開く（待たない・投げない。
+// 0.13.2 LN-4（持ち主の答え LA1・PQ1 の B）: ログインしていないときに、起動・会議の始め（0.15.1 ND-2 で音声入力の始めを外した）で、今のログインの窓を自動で開く（待たない・投げない。
 // 録音は待たせない: 呼ぶのは始めた後）。開くかは mainlib.loginAskPlan（オフライン・オフラインモードの会議・× の後・もう開いているときは開かない。
 // 準備を選んでいない PC の起動は今どおり設定の「アカウント」: LR3）
-function askLogin(moment, { localOnly = false, now = false } = {}) {
-  // 0.14.0 EK-6（決めたこと 79・BQ26 (a)）: NaTsu の中の音声入力の間は、文字を入れ終わるまで後に回す（窓がフォーカスを取ると、行の保存と Esc の決まりが崩れる）
-  if (moment === 'dictation' && dictWhere && !now) { dictLoginLater = true; return; }
+function askLogin(moment, { localOnly = false } = {}) {
   try {
     const plan = lib.loginAskPlan({ moment, online: netOnline(), signedIn: hasRelayLogin(), why: cloudNow().why, snoozed: loginSnoozed, localOnly: Boolean(localOnly),
       recording: recordingNow() || meetingStarting > 0,   // 0.13.2 点検の直し 2（LR37）
@@ -1957,7 +1923,7 @@ function clearLoginProblem() {
 }
 // ログインの窓を開く → Promise<{ ok: true, email } | { ok: false, code, host? }>（投げない）。開いている間にもう一度呼ばれたら、
 // 前の窓を前に出して同じ Promise を返す。オフライン（net.isOnline() が false）なら窓を作らずに offline
-// 0.13.2 LN-4（PQ1 の B・LR16〜LR20）: { auto: 'boot' | 'meeting' | 'dictation' } で呼んだときは自動で開いた窓。窓の作り・読む・確かめる・しまうの道は同じで、
+// 0.13.2 LN-4（PQ1 の B・LR16〜LR20）: { auto: 'boot' | 'meeting' } で呼んだときは自動で開いた窓。窓の作り・読む・確かめる・しまうの道は同じで、
 // 違うのは出し方だけ: フォーカスを取らずに出し（showInactive: LR1）、本体の窓の子にしない（本体の窓を最小化していても見える: LR17）。開いている窓に
 // 自動でもう一度来たら何もしない（前に出さない: LR18）。押して（設定・帯の［ログイン］）開いている窓に来たら、その窓は押して開いた窓の扱いになる。
 // 自動の窓がログインせずに閉じたら、その起動の間は自動では開かない（LR4・LR19）。自動の窓でログインできたら本体の窓へ account:changed（LR20）
@@ -2523,7 +2489,7 @@ async function relayFallback(e, scope, provider, sentPack, { tidy = false } = {}
 // opts: transcribeLocal と同じ（isStale・learn）＋ localOnly・notice（会議の知らせの係。無ければ起動ごと）・what（記録の名前）・
 // cloudOnly（見回りから: 手元へ落ちる区間は手元のエンジンを起こさずに keepForRetry の Error を投げる。第1d2回 M-3 の点検・F5・RF49）・
 // seg（区間の番号 s{n}。手元で失敗したら engine.log に番号と符号を1行: 第1d回 A-14）・
-// onWait(sec)（OpenAI の短い 429 を待つとき。会議の帯 wait: 第1d回 A-6）・dictation（音声入力: 作り話の判定を小さな音の録音だけにする。0.9.1 Q-2）
+// onWait(sec)（OpenAI の短い 429 を待つとき。会議の帯 wait: 第1d回 A-6）。0.15.1 ND-2 で音声入力の dictation を外した（作り話の判定は会議と復旧の形だけ）
 // 0.9.1 Q-2: 無音の音声は { text: '', route: 'none', silent: true }、作り話の答えは { …, text: '', echo: true, echoFold } で返す。どの答えにも loudDbfs
 // （一番大きい 0.5 秒の窓。読めない WAV は null）を付ける
 // → { text, route: 'cloud'|'local', provider, why, scope? }（scope は why が daily-cap のときだけ 'user'|'all'。帯の分け方: A-6）。
@@ -2542,7 +2508,7 @@ async function transcribeAuto(wav, tail, durationMs, opts = {}) {
   }
   const r = { ...(await transcribeRouted(wav, tail, durationMs, opts, scope, what)), loudDbfs: loud };
   // 0.9.1 Q-2（決めたこと 2・3）: 答えが認識ヒントの材料だけ（作り話）なら、空の答えと同じに返す（echo。会議の区間は止まりの見張りに数えない）
-  if (r.text && hintEcho(r.text, hintOf(tail), { dictation: Boolean(opts.dictation), loudDbfs: loud })) {
+  if (r.text && hintEcho(r.text, hintOf(tail))) {
     echoDrops += 1;
     engineLog(`認識ヒントの繰り返し: ${what} の答えを除きました（起動から ${echoDrops} 回目）`);
     return { ...r, text: '', echo: true, echoFold: hintFold(r.text) };
@@ -2920,19 +2886,6 @@ function ensurePaster() {
   } catch (_) { pasterProc = null; }
   return pasterProc;
 }
-// 常駐 PowerShell に命令を 1 行送り、応答（parsePasterLine の結果）を待つ。常駐が居ない・
-// 時間切れ・居なくなった、は null
-function askPaster(cmd, timeoutMs) {
-  const p = ensurePaster();
-  if (!p || !p.stdin || !p.stdin.writable) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    let done = false;
-    const w = { resolve: (r) => { if (done) return; done = true; const i = pasterWaiters.indexOf(w); if (i >= 0) pasterWaiters.splice(i, 1); resolve(r); } };
-    pasterWaiters.push(w);
-    setTimeout(() => w.resolve(null), timeoutMs);
-    try { p.stdin.write(`${cmd}\n`); } catch (_) { w.resolve(null); }
-  });
-}
 // トレイの「終了」も、閉じるボタンと同じく記録中・要約中は確かめる（mainlib.closeConfirm）。
 // トレイからは会議の状態が見えないので、閉じるボタンより間違えやすい
 function quitFromTray() {
@@ -2950,26 +2903,6 @@ function quitFromTray() {
 function stopPaster() {
   if (pasterProc) { try { pasterProc.stdin.end(); pasterProc.kill(); } catch (_) { /* noop */ } pasterProc = null; }
 }
-// Ctrl+V を送る。戻り値は 'ok' | 'mismatch'（前面が hwnd と違うので貼らなかった）| 'fail' |
-// 'unknown'（確かめる手段が無い。従来どおり貼れたものとして扱う）
-function simulatePaste(hwnd) {
-  return new Promise((resolve) => {
-    if (process.platform === 'win32') {
-      const p = ensurePaster();
-      if (p && p.stdin && p.stdin.writable) {   // 0.14.0 EK-6 直し（R193）: 常駐の口と同じ守り（stdin が無ければ下の SendKeys）
-        askPaster(hwnd ? `paste ${hwnd}` : 'paste', PASTE_REPLY_MS).then((r) => resolve(r && r.kind !== 'hwnd' ? r.kind : 'unknown'));
-        return;
-      }
-      execFile('powershell.exe', ['-NoProfile', '-STA', '-NonInteractive', '-Command',
-        "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')"],
-      { windowsHide: true }, (err) => resolve(err ? 'fail' : 'ok'));
-    } else if (process.platform === 'darwin') {
-      execFile('osascript', ['-e', 'tell application "System Events" to keystroke "v" using command down'], () => resolve('unknown'));
-    } else {
-      execFile('xdotool', ['key', '--clearmodifiers', 'ctrl+v'], () => resolve('unknown'));
-    }
-  });
-}
 // クリップボードへ書く唯一の入口（#27）。Windows では常駐 PowerShell に頼んで、クリップボード
 // 履歴（Win+V）とクラウド同期から除外する書式を付けて置く（書式は mainlib.pasterScript）。
 // 置けたことをクリップボードを読み返して確かめ、置けていなければ（PowerShell が居ない・
@@ -2986,12 +2919,11 @@ function pasterPort() {
 }
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 function clipDeps() {
-  return { clip: clipboard, paster: pasterPort, sleep: sleepMs, autoPaste: Boolean(settings.autoPaste), fg: dictationFg,
-    simulatePaste, notice: (m) => sendToMainWin('app:notice', m), later: setTimeout };
+  // 0.15.1 ND-2（D114）: 音声入力の貼り付け（autoPaste・fg・simulatePaste）を外した。［コピー］の copyPrivate だけが使う
+  return { clip: clipboard, paster: pasterPort, sleep: sleepMs };
 }
 // クリップボードへ書く唯一の入口（#27）。中身は mainlib.copyPrivate（44 では clipboard が Promise を返すので、全部待つ）
 const copyPrivate = (text) => lib.copyPrivate(text, clipDeps());
-const deliverText = (text) => lib.deliverText(text, clipDeps());
 
 // ---------------------------------------------------------------- 会議の検出の見張り（0.9.3 M-2。計画 docs/plans/2026-10-22-093.md の決めたこと 3・4・12・13）
 // Windows の「マイクを使っているアプリ」の記録を 2 秒ごとに読む常駐の PowerShell（mainlib.micWatchScript）。貼り付け係の PowerShell とは別のプロセス（K1）。
@@ -3009,7 +2941,7 @@ let detectBusy = null;     // 会議の検出に最後に知らせた忙しさ�
 const micWatchSupported = () => process.platform === 'win32' || process.env.NATSU_TEST_MIC_WATCH === '1';
 const micWatchWanted = () => detectReady && micWatchSupported() && !quitting && settings.meetingDetect !== false && state === 'idle' && !micGaveUp;
 // 0.12.1 LV-2（計画 docs/plans/2026-10-24-121.md の決めたこと L16）: 設定「会議を出たら自動で止める」がオンなら、議事録の録音中（作成中も。録音の終わりで
-// 起こし直さない）も読む。音声入力（recording・processing）の間は今どおり止める。上の micWatchWanted の行は変えない（0.9.3 の変異の from）
+// 起こし直さない）も読む。上の micWatchWanted の行は変えない（0.9.3 の変異の from。0.15.1 から音声入力の recording・processing の状態は来ない: D114）
 const micLeaveWanted = () => detectReady && micWatchSupported() && !quitting && settings.autoStopLeave !== false && (state === 'meeting' || state === 'meeting-finalizing') && !micGaveUp;
 function syncMicWatch() {
   if (micWatchWanted() || micLeaveWanted()) startMicWatch();
@@ -3643,11 +3575,8 @@ function createMainWindow() {
   // preventDefault で既定のメニューに渡さない（メニューの段は 1.2 倍ずつで、覚えた倍率が段に無い値になる: F4）。
   // ホイールの拡大（zoom-changed）は Electron が自分では拡大しないので、同じ段で動かす。読み込むたびに覚えた倍率を当てる
   for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) mainWin.on(ev, rememberWinBounds);
-  // 0.9.0 U-1（SP2・RF9）: 音声入力の録音中に本体の窓が前に来たら Esc の全体のホットキーを外し、離れたら付け直す
-  mainWin.on('focus', syncEscapeHotkey);
   // 0.9.3 M-5: 最小化・隠す・出すで、録音中のページの音の波のために聞くかを決め直す
   for (const ev of ['minimize', 'restore', 'show', 'hide']) mainWin.on(ev, syncLevelAsk);
-  mainWin.on('blur', syncEscapeHotkey);
   mainWin.webContents.on('before-input-event', (e, input) => {
     const dir = W.zoomDir(input);
     if (!dir) return;
@@ -3684,396 +3613,8 @@ function createMainWindow() {
   });
 }
 
-// ---------------------------------------------------------------- 音声入力
-function startRecording() {
-  if (state !== 'idle' || quitting) return;   // 終了・再起動の途中は始めない（第1d回 A-9 の点検。startMeeting と同じ）
-  // 第1d2回 M-1（D21）: 手元が使えるかクラウドが使えそうなら始める。選んだ人で両方だめなら今の文、選んでいない人は D1〜D3（mainlib.dictationPlan）
-  const c = cloudNow();
-  const plan = dictationPlan({ localUsable: engineValid(whisperEng), chosen: isOfflineChosen(), cloud: c.cloud, problem: whisperProblem(), why: c.why });
-  if (!plan.ok) {
-    createMainWindow();
-    sendToMainWin('app:notice', plan.action ? { text: plan.error, action: plan.action } : plan.error);
-    if (c.why === 'signed-out' || c.why === 'login') askLogin('dictation');   // 0.13.2 LN-4（決めたこと 1）: 断った理由がログインなら開く
-    return;
-  }
-  // 第1d2回 M-5: 始めたときに手元が使えたか（使えずにクラウドで始めた音声入力は、選んだ人でも音声を残す: 決めたこと 14）と、始めた時刻（残す名前）
-  dictLocalAtStart = engineValid(whisperEng);
-  dictStartedAt = Date.now();
-  warmWhisper().catch((e) => engineLog(`文字起こしエンジンの先読みに失敗: ${logReason(e)}`));
-  state = 'recording';
-  // いま前にある窓が貼り付け先。オーバーレイを出す前に控える（#54）
-  dictationFg = askPaster('fg', FG_REPLY_MS).then((r) => (r && r.kind === 'hwnd' ? r.value : ''));
-  placeOverlayForRecording();
-  overlayWin.showInactive();
-  sendToOverlay('overlay:start', { mode: 'dictation', micId: settings.micId || '', sound: Boolean(settings.soundFeedback), form: overlayForm, keys: panelKeys('hotkey') });
-  syncEscapeHotkey();
-  updateTray();
-  askLogin('dictation');   // 0.13.2 LN-4（LA1）: 録音を始めた後に（貼り付け先を控えた後・フォーカスを取らない）
-}
-// 0.9.0 U-1（SP2・設計書 RF9・決めたこと 16）: 音声入力の録音中だけ Esc を全体のホットキーにして取り消しに使う。
-// ただし本体の窓にフォーカスがある間は付けない（全体のホットキーは窓より先に取るので、設定のポップアップや検索の窓の Esc が
-// 音声入力の取り消しになる）。本体の窓の focus・blur と、録音の始め・終わり（今の register・unregister の所）から呼ぶ。
-// 議事録の録音中・録音していないときは Esc を取らない（付いていれば外す）。付いているかは自分の印でなく isRegistered で見る
-//（ホットキーの登録し直し applyHotkeys の unregisterAll で外れても、次の呼び出しで付け直す）
-function syncEscapeHotkey() {
-  const mainFocused = Boolean(mainWin && !mainWin.isDestroyed() && mainWin.isFocused());
-  const want = state === 'recording' && !mainFocused;
-  const held = globalShortcut.isRegistered('Escape');
-  if (want && !held) globalShortcut.register('Escape', cancelRecording);
-  else if (!want && held) globalShortcut.unregister('Escape');
-}
-function stopRecording() {
-  if (state !== 'recording') return;
-  state = 'processing';
-  syncEscapeHotkey();
-  sendToOverlay('overlay:stop', {});
-  updateTray();
-}
-function cancelRecording() {
-  if (state !== 'recording') return;
-  state = 'idle';
-  syncEscapeHotkey();
-  sendToOverlay('overlay:cancel', {});
-  updateTray();
-  dictEnded();   // 0.14.0 EK-6（R61）
-  resumeRecoveryAfterDictation();
-}
-// 0.13.2 LN-2（決めたこと 7）: 音声入力が終わって待機に戻ったら、録音中（busy）で止めた会議の後の文字起こしを回し直す（会議の終わりの締めと同じ。
-// 次の会議の終わりを待たない）。音声入力の終わりの3か所（貼った・誤りで終えた・取り消した）から呼ぶ
-function resumeRecoveryAfterDictation() {
-  if (meeting || state !== 'idle') return;
-  recoveryTriggerAsk = 'dictation-end';
-  if (recoveryQueue) transcribeRecovered().catch((e) => engineLog(`復旧の文字起こしに失敗（音声入力の後）: ${logReason(e)}`));
-}
-// 0.14.0 EK-6 直し3（R207）: 画面の Esc（dictation:cancel）。録音中は今どおり取り消す（cancelRecording）。止めた後の文字起こし・整えの間（processing）は、
-// NaTsu の中へ入れる口述を捨てる印を付ける（文は送らず dictation:end・履歴は残す: deliverDictation）。cancelRecording は録音中のほかは何もしない
-function cancelDictation() {
-  if (state === 'processing' && dictWhere) { dictDropped = dictWhere; return; }
-  cancelRecording();
-}
-function toggleRecording() {
-  if (state === 'idle') startRecording();
-  else if (state === 'recording') stopRecording();
-}
-// ---------------- 0.14.0 EK-6（計画 docs/plans/2026-10-26-140.md の決めたこと 39〜44・74・75・79。BQ9-1・BQ10 (a)・BQ21 (a)・BQ26 (a)・R27・R40・R55・R61・R62。U4・F104）
-// 今の音声入力のキー1つで、NaTsu の文字の欄にも直に入れる。キーを押したときに本体の窓が前なら、画面に入れる所を聞き（dictation:where。番号つき・300ms まで）、
-// 答えが { ok: true } なら文字起こしの文をクリップボードを通さずに dictation:text で画面へ送る（画面が覚えた所に1歩で入れる）。答えが無い・入れてはいけない所なら
-// クリップボードにも貼り付けにも回さず履歴だけ（R27）。窓が前でなければ今どおり deliverText。文字を入れずに終わったら、どの終わり方でも dictation:end（R61）
-const DICT_IN_MEETING = '議事録の録音中は、音声入力は使えません';
-const DICT_NOWHERE = 'ここには音声入力で入れられないので、履歴に残しました';
-let dictSeqNow = 0;     // 聞くたびに上げる番号（R55）
-let dictAsk = null;     // 答えを待っている問い { seq, settle(ok) }
-const mainFocusedNow = () => Boolean(mainWin && !mainWin.isDestroyed() && mainWin.isFocused());
-function askWhere() {
-  const seq = ++dictSeqNow;
-  // 本体の窓の画面が読み込み中なら聞かずに「無い」（R55）
-  if (!mainWin || mainWin.isDestroyed() || mainWin.webContents.isLoading()) return Promise.resolve({ ok: false, seq });
-  return new Promise((resolve) => {
-    const settle = (ok) => { clearTimeout(timer); if (dictAsk && dictAsk.seq === seq) dictAsk = null; resolve({ ok, seq }); };
-    const timer = setTimeout(() => settle(false), FG_REPLY_MS);
-    dictAsk = { seq, settle };
-    sendToMainWin('dictation:where', { seq });
-  });
-}
-// 画面の答え { seq, ok }。番号の違う答え（前の口述への遅れた答え）は捨てる（R55）
-function onWhereAnswer(p) {
-  if (!p || typeof p !== 'object' || !dictAsk || p.seq !== dictAsk.seq) return;
-  dictAsk.settle(p.ok === true);
-}
-function flushDictLogin() {
-  if (!dictLoginLater) return;
-  dictLoginLater = false;
-  askLogin('dictation', { now: true });
-}
-// NaTsu の中の音声入力が文字を入れずに終わった（始めを断った・取り消した・誤り・短すぎ・音声を残した: R61）。画面が覚えた所を捨てる知らせの後に、後に回したログインの窓
-function dictEnded() {
-  const w = dictWhere;
-  dictWhere = null;
-  dictDropped = null;
-  if (!w) return;
-  w.then((r) => { sendToMainWin('dictation:end', { seq: r.seq }); flushDictLogin(); });
-}
-// 文字起こしの文の渡し方（決めたこと 42）。履歴には recordDictation が入れてある
-// 0.14.0 DQ-4（決めたこと 50）: lines は AI の整えの2つ以上の箇条（ほかは null）。text はそのときは linesToText の文（ほかのアプリへはこの文を1回貼る）
-async function deliverDictation(text, lines = null) {
-  const w = dictWhere;
-  if (!w) return deliverText(text);   // ほかのアプリ: 今どおり（クリップボードと貼り付け）
-  const r = await w;
-  // 0.14.0 EK-6 直し3（R207）: 処理中に画面の Esc で捨てた口述は入れず、文を入れずに終わった知らせ（R61）。履歴は recordDictation が入れてある（R27 の「履歴だけ」）
-  if (r.ok && dictDropped === w) { dictDropped = null; if (dictWhere === w) dictWhere = null; sendToMainWin('dictation:end', { seq: r.seq }); flushDictLogin(); return undefined; }
-  if (dictWhere === w) dictWhere = null;
-  if (r.ok) sendToMainWin('dictation:text', { seq: r.seq, text, lines });   // クリップボードを通さない。箇条は画面が1命令で行にする
-  else { sendToMainWin('app:notice', DICT_NOWHERE); sendToMainWin('dictation:end', { seq: r.seq }); }
-  flushDictLogin();
-  return undefined;
-}
-// 全体の音声入力のキー（applyHotkeys）。トレイと画面の［録音］ボタンは今どおり toggleRecording（R40）
-function onDictationKey() {
-  const focused = mainFocusedNow();
-  // 議事録の録音中と会議を始めている途中は始めない（BQ10 (a)・R62）。知らせは NaTsu の窓が前のときだけ
-  if (meeting || state === 'meeting' || state === 'meeting-finalizing' || meetingStarting > 0) {
-    if (focused) sendToMainWin('app:notice', DICT_IN_MEETING);
-    return;
-  }
-  if (state !== 'idle') { toggleRecording(); return; }
-  const w = focused && !quitting ? askWhere() : null;
-  dictWhere = w;
-  // 入れてはいけない所なら、後に回したログインの窓は答えが来た時に（0.13.2 の始めた直後に近い時）
-  if (w) w.then((r) => { if (!r.ok && dictWhere === w) flushDictLogin(); });
-  toggleRecording();
-  if (w && state === 'idle') dictEnded();   // 始めを断った（R61）
-}
-
-// ---------------- 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 45〜57・R49・R63・BQ24 (a)・BQ35。BQ9-2・F105・RF28）
-// 口述の文の整え。決まりの整え（dictTidy.tidyRules: つなぎ言葉は設定「フィラー除去」がオンのとき・同じ語の繰り返しはいつも）はいつも通し、AI の整え（中継の
-// POST /v1/text/tidy）は (1) 設定 aiTidy がオン (2) その口述の音声を中継で文字起こしした（transcribeAuto の route が cloud） (3) 今オンラインでログインしている
-// (4) 整えの前の文が 300 字まで（tidyBody が null でない: BQ35）のときだけ。待つのは TIDY_WAIT_MS（2 秒）まで。来ない・照らしに外れる・失敗なら決まりの整えの文。
-// 遅れて来た答えは捨てる（入れた文を差し替えない）。記録は符号だけ（口述の文も整えた文も書かない: 決めたこと 57）。
-// 整えの口の 401・403 は文字起こしと同じログイン切れの道（relayFallback の login・denied の枝）、ほかの失敗は文字起こしの間引き（relayHold・sttHold）に触らない（R63）。
-// → { text, tidy: 'ai'|'rules'|'off', lines }（tidy: 決まりの整えだけのとき、フィラー除去がオフなら 'off'）
-const TIDY_WAIT_MS = relay.TIDY_WAIT_MS;
-function tidyRulesOnly(raw) {
-  return { text: dictTidy.tidyRules(raw, { fillers: settings.removeFillers }) || raw, tidy: settings.removeFillers ? 'rules' : 'off', lines: null };
-}
-function tidyWithin(sent, ms) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(function tidyTimeUp() { resolve({ ok: false, code: 'timeout' }); }, ms);
-    // DQ-3 直し2（R202）: 約束が断られても（tidyText は投げないが、思わぬ例外）待ち続けず、断りを放っておかない
-    sent.then((r) => { clearTimeout(timer); resolve(r); }, () => { clearTimeout(timer); resolve({ ok: false, code: 'net' }); });
-  });
-}
-async function tidyDictation(raw, route) {
-  const plain = tidyRulesOnly(raw);
-  const skip = (code) => { engineLog(`整え: 決まり（${code}）`); return plain; };
-  if (settings.aiTidy === false) return skip('off');
-  if (route !== 'cloud') return skip('local');
-  if (!hasRelayLogin() || !netOnline()) return skip('offline');
-  const body = dictTidy.tidyBody(raw, { lang: settings.language, words: settings.dictionary });
-  if (!body) return skip('long');
-  sendToOverlay('overlay:phase', { phase: 'processing', message: '整えています…' });
-  const pack = accessState.pack;
-  const sent = relay.tidyText(body, { request: relayRequest, session: accessSession() });
-  const got = await tidyWithin(sent, TIDY_WAIT_MS);
-  if (got.code === 'timeout') sent.then((late) => { if (late.ok) engineLog('整え: 遅れて来た答えを捨てた'); }).catch(() => {});   // 入れた文は差し替えない（決めたこと 47）。遅れた断りも放っておかない（R202）
-  if (!got.ok) {
-    // R63: ログイン切れ・止めたメールは文字起こしと同じ道（送った後にログインし直していれば消さない）。ほかは間引きに触らない
-    if (got.code === 'login' || got.code === 'denied') await relayFallback(got.err, null, sttProvider(), pack, { tidy: true });
-    return skip(got.code);
-  }
-  const g = dictTidy.tidyGuard(raw, got.reply);
-  if (!g) return skip('guard');
-  engineLog('整え: AI');
-  return { text: g.text, tidy: 'ai', lines: g.lines };
-}
-
-// 0.14.0 DQ-4: 整えの答えの箇条（tidyDictation の lines）を、入れる形にする。AI の整えで2つ以上の行のときだけ箇条（ほかは null: 1つの文）
-function dictLines(said) {
-  return said && said.tidy === 'ai' && Array.isArray(said.lines) && said.lines.length > 1 ? said.lines : null;
-}
-
-async function handleDictationAudio(buffer, durationMs) {
-  // 取り消し後に届いた録音を処理しない。
-  // Escape で取り消しても、録音側の停止処理が終わってから音声が届くことがあり、
-  // そのまま進むと取り消したはずの文章が貼り付けられる。
-  if (state !== 'recording' && state !== 'processing') return;
-  state = 'processing'; syncEscapeHotkey(); updateTray();
-  if (durationMs < MIN_RECORD_MS || buffer.byteLength < 1000) { finishWithError('録音が短すぎます'); return; }
-  sendToOverlay('overlay:phase', { phase: 'processing', message: '文字起こし中…' });
-  try {
-    const t0 = Date.now();
-    const { text: raw, route } = await transcribeAuto(buffer, '', durationMs, { dictation: true });
-    if (!raw) throw new Error('音声を認識できませんでした');
-    const said = await tidyDictation(raw, route);   // 0.14.0 DQ-3
-    const tidy = said.tidy;
-    // 0.14.0 DQ-4（決めたこと 49・50・R204）: 箇条にするのは AI の整えで2つ以上の行のときだけ。入れる文（履歴の text も）は「・ 」「1. 」の行の文
-    const lines = dictLines(said);
-    const text = lines ? dictTidy.linesToText(lines) : said.text;
-    const procMs = Date.now() - t0;
-    // 保存 → 画面へ → 貼る（判断は mainlib.recordDictation）。履歴を保存できなくても口述した文字は貼る（JS5）
-    const rec = await lib.recordDictation({
-      history,
-      entry: {
-        id: store.newId('h'), text, raw, tidy,
-        createdAt: new Date().toISOString(),
-        durationSec: Math.round(durationMs / 1000), procMs, chars: text.length,
-      },
-      max: settings.maxHistory,
-      save: () => historyWriter.now(history),
-      notify: (h) => sendToMainWin('history:updated', h),
-      deliver: (t) => deliverDictation(t, lines),
-    });
-    if (!rec.saved) engineLog('履歴: 口述の履歴を保存できませんでした（文字は貼り付けに回しました）');
-    const preview = text.length > 24 ? `${text.slice(0, 24)}…` : text;
-    sendToOverlay('overlay:phase', { phase: 'done', message: preview, procSec: (procMs / 1000).toFixed(1) });
-    setTimeout(hideOverlayIfIdle, 1500);
-    state = 'idle'; updateTray();
-    resumeRecoveryAfterDictation();
-  } catch (e) {
-    if (keepsDictation(e)) { await keepDictation(buffer, durationMs, e); return; }
-    finishWithError(e.message || '不明なエラー');
-  }
-}
-
-// ---------------------------------------------------------------- 音声入力の音声を残す（第1d2回 M-5・OF5・D21・決めたこと 5・14）
-// 録った後でクラウドで文字起こしできず、PC の中の文字起こしも使えないとき、音声を <userData>/data/dictwait/<始めた時刻 ms>-<履歴の行の id>.wav に
-// 残し、履歴に「文字起こし待ち」の行（wait にファイルの名前だけ）を足す。戻ったら見回りが文字起こしして行を文字に替える（貼り付けはしない:
-// 貼る先の窓はもう分からず、後から急に文字が入ると困る）。残した音声は自動で消さない（利用者が行を消したときだけ）
-const DICT_WAIT_TEXT = '（文字起こし待ち: 音声は残してあります）';
-const DICT_KEPT_TEXT = '文字起こしできなかったので、音声を残しました。つながると文字起こしして、履歴に入れます。';
-const DICT_WAIT_RE = /^(\d+)-([A-Za-z0-9]+)\.wav$/;
-const dictwaitRoot = () => path.join(app.getPath('userData'), 'data', 'dictwait');
-let dictLocalAtStart = true;
-let dictStartedAt = 0;
-let dictWaitRunning = false;
-// 残すか: 準備を選んでいない PC で手元を待たなかった（kept）・選んでいない PC で中継の短い 429 を待ちきれなかった（keepForRetry）・始めたときに
-// 手元が使えなかった（選んだ人で壊れている・確かめ中）の engineMissing。中継が音声を見て断った（refused）は残さない（決めたこと 12）
-function keepsDictation(e) {
-  if (!e || e.refused) return false;
-  // 0.9.4 S-2（決めたこと 17）: PC の文字起こしの時間切れも残す（履歴に「文字起こし待ち」）
-  return Boolean(e.kept || (e.keepForRetry && !isOfflineChosen()) || (e.engineMissing && !dictLocalAtStart) || lib.localFailKind(e) === 'late');
-}
-async function keepDictation(buffer, durationMs, e) {
-  const id = store.newId('h');
-  const at = dictStartedAt || Date.now();
-  const name = `${at}-${id}.wav`;
-  try {
-    fs.mkdirSync(dictwaitRoot(), { recursive: true });
-    const file = path.join(dictwaitRoot(), name);
-    // 一時ファイルに書いてから置き換える（書き込み中に落ちても半端な wav を文字起こししない）。名前の変更がウイルス対策に掴まれたら
-    // jsonfile と同じ待ち（RENAME_WAITS）でやり直す（RF20）。だめなら一時ファイルを消す
-    fs.writeFileSync(`${file}.tmp`, Buffer.from(buffer));
-    for (let i = 0; ; i++) {
-      try {
-        fs.renameSync(`${file}.tmp`, file);
-        break;
-      } catch (err) {
-        if (!(err && J.BUSY.has(err.code)) || i >= J.RENAME_WAITS.length) { unlinkQuiet(`${file}.tmp`); throw err; }
-        J.sleepSync(J.RENAME_WAITS[i]);
-      }
-    }
-  } catch (err) {
-    engineLog(`音声入力: 音声を残せませんでした（${errCode(err)}）`);
-    finishWithError(`${(e && e.message) || '不明なエラー'}（音声を残せませんでした）`);
-    return;
-  }
-  const sec = Math.round(durationMs / 1000);
-  engineLog(`音声入力: 音声を残した（${sec} 秒）`);
-  const rec = await lib.recordDictation({
-    history,
-    entry: { id, text: DICT_WAIT_TEXT, raw: '', createdAt: new Date(at).toISOString(), durationSec: sec, procMs: 0, chars: 0, wait: name },
-    max: settings.maxHistory,
-    save: () => historyWriter.now(history),
-    notify: (h) => sendToMainWin('history:updated', h),
-    deliver: () => {},   // 貼り付けない
-  });
-  if (!rec.saved) engineLog('履歴: 残した音声入力の行を保存できませんでした（音声は残してあります）');
-  finishWithError(DICT_KEPT_TEXT);
-}
-// 残した音声入力を古い順に文字起こしする（見回りから。走っている間は重ねない）。行は名前の id で探す（文字を入れて保存した後・WAV を消す前に
-// 落ちた・見回りが重なった、で行を二重にしない）。文字は行に入れ（行が上限で切れていれば、その時刻の順の所に足す。足すときは上限で切らない）、
-// 履歴を保存してから WAV を消す（この順。逆だと落ちたときに文字を失う）。保存できなければ行を元に戻し（画面にも次の見回りにも「文字起こし待ち」の
-// まま）、WAV を残して止める。空の答えは行と WAV を消す。まだ使えなければ止めて次の見回りへ。見回りからだけ呼ぶので手元のエンジンは起こさない
-// （cloudOnly: RF49）。WAV を消して失敗の文にするのは中継が音声を見て断った（refused: 待っても同じ答え）ときだけ。ほかの失敗は残して次の見回りへ
-async function transcribeDictWaits() {
-  if (dictWaitRunning || historyState === 'unreadable') return;
-  let names = [];
-  try { names = fs.readdirSync(dictwaitRoot()).filter((n) => DICT_WAIT_RE.test(n)).sort(); } catch (_) { return; }
-  if (!names.length) return;
-  dictWaitRunning = true;
-  let n = 0;
-  let changed = false;
-  try {
-    for (const name of names) {
-      const [, ms, id] = name.match(DICT_WAIT_RE);
-      const file = path.join(dictwaitRoot(), name);
-      const row0 = history.find((h) => h && h.id === id);
-      if (row0 && !row0.wait) { unlinkQuiet(file); continue; }   // もう文字が入っている
-      let buf;
-      try { buf = fs.readFileSync(file); } catch (_) { continue; }
-      const durationMs = row0 && Number(row0.durationSec) > 0 ? Number(row0.durationSec) * 1000 : Math.max(0, Math.round((buf.length - 44) / 32));
-      let raw = '';
-      let failText = '';
-      try {
-        ({ text: raw } = await transcribeAuto(buf, '', durationMs, { what: '音声入力（残した音声）', cloudOnly: true, dictation: true }));
-      } catch (e) {
-        if (!(e && e.refused)) break;   // まだ使えない・待てば変わりうる: 次の見回りで（音声は消さない）
-        failText = `（この音声入力の文字起こしに失敗: ${(e && e.message) || '不明なエラー'}）`;   // 待っても同じ答え（中継が断った）
-      }
-      if (!fs.existsSync(file)) continue;   // 待つ間に利用者が行を消した（音声も消えた）
-      const row = history.find((h) => h && h.id === id);
-      const before = row ? { ...row } : null;
-      const at = row ? history.indexOf(row) : -1;
-      if (!raw && !failText) {
-        // 無音だった: 行と音声を消す
-        if (row) history.splice(at, 1);
-        const w = historyWriter.now(history);
-        if (!w.ok) {
-          if (row) history.splice(at, 0, row);   // 保存できない: 行を戻して音声を残す
-          engineLog('履歴: 残した音声入力の行を消せませんでした（音声は残します）');
-          break;
-        }
-        if (row) changed = true;
-        unlinkQuiet(file);
-        continue;
-      }
-      // 0.14.0 DQ-3（R49）: 残した音声の行は AI で整えない（決まりの整えだけ）
-      const tidied = failText ? null : tidyRulesOnly(raw);
-      const text = failText || tidied.text;
-      const tidyOf = tidied ? { tidy: tidied.tidy } : {};
-      let added = null;
-      if (row) {
-        row.text = text; row.raw = raw; row.chars = failText ? 0 : text.length;
-        Object.assign(row, tidyOf);
-        delete row.wait;
-      } else {
-        const createdAt = new Date(Number(ms)).toISOString();
-        let i = history.findIndex((h) => h && String(h.createdAt) < createdAt);
-        if (i < 0) i = history.length;
-        added = { id, text, raw, ...tidyOf, createdAt, durationSec: Math.round(durationMs / 1000), procMs: 0, chars: failText ? 0 : text.length };
-        history.splice(i, 0, added);
-      }
-      const w = historyWriter.now(history);
-      if (!w.ok) {
-        // 保存できない: 行を元に戻す（文字を入れたまま WAV を残すと、次の見回りが「もう文字が入っている」と WAV を消してしまう）
-        if (row) { for (const k of Object.keys(row)) delete row[k]; Object.assign(row, before); }
-        if (added) { const k = history.indexOf(added); if (k >= 0) history.splice(k, 1); }
-        engineLog('履歴: 残した音声入力の文字を保存できませんでした（音声は残します）');
-        break;
-      }
-      changed = true;
-      unlinkQuiet(file);
-      if (!failText) n += 1;
-    }
-  } finally {
-    dictWaitRunning = false;
-  }
-  if (changed) sendToMainWin('history:updated', history);
-  if (n) {
-    engineLog(`音声入力: 残した音声を文字起こしした（${n} 件）`);
-    noticeMainWin(`残しておいた音声入力を ${n} 件文字起こしして、履歴に入れました（貼り付けはしていません）。`);
-  }
-}
-// 利用者が履歴の行を消した（全部消した）: その行の残した音声も消す（利用者の意思）。全部消すときは、上限で切れた行の音声も消す
-function dropDictWaits(rows, all) {
-  if (all) {
-    let names = [];
-    try { names = fs.readdirSync(dictwaitRoot()).filter((x) => DICT_WAIT_RE.test(x)); } catch (_) { names = []; }
-    for (const x of names) unlinkQuiet(path.join(dictwaitRoot(), x));
-    return;
-  }
-  for (const h of rows) if (h && typeof h.wait === 'string' && DICT_WAIT_RE.test(h.wait)) unlinkQuiet(path.join(dictwaitRoot(), h.wait));
-}
-const dictWaitCount = () => { try { return fs.readdirSync(dictwaitRoot()).filter((x) => DICT_WAIT_RE.test(x)).length; } catch (_) { return 0; } };
-
-function finishWithError(message) {
-  // 録音中に確保した Escape を必ず手放す。ここを抜かすと、以後アプリ以外の
-  // 場所でも Escape が効かなくなる（録音中だけの横取りのはずが残り続ける）。
-  state = 'idle'; syncEscapeHotkey(); updateTray();
-  sendToOverlay('overlay:phase', { phase: 'error', message });
-  setTimeout(hideOverlayIfIdle, 3000);
-  dictEnded();   // 0.14.0 EK-6（R61）: 誤り・短すぎ・音声を残した
-  resumeRecoveryAfterDictation();
-}
+// 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md・D114）: 音声入力（startRecording・stopRecording・NaTsu の中の音声入力・口述の整え・履歴・残した音声の見回り）をなくした。
+// 録音バーを起こすのは会議の始めだけ（mode: 'meeting'）。前の履歴（history.json）と残した音声（data/dictwait）は読まない・書かない・消さない
 function hideOverlayIfIdle() {
   if (state === 'idle' && overlayWin && !overlayWin.isDestroyed()) overlayWin.hide();
 }
@@ -4911,8 +4452,8 @@ const recoveryHoldNoted = new Map();
 // 第1d2回 M-3: 見回りとログインの直後は、クラウドで送れる待ち行列だけを回す（手元のエンジンを起こさない: RF49）。transcribeRecovered は
 // 始めに（await の前に）この頼みを読んで下ろす（引数の無い形は repo・stage2a1 のテストが字面で固定している）
 let recoveryCloudOnlyAsk = false;
-// 0.13.2 LN-2（LR11。持ち主の試作の「状態が変わった引き金を残す」）: 待ち行列を回し始めた引き金の符号（boot・login・button・patrol・meeting-end・dictation-end・
-// settings・engine・draft）。呼ぶ側がこの頼みを置いてから transcribeRecovered を呼び、transcribeRecovered が始めに読んで下ろす（引数の無い形は上と同じ理由で残す）。
+// 0.13.2 LN-2（LR11。持ち主の試作の「状態が変わった引き金を残す」）: 待ち行列を回し始めた引き金の符号（boot・login・button・patrol・meeting-end・
+// settings・engine・draft。音声入力の後の dictation-end は 0.15.1 ND-2 で消した: D114）。呼ぶ側がこの頼みを置いてから transcribeRecovered を呼び、transcribeRecovered が始めに読んで下ろす（引数の無い形は上と同じ理由で残す）。
 // 回し始めたら engine.log に1行（見回りが続けて回すときは書き直さない: 毎分書かない）
 let recoveryTriggerAsk = '';
 let recoveryTriggerNoted = '';
@@ -5227,16 +4768,15 @@ async function retryKeptWhenBack() {
     else if (!hasRelayLogin()) why = 'signed-out';
     else if (holdNow()) why = 'hold';
     const queues = savedQueueCount() || (recoveryQueue ? 1 : 0);
-    const dicts = dictWaitCount();   // 第1d2回 M-5: 残した音声入力
-    if (queues > 0 || dicts > 0) {
-      const note = `${queues}・${dicts}・${why}`;
+    // 0.15.1 ND-2（D114・WQ2）: 残した音声入力の音声（data/dictwait）は数えない・文字にしない（ファイルはそのまま残す）
+    if (queues > 0) {
+      const note = `${queues}・${why}`;
       if (note !== keptWatchNote) { keptWatchNote = note; engineLog(`文字起こし待ち: 見回り（${note}）`); }
     }
     if (why !== 'ok') return;
     if (!recoveryQueue) recoveryQueue = loadSavedRecoveryQueue();
     recoveryTriggerAsk = trigger;
     if (recoveryQueue) await transcribeRecoveredCloud();
-    if (dicts > 0) await transcribeDictWaits();
   } catch (e) {
     engineLog(`文字起こし待ちの見回りに失敗: ${logReason(e)}`);
   }
@@ -5465,8 +5005,7 @@ async function startMeeting() {
   // 要約は利用者の Claude Code で作る（0.10.0 LS-2・D59）。手元の要約のエンジンは起こさない
   placeOverlayForRecording();
   overlayWin.showInactive();
-  // 音声入力の開始（上の 'dictation'）には systemAudio を渡さない。
-  // あちらは常にマイクだけで、今回の変更で挙動が変わってはいけない。
+  // 0.15.1 ND-2（D114・WQ1・F156）: 録音バーを起こすのはここ（会議の始め）だけ。mode はいつも 'meeting'（凍結の overlay.html の既定は音声入力の形）
   const payload = {
     mode: 'meeting', segmentSec: meeting.segmentMs / 1000,
     micId: settings.micId || '', sound: Boolean(settings.soundFeedback),
@@ -6003,7 +5542,7 @@ const isSummarizing = () => runSummary.running().length > 0;
 // isSummarizing で数える。エンジンの切り替えの決まり「isBusy の中身は変えない」を守る）。閉じる確かめ・省電力・毎日の控えは
 // finalizingPageIds を別に見る（第2a1回 M-4 の残りを 0.7.0 の前に直した）
 const isBusy = () => state !== 'idle' || isSummarizing() || recoveryRunning || pendingSegs > 0;
-// 更新の再起動を断る理由（第1d回 A-9。RL16・RF41）: 録音中（会議・音声入力）は 'recording'、議事録の保存の間は 'finalizing'、
+// 更新の再起動を断る理由（第1d回 A-9。RL16・RF41）: 会議の録音中は 'recording'（0.15.1 で音声入力は無くなった: D114）、議事録の保存の間は 'finalizing'、
 // 要約中は 'summary'（文は今のまま、口ごとに出す）。設定の［更新して再起動］（app:restart・update:apply）とトレイの［更新を確認］が見る。
 // 断っても何も止めない（エンジン・DB・貼り付け）。待って自動で再起動はしない（利用者が見ていない時に急に閉じない: K12）
 const RESTART_BLOCK_TEXT = {
@@ -6270,19 +5809,18 @@ async function retrySummaryWaits() {
 // 以前は片方が他アプリと衝突すると両方を黙って既定に戻し、ディスクにも
 // 書いていたので、利用者は「設定したキーが勝手に変わる」としか見えなかった。
 let hotkeyState = { ok: true, failed: [], fallback: {}, message: '' };
-let hotkeyNote = '';   // トレイに添える「（音声入力: 既定の … を使用中）」「（Alt+M は登録できず）」
+let hotkeyNote = '';   // トレイに添える「（議事録: 既定の … を使用中）」「（Alt+M は登録できず）」
 // 実際に登録しているキー。settings は常に利用者が選んだキーを持ち、起動時に既定へ
 // 退避してもここにだけ入れる。settings に書くと settings:get が既定を返して設定画面に
 // 既定が出、次の無関係な保存（自動起動の切り替えなど）でディスクにも漏れて、
 // 利用者のキーが黙って消える。トレイと保存時の登録し直しはこちらを使う。
-let activeHotkeys = { hotkey: '', meetingHotkey: '' };
+let activeHotkeys = { meetingHotkey: '' };
 
-// 片方ずつ独立に登録する。片方が失敗しても成功した側は解除しない
-// （mainlib.registerHotkeys）。戻り値 { ok, failed: ['音声入力'|'議事録'…] }
-function applyHotkeys(hk, mhk) {
+// 0.15.1 ND-2（D114・WQ5）: 登録する全体のキーは議事録のキーだけ（音声入力のキーは登録しない。Ctrl+Shift+Space は Windows とほかのアプリへ返る）。
+// 戻り値 { ok, failed: ['議事録'] }（mainlib.registerHotkeys）。0.15.1 ND-1 で部品を1つの側にしたので、引数は議事録のキーの1つ
+function applyHotkeys(mhk) {
   globalShortcut.unregisterAll();
   return registerHotkeys([
-    { label: '音声入力', accel: hk, handler: onDictationKey },
     { label: '議事録', accel: mhk, handler: () => toggleMeetingByHotkey().catch((e) => engineLog(`議事録のホットキーを処理できません: ${errCode(e)}`)) },
   ], (accel, handler) => globalShortcut.register(accel, handler));
 }
@@ -6378,8 +5916,8 @@ function updateTray() {
   noteDetectState();   // 0.9.3 M-2: 録音の状態が変わったら、会議の検出の見張りを起こす・止める
   syncLevelAsk();      // 0.9.3 M-5: 録音中のページの音の波のために聞くか
   if (!tray) return;
-  const recording = state === 'recording' || state === 'meeting';
-  tray.setImage(recording ? trayIconRec : trayIconIdle);
+  // 0.15.1 ND-2（D114・決めたこと 8）: 音声入力の項目（［● 音声入力を開始］ほか）を外した。待機は［議事録の記録を開始］から始まる
+  tray.setImage(state === 'meeting' ? trayIconRec : trayIconIdle);
   const items = [];
   if (state === 'meeting') {
     items.push({ label: '■ 議事録を終了して作成', click: stopMeeting });
@@ -6387,14 +5925,10 @@ function updateTray() {
   } else if (state === 'meeting-finalizing') {
     items.push({ label: '議事録を作成中…', enabled: false });
   } else {
-    items.push({
-      label: state === 'recording' ? '■ 停止して文字起こし' : state === 'processing' ? '文字起こし中…' : '● 音声入力を開始',
-      enabled: state !== 'processing', click: toggleRecording,
-    });
     items.push({ label: '議事録の記録を開始', enabled: state === 'idle', click: () => { startMeetingBy('tray').catch((e) => engineLog(`議事録を開始できません: ${errCode(e)}`)); createMainWindow(); } });
   }
   // 0.9.0 O-4（RP8）: 録音中に録音バーを隠しているときだけ、出し直す口
-  if (panelHidden && (state === 'recording' || state === 'meeting')) items.push({ label: '録音バーを表示', click: showPanel });
+  if (panelHidden && state === 'meeting') items.push({ label: '録音バーを表示', click: showPanel });
   items.push({ type: 'separator' });
   items.push({ label: 'ノートを開く', click: createMainWindow });
   // 更新はトレイからも行えるようにする。画面側の組み立てが1か所でも
@@ -6413,9 +5947,8 @@ function updateTray() {
   // 出すのは設定のキーではなく実際に登録しているキー（退避中は設定のキーは効かない）
   tray.setToolTip(
     state === 'meeting' ? 'NaTsu — 議事録を記録中'
-      : state === 'recording' ? 'NaTsu — 録音中'
-        : state === 'processing' || state === 'meeting-finalizing' ? 'NaTsu — 処理中'
-          : `NaTsu — ${activeHotkeys.hotkey}: 音声入力 / ${activeHotkeys.meetingHotkey || '未設定'}: 議事録${hotkeyNote}`,
+      : state === 'meeting-finalizing' ? 'NaTsu — 処理中'
+        : `NaTsu — ${activeHotkeys.meetingHotkey || '未設定'}: 議事録${hotkeyNote}`,
   );
 }
 
@@ -6498,7 +6031,6 @@ function setupIpc() {
     let warning = '';
     const hk = saveHotkeys(settings, activeHotkeys, merged, applyHotkeys);
     if (hk) {
-      merged.hotkey = hk.applied.hotkey;
       merged.meetingHotkey = hk.applied.meetingHotkey;
       activeHotkeys = hk.active;
       hotkeyState = hk.state;
@@ -6537,7 +6069,7 @@ function setupIpc() {
       try { app.setLoginItemSettings({ openAtLogin: settings.autoLaunch }); } catch (_) { /* noop */ }
     }
     updateTray();
-    const applied = { hotkey: settings.hotkey, meetingHotkey: settings.meetingHotkey };
+    const applied = { meetingHotkey: settings.meetingHotkey };   // 0.15.1 ND-2: 音声入力のキーは画面へ戻さない（画面に欄が無い）
     // 画面が送った値と違う値で残ったキーは全部載せる（記録中に留めたエンジン設定・
     // 正規化で丸めた値も）。画面はこれを欄に戻す（mainlib.keptDifferent）
     Object.assign(applied, keptDifferent(next, settings));
@@ -6545,16 +6077,9 @@ function setupIpc() {
   });
   ipcMain.handle('hotkey:state', () => hotkeyState);
 
-  ipcMain.handle('history:get', () => history);
-  // 第1d2回 M-5: 残した音声入力の行を消したら、その音声も消す
-  ipcMain.handle('history:delete', (_e, id) => { dropDictWaits(history.filter((h) => h.id === id)); history = history.filter((h) => h.id !== id); saveHistoryOrNotice(); return history; });
-  ipcMain.handle('history:clear', () => { dropDictWaits(history, true); history = []; saveHistoryOrNotice(); return history; });
-  ipcMain.handle('app:toggle-recording', () => { toggleRecording(); return state; });
-  // 0.14.0 EK-6: NaTsu の中の音声入力の入れ先の答え（R55）・画面の Esc で取り消す（決めたこと 43・R64 (3)）
-  // 0.14.0 EK-6 直し（R194）: どちらも本体の窓の画面から来たときだけ受ける（録音バー・ログインの窓・ヘルプの窓からは入れ先も取り消しも決めさせない）
+  // 0.15.1 ND-2（D114・決めたこと 12）: 音声入力の IPC（history:*・app:toggle-recording・dictation:*）は無い。古い画面から来ても main は何もしない
+  // 0.14.0 EK-6 直し（R194）: 本体の窓の画面から来たときだけ受ける口の照らし（app:open-link）
   const fromMainWin = (e) => Boolean(mainWin && !mainWin.isDestroyed() && e && e.sender === mainWin.webContents);
-  ipcMain.on('dictation:where-answer', (e, p) => { if (fromMainWin(e)) onWhereAnswer(p); });
-  ipcMain.handle('dictation:cancel', (e) => { if (!fromMainWin(e)) return false; cancelDictation(); return true; });
 
   // 議事録の画面の口は main を通らない（第2a1回 ST5。preload が DB の口（役 app）へ直に頼む）。要約だけは今どおり main の IPC
   ipcMain.handle('page:summarize', (_e, id) => runSummary(id));
@@ -6946,7 +6471,8 @@ function setupIpc() {
     return { sidebar: { ...winState.sidebar }, tabs: { open: winState.tabs.open.slice(), active: winState.tabs.active },
       slashRecent: Array.isArray(winState.slashRecent) ? winState.slashRecent.slice() : [],   // 0.13.0 ED-5（決めたこと 39）
       tree: { open: treeOpen.slice() },
-      emojiRecent: Array.isArray(winState.emojiRecent) ? winState.emojiRecent.slice() : [] };   // 0.15.0 PL-1（決めたこと 37）: アイコンの選びの最近使ったもの
+      emojiRecent: Array.isArray(winState.emojiRecent) ? winState.emojiRecent.slice() : [],   // 0.15.0 PL-1（決めたこと 37）: アイコンの選びの最近使ったもの
+      sections: W.sectionsOf(winState) };   // 0.15.1 PS-1（決めたこと 24・F158）: サイドバーのセクションの畳み・並べ替え・表示の数
   });
   ipcMain.handle('ui:set', (_e, patch) => {
     winState = W.applyUi(winState, patch);
@@ -6967,15 +6493,9 @@ function setupIpc() {
   });
 
   ipcMain.on('overlay:confirm', () => {
-    if (state === 'recording') stopRecording();
-    else if (state === 'meeting') stopMeetingBy('bar');
+    if (state === 'meeting') stopMeetingBy('bar');
   });
-  // 0.14.0 EK-6 直し2（R201）: 録音バーの［取り消し］は録音バーの窓から来たときだけ受ける（本体の窓は dictation:cancel、ほかの窓は取り消させない）
-  ipcMain.on('overlay:cancel-request', (e) => {
-    if (!(overlayWin && !overlayWin.isDestroyed() && e && e.sender === overlayWin.webContents)) return;
-    if (state === 'recording') cancelRecording();
-  });
-  ipcMain.on('audio:done', (_e, { buffer, durationMs }) => handleDictationAudio(Buffer.from(buffer), durationMs));
+  // 0.15.1 ND-2（D114・WQ1）: 録音バーの音声入力の形の口（overlay:cancel-request・audio:done）は受けない（凍結の overlay.html は送れるが、main は何もしない）
   // 0.12.0 SP-3a: 2つの流れの議事録は4つ目 meta（main が checkSegMeta で照らす）
   ipcMain.on('audio:segment', (_e, { buffer, durationMs, final, meta }) => onMeetingSegment(Buffer.from(buffer), durationMs, Boolean(final), meta));
   // 録音側が実際に何を録れているかを受け取る。設定がオンでも、再生デバイスが
@@ -7029,8 +6549,7 @@ function setupIpc() {
   });
   ipcMain.on('audio:error', (_e, { message }) => {
     if (state === 'meeting' || state === 'meeting-finalizing') {
-      // 0.9.0 O-4（RP8）: 隠したままマイクのエラーが来たら、録音バーを出してから締める（作成中の文を見せる）。音声入力は
-      // finishWithError のエラーの文の前に sendToOverlay が出し直す
+      // 0.9.0 O-4（RP8）: 隠したままマイクのエラーが来たら、録音バーを出してから締める（作成中の文を見せる）
       showPanel();
       if (meeting) {
         // 録音側は最後の区間を送り終えてからこれを送る（overlay の settleSeg）ので、
@@ -7045,7 +6564,8 @@ function setupIpc() {
         sendToMainWin('meeting:update', meetingStatus());
         maybeFinalizeMeeting().catch((e) => engineLog(`finalize failed: ${e.message}`));
       }
-    } else finishWithError(message || 'マイクにアクセスできません');
+    }
+    // 0.15.1 ND-2: 会議でない間のエラー（音声入力の finishWithError）は無くなった
   });
   ipcMain.on('overlay:hidden-request', () => hideOverlayIfIdle());
   // 0.9.0 O-2（RP4）: 録音バーの画面が測ったピルの大きさ
@@ -7250,7 +6770,7 @@ function applyReloadedSettings(prev, next) {
   if (prev.meetingDetect !== next.meetingDetect || JSON.stringify(prev.meetingDetectMute) !== JSON.stringify(next.meetingDetectMute)) applyDetectSettings(prev);   // 0.9.3 M-2
   if ((prev.autoStopLeave !== false) !== (next.autoStopLeave !== false)) applyLeaveSetting();   // 0.12.1 LV-2
   // ホットキーは起動のときと同じ決め方（登録できなければ既定に退避し、settings には書かない）
-  if (prev.hotkey !== next.hotkey || prev.meetingHotkey !== next.meetingHotkey) {
+  if (prev.meetingHotkey !== next.meetingHotkey) {   // 0.15.1 ND-1: 前の音声入力のキー（hotkey）は読まない
     const r = resolveStartupHotkeys(next, DEFAULT_SETTINGS, applyHotkeys);
     activeHotkeys = r.active;
     hotkeyState = r.state;

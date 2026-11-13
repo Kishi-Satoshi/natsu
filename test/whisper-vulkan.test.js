@@ -157,3 +157,20 @@ test('whisper-vulkan.yml の YAML の書き方（引用符の無い値に「: �
   assert.deepStrictEqual(bad, []);
   for (const m of read(WF).matchAll(/^\s*- name: (.+)$/gm)) assert.ok(Buffer.byteLength(m[1], 'utf8') <= 200, m[1]);
 });
+
+// 0.15.1 GV-3（計画 docs/plans/2026-11-04-151.md の Task GV-3・決めたこと 43・F171・VR7）: 0.15.1 から NaTsu の［ローカル AI を使う］がこの資産を取り込むので、
+// 押し直しで同じ札の資産を置き換えない（作り直すと zip の中の時刻で SHA-256 が変わり、全員の取り込みが止まる）。前の決まりはそのまま
+test('GV-3・F171: ワークフローは配っている資産を置き換えない（--clobber が無い・同じ札に同じ名前の資産があれば ::error:: で止める・注釈）', () => {
+  const y = read(WF);
+  const st = stepsOf(jobsOf(y).publish);
+  const step = stepNamed(st, /^先行版/);
+  const pub = runOf(step);
+  assert.ok(!/--clobber/.test(y), '--clobber で置き換える');
+  const up = pub.split('\n').filter((l) => /gh release upload/.test(l));
+  assert.strictEqual(up.length, 1, up.join('\n'));
+  const stop = pub.indexOf('grep -qxF "$ZIP"');
+  assert.ok(stop > 0 && stop < pub.indexOf('gh release upload'), '資産があるかを、置く前に見ない');
+  assert.match(pub.slice(stop, pub.indexOf('gh release upload')), /echo "::error::[^"]*置き換えない[^"]*"; exit 1/);
+  assert.ok(y.includes('0.15.1 から NaTsu が取り込む資産なので置き換えない'), '注釈が無い');
+  assert.ok(!/資産を置き換える/.test(y), '段の名前・注釈に「資産を置き換える」が残っている');
+});

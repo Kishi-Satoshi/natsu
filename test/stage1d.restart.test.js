@@ -1,7 +1,7 @@
 /*
  * stage1d.restart.test.js — 第1d回 Task A-9（RL16・F16・RF41）: 録音中と議事録の保存の間は、更新の再起動と取り込みを断る
  *
- * 場面は helpers/mainrun.js の --restart-during=meeting|dictation|finalizing|idle（main.js を偽の Electron の上で本当に動かす）。
+ * 場面は helpers/mainrun.js の --restart-during=meeting|finalizing|idle|closing（0.15.1 ND-2 で dictation を外した）（main.js を偽の Electron の上で本当に動かす）。
  * 偽の app.relaunch の回数は out.relaunches（そのときの DB の客の状態は out.relaunchDb）、取り込み（updater.apply。場面では何もしない
  * 偽物）の回数は out.applyCalls。finalizing は偽の DB が締めの返事（meeting.finalize）を場面が離すまで止める（fake-utility の holdReply）。
  * トレイの［更新を確認］は場面で押せない（窓の箱の答えを待つ）ので、今の repo.test.js と同じく字面で見る。
@@ -57,17 +57,7 @@ test('RF41: update:apply も録音中は取り込みを始めずに断る（取�
   assert.strictEqual(out.pages.length, 1);
 });
 
-test('RF41: 音声入力の録音中・文字起こし中も断る', { timeout: sceneTimeout(30000) }, () => {
-  const out = runMain('text', ['--dictate', '--restart-during=dictation']);
-  assert.deepStrictEqual(out.restartRecording, refused('recording', U1), '音声入力の録音中');
-  assert.deepStrictEqual(out.restartProcessing, refused('recording', U1), '音声入力の文字起こし中');
-  assert.deepStrictEqual(out.apply, refused('recording', U1));
-  assert.strictEqual(out.applyCalls, 0);
-  assert.strictEqual(out.relaunches, 0);
-  assert.strictEqual(out.history.length, 1, '断った後の音声入力が履歴に残っていない');
-  assert.ok(out.enginesAtRefusal >= 1, `場面の前提: 断るときにエンジンが動いていない（${out.enginesAtRefusal}）`);
-  assert.strictEqual(out.killsAtRefusal, 0, '断ったのにエンジンか貼り付けを止めた');
-});
+// 0.15.1 ND-2（D114）: 音声入力の録音中・文字起こし中の断り（RF41 の音声入力の分・前の版の変異 ra-dictate-quitting）は、音声入力と一緒に消した（会議の録音中は上の RF41）
 
 test('RF41: 議事録の締めの返事を待つ間は finalizing（U2）。返事が来た後は再起動する（DB を閉じてから relaunch 1 回）', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--segs=2', '--restart-during=finalizing']);
@@ -93,13 +83,13 @@ test('RF41: 何もしていないときは今までどおり取り込んで再�
   assert.ok(!out.engineLog.some((l) => l.startsWith('更新の再起動: 断った')), out.engineLog.join('\n'));
 });
 
-test('RF41: 再起動を受けて DB を閉じている間は、会議（ボタン・ホットキー）も音声入力も始めない（始めると relaunch で録音が切れる）', { timeout: sceneTimeout(30000) }, () => {
+test('RF41: 再起動を受けて DB を閉じている間は、会議（ボタン・ホットキー）を始めない（始めると relaunch で録音が切れる。0.15.1 ND-2 で音声入力を外した）', { timeout: sceneTimeout(30000) }, () => {
   const out = runMain('text', ['--restart-during=closing']);
   assert.strictEqual(out.closeHeld, true, '場面の前提: DB を閉じるところで止まっていない');
   assert.strictEqual(out.hotkeysFound, true, '場面の前提: ホットキーが登録されていない');
   assert.deepStrictEqual(out.startWhileClosing, { ok: false, error: '他の処理を実行中です' }, '閉じている間に会議を始めた');
   assert.strictEqual(out.meetingWhileClosing, false, '閉じている間に会議のホットキーで会議が始まった');
-  assert.strictEqual(out.overlayStartsWhileClosing, 0, '閉じている間に音声入力の録音を始めた');
+  assert.strictEqual(out.overlayStartsWhileClosing, 0, '閉じている間に録音バーで録音を始めた');
   assert.strictEqual(out.restart, true);
   assert.strictEqual(out.relaunches, 1);
   assert.deepStrictEqual(out.relaunchDb, ['down']);

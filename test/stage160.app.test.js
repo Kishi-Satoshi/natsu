@@ -2690,8 +2690,9 @@ test('DX-1・決めたこと 43: サイドバーの行のメニューに［中�
   try {
     l.fire('onPagesUpdated'); await l.drain(120);
     await openTreeMenuOf(l, l.blank);
-    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['中にページを作る', '中にデータベースを作る', '移動先…', '新しいタブで開く', '削除']);
-    await clickEl(l, treeMenuItems(l)[1], 300);
+    // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.15.1 の行のメニュー（［リンクを写す］［名前を変える］［移動先…］［中にページを作る］…）の［中にページを作る］の次
+    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '中にデータベースを作る', '新しいタブで開く', '削除']);
+    await clickEl(l, treeMenuItems(l).find((b) => b.textContent === '中にデータベースを作る'), 300);
     assert.deepStrictEqual(l.called('dbCreate').map((c) => c.args), [[l.blank]], '行の中に作らない');
     const made = newDbId(l, []);
     assert.ok(made, 'データベースができない');
@@ -2701,7 +2702,7 @@ test('DX-1・決めたこと 43: サイドバーの行のメニューに［中�
     assert.deepStrictEqual(body.map((b) => [b.type, b.page, b.inline]), [['subpage', made, undefined]], '白紙のページの本文の最後に行が無い');
     assert.deepStrictEqual(sideRows(l).map((e) => [e.dataset.pid, e.getAttribute('aria-level')]).filter((x) => x[0] === made), [[made, '2']], '親の行が開かないか、子の段でない');
     await openTreeMenuOf(l, l.id);
-    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['移動先…', '新しいタブで開く', '削除'], 'データベースの行のメニューに中に作る項目がある');
+    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '新しいタブで開く', '削除'], 'データベースの行のメニューに中に作る項目がある');
     l.key({ key: 'Escape' }, l.document.querySelector('.treemenu')); await l.drain();
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
@@ -3187,7 +3188,8 @@ test('DL-1 (3)（MQ1・R104 (4)）: 近道の表に Alt+→・Alt+← と Ctrl+E
   const row = (keys) => SHORTCUTS.find((r) => r.keys === keys && r.where !== 'サイドバーのページの一覧' && r.where !== '要約の行を直しているとき');
   assert.deepStrictEqual(SHORTCUTS.filter((r) => r.keys === 'Alt+→・Alt+←').map((r) => [r.what, r.where]), [['サブアイテムを開く・閉じる（題名のセルで）', 'データベースの表のセルを選んでいるとき']]);
   assert.deepStrictEqual(SHORTCUTS.filter((r) => r.where === 'リレーションの行を探す窓').map((r) => [r.keys, r.what]), [['Ctrl+Enter', 'その行のページを開く（つなぐ・外すはしない）']]);
-  assert.strictEqual(SHORTCUTS.find((r) => r.keys === 'Shift+F10' && r.where === 'サイドバーのページの一覧').what, '行のメニューを開く（中にページを作る・中にデータベースを作る・移動先・新しいタブで開く・削除）');
+  // 0.15.1 を出した main の取り込み（R123・持ち主への問い MQ4）で意図して直した: 0.15.1 の行のメニューの項目と［中にデータベースを作る］を今の並びで
+  assert.strictEqual(SHORTCUTS.find((r) => r.keys === 'Shift+F10' && r.where === 'サイドバーのページの一覧').what, '行のメニューを開く（リンクを写す・名前を変える・移動先・中にページを作る・中にデータベースを作る・新しいタブで開く・削除）');
   assert.ok(row('Alt+→・Alt+←'));
 });
 
@@ -3575,6 +3577,33 @@ test('R122・rv55 軽い 3: 本文の2つの表（1つ目の列が2つ目のデ�
     ed.onblur(); await l.drain(300);   // 最後の行の Enter は次の行を足すので、離れて書く
     assert.deepStrictEqual(rowTitles(hostOf(l, l.r2)), ['にの行かえ'], '前提: 2つ目の表の題名が替わる');
     assert.deepStrictEqual(relCell().querySelectorAll('.dbrel').map((x) => x.textContent), ['📄 にの行かえ'], 'つないだデータベースの表のリレーションのセルが古いまま');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---- R123（0.15.1 を出した main の取り込み）: 0.15.1 のサイドバー・ライブラリの［名前を変える］は page.setTitle を送るが、データベースの名前は
+// R105「1つの道」でどこで変えても db.setTitle（データベースの歩み）。名前を変えたデータベースの本文の表（リンクドビュー）の頭も替わる
+test('R123: サイドバーの行のメニューの［名前を変える］でデータベースの名前を変えると dbSetTitle の1回（pageSetTitle でない）。開いている本文のそのデータベースのリンクドビューの題名も替わる', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const s = linkSetup(call, d);
+    const L = call('block.insertDbView', { pageId: s.P, afterId: s.b1, db: d.id }).blockId;
+    return { ...s, L };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    assert.strictEqual(hostOf(l, l.L).querySelector('.dbtitle').value, 'ケース台帳', '前提: リンクドビューの題名');
+    await openTreeMenuOf(l, l.id);
+    await clickEl(l, treeMenuItems(l).find((b) => b.textContent === '名前を変える'), 60);
+    const box = $(l, 'plist').querySelector('input.pren');
+    assert.ok(box, '名前を変える欄が出ない');
+    box.value = 'あたらしい台帳';
+    l.key({ key: 'Enter' }, box); await l.drain(); await l.drain(300);
+    assert.deepStrictEqual(l.called('dbSetTitle').map((c) => c.args), [[l.id, 'あたらしい台帳']], 'データベースの名前を db.setTitle の1回で変えない');
+    assert.deepStrictEqual(l.called('pageSetTitle'), [], 'データベースの名前を page.setTitle で変えた');
+    assert.strictEqual(l.call('db.get', { id: l.id }).title, 'あたらしい台帳');
+    const h = hostOf(l, l.L);
+    assert.strictEqual(h.querySelector('.dbtitle').value, 'あたらしい台帳', 'リンクドビューの題名の欄が古いまま');
+    assert.strictEqual(h.querySelector('.dbgrid').getAttribute('aria-label'), 'データベース『あたらしい台帳』のリンクドビュー', 'リンクドビューの表の名前が古いまま');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

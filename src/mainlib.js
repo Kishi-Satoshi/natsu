@@ -108,7 +108,7 @@ function registerHotkeys(entries, register) {
   return { ok: failed.length === 0, failed };
 }
 
-// failed: registerHotkeys の failed。accelOf: { 音声入力: 'Control+…', 議事録: 'Alt+M' }
+// failed: registerHotkeys の failed。accelOf: { 議事録: 'Alt+M' }
 // 保存時の warning（その場の一回の失敗「登録できませんでした」）に使う。
 // いまの登録状態（「登録できていません」）は hotkeyStatus が組む。
 function hotkeyFailureMessage(failed, accelOf) {
@@ -116,16 +116,18 @@ function hotkeyFailureMessage(failed, accelOf) {
   return `${failed.map((l) => `${l}のホットキー ${accelOf[l]} `).join('と')}は他のアプリが使用中のため登録できませんでした`;
 }
 
-// 側（画面に出す名前）と設定のキー名の対応
-const HOTKEY_SIDES = [['音声入力', 'hotkey'], ['議事録', 'meetingHotkey']];
-const HOTKEY_KEY_OF = { 音声入力: 'hotkey', 議事録: 'meetingHotkey' };
-const accelOf = (keys) => ({ 音声入力: keys.hotkey, 議事録: keys.meetingHotkey });
+// 側（画面に出す名前）と設定のキー名の対応。
+// 0.15.1 ND-1（D114・WQ5・計画 docs/plans/2026-11-04-151.md の決めたこと 7）: 音声入力の全体のキーを無くしたので、側は議事録の1つだけ
+// （前の設定の hotkey は読まない。知らせの文とトレイの注記の形は今のまま）
+const HOTKEY_SIDES = [['議事録', 'meetingHotkey']];
+const HOTKEY_KEY_OF = { 議事録: 'meetingHotkey' };
+const accelOf = (keys) => ({ 議事録: keys.meetingHotkey });
 
 // 「設定（利用者が選んだキー）」と「実際に登録しているキー」の関係を、画面と
 // トレイに出す形にする。設定と登録を分けて持つのは、起動時に既定へ退避しても
 // 設定を書き換えないため（設定を書き換えると settings:get が既定を返して設定
 // 画面に既定が出、次の無関係な保存でディスクにも漏れて利用者のキーが黙って消える）。
-//   wanted: 設定のキー { hotkey, meetingHotkey }
+//   wanted: 設定のキー { meetingHotkey }
 //   active: 登録を試みたキー（退避で既定になっている側がある）
 //   failed: registerHotkeys(active…) の failed ＝ いま登録できていない側
 // 戻り値:
@@ -137,7 +139,7 @@ const accelOf = (keys) => ({ 音声入力: keys.hotkey, 議事録: keys.meetingH
 //           ok       … 利用者の設定どおりに全部登録できているときだけ true
 //                      （退避中も false。利用者の選んだキーは効いていない）
 //           message  … 画面に出す一文
-//   note  : トレイの注記「（音声入力: 既定の … を使用中・Alt+M は登録できず）」
+//   note  : トレイの注記「（議事録: 既定の … を使用中）」「（Alt+M は登録できず）」
 function hotkeyStatus(wanted, active, failed) {
   const act = { ...active };
   const fallback = {};
@@ -168,10 +170,10 @@ function hotkeyStatus(wanted, active, failed) {
 // 起動時: 登録できなかった側だけ既定に落として一度だけ再試行する。
 // cfg（利用者の設定）は読むだけで書き換えない。有効なキーは戻り値の active で返す
 // ので、呼び出し側は settings ではなく別の変数（activeHotkeys）に持つ。
-// apply(hk, mhk) は registerHotkeys の戻り値を返す（解除して両方を登録し直す）。
+// apply(mhk) は registerHotkeys の戻り値を返す（解除して議事録のキーを登録し直す。0.15.1 ND-1 で引数は1つ）。
 function resolveStartupHotkeys(cfg, defaults, apply) {
-  const wanted = { hotkey: cfg.hotkey, meetingHotkey: cfg.meetingHotkey };
-  const first = apply(wanted.hotkey, wanted.meetingHotkey);
+  const wanted = { meetingHotkey: cfg.meetingHotkey };
+  const first = apply(wanted.meetingHotkey);
   if (first.ok) return hotkeyStatus(wanted, wanted, []);
 
   // 設定がもともと既定なら、同じキーをもう一度試しても同じなので落とさない
@@ -181,7 +183,7 @@ function resolveStartupHotkeys(cfg, defaults, apply) {
     const k = HOTKEY_KEY_OF[l];
     if (defaults[k] && defaults[k] !== wanted[k]) { active[k] = defaults[k]; retried.push(l); }
   }
-  const second = retried.length ? apply(active.hotkey, active.meetingHotkey) : first;
+  const second = retried.length ? apply(active.meetingHotkey) : first;
 
   // failed は「いま登録できていない側」＝ 既定でも駄目だった側。既定で登録できた側は
   // fallback に載る。以前は最初の失敗をそのまま failed にしていたので、既定で動いている
@@ -199,15 +201,15 @@ function resolveStartupHotkeys(cfg, defaults, apply) {
 // 新しいキーが登録できなかった側は、設定を prev に、登録を active に戻す。
 // 戻り値の applied は「設定として残ったキー」。画面はこれを欄に戻す（失敗したキーが
 // 欄に残ると、以後の無関係な保存のたびに再失敗して警告が出続ける）。
-// 両方とも変えていなければ null（登録し直さず、状態も触らない）。
+// 変えていなければ null（登録し直さず、状態も触らない）。
 function saveHotkeys(prev, active, next, apply) {
   const changed = HOTKEY_SIDES.filter(([, k]) => next[k] !== prev[k]).map(([l]) => l);
   if (!changed.length) return null;
   const want = { ...active };
   for (const l of changed) want[HOTKEY_KEY_OF[l]] = next[HOTKEY_KEY_OF[l]];
-  let r = apply(want.hotkey, want.meetingHotkey);
+  let r = apply(want.meetingHotkey);
 
-  const applied = { hotkey: next.hotkey, meetingHotkey: next.meetingHotkey };
+  const applied = { meetingHotkey: next.meetingHotkey };
   const rejected = changed.filter((l) => r.failed.includes(l));
   let warning = '';
   if (rejected.length) {
@@ -217,7 +219,7 @@ function saveHotkeys(prev, active, next, apply) {
       applied[k] = prev[k];
       want[k] = active[k];
     }
-    r = apply(want.hotkey, want.meetingHotkey);
+    r = apply(want.meetingHotkey);
   }
   return { applied, warning, ...hotkeyStatus(applied, want, r.failed) };
 }
@@ -309,19 +311,6 @@ function parsePasterLine(line) {
   return null;
 }
 
-// 自動貼り付けのあとに元のクリップボードを戻すか。戻すのは短い1行の文字列だけ。
-// 複数行・長文は、書式付きのコピー（Word・ブラウザ）の文字部分であることが多く、文字だけで
-// 戻すと元より劣るものに置き換わる。貼り付けた本文と同じなら戻す意味が無い
-const RESTORE_MAX_CHARS = 200;
-function restoreAfterPaste(prev, text) {
-  // 文字列でない元（44 の clipboard が返す Promise・読めなかった null）は戻さない（[object Promise] を置かない最後の守り）
-  if (typeof prev !== 'string') return false;
-  const p = String(prev ?? '');
-  if (!p || p === String(text ?? '')) return false;
-  if (/[\r\n]/.test(p)) return false;
-  return p.length <= RESTORE_MAX_CHARS;
-}
-
 // 常駐 PowerShell へ流す「置き直し」命令（改行なし。呼び出し側が '\n' を足す）
 function copyCommand(text) {
   return `copy ${Buffer.from(String(text ?? ''), 'utf8').toString('base64')}`;
@@ -337,11 +326,8 @@ function copyCommand(text) {
 // 置き直しが貼り付けより後になることはない。
 // Electron 44 では main でも clipboard.readText()／writeText() が Promise を返す（31 では文字列と
 // undefined）。だから読み書きは全部待つ（文字列を待っても害は無い）。Electron は読まず、外から
-// d = { clip, paster(), sleep(ms) }（deliverText はさらに autoPaste・fg・simulatePaste・notice・later）をもらう。
+// d = { clip, paster(), sleep(ms) } をもらう（0.15.1 ND-1 で音声入力の貼り付け deliverText と、その後の戻しを消した: D114）。
 const COPY_SETTLE_MS = 150;
-// 貼り付け先がクリップボードを読む前に戻すと古い方が貼られる。SendWait は処理完了まで
-// 待つが、読み取りが遅いアプリ（ブラウザの入力欄・Teams）は 500ms では間に合わなかった
-const RESTORE_DELAY_MS = 2000;
 // クリップボードの文字を読む。文字列でない・投げた・Promise が断られた、は null
 async function readClip(clip) {
   try {
@@ -388,25 +374,6 @@ async function readClipRows(clip) {
   } catch (_) { html = ''; }
   if (text.length > CLIP_ROWS_TEXT_MAX || html.length > CLIP_ROWS_HTML_MAX) return { tooBig: true };
   return { text, html };
-}
-// 自動貼り付けのあとは元のクリップボードを戻す（短い文字列だったときだけ・できる範囲で。
-// 判断は restoreAfterPaste）。音声入力は「いま書いている場所へ入れる」道具なので、
-// 貼り付けた本文がクリップボードに残り続けると、直前にコピーしていたものが失われる。
-// d.fg は録音を始めたときの前面の窓の HWND の Promise。文字起こしの間に通知や Teams が
-// 前へ出ていると、そこへ口述が流れ込むので、違えば貼らずクリップボードに残す（#54）
-async function deliverText(text, d) {
-  let prev = '';
-  if (d.autoPaste) prev = (await readClip(d.clip)) ?? '';
-  await copyPrivate(text, d);
-  if (!d.autoPaste) return undefined;
-  await d.sleep(50);
-  // 貼り付け先は録音を始めたときの前面ウィンドウ（#54）。違えば貼らずクリップボードに残す
-  const hwnd = await d.fg;
-  const result = await d.simulatePaste(hwnd);
-  if (result === 'mismatch') { d.notice('貼り付け先が変わったため、クリップボードに残しました（Ctrl+V で貼り付けられます）'); return result; }
-  if (result === 'fail') { d.notice('自動貼り付けに失敗しました。クリップボードに残しています'); return result; }
-  if (restoreAfterPaste(prev, text)) d.later(() => { copyPrivate(prev, d).catch(() => {}); }, RESTORE_DELAY_MS);
-  return result;
 }
 
 // ---------------------------------------------------------------- エンジンのファイル検査（#32）
@@ -522,6 +489,8 @@ function engineSpawnPlan(exe, args, { whisper = false, p = path } = {}) {
 // vcruntime140_1・vcomp140 を、llama は前の3つを使う）。無いと「code 3221225781」とだけ出て止まる。
 // whisper b5454 は MSVC 14.51 で作られ、14.40 未満では落ちる（MSVC STL 17.10 の constexpr mutex の変更。
 // 公開の報告による）。DLL の版は、依存も PowerShell も使わずに PE の VS_FIXEDFILEINFO から読む。
+// 0.15.1 GV-1（D126）: 取り込んだ組（GPU 版。engine-manifest の runtime: 'bundled'）は 0.15.1 から照らさない（Visual C++ ランタイムを
+// つながない）。ここは手で入れたエンジンと、GPU 版を取り終えるまでの前の組（上流の CPU 版）の話。
 
 // VS_FIXEDFILEINFO の印 0xFEEF04BD を探し、その後の dwFileVersionMS・dwFileVersionLS を読む。
 // 印の次の dwStrucVersion は 1.x（0x0001xxxx）。たまたま同じ4バイトがコードにあっても、ここで外す。
@@ -566,7 +535,7 @@ function compareVersion(a, b) {
   return 0;
 }
 const VC_RUNTIME_MIN = '14.40';    // これ未満は落ちる（起動しない理由）
-const VC_RUNTIME_BUILT = '14.51';  // whisper b5454 を作った版。14.40〜14.50 は記録だけ
+const VC_RUNTIME_BUILT = '14.51';  // whisper b5454 を作った版。14.40〜14.50 は記録だけ（0.15.1 から、取り込んだ組は照らさない: GV-1）
 const VC_RUNTIME_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
 // versions（vcRuntimeVersions の戻り）から、起動してよいかの判断の材料を作る。
 //   level: 'missing'（1つでも無い）| 'old'（いちばん古い版が 14.40 未満）| 'warn'（14.40〜14.50。記録だけ）| 'ok'（14.51 以上）
@@ -608,9 +577,15 @@ const STATUS_ENTRYPOINT_NOT_FOUND = 0xC0000139; // 3221225785
 const STATUS_ACCESS_VIOLATION = 0xC0000005;     // 3221225477
 const STATUS_ILLEGAL_INSTRUCTION = 0xC000001D;  // 3221225501
 const STATUS_STACK_BUFFER_OVERRUN = 0xC0000409; // 3221226505
-function engineExitHint(code, ms) {
+function engineExitHint(code, ms, opts) {
   if (typeof code !== 'number' || !Number.isFinite(code)) return '';
   const c = code >>> 0;
+  // 0.15.1 GV-2b（D126・決めたこと 54・K17）: 取り込んだ GPU 版の組（opts.bundled が真: engine-manifest の runtime: 'bundled'）は Visual C++
+  // ランタイムを使わないので、ランタイムを言わない（GPU のドライバの中で落ちた起動直後の 0xC0000005 にも、根拠の無い案内を出さない）
+  if (opts && opts.bundled === true) {
+    if (c === STATUS_DLL_NOT_FOUND) return 'エンジンのファイルが見つからないため起動できませんでした。';
+    if (c === STATUS_ENTRYPOINT_NOT_FOUND || (c === STATUS_ACCESS_VIOLATION && Number(ms) <= 10000)) return '';
+  }
   if (c === STATUS_DLL_NOT_FOUND) return '必要な部品（Microsoft Visual C++ ランタイム）か、エンジンのファイルが見つからないため起動できませんでした。';
   if (c === STATUS_ENTRYPOINT_NOT_FOUND || (c === STATUS_ACCESS_VIOLATION && Number(ms) <= 10000)) return 'Microsoft Visual C++ ランタイムが古い可能性があります。';
   if (c === STATUS_ILLEGAL_INSTRUCTION) return 'この PC の CPU では、このエンジンを動かせません。';
@@ -984,12 +959,6 @@ function cloudLikely({ signedIn, hold, netOnline, peekUp } = {}) {
 function offlineChosen({ manual, managedCand, consent, fetching } = {}) {
   return Boolean(manual) || Boolean(managedCand) || Boolean(consent) || Boolean(fetching);
 }
-// 選んでいない PC で音声入力を始めない文（計画「画面と知らせの文」の D1〜D3。「未設定」の語を使わない: 画面が設定へ連れて行く）
-const DICTATION_REFUSE_TEXT = {
-  offline: 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。つながっていなくても使うには、設定の「ローカル AI」で準備します。',
-  login: 'ログインしていないため、音声入力を始めませんでした。設定の「アカウント」でログインしてください。',
-  relay: '文字起こしの中継が今は使えないため、音声入力を始めませんでした。少し待ってから、もう一度お試しください。',
-};
 /**
  * 会議の始め方。localUsable（手元が使える）・chosen（準備を選んだ）・cloud（cloudLikely）・problem（whisperProblem の文）・
  * why（cloud を偽にした理由: signed-out・login・offline・hold の理由・relay-down）→ { ok: true, keep } | { ok: false, error }。
@@ -999,14 +968,6 @@ function startPlan({ localUsable, chosen, cloud, problem, why } = {}) {
   if (localUsable || cloud) return { ok: true, keep: '' };
   if (chosen) return { ok: false, error: problem };
   return { ok: true, keep: LOGIN_WHYS.includes(why) ? 'login' : 'wait' };
-}
-/** 音声入力の始め方（材料は startPlan と同じ）→ { ok: true } | { ok: false, error, action? }（action: 'signin' は［ログイン］） */
-function dictationPlan({ localUsable, chosen, cloud, problem, why } = {}) {
-  if (localUsable || cloud) return { ok: true };
-  if (chosen) return { ok: false, error: problem };
-  if (LOGIN_WHYS.includes(why)) return { ok: false, error: DICTATION_REFUSE_TEXT.login, action: 'signin' };
-  if (why === 'offline') return { ok: false, error: DICTATION_REFUSE_TEXT.offline };
-  return { ok: false, error: DICTATION_REFUSE_TEXT.relay };
 }
 
 // 0.9.4 S-1（決めたこと 30）: 中継の一時の失敗（5xx・通信の切れ・時間切れ・届かない・読めない答え・中継の間を空けている）で PC に落ちた区間は、
@@ -1107,9 +1068,10 @@ function loginProblem(a) {
   return 'no-login';
 }
 // 0.13.2 LN-4（持ち主の答え LA1「起動したとき＋録音や音声入力を始めるとき」・PQ1〜PQ3・LR3）: ログインの窓を自動で開くか。オンラインでログインしていない
-// （切れた・しまったログインを読めない）ときに、起動（boot）・会議の始め（meeting）・音声入力の始め（dictation）で開く。オフライン・オフラインモードの会議・
+// （切れた・しまったログインを読めない）ときに、起動（boot）・会議の始め（meeting）で開く。オフライン・オフラインモードの会議・
 // × で閉じた後（その起動の間: snoozed）・もう開いているときは開かない。準備を選んでいない PC の起動は今どおり設定の「アカウント」なので開かない（LR3）
-const LOGIN_ASK_MOMENTS = ['boot', 'meeting', 'dictation'];
+// 0.15.1 ND-1（D114・決めたこと 14）: 音声入力の始め（dictation）を外した
+const LOGIN_ASK_MOMENTS = ['boot', 'meeting'];
 // 0.13.2 点検の直し 2（LR37）: 起動（boot）は、起動の片付けが遅れて済んだときに会議・音声入力が動いている・始めている（recording）なら開かない（録音の途中に
 // 開かない。オフラインモードの会議の途中にも）。会議・音声入力の始めは始めた後に呼ぶので recording を見ない
 /** ({ moment, online, signedIn, why, snoozed, localOnly, chosen, showing, recording }) → { ask } */
@@ -1287,7 +1249,8 @@ function wavLevelDbfs(buf) {
 const QUIET_WIN_MS = 500;
 const QUIET_HOP_MS = 250;
 const SILENT_DBFS = -55;
-// 音声入力で、認識ヒントの言葉だけの答えを作り話として除くのは、録った音がこれより小さいときだけ（話し声の大きさ）
+// 話し声の大きさ（main の会議の区間が、これより小さな区間で直前の2つの区間との繰り返しを見る: 0.9.1 Q-2 決めたこと 4。
+// 0.15.0 までは音声入力の作り話の判定（hintEcho の音声入力の枝）にも使っていた。0.15.1 ND-1 で外した）
 const SPEECH_DBFS = STALL_MIN_DBFS;
 /** 16bit PCM の WAV の { rate, body, n }（data の頭と標本の数）か null（読めない・中身が無い） */
 function pcmOf(buf) {
@@ -1338,9 +1301,9 @@ const hintPieces = (s) => String(s || '').normalize('NFKC').split(/[、。，．
 /**
  * 答えが認識ヒントの材料だけでできているか。hint = { sample（文例）, terms（業務の言葉と辞書の語）, tail（直前の発言の尻尾） }。
  * 答えを句読点と空白で切った各片が、ヒントの単位（文例の文・言葉。畳んで2字以上）だけでつながる（区切りが無くても）か、4字以上で尻尾の一部なら材料。
- * 全部の片が材料なら真。音声入力（opts.dictation）は録った音の一番大きい窓（opts.loudDbfs）が SPEECH_DBFS より小さいときだけ真
+ * 全部の片が材料なら真（0.15.1 ND-1 で音声入力の枝（opts.dictation と録った音の大きさ）を外した: D114・決めたこと 15。会議と復旧の形だけ）
  */
-function hintEcho(text, hint, opts = {}) {
+function hintEcho(text, hint) {
   const pieces = hintPieces(text);
   if (!pieces.length) return false;
   const h = hint && typeof hint === 'object' ? hint : {};
@@ -1358,9 +1321,7 @@ function hintEcho(text, hint, opts = {}) {
     return ok[p.length];
   };
   const made = (p) => joins(p) || (p.length >= HINT_TAIL_MIN && tail.includes(p));
-  if (!pieces.every(made)) return false;
-  if (opts && opts.dictation) return Number.isFinite(opts.loudDbfs) && opts.loudDbfs < SPEECH_DBFS;
-  return true;
+  return pieces.every(made);
 }
 
 // 話し声が無いときに聞いて止める（決めたこと 7〜9）。時計は会議の時計（区間の長さの和。一時停止の時間を含まない）
@@ -1571,40 +1532,6 @@ function loopbackOnlyFetch(f) {
     if (!isLoopbackUrl(u)) throw new Error(`外への通信は Electron の net を使ってください（${u}）`);
     return f(input, init);
   };
-}
-
-// ---------------------------------------------------------------- 口述の履歴（第1a回 JS5・JS6）
-// 口述した文を履歴の頭に足し、件数の上限で切り、保存 → 画面へ → 貼る（今の順のまま）。
-// 履歴を保存できなくても（save が { ok: false } を返しても投げても）、口述した文字は必ず貼る
-// （履歴は控えで、利用者が今欲しいのは貼り付け）。max が 0〜10000 の整数でなければ 500
-// （手で書いた -1 や 1.5 で history.length に入れて RangeError にし、貼り付けまで止めない）。
-// history は書き換える（main の履歴そのもの）。→ { saved: 保存できたか }
-const HISTORY_MAX_DEFAULT = 500;
-async function recordDictation({ history, entry, max, save, notify, deliver }) {
-  history.unshift(entry);
-  const limit = Number.isInteger(max) && max >= 0 && max <= 10000 ? max : HISTORY_MAX_DEFAULT;
-  if (history.length > limit) history.length = limit;
-  let saved = false;
-  try {
-    const r = save();
-    saved = Boolean(r && r.ok === true);
-  } catch (_) { saved = false; }
-  try { notify(history); } catch (_) { /* 画面へ送れなくても貼る */ }
-  await deliver(entry.text);
-  return { saved };
-}
-
-// 読めなかった history.json を読み直せたとき（第1a回 Task 2-3。RF22）: 読めない間の履歴（新しい順）を先に、ファイルの履歴の
-// うち同じ id の無いものを後ろに並べ、max で切る（壊れた max は recordDictation と同じく既定）。
-// → { list, changed }。changed はファイルの履歴と並びが違う（書き戻すべき）とき真
-function mergeHistory(memory, fromFile, max) {
-  const limit = Number.isInteger(max) && max >= 0 && max <= 10000 ? max : HISTORY_MAX_DEFAULT;
-  const mem = Array.isArray(memory) ? memory : [];
-  const file = Array.isArray(fromFile) ? fromFile : [];
-  const ids = new Set(mem.map((h) => h && h.id));
-  const list = mem.concat(file.filter((h) => !ids.has(h && h.id))).slice(0, limit);
-  const changed = list.length !== file.length || list.some((h, i) => h !== file[i]);
-  return { list, changed };
 }
 
 // 新しい会議の下書きの名前（第1a回 JS9・F7）。draft.json が無ければ draft.json。あれば（前の起動で読めなかった古い控え）
@@ -2349,6 +2276,68 @@ function stallStepMs(st, { text, levelDbfs, durationMs } = {}) {
   return { st: next, stall: next.spanMs >= STALL_SPAN_MS && next.n >= 2 };
 }
 
+// ---------------------------------------------------------------- 0.15.1 GV-1（D126）: PC の中の文字起こしを GPU 版に
+// 取り込んだ GPU 版の組（engine-manifest の vulkan: true）は、いつも今と同じ引数で起こす（0.15.1 GV-2b・第9版: -ng を足さない・印を付けない）。
+// GPU を使えなければ whisper が同じプロセスのまま CPU で計算する。準備までの whisper の記録の行で、どちらで計算したかを見分け、engine.log に1行書くだけ。
+// 理由の符号は決まった 3 つだけ（記録の行）
+const GPU_WHY = Object.freeze(['none', 'init-failed', 'lost']);
+// 見分けの印の決まった字（計画の G15: 配る zip の whisper.dll・ggml-vulkan.dll の中の書式から作った）。formats は engine-smoke が
+// DLL の中にあることを照らす書式の字。印を変えるときはここ1か所だけ（VR16）
+const GPU_LOG_MARKS = Object.freeze({
+  using: 'whisper_backend_init_gpu: using Vulkan',            // GPU の行（whisper_backend_init_gpu: using Vulkan0 backend）
+  failed: 'whisper_backend_init_gpu: failed to initialize',   // 失敗の行（ほかの部品の failed to initialize は見ない）
+  noGpu: 'whisper_backend_init_gpu: no GPU found',            // 装置が無い行（none と同じ扱い）
+  lost: Object.freeze(['ggml_vulkan: device lost on', 'ErrorDeviceLost']),   // 落ちた行（含む行。ほかより先に見る）
+  device: 'ggml_vulkan: ',                                    // 装置の行の頭（ggml_vulkan: <番号> = <名前> (<ドライバの名前>) | uma: …）
+  deviceEnd: ' | uma:',
+  formats: Object.freeze({
+    'whisper.dll': Object.freeze(['whisper_backend_init_gpu', '%s: using %s backend', '%s: failed to initialize %s backend', '%s: no GPU found', '%s: use gpu    = %d']),
+    'ggml-vulkan.dll': Object.freeze(['ggml_vulkan: %zu = %s (%s) | uma: %d', 'ggml_vulkan: device lost on %s', 'ErrorDeviceLost']),
+  }),
+});
+
+/**
+ * GPU の形で起こした whisper の、準備までの標準エラーの行 → { state: 'gpu' | 'none' | 'init-failed' | 'lost', device }。
+ * 落ちた行 → lost、失敗の行 → init-failed、GPU の行 → gpu、どれも無い（no GPU found・Vulkan を読めない）→ none。
+ * device は使った装置（using Vulkan<番号>）の行の名前（ドライバの名前の括弧を除く）。無ければ ''。文字でない値と途中で切れた行は無いものとする
+ */
+function gpuLogState(lines) {
+  const K = GPU_LOG_MARKS;
+  const ls = (Array.isArray(lines) ? lines : []).filter((l) => typeof l === 'string').map((l) => l.replace(/\s+$/, ''));
+  let state = 'none';
+  if (ls.some((l) => K.lost.some((m) => l.includes(m)))) state = 'lost';
+  else if (ls.some((l) => l.startsWith(K.failed))) state = 'init-failed';
+  else if (ls.some((l) => l.startsWith(K.using))) state = 'gpu';
+  const use = ls.map((l) => (l.startsWith(K.using) ? /^(\d+) /.exec(l.slice(K.using.length)) : null)).find(Boolean);
+  const devs = ls.map((l) => {
+    if (!l.startsWith(K.device)) return null;
+    const rest = l.slice(K.device.length);
+    const end = rest.indexOf(K.deviceEnd);   // 0.15.1 GV-2b（点検の軽微 8）: 名前の終わりの字は GPU_LOG_MARKS.deviceEnd から
+    return end > 0 ? /^(\d+) = (.*)$/.exec(rest.slice(0, end)) : null;
+  }).filter(Boolean);
+  const dev = (use && devs.find((d) => d[1] === use[1])) || devs[0];
+  let device = '';
+  if (dev) {
+    const name = dev[2].replace(/\s+$/, '');
+    const cut = name.lastIndexOf(' (');
+    device = (cut > 0 ? name.slice(0, cut) : name).trim();
+  }
+  return { state, device };
+}
+
+// 記録の行に入れる名前。パスの形（\・/）と行を割る字を除き、100 字まで。空なら 不明
+const gpuLogText = (v) => String(v == null ? '' : v).replace(/[\\/\u0000-\u001f\u007f]/g, '').trim().slice(0, 100) || '不明';
+/**
+ * engine.log の「文字起こしの計算:」の行（決めたこと 55。0.15.1 GV-2b・第9版で2つの形にした）。kind: 'gpu' | 'cpu'。info: { device, why }。
+ * 理由の符号が GPU_WHY の外・知らない kind は ''（書かない）。パス・利用者名・ドライバの版は入れない
+ */
+function gpuLogLine(kind, info = {}) {
+  const o = isPlain(info) ? info : {};
+  if (kind === 'gpu') return `文字起こしの計算: GPU（${gpuLogText(o.device)}）`;
+  if (kind === 'cpu') return GPU_WHY.includes(o.why) ? `文字起こしの計算: CPU（GPU を使えませんでした: 理由 ${o.why}）` : '';
+  return '';
+}
+
 module.exports = {
   PROTOCOL, protocolPlan, linkFromArgv, linkRate,
   STATE_NAMES: SL.STATE_NAMES, BY_NAMES: SL.BY_NAMES, stateLogAdd: SL.stateLogAdd, cleanStateLog: SL.cleanStateLog, stateLogLine: SL.stateLogLine,
@@ -2356,26 +2345,28 @@ module.exports = {
   saveIfExists, fitMemoDoc, memoDocBare, meetingDurationSec, promptTail,
   registerHotkeys, hotkeyFailureMessage, hotkeyStatus, resolveStartupHotkeys, saveHotkeys,
   makeSummaryRunner, tickStep,
-  pasterScript, copyCommand, restoreAfterPaste, parsePasterLine,
-  COPY_SETTLE_MS, RESTORE_DELAY_MS, readClip, clipEquals, copyPrivate, deliverText, readClipRows, CLIP_ROWS_TEXT_MAX, CLIP_ROWS_HTML_MAX,
+  pasterScript, copyCommand, parsePasterLine,
+  COPY_SETTLE_MS, readClip, clipEquals, copyPrivate, readClipRows, CLIP_ROWS_TEXT_MAX, CLIP_ROWS_HTML_MAX,
   engineFileIssue, engineIssueMessage, engineInAppDir, engineDirWarning, portInUseError,
   isAscii, engineSpawnPlan,
   peFileVersion, vcRuntimeVersions, vcRuntimeIssue, runtimeGate, engineExitHint, spawnErrorHint, speedLine,
+  // 0.15.1 GV-1（D126）: GPU 版の組の見分け・記録の行（GV-2b で選び・印・ドライバの鍵・-ng の部品を外した）
+  GPU_WHY, GPU_LOG_MARKS, gpuLogState, gpuLogLine,
   ENGINE_SETTING_KEYS, guardEngineSettings, keptDifferent, closeConfirm, restartBlock, logReason,
   PICK_KEYS, pickDefaultPath,
   truncationMessage, buildPromptParts,
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs,
   nextSegmentMs, EtaTracker, skipPendingSegments, SKIP_KEPT_TEXT,
   ONLINE_SEGMENT_SEC, OVERLAY_SEG_MIN_MS, SEG_SWITCH_AFTER, STICKY_LOCAL, startSegmentMode, segmentModeNext, segmentBaseMs, liveSegmentMs, nextLiveSegmentMs,
-  cloudLikely, offlineChosen, DICTATION_REFUSE_TEXT, startPlan, dictationPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
+  cloudLikely, offlineChosen, startPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT,
   SUMMARY_WAIT_TEXT, summaryRetryPick, SUMMARY_LOCK_TEXT, summaryLock,
-  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute, loginProblem, loginAskPlan,
+  STALL_SPAN_MS, STALL_MIN_DBFS, stallAfter, stallStep, PROBLEM_ORDER, sttProblemOf, problemForRoute, loginProblem, LOGIN_ASK_MOMENTS, loginAskPlan,
   WIN_NOTIFY_CODES, WIN_NOTIFY_GAP_MS, notifyGate,
   OFFLINE_SHOW_MS, OFFLINE_CLEAR_MS, offlineBannerStep,
   idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, typesForView, memoEvidence, buildClaudeInput, routeLabel,
   isLoopbackUrl, loopbackOnlyFetch,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
-  recordDictation, mergeHistory, chooseDraftName,
+  chooseDraftName,
   accountMessage,
   // 0.9.0 レーン O（録音バー）
   PANEL_EDGE, PANEL_FIRST, slotForm, slotOrigin, nearestSlot, PANEL_PAD, PANEL_MAX, PANEL_QUIET_MS, panelBounds, snapsOnQuiet, keyLabel,

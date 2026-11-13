@@ -1,12 +1,12 @@
 ---
 title: NaTsu のはじめかた
 description: 初めて使う人が、インストール・ログイン・要約の準備・相手の声を録る設定を順に進め、会議を記録して議事録を作るまでの手順
-updated: 2026-10-27
+updated: 2026-11-07
 sources: INSTALL.md, README.md, src/renderer/app.html, src/renderer/overlay.html, src/main.js, src/settings.js, tools/help-appshots.js, docs/plans/2026-10-24-130.md
 related: start/overview, record/start-stop, trouble/banners
 ---
 
-NaTsu は、会議を録音して文字起こしし、要約まで作る Windows のアプリです。話した言葉をそのまま入力する「音声入力」もあります。
+NaTsu は、会議を録音して文字起こしし、要約まで作る Windows のアプリです。
 このページでは、初めて使うときの準備（10 分ほど）と、会議を記録して議事録を作るまでを順に説明します。
 写真は、作り物の会議のデータで撮った NaTsu の画面です。画面のどこに何があるかは [NaTsu の全体像](start/overview.md) を見てください。
 
@@ -135,10 +135,9 @@ PowerShell を打たなくても、サイドバーの ［設定］ を押し、�
 
 録音の始め方と止め方のくわしいことは [録音を始める・止める](record/start-stop.md) を見てください。
 
-## 音声入力 {#dictation}
+## Windows の音声入力 {#dictation}
 
-文字を入れたい場所（メールやチャットの入力欄など）をクリックして [[Ctrl+Shift+Space]] を押し、話します。
-もう一度 [[Ctrl+Shift+Space]] を押すと止まり、文字がカーソルの位置に入ります（[音声入力](dictation/dictation.md)）。
+文字を入れたい場所（メールやチャットの入力欄など）を押して [[Win+H]] を押すと、Windows の音声入力で話して入れられます（NaTsu 0.15.1 から。[Windows の音声入力を使う](dictation/dictation.md)）。
 
 ## 知っておいてほしいこと {#notes}
 

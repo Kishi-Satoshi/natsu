@@ -110,7 +110,9 @@ test('1b2 L-2: サイドバーの頭はロゴと NaTsu と飾りの ▾。行は
   assert.strictEqual(l.byId.get('sideSearch').textContent, '🔍検索');
   assert.strictEqual(l.byId.get('mtToggleBtn').textContent, '＋新しい議事録');   // ＋ はアイコンの欄（.ic）。第1b2回の直し（stage1b2.fix.test.js）
   assert.ok(!side.querySelector('#searchBox') && !side.querySelector('#fltAll'), '検索の欄と絞り込みがサイドバーに残っている');
-  for (const id of ['sideSearch', 'mtToggleBtn', 'tabBtnDictation', 'tabBtnSettings']) assert.ok(l.byId.get(id).className.split(' ').includes('side-row'), id);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 下の行は［⚙️ 設定］（音声入力の行は無い）
+  for (const id of ['sideSearch', 'mtToggleBtn', 'tabBtnSettings']) assert.ok(l.byId.get(id).className.split(' ').includes('side-row'), id);
+  assert.strictEqual(l.byId.get('tabBtnDictation'), undefined);
   assert.strictEqual(S.declsFor(rules, '#sideCollapse:focus-visible', { at: '' }).opacity, '1', 'キーボードで « が見えない');
 });
 
@@ -133,13 +135,14 @@ test('1b2 L-2・G4: ［検索］で窓が開いて入力欄へ。Esc で閉じ�
 // ［検索］でない所から Ctrl+P で開き、Esc で閉じると、その所へ戻ることを見る
 test('1b2 L-2・G4: ［検索］でない所（音声入力の行）から Ctrl+P で開いて Esc で閉じると、開いた元へフォーカスが戻る', async () => {
   const l = await boot();
-  const from = l.byId.get('tabBtnDictation');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 開いた元は［⚙️ 設定］の行（音声入力の行は無い）
+  const from = l.byId.get('tabBtnSettings');
   from.focus();
   l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
   assert.strictEqual(l.byId.get('palette').hidden, false);
   l.key({ key: 'Escape' }, l.byId.get('searchBox')); await l.drain();
   assert.strictEqual(l.byId.get('palette').hidden, true);
-  assert.ok(l.document.activeElement === from, '閉じても開いた元（音声入力の行）へフォーカスが戻らない');
+  assert.ok(l.document.activeElement === from, '閉じても開いた元（設定の行）へフォーカスが戻らない');
 });
 
 test('1b2 L-2・G4: サイドバーを畳んだまま Ctrl+P で開いて Esc で閉じると、フォーカスは［»］へ戻る（隠れた［検索］へ送って見失わない）', async () => {
@@ -163,7 +166,7 @@ test('1b2 L-2・G3: Ctrl+P で開く（preventDefault）。Ctrl+Shift+P・変換
   assert.strictEqual(pal.hidden, true, 'Ctrl+Shift+P（一時停止）で開いた');
   l.key({ key: 'p', code: 'KeyP', ctrlKey: true, isComposing: true }); await l.drain();
   assert.strictEqual(pal.hidden, true, '変換中に開いた');
-  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }, l.byId.get('hotkey')); await l.drain();   // attachHotkey が先に preventDefault する
+  l.key({ key: 'p', code: 'KeyP', ctrlKey: true }, l.byId.get('meetingHotkey')); await l.drain();   // attachHotkey が先に preventDefault する（0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 議事録の欄）
   assert.strictEqual(pal.hidden, true, 'ホットキーを入れている最中に開いた');
 });
 

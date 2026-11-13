@@ -24,7 +24,6 @@ const T = { timeout: sceneTimeout(20000) };
 
 // 0.10.0 LS-5（D62・決めたこと 112）で意図して変えた: オフラインモードは守秘のボタンでない（「外に出したくない会議」「外には送りません」を外した）
 const L1 = 'この会議の音声は OpenAI に送られます（文字起こしのため）。ネットワークが不安定なときは、議事録の画面の［オフラインモード］を押すと、この会議の文字起こしを PC の中で行います。';
-const D1 = 'インターネットにつながっていないため、音声入力を始めませんでした。オンラインに戻ってから、もう一度お試しください。つながっていなくても使うには、設定の「ローカル AI」で準備します。';
 const UNSET_FETCH = '文字起こしエンジンが未設定です。設定タブの［PC の中の文字起こしを取り込む］から取り込んでください。';
 
 // 帯（B11〜B14）と会議の中の知らせ（K1〜K4）。計画「画面と知らせの文」
@@ -105,25 +104,7 @@ test('F5: エンジンのある PC で中継が止まると、その区間は PC
   assert.ok(o.engineLog.includes('起動: オフラインの準備 選んだ'), o.engineLog.join('\n'));
 });
 
-test('D21・決めたこと 5: オフラインでエンジンが無いと音声入力を始めず、本体の窓に D1。録音バーに overlay:start を送らない・履歴は変わらない', T, async () => {
-  const o = await run(['text', '--dictate', '--relay=text', '--offline', '--no-engine=fetchable']);
-  assert.deepStrictEqual(o.notices.map(textOf), [D1], dump(o));
-  assert.strictEqual(o.overlayStarts, 0);
-  assert.deepStrictEqual(o.history, []);
-  assert.deepStrictEqual(o.relayCalls, []);
-  assert.deepStrictEqual(o.spawns, []);
-});
-
-test('D21: エンジンの無い PC でもログインしてオンラインなら音声入力が中継で文字になり、貼り付けに回る', T, async () => {
-  // 0.14.0 EK-6 で意図して直した（R189）: 場面はほかのアプリへの音声入力なので、本体の窓は前にない（前にあると NaTsu の中の音声入力になり、クリップボードを通さない）
-  const o = await run(['text', '--dictate', '--relay=text', '--no-engine=fetchable', '--main-unfocused']);
-  assert.strictEqual(o.overlayStarts, 1);
-  assert.strictEqual(o.history.length, 1, dump(o));
-  assert.match(o.history[0].text, /^本日の議題は進捗の確認です/);
-  assert.strictEqual(posts(o.relayCalls), 1);
-  assert.deepStrictEqual(o.pastes, [o.history[0].text], '文字を貼り付け（クリップボード）に回していない');
-  assert.deepStrictEqual(o.spawns, []);
-});
+// 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md・D114）: 音声入力の始め方（D1）と中継での音声入力のテストは音声入力と一緒に消した（会議の分 OF1〜OF4 は残す）
 
 // ---------------------------------------------------------------- M-2（OF2・F1・F4・F6）
 test('F1: 中継が止まった2つの区間は「文字起こし待ち」の失敗の区間になり、その WAV が segbuf に残る。帯は B11（ボタン無し）で、B1・B4 は出ない。知らせは L1 と K3 の1回ずつ。Windows の知らせは出ない。手元のエンジンを起こさない・区間が片付くまで 2 秒以内', T, async () => {
@@ -287,8 +268,8 @@ test('F2: オフラインの見回り3回では中継へ何も送らず（/healt
   const o = await run(['text', '--relay-seq=cn', '--no-engine=fetchable', '--ticks-offline=3']);
   assert.strictEqual(o.ticksOffline.ticks, 3);
   assert.deepStrictEqual(o.ticksOffline.relayAdded, []);
-  // 待ち行列 1・音声入力 0・理由 offline（オフラインの間は何もしない）
-  assert.deepStrictEqual(o.ticksOffline.logAdded, ['文字起こし待ち: 見回り（1・0・offline）']);
+  // 待ち行列 1・理由 offline（オフラインの間は何もしない）。0.15.1 ND-2 で意図して直した: 残した音声入力の数（真ん中の 0）は数えなくなった
+  assert.deepStrictEqual(o.ticksOffline.logAdded, ['文字起こし待ち: 見回り（1・offline）']);
 });
 
 test('F2: PC の中だけの待ち行列が先にあっても、後ろのクラウドの待ち行列が見回りで文字になる。PC の中だけの区間は中継へ送らず、その WAV と recovery.json は残る。「復旧の文字起こしを保留」は起動から終わりまでで1行', T, async () => {
@@ -310,13 +291,14 @@ test('F5・RF49: エンジンのある PC で、起動の後に置いた PC の�
 });
 
 test('F5・RF49: エンジンのある PC の見回りは、中継が /health に答えて文字起こしだけ 502 でも、手元のエンジンで文字起こししない（inference 0）。待ち行列と残した音声入力（行の wait と WAV）は残る', T, async () => {
-  const o = await run(['text', '--relay=text', '--relay-seq=5', '--extra-queue-late=cloud', '--wait-dictwait', '--idle', '--kept-ticks=2']);
+  // 0.15.1 ND-2 で意図して直した: 残した音声入力は前の版のファイル（履歴の行と WAV）として置き、見回りが触らないことを見る
+  const o = await run(['text', '--relay=text', '--relay-seq=5', '--extra-queue-late=cloud', '--history-file=ok', '--dictwait=1', '--idle', '--kept-ticks=2']);
   assert.ok(sttPosts(o) >= 1, '前提: 見回りが中継へ送っていない');
   assert.deepStrictEqual(o.requests, [], '手元のエンジンで文字起こしした');
   assert.ok(o.files.some((f) => /^data\/segbuf\/[^/]+\/recovery\.json$/.test(f)), JSON.stringify(o.files));
   assert.strictEqual(o.files.filter((f) => /^data\/segbuf\/.+\.wav$/.test(f)).length, 1, JSON.stringify(o.files));
-  assert.ok(o.files.some((f) => /^data\/dictwait\/\d+-hwait1\.wav$/.test(f)), JSON.stringify(o.files));
-  assert.deepStrictEqual(o.history.map((h) => [h.id, Boolean(h.wait)]), [['hwait1', true]], JSON.stringify(o.history));
+  assert.ok(o.files.some((f) => /^data\/dictwait\/\d+-hkeep1\.wav$/.test(f)), JSON.stringify(o.files));
+  assert.deepStrictEqual(JSON.parse(o.historyText).slice(0, 1).map((h) => [h.id, Boolean(h.wait)]), [['hkeep1', true]], o.historyText);
   assert.ok(o.pages[0].segments.every((x) => x.failed), JSON.stringify(o.pages));
 });
 
@@ -392,115 +374,5 @@ test('F5: エンジンのある PC で押すと needsSetup は偽・P1 も B14 �
   assert.strictEqual(sttPosts(o), 0);
 });
 
-// ---------------------------------------------------------------- M-5（OF5・F7・F9）
-const D4 = '文字起こしできなかったので、音声を残しました。つながると文字起こしして、履歴に入れます。';
-const D5 = '（文字起こし待ち: 音声は残してあります）';
-const D6 = (n) => `残しておいた音声入力を ${n} 件文字起こしして、履歴に入れました（貼り付けはしていません）。`;
-const waitFiles = (files) => files.filter((f) => /^data\/dictwait\/\d+-[A-Za-z0-9]+\.wav$/.test(f));
-const overlayMsgs = (o) => (o.overlayPhases || []).map((p) => p.message);
-
-test('F7: 録った後で中継が使えないと、音声を dictwait に残し、履歴に D5 の行、録音バーに D4。貼り付けは 0 回。戻った見回りで行が文字になり、WAV が消え、D6 を1回、貼り付けは 0 回のまま', T, async () => {
-  const o = await run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-back']);
-  assert.strictEqual(o.history.length, 1, dump(o));
-  const h = o.history[0];
-  assert.strictEqual(h.text, D5);
-  assert.match(h.wait, /^\d+-[A-Za-z0-9]+\.wav$/);
-  assert.ok(h.wait.endsWith(`-${h.id}.wav`), `ファイルの名前に履歴の id が無い: ${h.wait}`);
-  assert.ok(!h.wait.includes('/') && !h.wait.includes('\\'), 'パスを書いた');
-  assert.ok(overlayMsgs(o).includes(D4), JSON.stringify(o.overlayPhases));
-  assert.deepStrictEqual(o.pastes, []);
-  assert.deepStrictEqual(waitFiles(o.files), [`data/dictwait/${h.wait}`]);
-  assert.ok(o.engineLog.some((l) => /^音声入力: 音声を残した（\d+ 秒）$/.test(l)), o.engineLog.join('\n'));
-  // 戻った
-  const b = o.dictBack;
-  assert.strictEqual(b.history.length, 1);
-  assert.strictEqual(b.history[0].id, h.id);
-  assert.match(b.history[0].text, /^本日の議題は進捗の確認です/);
-  assert.strictEqual(b.history[0].wait, undefined);
-  assert.deepStrictEqual(waitFiles(b.files), []);
-  assert.strictEqual(b.notices.filter((n) => textOf(n) === D6(1)).length, 1, JSON.stringify(b.notices));
-  assert.deepStrictEqual(b.pastes, [], '戻った後に貼り付けた');
-});
-
-test('F7: 履歴の上限で行が切れても、見回りがその時刻の行を足し直して文字にする', T, async () => {
-  const o = await run(['text', '--dictate-twice', '--relay-seq=nc', '--max-history=1', '--no-engine=fetchable', '--dict-back']);
-  assert.strictEqual(o.history.length, 1, '前提: 上限で残した行が切れていない');
-  assert.strictEqual(o.history[0].wait, undefined);
-  assert.strictEqual(waitFiles(o.files).length, 1, '前提: 残した音声が無い');
-  const id = waitFiles(o.files)[0].match(/-([A-Za-z0-9]+)\.wav$/)[1];
-  const b = o.dictBack;
-  const row = b.history.find((x) => x.id === id);
-  assert.ok(row, JSON.stringify(b.history));
-  assert.match(row.text, /^本日の議題は進捗の確認です/);
-  assert.deepStrictEqual(b.history.map((x) => x.id), [o.history[0].id, id], '時刻の順の所に足していない');
-  assert.deepStrictEqual(waitFiles(b.files), []);
-});
-
-test('F9: 8 日前の残した音声入力の WAV は起動の掃除で消えない', T, async () => {
-  const o = await run(['text', '--old-dictwait', '--idle']);
-  assert.strictEqual(waitFiles(o.files).length, 1, JSON.stringify(o.files));
-});
-
-test('OF5: 履歴の行を消すと、残した WAV も消える（全部消すときも）', T, async () => {
-  const [d, c] = await Promise.all([run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-delete']),
-    run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-clear'])]);
-  for (const o of [d, c]) assert.strictEqual(waitFiles(o.files).length, 1, '前提: 残した音声が無い');
-  assert.deepStrictEqual(d.afterDelete.history, []);
-  assert.deepStrictEqual(waitFiles(d.afterDelete.files), [], '行を消しても WAV が残った');
-  assert.deepStrictEqual(c.afterClear.history, []);
-  assert.deepStrictEqual(waitFiles(c.afterClear.files), [], '全部消しても WAV が残った');
-});
-
-test('F7: 保存した後・消す前に落ちた WAV は、行を足し直さずに消す（履歴の行の数は変わらない・中継へ送らない）', T, async () => {
-  const o = await run(['text', '--done-dictwait', '--relay=text', '--idle', '--kept-ticks=1']);
-  assert.deepStrictEqual(waitFiles(o.files), []);
-  assert.strictEqual(o.history.length, 1, JSON.stringify(o.history));
-  assert.strictEqual(o.history[0].text, '保存した後に落ちた音声入力の文');
-  assert.strictEqual(sttPosts(o), 0);
-});
-
-test('F5・F7・決めたこと 14: 選んだ人でも、手元が使えずクラウドで始めた音声入力は、中継が使えないと音声を dictwait に残す（音声を捨てない）', T, async () => {
-  const o = await run(['text', '--dictate', '--relay-seq=n', '--no-whisper']);
-  assert.strictEqual(o.history.length, 1, dump(o));
-  assert.strictEqual(o.history[0].text, D5);
-  assert.strictEqual(waitFiles(o.files).length, 1, JSON.stringify(o.files));
-  assert.ok(overlayMsgs(o).includes(D4), JSON.stringify(o.overlayPhases));
-});
-
-test('F7: 見回りが残した音声入力を文字起こししている間に利用者がその行を消すと、行を足し直さない（行の数は 0 のまま・WAV も無い・D6 は出ない）', T, async () => {
-  const o = await run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-back=delete']);
-  assert.strictEqual(o.history.length, 1, '前提: 残した行が無い');
-  const id = o.history[0].id;
-  assert.deepStrictEqual(o.deletedDuring, { id, history: 0 }, '前提: 送っている間に消していない');
-  const b = o.dictBack;
-  assert.deepStrictEqual(b.history, [], '利用者が消した行を足し直した');
-  assert.deepStrictEqual(waitFiles(b.files), []);
-  assert.strictEqual(b.notices.filter((n) => /^残しておいた音声入力を/.test(textOf(n))).length, 0, JSON.stringify(b.notices));
-  assert.deepStrictEqual(b.pastes, []);
-});
-
-test('F7: 見回りで文字になっても（空の答えでも）履歴を保存できなければ、残した WAV を消さず、行も「文字起こし待ち」（wait）のまま。D6 は出ない', T, async () => {
-  // 2つ目は、見回りの文字起こしの答えが空（無音）。行を消す保存ができなければ、行も WAV も残す
-  const [t, e] = await Promise.all([run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-back=readonly']),
-    run(['text', '--dictate', '--relay-seq=n', '--relay-req-text=e', '--no-engine=fetchable', '--dict-back=readonly'])]);
-  for (const [o, line] of [[t, '履歴: 残した音声入力の文字を保存できませんでした（音声は残します）'], [e, '履歴: 残した音声入力の行を消せませんでした（音声は残します）']]) {
-    const h = o.history[0];
-    assert.strictEqual(h.text, D5, '前提: 残した行が無い');
-    const b = o.dictBack;
-    assert.ok(b.engineLog.some((l) => l.startsWith('文字起こしの経路: 音声入力（残した音声） → cloud')), '前提: 見回りが文字起こししていない');
-    assert.deepStrictEqual(waitFiles(b.files), [`data/dictwait/${h.wait}`], '保存できないのに WAV を消した');
-    assert.deepStrictEqual(b.history.map((x) => [x.id, x.text, x.wait]), [[h.id, D5, h.wait]], JSON.stringify(b.history));
-    assert.ok(b.engineLog.includes(line), b.engineLog.join('\n'));
-    assert.strictEqual(b.notices.filter((n) => /^残しておいた音声入力を/.test(textOf(n))).length, 0, JSON.stringify(b.notices));
-  }
-});
-
-test('F7・RF20: 音声入力の音声を残す一時ファイルの名前の変更が1回 EPERM（ウイルス対策が掴んだ）でも、待ってやり直して残す（D5 の行・WAV・.tmp は残らない）', T, async () => {
-  const o = await run(['text', '--dictate', '--relay-seq=n', '--no-engine=fetchable', '--dict-rename-busy-once']);
-  assert.strictEqual(o.dictRenameBusy, 1, '前提: 名前の変更を止めていない');
-  assert.strictEqual(o.history.length, 1, dump(o));
-  assert.strictEqual(o.history[0].text, D5);
-  assert.deepStrictEqual(waitFiles(o.files), [`data/dictwait/${o.history[0].wait}`]);
-  assert.ok(!o.files.some((f) => f.endsWith('.tmp')), JSON.stringify(o.files));
-  assert.ok(overlayMsgs(o).includes(D4), JSON.stringify(o.overlayPhases));
-});
+// 0.15.1 ND-2（D114・WQ2）: M-5（音声入力の音声を残す・見回りで文字にする・履歴の行を消すと WAV も消す）のテストは、音声入力と一緒に消した。
+// 前の WAV と履歴のファイルを読まない・書かない・消さないことは test/stage151.main.test.js の ND-2 が見る

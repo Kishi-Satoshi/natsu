@@ -37,7 +37,8 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.deepStrictEqual(r.files.filter((f) => f.includes('.broken-')), []);
     assert.strictEqual(r.settingsText, JSON.stringify(SC.TYPICAL, null, 2), '起動しただけで settings.json を書き直した');
     for (const [k, v] of Object.entries(SC.TYPICAL)) assert.deepStrictEqual(r.got[k], v, k);
-    assert.deepStrictEqual(r.history, SC.HISTORY);
+    // 0.15.1 ND-2（D114）で意図して変えた: 前の音声入力の履歴は読まない（ファイルは元のまま）
+    assert.strictEqual(r.historyText, JSON.stringify(SC.HISTORY, null, 2));
   });
 
   test('RF23: BOM 付きの settings.json でも全部の値のまま読め、エンジンは手で設定した exe のまま起きる', SCENE, async () => {
@@ -62,20 +63,23 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     const saved = JSON.parse(r.settingsText);
     // 0.9.0 O-1 で意図して変えた: 壊れた録音バーの値は pillSlot で見る（pillPos は知らないキーになり、0.9.0 は直さない）。壊れた pillSlot は
     // 既定に戻した後、正しい pillSlot が無いので起動の前の位置の直しが前の版の pillCustom（40, 60）から一番近い top-left にする
-    assert.deepStrictEqual([saved.maxHistory, saved.pillSlot, saved.theme, saved.futureKey], [500, 'top-left', 'dark', { a: 1 }]);
+    // 0.15.1 ND-1（決めたこと 4）で意図して変えた: maxHistory は表から外した知らないキー（壊れた -1 も直さず値のまま書き戻す）。直す項目は segmentSec で見る
+    assert.deepStrictEqual([saved.maxHistory, saved.segmentSec, saved.pillSlot, saved.theme, saved.futureKey], [-1, 20, 'top-left', 'dark', { a: 1 }]);
     const n = ours(r.notices);
     assert.strictEqual(n.length, 1);
-    assert.ok(n[0].includes(label('maxHistory')) && n[0].includes(label('pillSlot')) && n[0].includes(copies[0]), n[0]);
-    assert.ok(r.engineLog.some((l) => /設定: 一部を既定に戻しました（pillSlot: type、maxHistory: range）/.test(l)), r.engineLog.join('\n'));
+    assert.ok(n[0].includes(label('segmentSec')) && n[0].includes(label('pillSlot')) && n[0].includes(copies[0]), n[0]);
+    assert.ok(!n[0].includes('音声入力の履歴の件数'), n[0]);
+    assert.ok(r.engineLog.some((l) => /設定: 一部を既定に戻しました（pillSlot: type、segmentSec: range）/.test(l)), r.engineLog.join('\n'));
     assert.ok(!r.engineLog.some((l) => /"pillSlot"\s*:\s*5|pillSlot: 5/.test(l)), '値を記録に書いた');
   });
 
   test('JS6・N8: オンとオフの欄の "false" の文字は、今までどおりオンのまま、知らせて真偽値で書き戻す', SCENE, async () => {
     const r = await run('falselike');
-    assert.strictEqual(JSON.parse(r.settingsText).autoPaste, true);
+    // 0.15.1 ND-1（決めたこと 4）で意図して変えた: autoPaste は表から外したので、"false" の文字は soundFeedback で見る
+    assert.strictEqual(JSON.parse(r.settingsText).soundFeedback, true);
     const n = ours(r.notices);
     assert.strictEqual(n.length, 1);
-    assert.ok(n[0].includes(label('autoPaste')) && n[0].includes('"false"'), n[0]);
+    assert.ok(n[0].includes(label('soundFeedback')) && n[0].includes('"false"'), n[0]);
   });
 
   test('JS2・P16: 壊れた settings.json は名前を変えて退け、既定で起動し、退けた名前を知らせる', SCENE, async () => {
@@ -94,12 +98,12 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.ok(ours(r.notices).some((n) => n.startsWith('設定のファイルの文字の形式')), r.notices.join('\n'));
   });
 
-  test('JS2・P16: 壊れた history.json は退けて、空の履歴で始め、知らせる', SCENE, async () => {
+  // 0.15.1 ND-2（D114・計画の決めたこと 3）で意図して変えた: 前の音声入力の履歴は読まないので、壊れていても退けず、知らせない（ファイルは元のまま）
+  test('JS2・P16・0.15.1 ND-2: 壊れた history.json は読まず、退けず、知らせない（ファイルは元のまま）', SCENE, async () => {
     const r = await run('history-broken');
-    assert.strictEqual(brokenOf(r, 'history.json').length, 1);
-    assert.strictEqual(r.historyText, null);
-    assert.deepStrictEqual(r.history, []);
-    assert.ok(ours(r.notices).some((n) => n.startsWith('音声入力の履歴のファイルが壊れていたので')), r.notices.join('\n'));
+    assert.strictEqual(brokenOf(r, 'history.json').length, 0);
+    assert.strictEqual(r.historyText, '[{"id":"h1","text":"途中');
+    assert.ok(!ours(r.notices).some((n) => /履歴/.test(n)), r.notices.join('\n'));
   });
 
   test('JS6: 一部のキーだけの設定（mainrun と同じ形）は、無いキーが黙って既定で埋まるだけ（知らせも書き戻しも無い）', SCENE, async () => {
@@ -118,23 +122,15 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.strictEqual(saved.sumCtx, 32768);
   });
 
-  // 計画の外で足した（履歴の形の確かめを押さえるテストが無かったため。配列でない履歴を持つと、次の口述の unshift で落ちる）
-  test('JS2・P16: 配列でない history.json も壊れたものとして退け、空の履歴で始め、知らせる', SCENE, async () => {
+  // 0.15.1 ND-2（D114）で意図して変えた: 配列でない history.json も読まず、退けず、知らせない
+  test('JS2・P16・0.15.1 ND-2: 配列でない history.json も読まず、退けず、知らせない（ファイルは元のまま）', SCENE, async () => {
     const r = await run('history-shape');
-    assert.strictEqual(brokenOf(r, 'history.json').length, 1);
-    assert.deepStrictEqual(r.history, []);
-    assert.ok(ours(r.notices).some((n) => n.startsWith('音声入力の履歴のファイルが壊れていたので')), r.notices.join('\n'));
+    assert.strictEqual(brokenOf(r, 'history.json').length, 0);
+    assert.deepStrictEqual(JSON.parse(r.historyText), { id: 'h1', text: '配列でない' });
+    assert.ok(!ours(r.notices).some((n) => /履歴/.test(n)), r.notices.join('\n'));
   });
 
-  // 計画の外で足した（N10 を押さえるテストが無かったため）
-  test('JS5・P16: 履歴の全消しを保存できなければ知らせ（N10）、画面には消した後の履歴を返し、ファイルは元のまま・一時ファイルも残さない', SCENE, async () => {
-    const r = await run('history-save-fail');
-    assert.deepStrictEqual(r.cleared, []);
-    assert.deepStrictEqual(r.history, []);
-    assert.strictEqual(r.historyText, JSON.stringify(SC.HISTORY, null, 2));
-    assert.deepStrictEqual(r.files.filter((f) => f.endsWith('.tmp')), []);
-    assert.ok(ours(r.notices).some((n) => n.startsWith('音声入力の履歴の変更を保存できませんでした')), r.notices.join('\n'));
-  });
+  // 0.15.1 ND-2: 履歴の全消しを保存できないときの知らせ（N10）のテストは、履歴の全消しと一緒に消した
 
   // 第1a回 Task 2-3: 書けないとき・読めないとき
   test('JS5・F2: 設定を書けなくても、テーマまで当てて warning で返し、ファイルは元のまま。次の書き出しでやり直して書ける', SCENE, async () => {
@@ -183,27 +179,13 @@ describe('第1a回 保存の守り（main）', { concurrency: Number(process.env
     assert.strictEqual(r.retriesDuring, 2, '会議の最中の読み直しを後へ回していない');
     assert.strictEqual(r.themeDuring, 'light', '会議の最中に設定を切り替えた（エンジンが再起動して区間を失う）');
     assert.strictEqual(r.themeAfter, 'dark', '会議の後の読み直しで本当の値に切り替わらない');
-  });
-
-  test('RF22・#57: 読めなかった設定の読み直しは、音声入力の最中も切り替えずに後へ回し（待つ時計はいつも1つ）、取り消した後の読み直しで本当の値に切り替える', SCENE, async () => {
-    const r = await run('unreadable-dictation');
-    assert.strictEqual(r.hotkeyRegistered, true);
-    assert.strictEqual(r.retriesBefore, 1);
-    assert.strictEqual(r.retriesDuring, 2, '音声入力の最中の読み直しを後へ回していない');
+    // 0.15.1 ND-2（R21）で足した: 待っている読み直しの時計はいつも1つ（音声入力の場面が見ていた分を会議の場面で見る）
     assert.strictEqual(r.retriesDuring2, 3);
-    assert.strictEqual(r.themeDuring, 'light', '音声入力の最中に設定を切り替えた（エンジンが再起動して口述を失う）');
     assert.strictEqual(r.pendingDuring, 1, '読み直しの時計が2つ以上待っている');
-    assert.strictEqual(r.themeAfter, 'dark', '取り消した後の読み直しで本当の値に切り替わらない');
     assert.strictEqual(r.pendingAfter, 0);
   });
 
-  test('RF22: 読めなかった履歴は、読めるまで書かず（全消しでもファイルは元のまま）、読み直せたらファイルの履歴が戻る', SCENE, async () => {
-    const r = await run('history-unreadable');
-    assert.ok(ours(r.notices).some((n) => n.startsWith('音声入力の履歴のファイルをほかのプログラムが使っていて')));
-    assert.deepStrictEqual(r.cleared, []);
-    assert.strictEqual(r.textWhileUnreadable, JSON.stringify(SC.HISTORY, null, 2));
-    assert.deepStrictEqual(r.after.map((h) => h.id), ['h1']);
-  });
+  // 0.15.1 ND-2: 音声入力の最中の設定の読み直し（#57 の音声入力の側）と、読めない履歴の読み直しのテストは、音声入力と一緒に消した（会議の最中の読み直しは上の JS5・F2）
 
   // 第1a回 Task 2-4: 録音バーの位置のまとめ書き・書き出しの合図・始めの片付け
   // 0.9.0 O-1（設計書 D25）で意図して変えた: 録音バーを動かすと、前の自由な位置（pillCustom）でなく一番近い置き場所の名前（pillSlot）を

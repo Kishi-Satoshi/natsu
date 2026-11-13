@@ -97,12 +97,8 @@ test('RDY-1（RD2・F81）: 始めるだけの口 meeting:start。続けて2回 
   assert.strictEqual(o.snaps.s2.dbSent.filter((c) => c === 'meeting.begin').length, 1);
 });
 
-test('RDY-1（RD18・F91）: 音声入力の録音中の meeting:start は「他の処理を実行中です」で断り、録音の前のページは残る', S, async () => {
-  const o = await run([['ipc', 'meeting:prepare'], ['ipc', 'meeting:set-memo', MEMO], ['dictate'], ['ipc', 'meeting:start'], ['snap', 'd']]);
-  assert.deepStrictEqual(ipcOf(o, 'meeting:start'), [{ ok: false, error: '他の処理を実行中です' }]);
-  assert.deepStrictEqual(o.snaps.d.status.prep, { memo: MEMO, meetingType: null });
-  assert.strictEqual(o.snaps.d.active, false);
-});
+// 0.15.1 ND-2（D114）: 音声入力の録音中の meeting:start の断り（RD18 の音声入力の分）は、音声入力と一緒に消した
+
 
 // ---------------------------------------------------------------- RDY-1（RD4・RD8・RD17。F85）
 for (const [name, startStep] of [['meeting:start', [['ipc', 'meeting:start']]], ['hotkey-meeting', [['hotkey-meeting']]], ['tray-start', [['tray-start']]], ['nudge:start', [...L('mic teams:1'), ...L('mic teams:1'), ['wait-show', 1], ['ipc', 'nudge:start', {}]]]]) {

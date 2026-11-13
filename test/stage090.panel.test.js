@@ -171,7 +171,7 @@ describe('0.9.0 O-1 前の位置の直し（場面）', { concurrency: Number(pr
 const lastB = (o) => o.overlayBounds[o.overlayBounds.length - 1];
 describe('0.9.0 O-2 窓の大きさと吸い付き（場面）', { concurrency: Number(process.env.NATSU_SCENE_CONCURRENCY) || 4 }, () => {
   test('RP4: 右下の置き場所で録音バーの画面が 236×40 を送ると、窓は 252×56 になり、右の端と下の端は前と同じ（作業領域の端から 12 − 8）。同じ大きさが2回来ても setBounds は1回', SCENE, async () => {
-    const o = await run(['text', '--dictate', '--settings-json=slot-bottom-right', '--panel-size=236x40']);
+    const o = await run(['text', '--settings-json=slot-bottom-right', '--panel-size=236x40']);   // 0.15.1 ND-2: 乗り物を音声入力から議事録に
     const atStart = o.panel.boundsAtStartList[o.panel.boundsAtStartList.length - 1];
     assert.deepStrictEqual(atStart, { x: 1920 - 4 - 256, y: 1040 - 4 - 56, width: 256, height: 56 }, '録音の始めの窓が PANEL_FIRST.h でない');
     assert.deepStrictEqual(o.panel.afterSize, [{ x: 1920 - 4 - 252, y: 1040 - 4 - 56, width: 252, height: 56 }]);
@@ -195,7 +195,7 @@ describe('0.9.0 O-2 窓の大きさと吸い付き（場面）', { concurrency: 
 
   // G-2（統合）: 点検する人の変異 rp-size-form・rp-self-move（生き残った）を殺す場面
   test('RP4: 今の形でない形（縦）の大きさの知らせ（形を替える前に録音バーの画面が送った古い大きさ）では、横の窓を作り直さない', SCENE, async () => {
-    const o = await run(['text', '--dictate', '--panel-size=56x236', '--panel-size-form=v']);
+    const o = await run(['text', '--panel-size=56x236', '--panel-size-form=v']);   // 0.15.1 ND-2: 乗り物を音声入力から議事録に
     assert.strictEqual(o.overlaySent[0].form, 'h', '前提: 横の形で始まっていない');
     assert.deepStrictEqual(o.panel.afterSize, [], '前の形の大きさで窓を作り直した');
   });
@@ -244,24 +244,31 @@ describe('0.9.0 O-4 隠す・出し直す（場面）', { concurrency: Number(pr
     assert.ok(o.pages[0].segments.length >= 2 && o.pages[0].segments.every((s) => !s.failed && s.text), JSON.stringify(o.pages[0].segments));
   });
 
-  test('RP8: 隠したままマイクのエラーが来ると、録音バーを出してから（showInactive）エラーの文を送る', SCENE, async () => {
-    const o = await run(['text', '--dictate', '--hide-panel=error']);
-    const calls = o.panel.hide.afterError.calls;
-    const iHide = calls.lastIndexOf('hide');
-    const iShow = calls.indexOf('showInactive', iHide);
-    const iErr = calls.indexOf('phase:error', iHide);
-    assert.ok(iHide >= 0 && iErr > iHide, `エラーの文を送っていない: ${calls}`);
-    assert.ok(iShow > iHide && iShow < iErr, `隠したままエラーの文を送った: ${calls}`);
-    assert.strictEqual(o.panel.hide.afterError.panelHidden, false);
-    // 議事録でも、隠したままマイクのエラーが来たら出し直してから締める（作成中の文を見せる）
+  // 0.15.1 ND-2 で意図して変えた: 音声入力（エラーの文を録音バーに出す）の分を外した。議事録は隠したままマイクのエラーが来たら出し直してから締める
+  test('RP8: 隠したままマイクのエラーが来ると、録音バーを出してから（showInactive）締める（作成中の文を見せる）', SCENE, async () => {
     const m = await run(['text', '--hide-panel=error']);
     const mc = m.panel.hide.afterError.calls;
     const mHide = mc.lastIndexOf('hide');
     assert.ok(mHide >= 0 && mc.indexOf('showInactive', mHide) > mHide, `議事録で隠したまま締めた: ${mc}`);
   });
 
+  // 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md の F154・R21）で足した: 隠したままエラーの文を出す前に出し直す守り（前の版の変異 rp-hide-error）は、
+  // 音声入力のエラーの場面が殺していた。会議を隠したまま止めて議事録の保存に失敗した（録音バーに「議事録を保存できませんでした」）場面に乗せ替えた
+  test('RP8・0.15.1 ND-2: 会議の録音バーを隠したまま止めて議事録の保存に失敗すると、エラーの文を出す前に録音バーを出し直す', SCENE, async () => {
+    const steps = [['sleep', 200], ['start'], ['seg', 2], ['ipc', 'overlay:hide-panel'], ['snap', 'hidden'], ['db-fail', 'meeting.finalize'], ['ipc', 'meeting:toggle'], ['final-only'], ['sleep', 300], ['snap', 'after']];
+    const o = await run(['text', `--mic-feed=${JSON.stringify(steps)}`]);
+    assert.strictEqual(o.snaps.hidden.panelHidden, true, '前提: 録音バーを隠していない');
+    assert.ok(o.overlayPhases.some((p) => p.phase === 'error' && p.message === '議事録を保存できませんでした'), JSON.stringify(o.overlayPhases));
+    const calls = o.panelCalls;
+    const iHide = calls.lastIndexOf('hide');
+    const iErr = calls.indexOf('phase:error', iHide);
+    assert.ok(iHide >= 0 && iErr > iHide, `エラーの文を送っていない: ${calls}`);
+    const iShow = calls.indexOf('showInactive', iHide);
+    assert.ok(iShow > iHide && iShow < iErr, `隠したままエラーの文を送った: ${calls}`);
+  });
+
   test('RP8: 隠した後の次の録音では、録音バーを出す（panelHidden は偽に戻り、トレイの項目も無い）', SCENE, async () => {
-    const o = await run(['text', '--dictate', '--hide-panel=next']);
+    const o = await run(['text', '--hide-panel=next']);   // 0.15.1 ND-2: 音声入力の取り消しと次の録音を、議事録の破棄と次の議事録にした
     const h = o.panel.hide;
     assert.strictEqual(h.afterHide.panelHidden, true);
     // G-2（統合）: 点検する人の変異 rp-hidden-status を殺す: 録音を取り消した後（録音していない間）は、meeting:status の panelHidden は偽
@@ -269,7 +276,7 @@ describe('0.9.0 O-4 隠す・出し直す（場面）', { concurrency: Number(pr
     assert.strictEqual(h.afterNext.panelHidden, false);
     assert.ok(!h.afterNext.tray.includes(SHOW_TRAY), `次の録音でトレイに項目が残る: ${h.afterNext.tray}`);
     assert.deepStrictEqual(h.afterNext.calls.slice(h.afterHide.calls.length).filter((c) => !c.startsWith('phase:')), ['showInactive']);
-    assert.strictEqual(o.history.length, 1, '次の録音の音声入力が履歴に入らない');
+    assert.strictEqual(o.pages.length, 1, '次の議事録が残らない（破棄した1つ目は残らない）');
   });
 
   test('F18: 縦の形でカーソルが窓に入ると overlay:hover の真を1回、出ると偽を1回。横の形・隠した後は送らない（見張りが止まる）', SCENE, async () => {

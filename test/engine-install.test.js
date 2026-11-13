@@ -61,7 +61,8 @@ test('置き場所: %LOCALAPPDATA%\\natsu\\engine（Roaming には置かない�
 // 0.10.0 LS-3（D59）で意図して直した: 取り込む組は文字起こし（whisper）だけ（要約の組 sum を外した）
 test('並び: エンジンは版ごとのフォルダ、モデルは models の下。組は whisper だけ', () => {
   const L = I.layout('C:\\e', MANIFEST, path.win32);
-  assert.strictEqual(L.whisper.exe, 'C:\\e\\whisper-1.9.5\\whisper-server.exe');
+  // 0.15.1 GV-1（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト（第7版）」・D126）で意図して直した: GPU 版の組の置き場所 whisper-1.9.5-vk
+  assert.strictEqual(L.whisper.exe, 'C:\\e\\whisper-1.9.5-vk\\whisper-server.exe');
   assert.strictEqual(L.whisper.model, 'C:\\e\\models\\ggml-large-v3-turbo-q5_0.bin');
   assert.strictEqual(L.whisper.vad, 'C:\\e\\models\\ggml-silero-v6.2.0.bin');
   assert.strictEqual(L.sum, undefined);
@@ -129,8 +130,8 @@ test('managedCandidates と statusOf は、通信もフォルダ作りもしな�
   assert.deepStrictEqual(I.managedCandidates(home, MANIFEST, inst, fs.statSync), { whisper: null });
   const s = I.statusOf({ home, manifest: MANIFEST, plan: I.planInstall(MANIFEST, inst, fs.statSync, root),
     candidates: { whisper: null }, manual: { whisper: false }, installed: inst });
-  // 0.10.0 LS-3（D59）で意図して直した: 合計は文字起こしの組だけ
-  assert.strictEqual(s.state, 'missing'); assert.strictEqual(s.totalBytes, 583854933); assert.strictEqual(s.whisperBytes, 583854933);
+  // 0.10.0 LS-3（D59）で意図して直した: 合計は文字起こしの組だけ。0.15.1 GV-1（「意図して変えるテスト（第7版）」）で意図して直した: GPU 版の組で 595,367,104
+  assert.strictEqual(s.state, 'missing'); assert.strictEqual(s.totalBytes, 595367104); assert.strictEqual(s.whisperBytes, 595367104);
   assert.ok(!fs.existsSync(path.join(d, 'まだ無い')), 'フォルダを作った');
   for (const it of s.items) { assert.match(it.place, /^%LOCALAPPDATA%\\natsu\\engine\\/); assert.ok(it.sha256 && it.url && it.version && it.license, it.id); }
 });

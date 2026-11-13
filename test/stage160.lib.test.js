@@ -664,6 +664,7 @@ test('DX-1（前提 P6・決めたこと 42・45）: 🗃️ は辞書の「物�
   // タブの鍵（決めたこと 45）: 行の ID（r＋36 進）も覚える。形の悪い鍵は今どおり落とす
   assert.strictEqual(W.tabKeyOk('page:rmz3k1abcd'), true, '行のタブの鍵を落とす');
   for (const k of ['page:r', 'page:R1', 'page:x1', 'page:r../x', 'page:rA1', 'page:b1', `page:r${'a'.repeat(41)}`]) assert.strictEqual(W.tabKeyOk(k), false, k);
-  const r = W.keepTabs({ open: ['page:pa1', 'page:rb1', 'page:rgone', 'dictation'], active: 'page:rb1' }, (id) => id === 'pa1' || id === 'rb1');
-  assert.deepStrictEqual(r, { tabs: { open: ['page:pa1', 'page:rb1', 'dictation'], active: 'page:rb1' }, dropped: 1 });
+  // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.15.1 で音声入力のタブ（'dictation'）は無くなり、ページでない決まったタブはライブラリ（'library'）
+  const r = W.keepTabs({ open: ['page:pa1', 'page:rb1', 'page:rgone', 'library'], active: 'page:rb1' }, (id) => id === 'pa1' || id === 'rb1');
+  assert.deepStrictEqual(r, { tabs: { open: ['page:pa1', 'page:rb1', 'library'], active: 'page:rb1' }, dropped: 1 });
 });

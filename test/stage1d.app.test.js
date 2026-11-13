@@ -87,7 +87,8 @@ const mail = (local) => local + String.fromCharCode(64) + 'example.com';
 const M = mail('kaigi');
 const R1 = '会社のメールアドレスでログインすると、インターネットにつながっているときに、会議と音声入力の音声を文字起こしの中継に送り、OpenAI で文字起こしします。ログインしていないときと、つながっていないときは、PC の中で文字起こしします。';
 // 0.10.0 LS-5（D62）で意図して変えた: オフラインモードは守秘のボタンでない
-const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議と音声入力の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。ネットワークが不安定なときは、議事録の画面の［オフラインモード］で、その会議の文字起こしを PC の中で行います。';
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議と音声入力の音声」は「会議の音声」
+const ONLINE = 'ログインしていて、インターネットにつながっているときは、会議の音声を文字起こしの中継に送り、OpenAI（gpt-4o-transcribe）で文字起こしします。中継も OpenAI も、音声と文字を保存しません。つながっていないときは、いつも PC の中で文字起こしします。ネットワークが不安定なときは、議事録の画面の［オフラインモード］で、その会議の文字起こしを PC の中で行います。';
 const L3 = 'ログインが切れたため、この PC で文字起こししています（精度が落ちます）。設定の「アカウント」でもう一度ログインしてください。';
 const CLAUDE = () => ({ ok: true, found: true, cmdOnly: false, method: 'claude.ai', message: '' });
 const status = (o = {}) => ({ ok: true, signedIn: false, email: '', method: 'access', until: null, canStore: true, online: { up: true, why: 'ok' }, ...o });
@@ -296,7 +297,7 @@ test('F11: ［詳細設定（管理者用）］・鍵の欄・3つのボタン�
 test('F5: app:notice が { text, action: \'account\' } のとき、トーストに［ログインし直す］があり、押すと設定の「アカウント」のカードが開いて［ログイン］にフォーカスが行く。文字だけの知らせは今のまま', async () => {
   const l = await load(APP, { returns: fakeMain().returns });
   await l.drain();
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   const toastEl = l.byId.get('toast');
   // 文字だけの知らせ: 文だけで、ボタンは無い
   l.fire('onNotice', '要約を作りました');
@@ -473,7 +474,7 @@ test('D17: 帯は録音中のタブだけのもの。ほかのページのタブ
   await l.drain();
   l.fire('onMeetingUpdate', PROB('relay-down', '', '文')); await l.drain();
   assert.strictEqual(l.byId.get('liveSttBanner').hidden, false);
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   const item = l.root.querySelector('#plist .pitem');
   assert.ok(item, '一覧にページが無い（simrun の見本）');
   item.dispatchEvent({ type: 'click' }); await l.drain();
@@ -511,7 +512,7 @@ test('D17: 録音中のタブを開くと meetingLiveShown(true)、ほかのタ�
   assert.strictEqual(lastSent(), false, '設定のポップアップで覆ったのに録音中のページを開いているまま');
   await click(l, 'setClose');
   assert.strictEqual(lastSent(), true, '設定を閉じて録音中のページが見えたのに知らせない');
-  await click(l, 'tabBtnNotes');
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 見出し「議事録」を押して議事録の区画へ戻る道は無い（見出しは「プライベート」で、押すと畳む）。一覧は初めから見えている
   l.root.querySelector('#plist .pitem').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(lastSent(), false, 'ほかのページのタブへ移ったのに録音中のページを開いているまま');
   liveTab().dispatchEvent({ type: 'click' }); await l.drain();
@@ -581,7 +582,8 @@ test('D19: 設定のカードの見出しが『オフライン』で、すぐ下
   assert.strictEqual(lead.textContent.trim(), OFFLINE_LEAD);
   const offPop = l.byId.get('setPopOffline');
   assert.ok(offPop && offPop.parentNode === card, 'オフラインのカードに頭の説明の吹き出しが無い');
-  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議と音声入力はそのまま使えます。', 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしが']) {
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議と音声入力は」は「会議は」
+  for (const w of ['準備しなくても、インターネットにつながっていてログインしていれば、会議はそのまま使えます。', 'インターネットにつながっていないときと、オフラインモードの会議でも、この PC の中で文字起こしが']) {
     assert.ok(offPop.textContent.includes(w), `吹き出しに「${w}」が無い（前の文 ${OFFLINE_D21.length} 字の芯）`);
   }
   assert.strictEqual(l.byId.get('engineState').textContent, 'PC の中の文字起こし：使えます');

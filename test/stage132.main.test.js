@@ -72,17 +72,7 @@ test('LN-2・RF47: オフラインモードの遅い会議の待ち行列は、�
   assert.ok(o.afterQueue.pages[0].segments.every((s) => !s.failed), JSON.stringify(o.afterQueue.pages));
 });
 
-test('LN-2・決めたこと 7: 音声入力で止めた（busy）待ち行列は、音声入力が終わると回る（次の会議を待たない）', T, async () => {
-  const o = await run(['slow', '--extra-queue=localonly3', '--dictate', '--after-dict-queue'], { scale: '0.02' });
-  const log = o.afterDictQueue.log;
-  const busy = log.findIndex((l) => /^復旧の文字起こしを止めました（理由: busy）/.test(l));
-  assert.ok(busy >= 0, log.join('\n'));
-  assert.strictEqual(o.afterDictQueue.queues, 0, `音声入力の後に待ち行列が残った: ${log.join('\n')}`);
-  assert.ok(o.afterDictQueue.pages.every((p) => p.segments.every((s) => !s.failed)), JSON.stringify(o.afterDictQueue.pages));
-  const again = log.indexOf('文字起こし待ち: 始めた（dictation-end）');
-  assert.ok(again > busy, log.join('\n'));
-  assert.ok(log.slice(again).some((l) => /^文字起こしの経路: 復旧 s\d → local/.test(l)), log.join('\n'));
-});
+// 0.15.1 ND-2（D114・計画の決めたこと 11）: 音声入力の後の回し直し（引き金 dictation-end）のテストは、音声入力と一緒に消した（会議の終わりの引き金 meeting-end は上の LN-2・LA3）
 
 test('LN-2・LR10: 区間を1つ文字にするたびに page:pending { id, left } が1つずつ減って届き、最後に running: false。recovery.json の残りも区間ごとに減る', T, async () => {
   const o = await run(['text', '--relay-seq=nnnc', SLOW_PACE, '--wait-queue-empty'], { scale: '1' });
@@ -162,7 +152,7 @@ test('LN-4・LA1・LR1・LR17: 準備を選んだ PC でログインしないで
   assert.deepStrictEqual(nc.loginWins, [], '準備を選んでいない PC の起動でログインの窓を開いた（LR3）');
 });
 
-test('LN-4・決めたこと 1: 準備を選んでいない PC でログインしないで会議を始めると、meeting:toggle の答えは { ok: true } で録音が始まった後に窓が1つ（inactive）。音声入力は断っても、ログインが理由なら窓が1つ', T, async () => {
+test('LN-4・決めたこと 1: 準備を選んでいない PC でログインしないで会議を始めると、meeting:toggle の答えは { ok: true } で録音が始まった後に窓が1つ（inactive）', T, async () => {
   const o = await mic([['start'], ['wait-login', 1], ['snap', 'm']], ...NOT_CHOSEN);
   assert.deepStrictEqual(o.ipc[0], ['start', { ok: true }], JSON.stringify(o.ipc));
   assert.strictEqual(o.snaps.m.active, true);
@@ -171,24 +161,21 @@ test('LN-4・決めたこと 1: 準備を選んでいない PC でログイン�
   const started = o.engineLog.indexOf('会議: 始めた（page）');
   const opened = o.engineLog.indexOf(AUTO('meeting'));
   assert.ok(started >= 0 && opened > started, `録音を始める前に窓を開いた: ${o.engineLog.join('\n')}`);
-  const d = await mic([['dictate'], ['wait-login', 1], ['sleep', 50]], ...NOT_CHOSEN);
-  assert.strictEqual(d.loginWins.length, 1, JSON.stringify(d.loginWins));
-  autoWin(d.loginWins[0]);
-  assert.ok(d.engineLog.includes(AUTO('dictation')), d.engineLog.join('\n'));
 });
 
-test('LN-4・PQ2: オフラインで起動し（窓は 0）、途中でつながっても（見回り1回）窓は 0。その後に音声入力を始めると、録音を始めた後に窓が1つ（貼り付け先は変えない: inactive）', T, async () => {
-  const o = await mic([['sleep', 200], ['snap', 'boot'], ['online', true], ['tick'], ['sleep', 100], ['snap', 'back'], ['dictate'], ['wait-login', 1], ['snap', 'd'], ['dictate-cancel']], '--offline');
+// 0.15.1 ND-2（F154）で意図して変えた: 乗り物を音声入力の始めから会議の始めに乗せ替えた（見ることは同じ）
+test('LN-4・PQ2: オフラインで起動し（窓は 0）、途中でつながっても（見回り1回）窓は 0。その後に会議を始めると、録音を始めた後に窓が1つ（inactive）', T, async () => {
+  const o = await mic([['sleep', 200], ['snap', 'boot'], ['online', true], ['tick'], ['sleep', 100], ['snap', 'back'], ['start'], ['wait-login', 1], ['snap', 'd'], ['stop']], '--offline');
   assert.strictEqual(o.snaps.boot.logins, 0, 'オフラインで起動して窓を開いた');
   assert.strictEqual(o.snaps.back.logins, 0, 'つながった途端に窓を開いた（PQ2）');
-  assert.strictEqual(o.snaps.d.logins, 1, '音声入力の始めに窓を開いていない');
+  assert.strictEqual(o.snaps.d.logins, 1, '会議の始めに窓を開いていない');
   autoWin(o.loginWins[0]);
-  assert.ok(o.engineLog.includes(AUTO('dictation')), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.includes(AUTO('meeting')), o.engineLog.join('\n'));
   assert.ok(!o.engineLog.includes(AUTO('boot')), o.engineLog.join('\n'));
 });
 
-test('LN-4: オフライン（net.isOnline() が偽）では起動・会議・音声入力のどれでも開かない。録音の前のページの［オフラインモードで始める］・パネルの「オフラインモードで始める」でも開かない', T, async () => {
-  const off = await mic([['sleep', 200], ['start'], ['stop'], ['dictate'], ['sleep', 50], ['dictate-cancel'], ['sleep', 50]], '--offline');
+test('LN-4: オフライン（net.isOnline() が偽）では起動・会議のどれでも開かない。録音の前のページの［オフラインモードで始める］・パネルの「オフラインモードで始める」でも開かない', T, async () => {
+  const off = await mic([['sleep', 200], ['start'], ['stop'], ['sleep', 50]], '--offline');   // 0.15.1 ND-2: 音声入力の手順を外した
   assert.deepStrictEqual(off.loginWins, [], `オフラインで窓を開いた: ${off.engineLog.join('\n')}`);
   const page = await mic([['ipc', 'meeting:prepare'], ['ipc', 'meeting:start', { pcOnly: true }], ['sleep', 200]], ...NOT_CHOSEN);
   assert.deepStrictEqual(page.ipc[1], ['meeting:start', { ok: true, localOnly: true }], JSON.stringify(page.ipc));
@@ -198,14 +185,16 @@ test('LN-4: オフライン（net.isOnline() が偽）では起動・会議・�
   assert.deepStrictEqual(panel.loginWins, [], 'パネルの「オフラインモードで始める」で窓を開いた');
 });
 
-test('LN-4・LR18: 自動の窓が開いたままで音声入力・会議を始めても、窓は増えず、その窓に show・focus を呼ばない', T, async () => {
-  const o = await mic([['wait-login', 1], ['dictate'], ['sleep', 50], ['dictate-cancel'], ['start'], ['sleep', 50]]);
+// 0.15.1 ND-2（F154）で意図して変えた: 音声入力の始めを外し、会議を2回始める（見ることは同じ）
+test('LN-4・LR18: 自動の窓が開いたままで会議を始めても（2回）、窓は増えず、その窓に show・focus を呼ばない', T, async () => {
+  const o = await mic([['wait-login', 1], ['start'], ['sleep', 50], ['stop'], ['start'], ['sleep', 50]]);
   assert.strictEqual(o.loginWins.length, 1, JSON.stringify(o.loginWins));
   autoWin(o.loginWins[0]);
 });
 
-test('LN-4・LR4・PQ3: 自動の窓を × で閉じると、同じ起動の間の会議と音声入力で開かない。記録『アカウント: ログインできませんでした（cancel）』', T, async () => {
-  const o = await mic([['wait-login', 1], ['login-close'], ['wait-login-closed', 1], ['start'], ['stop'], ['dictate'], ['sleep', 50], ['dictate-cancel'], ['sleep', 50]]);
+// 0.15.1 ND-2（F154）で意図して変えた: 音声入力の始めを2回目の会議の始めに乗せ替えた（見ることは同じ）
+test('LN-4・LR4・PQ3: 自動の窓を × で閉じると、同じ起動の間の会議（2回）で開かない。記録『アカウント: ログインできませんでした（cancel）』', T, async () => {
+  const o = await mic([['wait-login', 1], ['login-close'], ['wait-login-closed', 1], ['start'], ['stop'], ['start'], ['sleep', 50], ['stop'], ['sleep', 50]]);
   assert.strictEqual(o.loginWins.length, 1, `× の後に窓を開いた: ${o.engineLog.join('\n')}`);
   assert.ok(o.engineLog.includes('アカウント: ログインできませんでした（cancel）'), o.engineLog.join('\n'));
 });
@@ -310,11 +299,12 @@ test('LN-5・点検の直し 4: 見回り（クラウドだけの回）が回し
   assert.strictEqual(a.queues, 0, log.join('\n'));
 });
 
-test('LN-5: 録音中（会議・音声入力）の page:retranscribe は { ok: false, code: \'busy\' }・page:pending の busy は真。待ち行列の無いページは none', T, async () => {
+// 0.15.1 ND-2 で意図して変えた: 音声入力の録音中の分を外した（会議の録音中は同じ）
+test('LN-5: 録音中（会議）の page:retranscribe は { ok: false, code: \'busy\' }・page:pending の busy は真。待ち行列の無いページは none', T, async () => {
   const o = await mic([['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['start'],
-    ['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['stop'], ['dictate'], ['ipc', 'page:retranscribe', { id: 'p-none' }], ['dictate-cancel']]);
+    ['ipc', 'page:retranscribe', { id: 'p-none' }], ['ipc', 'page:pending', { id: 'p-none' }], ['stop']]);
   const r = o.ipc.filter(([ch]) => ch === 'page:retranscribe' || ch === 'page:pending').map(([, v]) => v);
-  assert.deepStrictEqual(r, [{ ok: false, code: 'none' }, { left: 0, running: false, busy: false }, { ok: false, code: 'busy' }, { left: 0, running: false, busy: true }, { ok: false, code: 'busy' }], JSON.stringify(o.ipc));
+  assert.deepStrictEqual(r, [{ ok: false, code: 'none' }, { left: 0, running: false, busy: false }, { ok: false, code: 'busy' }, { left: 0, running: false, busy: true }], JSON.stringify(o.ipc));
 });
 
 test('LN-5・LR13: 会議を出て止めた後、保存の返事の前に知らせを押すと、保存の後に page:open が ID の文字で1回。保存に失敗したら開かない', T, async () => {

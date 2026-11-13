@@ -107,7 +107,9 @@ test('LV-4・LV-7: 計画の「取り直す画面（RETAKE）」の表の画面�
   const plan140 = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-26-140.md'), 'utf8');
   const i140 = plan140.indexOf('## 取り直す画面（RETAKE');
   const table140 = plan140.slice(i140, plan140.indexOf('\n## ', i140 + 5));
-  assert.deepStrictEqual([...SH.RETAKE].filter((n) => rows.includes(n) && !table140.includes(`\`${n}\``)), []);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面」・D114）で意図して直した: サイドバーの［🎤 音声入力］の行が無くなり、サイドバーの出る app の画面は全部 0.15.1 の取り直し待ちに入るので、それは除いて見る（意図は同じ）
+  const retake151 = (n) => SH.SCREENS.some((s) => s.name === n && s.page === 'app') && n !== 'notes-collapsed-light';
+  assert.deepStrictEqual([...SH.RETAKE].filter((n) => rows.includes(n) && !table140.includes(`\`${n}\``) && !retake151(n)), []);
   for (const n of rows) {
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);

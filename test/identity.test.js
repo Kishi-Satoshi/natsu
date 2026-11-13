@@ -35,12 +35,15 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
   assert.ok(app.includes('<div class="wordmark">NaTsu</div>'));
   assert.ok(overlay.includes('<title>NaTsu Overlay</title>'));
   assert.ok(main.includes("    title: 'NaTsu',"));
-  for (const s of ["'NaTsu — 議事録を記録中'", "'NaTsu — 録音中'", "'NaTsu — 処理中'", '`NaTsu — ${activeHotkeys.hotkey}: 音声入力']) {
+  // 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md・D114・決めたこと 8）で意図して変えた: 音声入力の録音中の「NaTsu — 録音中」と待機の音声入力のキーを外した
+  for (const s of ["'NaTsu — 議事録を記録中'", "'NaTsu — 処理中'", '`NaTsu — ${activeHotkeys.meetingHotkey || \'未設定\'}: 議事録']) {
     assert.ok(main.includes(s), s);
   }
+  for (const s of ["'NaTsu — 録音中'", '${activeHotkeys.hotkey}: 音声入力']) assert.ok(!main.includes(s), s);
   // 第1d回 G-4 で意図して変えた: オンラインの文字起こしは会社の中継を通した OpenAI（PC は OpenAI へ直に送らない）
   // 0.10.0 LS-5（D59）で意図して変えた: 要約は Claude Code だけ（llama を外した）
-  assert.strictEqual(pkg.description, 'NaTsu — 音声入力・議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインの文字起こしは手元の whisper。出典リンク付き）');
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 説明の頭から「音声入力・」を外した（括弧の中は今のまま。アプリの中の更新では届かない: 決めたこと 19）
+  assert.strictEqual(pkg.description, 'NaTsu — 議事録ツール（オンラインは文字起こしの中継を通した OpenAI の文字起こしと各自の Claude Code の要約、オフラインの文字起こしは手元の whisper。出典リンク付き）');
 });
 
 // 第1b回 Task C-3 で意図して変えた: 版を 0.6.0 に（第1b回と第1b2回の画面・窓の覚え書き・一時停止。Electron は 44.9.0 のままなので［更新して再起動］で当たる）
@@ -61,9 +64,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.13.2 で意図して変えた: 版を 0.13.2 に（ログインしていないことに気づける・残った区間が止まらない・パネルを下の中央に。Electron は 44.9.0 のまま）
 // 0.14.0 で意図して変えた: 版を 0.14.0 に（文字の飾り・元に戻す・貼り付けの変換・行の選び・近道・NaTsu の中の音声入力・口述の整え・メモの行。Electron は 44.9.0 のまま）
 // 0.15.0 で意図して変えた: 版を 0.15.0 に（ページの階層・白紙のページの本文の子ページの行・子ごとのゴミ箱と戻す・新しいページの近道・ページのアイコンと絵文字・全幅・文字の大きさと書体。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.15.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.15.1 で意図して変えた: 版を 0.15.1 に（音声入力をなくす・サイドバーのプライベートの見出しと行のメニューと名前を変える・ライブラリ・PC の中の文字起こしを GPU 版に。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.15.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.15.0');
+  assert.strictEqual(pkg.version, '0.15.1');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -291,8 +295,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.13.2 で意図して変えた: 版は 0.13.2（README の保存の説明は 0.7.0 のまま）
 // 0.14.0 で意図して変えた: 版は 0.14.0（README の保存の説明は 0.7.0 のまま）
 // 0.15.0 で意図して変えた: 版は 0.15.0（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.15.0');
+// 0.15.1 で意図して変えた: 版は 0.15.1（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.15.1');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -355,10 +360,13 @@ test('0.9.0: README・INSTALL は手順3を任意と書き、ログインを先�
   const login = install.indexOf('\n## ログインする');
   assert.ok(login > 0 && login < install.indexOf(`\n${step3}`), 'INSTALL のログインの手順が手順3 の前に無い');
   assert.ok(!install.includes('この時点で起動はしますが、文字起こしと要約はまだ動きません。'), 'INSTALL に「まだ動きません」が残っている');
-  assert.ok(install.includes('設定の「アカウント」でログインすると、インターネットにつながっているときは会議と音声入力が使えます。'));
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「会議と音声入力が使えます」は「会議が使えます」
+  assert.ok(install.includes('設定の「アカウント」でログインすると、インターネットにつながっているときは会議が使えます。'));
   const s3 = secOf(install, step3);
   assert.ok(s3.includes(`［${FETCH_BTN}］`), 'INSTALL の手順3 に初めのボタンの名前が無い');
-  for (const w of ['オフラインの会議', '音声を残し', '音声入力はオフラインでは始めません', 'オフラインモード']) assert.ok(s3.includes(w), `INSTALL の手順3 に「${w}」が無い`);
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「音声入力はオフラインでは始めません」の文を消した
+  for (const w of ['オフラインの会議', '音声を残し', 'オフラインモード']) assert.ok(s3.includes(w), `INSTALL の手順3 に「${w}」が無い`);
+  assert.ok(!s3.includes('音声入力'), 'INSTALL の手順3 に音声入力');
   assert.ok(!/約\s*7\s*GB 必要です/.test(install.split('\n').slice(0, 20).join('\n')) || /ローカル AI を使うときだけ/.test(install.split('\n').slice(0, 20).join('\n')),
     'INSTALL の前提の空きが「ローカル AI を使うときだけ」の書き方でない');
   assert.ok(!install.includes('ふつうは手順3（［PC の中の文字起こしを取り込む］）で足ります。'), 'INSTALL の困ったときに手順3 が要る書き方が残っている');
@@ -767,11 +775,17 @@ test('0.14.0: CHANGELOG の 0.14.0 の節（計画の下書きから移した）
   const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
   const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.ok(names.length >= 5, '引いた［…］が少ない');
-  for (const n of names) assert.ok(src.includes(n), `0.14.0 の節の［${n}］が src/ に無い`);
-  for (const w of ['口述の文を AI で整える', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去']) assert.ok(src.includes(w), `設定の名前「${w}」が src/ に無い`);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 0.14.0 の節の文は書き換えない（RN3）。0.15.1 で消した画面の言葉（履歴の［元の文をコピー］・設定の「口述の文を AI で整える」
+  // 「文字起こし後、カーソル位置へ自動貼り付け」）は、今の画面に無いことを見る
+  const GONE_151 = ['元の文をコピー'];
+  for (const n of names.filter((x) => !GONE_151.includes(x))) assert.ok(src.includes(n), `0.14.0 の節の［${n}］が src/ に無い`);
+  for (const n of GONE_151) assert.ok(names.includes(n) && !src.includes(n), `0.14.0 の節の［${n}］が 0.15.1 で消えていない`);
+  for (const w of ['フィラー除去']) assert.ok(src.includes(w), `設定の名前「${w}」が src/ に無い`);
+  for (const w of ['口述の文を AI で整える', '文字起こし後、カーソル位置へ自動貼り付け']) assert.ok(!read('src/renderer/app.html').includes(w), `消した設定の名前「${w}」が画面に残っている`);
   const help = ['help/articles/summary/edit-summary.md', 'help/articles/dictation/dictation.md', 'help/articles/settings/hotkeys.md'].map(read).join('\n');
+  // 0.15.1 ND-4（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: dictation/dictation を Win+H の案内に書き換えたので、「NaTsu の中で音声入力する」と「口述を整える」の節は無い（0.14.0 の節の文は書き換えない: RN3）
   for (const h of ['## 文字の飾り・リンク・色 {#marks}', '## 元に戻す・やり直す {#undo}', '## 貼り付け {#paste}', '## 行を選ぶ {#select}', '## メモも行で書く {#memo}',
-    '## NaTsu の中で音声入力する {#in-natsu}', '## 口述を整える {#tidy}', '## NaTsu の窓の中だけで効くキー {#in-app}']) {
+    '## NaTsu の窓の中だけで効くキー {#in-app}']) {
     assert.ok(help.includes(h), `ヘルプの記事に「${h}」の節が無い（CHANGELOG が引く節）`);
   }
 });
@@ -784,7 +798,7 @@ test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.15.0 （2026-11-07）'), 'CHANGELOG.md に「## natsu-v0.15.0 （2026-11-07）」の見出しが無い');
   assert.ok(cl.indexOf('## natsu-v0.15.0') < cl.indexOf('## natsu-v0.14.0'), '0.15.0 の節が 0.14.0 の節の上に無い');
-  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.15.0'), '0.15.0 の節が CHANGELOG の頭に無い');
+  // 0.15.1 で意図して変えた: CHANGELOG の頭は 0.15.1 の節になった（0.15.0 の節はそのすぐ下: 下の 0.15.1 のテスト）
   const sec = secOf(cl, '## natsu-v0.15.0');
   const plan = read('docs/plans/2026-11-03-150.md');
   const d = plan.indexOf('\n## CHANGELOG の 0.15.0 の節（下書き。BQ1〜BQ13 の答えを入れた。G で持ち主が読む言葉に直して移す）\n');
@@ -809,6 +823,44 @@ test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）
   const titles = ['find/page-tree', 'find/page-look', 'find/delete-and-backups', 'find/search', 'settings/hotkeys', 'start/claude-mcp']
     .map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
   for (const t of titles) assert.ok(t && sec.includes(`「${t}」`), `0.15.0 の節にヘルプの記事「${t}」が無い`);
+});
+
+// 0.15.1（計画 docs/plans/2026-11-04-151.md の「CHANGELOG の 0.15.1 の節（下書き）」。Task G の後半: R56）: 版を 0.15.1 に上げる commit で、承認した下書きの字のまま
+// （持ち主が「足す（おすすめ）」と答えたヘルプセンターの1行を終わりに足して）日付つきの見出し（## natsu-v0.15.1 （2026-11-11））で CHANGELOG.md の頭（0.15.0 の節の上）へ移した。
+// 音声入力をなくす（D114）・プライベートの見出し（D124）・ライブラリ（D125）・名前を変える・GPU 版（D126）・ヘルプセンターを書く。計画には「移した」の1行だけを残す
+test('0.15.1: CHANGELOG の 0.15.1 の節（計画の下書きから移した）は日付つきの見出しで CHANGELOG の頭（0.15.0 の節の上）にあり、音声入力をなくす・プライベート・ライブラリ・名前を変える・GPU・ヘルプセンターを書き、引いた［…］は消した2つのほかは src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.15.1 （2026-11-11）'), 'CHANGELOG.md に「## natsu-v0.15.1 （2026-11-11）」の見出しが無い');
+  assert.ok(cl.indexOf('## natsu-v0.15.1') < cl.indexOf('## natsu-v0.15.0'), '0.15.1 の節が 0.15.0 の節の上に無い');
+  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.15.1'), '0.15.1 の節が CHANGELOG の頭に無い');
+  const sec = secOf(cl, '## natsu-v0.15.1');
+  const plan = read('docs/plans/2026-11-04-151.md');
+  const d = plan.indexOf('\n## CHANGELOG の 0.15.1 の節（下書き。G で日付つきの見出しにして移す。0.16.0 が先に出ていれば見出しと文の数字を 0.16.1 に）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の 0.15.1 の節（下書き）」の見出しが無い');
+  assert.ok(!plan.slice(d, plan.indexOf('\n## ', d + 2)).includes('NaTsu の音声入力をなくしました'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  for (const w of ['［更新して再起動］', 'NaTsu の音声入力をなくしました', 'Windows キー + H', 'Microsoft のサービス', '「音声入力（Windows の音声入力を使う）」', '［🎤 音声入力］',
+    '［● 音声入力を開始］', '「音声入力ホットキー」', '「口述の文を AI で整える」', 'Ctrl+Shift+Space', 'history.json', 'NaTsu は読みません', 'Alt+M', 'これまでどおりです',
+    '「プライベート」', '並べ替え（手動・最終更新）', '［ページを選ぶ］（前の［選ぶ］）', 'ライブラリ', '↗', 'ページ名と最終更新日時', '［名前を変える］', 'Ctrl+Shift+R', '［リンクを写す］',
+    'GPU（Vulkan）', '［ローカル AI を使う］', 'CPU で計算します', '約 20MB', 'Visual C++ ランタイムを使わなくなりました',
+    'ヘルプセンターの「音声入力」を Windows の音声入力（Windows キー + H）の案内に書き直し、「ページの中のページ・白紙のページ」にプライベートの見出し・名前を変える・ライブラリを、「ローカル AI」に「GPU で文字起こしする」を足しました。']) {
+    assert.ok(sec.includes(w), `0.15.1 の節に「${w}」が無い`);
+  }
+  assert.ok(!/notion/i.test(sec), '0.15.1 の節に参考にしたアプリの名前がある');
+  assert.ok(!/<[a-z]/i.test(sec), '0.15.1 の節に生の HTML がある');
+  assert.ok(!/`/.test(sec), '0.15.1 の節に Markdown のコードの印がある（持ち主が読む言葉で書く）');
+  assert.ok(!sec.includes('第9版'), '計画の注（第9版で変えた文）を写した');
+  // 引いた［…］は、なくした2つ（サイドバーの［🎤 音声入力］・トレイの［● 音声入力を開始］）のほかはアプリにあり、なくした2つはアプリの字（注釈の外）に無い
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  const GONE = ['🎤 音声入力', '● 音声入力を開始'];
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.ok(names.length >= 8, '引いた［…］が少ない');
+  for (const n of names.filter((x) => !GONE.includes(x))) assert.ok(src.includes(n), `0.15.1 の節の［${n}］が src/ に無い`);
+  for (const n of GONE) assert.ok(names.includes(n) && !code(src).includes(n), `なくした［${n}］がアプリに残っている`);
+  // 引いたヘルプの記事の題と節（ヘルプセンターの1行）
+  const titles = ['dictation/dictation', 'find/page-tree', 'settings/offline'].map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
+  assert.deepStrictEqual(titles, ['音声入力（Windows の音声入力を使う）', 'ページの中のページ・白紙のページ', 'ローカル AI']);
+  assert.ok(read('help/articles/settings/offline.md').includes('\n## GPU で文字起こしする {#gpu}\n'), 'ローカル AI の記事に「GPU で文字起こしする」の節が無い');
 });
 
 // ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）

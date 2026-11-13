@@ -1,7 +1,7 @@
 /*
  * settings-rules.test.js — 設定の決まり（第1a回 JS6。RF23・F8・F11）
  * 31 のキーの表（第1a回の 30 に第1c回 Task C-1 で5つ足し、0.7.0 U-1（設計書 D5）で送り先と同意の4つを外し、第1d回 A-2 で accountEmail を足し、
- * 0.9.0 O-1（設計書 D25）で pillPos・pillCustom を外して pillSlot を足した）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
+ * 0.9.0 O-1（設計書 D25）で pillPos・pillCustom を外して pillSlot を足した。0.15.1 ND-1（D114）で音声入力の4つを外して 30）・項目ごとの読み方・今の読み方（normalizeSettings({ ...既定, ...raw }, 既定)）との比べ・保存の許可の一覧。
  */
 'use strict';
 
@@ -53,15 +53,18 @@ Object.assign(UI, { meetingDetect: false, meetingDetectMute: ['zoom', 'chrome'] 
 // 画面は［設定］→［録音］の「フィラー除去」の下から送る（既定でない値で往復することを見る）
 Object.assign(TODAY, { aiTidy: true });
 Object.assign(UI, { aiTidy: false });
+// 0.15.1 ND-1（計画 docs/plans/2026-11-04-151.md の決めたこと 4・D114）で意図して変えた: 音声入力のキー hotkey・自動貼り付け autoPaste・口述の整え aiTidy・
+// 履歴の件数 maxHistory を表と既定から外した（30 のキー。0.10.0 LS-3 と同じ書き方）。保存に残っていれば知らないキーとして値のまま残る（test/stage151.lib.test.js）。画面は送らない
+for (const k of ['hotkey', 'autoPaste', 'aiTidy', 'maxHistory']) { delete TODAY[k]; delete UI[k]; }
 // 第1c回 Task C-2: 画面のカード「オンライン」が送るキー（0.7.0 U-1 で claudeExe だけ。30 のキー）。既定でない値で往復することを見る
 Object.assign(UI, { claudeExe: 'C:\\c\\claude.exe' });
 const legacy = (raw) => S.normalizeSettings({ ...D, ...raw }, D);
 const ON = (key, v) => (key === 'useBuiltinTerms' ? v !== false : Boolean(v));
-const BOOLS = ['useVad', 'suppressNst', 'autoPaste', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
+const BOOLS = ['useVad', 'suppressNst', 'removeFillers', 'soundFeedback', 'autoLaunch', 'stayInTray', 'useBuiltinTerms', 'useSystemAudio'];
 
-test('JS6: 決まりの表のキーは既定の 34 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
+test('JS6: 決まりの表のキーは既定の 30 のキーとちょうど同じ。どれにも画面の名前がある', { timeout: 5000 }, () => {
   assert.deepStrictEqual(D, TODAY);
-  assert.strictEqual(S.SETTING_KEYS.length, 34);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）。0.12.1 LV-2 で autoStopLeave を足した（33。意図して変えた）。0.14.0 DQ-3 で aiTidy を足した（34。意図して変えた）
+  assert.strictEqual(S.SETTING_KEYS.length, 30);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）。0.12.1 LV-2 で autoStopLeave を足した（33。意図して変えた）。0.14.0 DQ-3 で aiTidy を足した（34。意図して変えた）。0.15.1 ND-1 で音声入力の4つを外した（30。意図して変えた）
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
   assert.strictEqual(S.defaultSettings(2).localThreads, 4);
@@ -83,11 +86,10 @@ test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーご�
     ['localPort', '8080', 8080, null], ['localPort', 99999, 65535, 'range'], ['localPort', 'abc', 8990, 'type'],
     ['localPort', 1023, 1024, 'range'], ['localPort', 1024, 1024, null], ['localPort', 65535, 65535, null],
     ['localThreads', 0, T, 'range'], ['segmentSec', 5, 20, 'range'], ['engineIdleMin', 0, 0, null],
-    ['maxHistory', '300', 300, null], ['maxHistory', 0, 0, null], ['maxHistory', 20000, 10000, 'range'],
-    ['maxHistory', -1, 500, 'range'], ['maxHistory', 1.5, 500, 'type'], ['maxHistory', 'abc', 500, 'type'],
+    // 0.15.1 ND-1 で意図して変えた: maxHistory（F8 の行）と hotkey は表から外した（知らないキーとして値のまま: test/stage151.lib.test.js）。空の議事録のキーで見る
     ['localModelPath', 5, '', 'type'], ['micId', 7, '', 'type'], ['vadModelPath', null, '', 'type'],
     ['language', 'zh', 'zh', null], ['language', 'auto', 'auto', null], ['language', 'JA', 'ja', 'enum'], ['language', 5, 'ja', 'enum'],
-    ['hotkey', '', 'Control+Shift+Space', 'empty'], ['meetingHotkey', 5, 'Alt+M', 'type'],
+    ['meetingHotkey', '', 'Alt+M', 'empty'], ['meetingHotkey', 5, 'Alt+M', 'type'],
     // 0.9.0 O-1: pillPos・pillCustom は知らないキー（下の RP2）。前の表示位置の名前（bottom）は置き場所の名前でない
     ['pillSlot', 'top-left', 'top-left', null], ['pillSlot', 'middle-right', 'middle-right', null], ['pillSlot', 5, 'bottom-center', 'type'],
     ['pillSlot', 'center', 'bottom-center', 'enum'], ['pillSlot', 'bottom', 'bottom-center', 'enum'],
@@ -102,7 +104,8 @@ test('JS6・RF23: 壊れた項目だけを直し、ほかは残す（キーご�
 });
 
 test('F11・JS6: オンとオフの欄は今の判定のまま真偽値に直す（useBuiltinTerms だけ「false でなければオン」）。"false" の文字はオンのままで印を返す', { timeout: 5000 }, () => {
-  const raw = { useVad: 'true', autoPaste: 'false', removeFillers: 0, soundFeedback: 'yes', useBuiltinTerms: null, useSystemAudio: 1, stayInTray: '' };
+  // 0.15.1 ND-1 で意図して変えた: "false" の文字を見る欄を autoPaste（表から外した）から autoLaunch にした
+  const raw = { useVad: 'true', autoLaunch: 'false', removeFillers: 0, soundFeedback: 'yes', useBuiltinTerms: null, useSystemAudio: 1, stayInTray: '' };
   const r = S.readSettings(raw, D);
   for (const k of Object.keys(raw)) {
     assert.strictEqual(typeof r.settings[k], 'boolean', k);
@@ -111,7 +114,7 @@ test('F11・JS6: オンとオフの欄は今の判定のまま真偽値に直す
   assert.strictEqual(r.settings.useBuiltinTerms, true, 'null の人の業務用語がオフになった');
   assert.strictEqual(S.readSettings({ useBuiltinTerms: 0 }, D).settings.useBuiltinTerms, true);
   assert.strictEqual(S.readSettings({ useBuiltinTerms: false }, D).settings.useBuiltinTerms, false);
-  assert.deepStrictEqual(r.falseLike, [{ key: 'autoPaste', raw: 'false' }]);
+  assert.deepStrictEqual(r.falseLike, [{ key: 'autoLaunch', raw: 'false' }]);
   assert.deepStrictEqual(r.repaired.map((x) => x.key).sort(), Object.keys(raw).sort());
 });
 
@@ -202,8 +205,8 @@ test('RF30: 鍵らしい欄は画面から来ても保存しない（設定の J
 // 第1d回 A-2（RL10・F1）: ログイン中のメールアドレス。形の悪い値は '' に戻し（ログインしていない形）、repaired にはキーの名前と理由だけ
 // （値は入れない: main は記録にキーの名前だけを書く）。テストの中にメールアドレスの形の文字を書かないため @ は文字の番号で作る
 const AT = String.fromCharCode(64);
-test('RL10: accountEmail は 26 番目（0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足し、0.10.0 LS-3 で要約の5つを外した）のキー。形の良いメールアドレスはそのまま、形の悪い値は \'\' に戻し、キーの名前だけを記録する', { timeout: 5000 }, () => {
-  assert.strictEqual(S.SETTING_KEYS[25], 'accountEmail');
+test('RL10: accountEmail は 23 番目（0.9.0 O-1 で pillPos・pillCustom を外して pillSlot を足し、0.10.0 LS-3 で要約の5つを外し、0.15.1 ND-1 で音声入力の4つのうち前の3つを外した）のキー。形の良いメールアドレスはそのまま、形の悪い値は \'\' に戻し、キーの名前だけを記録する', { timeout: 5000 }, () => {
+  assert.strictEqual(S.SETTING_KEYS[22], 'accountEmail');   // 0.15.1 ND-1 で意図して変えた（hotkey・autoPaste・maxHistory が前にあった: 25 → 22）
   assert.strictEqual(S.SETTING_RULES.accountEmail.kind, 'email');
   const good = `kaigi${AT}example.com`;
   assert.deepStrictEqual(S.readSettings({ accountEmail: good }, D).settings.accountEmail, good);
@@ -276,18 +279,5 @@ test('0.11.0 Q-2（QM6・P11）: qualityScore は all・on・off の enum で既
   assert.strictEqual(S.pickSavable({ qualityScore: 'off' }).qualityScore, 'off');
 });
 
-// 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 56・BQ18 (a)・BQ24 (a)）: 口述の文を AI で整える aiTidy（bool・notFalse。既定オン）
-test('DQ-3・決めたこと 56: aiTidy の照らし（壊れた値は既定のオン。false だけがオフ）。aiTidy が無く removeFillers が false なら切った形で読む（BQ24 (a)）', { timeout: 5000 }, () => {
-  assert.strictEqual(S.SETTING_RULES.aiTidy.kind, 'bool');
-  assert.strictEqual(S.SETTING_RULES.aiTidy.label, '口述の文を AI で整える');
-  assert.strictEqual(D.aiTidy, true);
-  for (const [v, want, why] of [[true, true, null], [false, false, null], ['x', true, 'type'], [0, true, 'type'], [null, true, 'type'], [{}, true, 'type']]) {
-    const r = S.readSettings({ aiTidy: v }, D);
-    assert.strictEqual(r.settings.aiTidy, want, JSON.stringify(v));
-    assert.deepStrictEqual(r.repaired.filter((x) => x.key === 'aiTidy').map((x) => x.why), why ? [why] : [], JSON.stringify(v));
-  }
-  assert.strictEqual(S.readSettings({ removeFillers: false }, D).settings.aiTidy, false);
-  assert.strictEqual(S.readSettings({ removeFillers: false, aiTidy: true }, D).settings.aiTidy, true);
-  assert.strictEqual(S.readSettings({ removeFillers: 'yes' }, D).settings.aiTidy, true);
-  assert.ok(Object.hasOwn(S.pickSavable({ aiTidy: false }), 'aiTidy'), '画面から保存できない');
-});
+// 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 56・BQ18 (a)・BQ24 (a)）の aiTidy の照らしのテストは、0.15.1 ND-1（D114）で意図して消した:
+// aiTidy は表から外し、知らないキーとして値のまま残す（壊れた値も直さない・removeFillers から作らない・画面から保存できない: test/stage151.lib.test.js の ND-1・F151）

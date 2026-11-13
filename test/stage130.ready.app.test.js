@@ -360,7 +360,7 @@ test('RDY-3（RD15）: 画面を読み直したとき main に録音の前のペ
 
 // ---------------------------------------------------------------- RDY-3（撮る画面）
 // 0.13.0 で意図して変えた（版を 0.13.0 に上げる commit。Task G・RDY-7）: 持ち主が見比べを「この見た目でよい」と言ったので、3枚を基準にして取り直し待ちを空に戻した
-test('RDY-3・RDY-7・0.14.0 Task G: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom200-light（録音の前のページ。［＋ 新しい議事録］を押す）があり、基準がある（取り直し待ちではない）', () => {
+test('RDY-3・RDY-7・0.14.0 Task G・0.15.1 Task G: 撮る画面 live-ready-light・live-ready-dark・live-ready-zoom200-light（録音の前のページ。［＋ 新しい議事録］を押す）があり、基準がある（取り直し待ちではない）', () => {
   const SH = require('../tools/shots/screens.js');
   for (const [n, theme, zoom] of [['live-ready-light', 'light', undefined], ['live-ready-dark', 'dark', undefined], ['live-ready-zoom200-light', 'light', 2]]) {
     const s = SH.SCREENS.find((x) => x.name === n);
@@ -371,6 +371,8 @@ test('RDY-3・RDY-7・0.14.0 Task G: 撮る画面 live-ready-light・live-ready-
     assert.match(s.act, /mtToggleBtn/);
     // 0.14.0 MB-4 で意図して変えた: メモの欄が textarea から行になるので、3枚とも 0.14.0 の取り直し待ち（基準は 0.13.0 のまま残す）
     // 0.14.0 で意図して変えた（版を 0.14.0 に上げる commit。Task G）: 持ち主が見比べを「この見た目でよい（おすすめ）」と言ったので、3枚を基準にして取り直し待ちを空に戻した
+    // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「取り直す画面」・D114）で意図して直した: サイドバーの出る app の画面は全部 0.15.1 の取り直し待ちに入るので、3枚もその取り直し待ち（0.14.0 の取り直しは済んで基準がある）
+    // 0.15.1 で意図して変えた（版を 0.15.1 に上げる commit。Task G の後半: R56）: 持ち主が見比べを「この見た目でよい（おすすめ）」と言ったので、3枚を基準にして取り直し待ちを空に戻した
     assert.ok(!SH.RETAKE.has(n), `${n} が取り直し待ちに残っている`);
     assert.ok(fs.existsSync(path.join(__dirname, 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }

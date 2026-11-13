@@ -30,6 +30,12 @@
 //   5 秒前までに詰める（最後が無音の区間。点検の直し I1）。要求の行に rf=<response_format> を足した
 //   要求の行の nlp= は no_language_probabilities の欄（verbose_json で無いと、本物の 1.9.5 は VAD で声の無い音声で落ちる: R25）
 // 0.12.0 SP-3a: 要求の行の最後に busy=<そのとき答えていない区間の要求の数（この要求を含む）>（2つの流れの会議で PC へ同時に送らないかを見る）
+// 0.15.1 GV-2（計画 docs/plans/2026-11-04-151.md・D126）: GPU 版の組の型。-ng が無いときは FAKE_GPU で、口を開く前に標準エラーへ
+//   本物の whisper.cpp と同じ書式の行（計画の G15）を出す: gpu（装置の行と using の行）・none（no GPU found）・init-failed（using と失敗の行）・
+//   lost-after:<n>（gpu と同じ行を出し、n 番目の区間の要求の途中で終了コード 9 で落ちる。GV-2b で、落ちるのは FAKE_LOG ごとに1回だけにした）・exit-before-ready（口を開く前に終了コード 5 で落ちる）。
+//   0.15.1 GV-2b（第9版）: gpu-devices:<n>（装置の行を n 行出してから gpu と同じ行）を足し、-ng の形の型（FAKE_NG・FAKE_NG_OK_FILE・FAKE_NG_START_MS・
+//   文の C）を外した（NaTsu は -ng を足さない）。-ng があるときは本物と同じく use gpu    = 0 の行だけを出す。
+//   要求の行の後に served ng=<-ng で起きたか> #<この子の中の番号> の行を足す（-ng で起こしていないかを見る）
 
 const http = require('http');
 const fs = require('fs');
@@ -40,6 +46,23 @@ const mode = process.env.FAKE_MODE || 'text';
 const log = process.env.FAKE_LOG;
 const note = (line) => { if (log) { try { fs.appendFileSync(log, `${line}\n`); } catch (_) { /* 片付けの後 */ } } };
 note(`spawn ${JSON.stringify(args)}`);
+const ng = args.includes('-ng');
+const gpuMode = ng ? '' : (process.env.FAKE_GPU || '');
+const lostAfter = /^lost-after:(\d+)$/.exec(gpuMode);
+const devices = /^gpu-devices:(\d+)$/.exec(gpuMode);
+{
+  const devLine = (i) => `ggml_vulkan: ${i} = ${i === 0 ? 'Intel(R) Iris(R) Xe Graphics (Intel Corporation)' : `Test Virtual GPU ${i} (Test Driver)`} | uma: 1 | fp16: 1 | bf16: 0 | warp size: 32 | shared memory: 32768 | int dot: 1 | matrix cores: none`;
+  const DEV = ['ggml_vulkan: Found 1 Vulkan devices:', devLine(0)];
+  const USING = 'whisper_backend_init_gpu: using Vulkan0 backend';
+  const lines = devices ? [`ggml_vulkan: Found ${devices[1]} Vulkan devices:`, ...Array.from({ length: Number(devices[1]) }, (_, i) => devLine(i)), 'whisper_init_with_params_no_state: use gpu    = 1', USING]
+    : gpuMode === 'gpu' || lostAfter ? [...DEV, 'whisper_init_with_params_no_state: use gpu    = 1', USING]
+      : gpuMode === 'none' ? ['whisper_init_with_params_no_state: use gpu    = 1', 'whisper_backend_init_gpu: no GPU found']
+        : gpuMode === 'init-failed' ? [...DEV, USING, 'whisper_backend_init_gpu: failed to initialize Vulkan0 backend']
+          : ng ? ['whisper_init_with_params_no_state: use gpu    = 0'] : [];
+  if (lines.length) process.stderr.write(`${lines.join('\r\n')}\r\n`);
+  if (gpuMode === 'exit-before-ready') setTimeout(() => process.exit(5), 30);
+}
+let served = 0;
 
 // 起動した側（mainrun）が居なくなったら自分も終わる（孤児として残り続けない）
 const parent = process.ppid;
@@ -96,6 +119,13 @@ const server = http.createServer((req, res) => {
     const okWav = wavOk(form.file);
     if (!isProbe) { busy++; res.on('close', () => { busy--; }); }
     note(`inference #${n} bytes=${body.length} prompt=${hasPrompt} probe=${isProbe} lang=${form.fields.language || ''} carry=${form.fields.carry_initial_prompt || ''} nc=${form.fields.no_context || ''} wav=${okWav} busy=${busy} nlp=${form.fields.no_language_probabilities || ''} rf=${form.fields.response_format || ''}`);
+    if (!isProbe) note(`served ng=${ng} #${++served}`);
+    // 0.15.1 GV-2b: 落ちるのは会議ごとに1回だけ（FAKE_LOG の隣の印のファイル。起こし直した次のプロセスは落ちない: 今のエンジンが1回落ちた形）
+    if (lostAfter && !isProbe && served === Number(lostAfter[1]) && !(log && fs.existsSync(`${log}.lost`))) {
+      if (log) fs.writeFileSync(`${log}.lost`, '1');
+      process.exit(9);
+      return;
+    }
     if (!okWav) { json(res, 200, { error: 'failed to read audio data' }); return; }
     if (isProbe && mode === 'probe500') { json(res, 500, { error: 'boom' }); return; }
     if (isProbe && mode === 'probe-badjson') { json(res, 200, 'not json'); return; }
@@ -150,4 +180,4 @@ const server = http.createServer((req, res) => {
   note(`listen error ${e.code || e.message}`);
   process.exit(3);
 });
-setTimeout(() => server.listen(port, '127.0.0.1'), Number(process.env.FAKE_START_MS) || 0);
+if (gpuMode !== 'exit-before-ready') setTimeout(() => server.listen(port, '127.0.0.1'), Number(process.env.FAKE_START_MS) || 0);

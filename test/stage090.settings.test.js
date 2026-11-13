@@ -2,7 +2,7 @@
  * stage090.settings.test.js — 0.9.0（第1d2回）の設定のポップアップ（D24・案C。SP1〜SP7・F13・F15）を、最小 DOM（helpers/simrun.js）の上で
  * app.html の <script> を本当に走らせて確かめる。main の答えは偽物（preload.js の名前から作る）。
  * U-1（SP1〜SP3）: ポップアップで開く・開く道の全部・閉じ方と Esc・inert と Tab・左の列のキー・覚えたタブの settings を落とす・
- * 音声入力の録音中に本体の窓が前にあれば Esc を全体のホットキーにしない（場面 esc-focus。helpers/mainrun.js）。
+ * 会議の録音中も Esc を全体のホットキーにしない（場面 esc-focus。helpers/mainrun.js。0.15.1 ND-2 で音声入力の録音中の付け外しを無くした）。
  */
 'use strict';
 const { titleAt } = require('./helpers/titles');
@@ -151,7 +151,8 @@ test('SP2: ホットキーの欄で Esc を押すと欄から抜けるだけで�
   const l = await open();
   await l.drain();
   await click(l, 'tabBtnSettings');
-  const hk = $(l, 'hotkey');
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力ホットキーの欄は無いので、議事録ホットキーの欄で見る（変異 sp-esc-hotkey を当て直した: R2）
+  const hk = $(l, 'meetingHotkey');
   const before = hk.value;
   hk.focus();
   const ev = await key(l, { key: 'Escape' }, hk);
@@ -162,11 +163,7 @@ test('SP2: ホットキーの欄で Esc を押すと欄から抜けるだけで�
   assert.strictEqual(ev.defaultPrevented, true);
   await key(l, { key: 'Escape' });
   assert.ok(!isOpen(l), '2回目の Esc で閉じない');
-  // 議事録ホットキーの欄も同じ
-  await click(l, 'tabBtnSettings');
-  $(l, 'meetingHotkey').focus();
-  await key(l, { key: 'Escape' }, $(l, 'meetingHotkey'));
-  assert.ok(isOpen(l), '議事録ホットキーの欄の Esc でポップアップを閉じた');
+  assert.strictEqual($(l, 'hotkey'), null, '音声入力ホットキーの欄が残っている');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -251,9 +248,10 @@ test('SP1: 6つの項目の行がこの順（アカウント・一般・録音�
 });
 
 test('SP2: 開いている間に Ctrl+Tab・Ctrl+W・Ctrl+P・Ctrl+\\ を押しても、上のタブも #tabSettings の active も替わらない。Ctrl+Shift+L は効く', T, async () => {
-  const l = await open({ uiState: UI({ open: ['page:pa1', 'dictation'], active: 'page:pa1' }) });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、2つ目はページのタブ
+  const l = await open({ uiState: UI({ open: ['page:pa1', 'page:pb2'], active: 'page:pa1' }) });
   await l.drain();
-  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'dictation'], '前提: タブが2つ');
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2'], '前提: タブが2つ');
   await click(l, 'tabBtnSettings');
   const sel = () => tabs(l).map((t) => t.getAttribute('aria-selected'));
   const s0 = sel();
@@ -318,7 +316,8 @@ test('SP2: ホットキーの欄で Tab を押すと欄が受けず（preventDef
   const l = await open();
   await l.drain();
   await click(l, 'tabBtnSettings');
-  for (const id of ['hotkey', 'meetingHotkey']) {
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: ホットキーの欄は議事録の1つ
+  for (const id of ['meetingHotkey']) {
     const hk = $(l, id);
     const before = hk.value;
     hk.focus();
@@ -365,7 +364,8 @@ test('SP3: 覚えたタブ { open: [page:pa1, settings], active: settings } で�
   assert.deepStrictEqual([...l.errors, ...only.errors].map(fmt), []);
 });
 
-// 場面 esc-focus（helpers/mainrun.js の --dictate --focus-main-during-dictation）。音声入力の録音中に本体の窓へ focus、続けて blur を送る
+// 場面 esc-focus（helpers/mainrun.js の --mic-feed）。0.15.1 ND-2（D114・F149）で意図して変えた: 音声入力の録音中だけ付けていた Escape の全体のホットキーは無くなり、
+// 会議の録音中に本体の窓へ focus・blur を送っても、どの時も Escape を全体のホットキーにしない
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const runMain = (args) => new Promise((resolve, reject) => {
   execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout: 20000 },
@@ -375,12 +375,12 @@ const runMain = (args) => new Promise((resolve, reject) => {
     });
 });
 
-test('SP2・RF9（場面 esc-focus）: 音声入力の録音中に本体の窓へフォーカスが来ると Escape の全体のホットキーを外し、離れると付け直す。録音の終わりには付いていない', { timeout: sceneTimeout(20000) }, async () => {
-  const o = await runMain(['text', '--dictate', '--focus-main-during-dictation']);
-  // 録音の始め（窓は前にない）で付ける → focus で外す → blur で付け直す → 音声が届いて外す
-  assert.deepStrictEqual(o.escape, ['register', 'unregister', 'register', 'unregister'], JSON.stringify(o.escape));
-  assert.deepStrictEqual(o.escapeAt, { start: true, focus: false, blur: true, end: false });
-  assert.strictEqual(o.history.length, 1, '音声入力が最後まで通らない');
+test('SP2・RF9（場面 esc-focus）・0.15.1 ND-2: 会議の録音中に本体の窓へフォーカスが来ても離れても、Escape を全体のホットキーにしない（録音の始めにも終わりにも付いていない）', { timeout: sceneTimeout(20000) }, async () => {
+  const steps = [['sleep', 200], ['start'], ['snap', 'start'], ['focus-main'], ['snap', 'focus'], ['blur-main'], ['snap', 'blur'], ['stop'], ['snap', 'end']];
+  const o = await runMain(['text', `--mic-feed=${JSON.stringify(steps)}`, '--main-unfocused']);
+  assert.deepStrictEqual(o.escapeLog, [], JSON.stringify(o.escapeLog));
+  assert.deepStrictEqual(['start', 'focus', 'blur', 'end'].map((k) => o.snaps[k].escape), [false, false, false, false]);
+  assert.strictEqual(o.pageFinal.length, 1, '会議が最後まで通らない');
 });
 
 // ---------------------------------------------------------------- U-2（SP4・SP5・F13）
@@ -388,7 +388,8 @@ test('SP2・RF9（場面 esc-focus）: 音声入力の録音中に本体の窓�
 const CARDS = [
   ['account', 'アカウント', ['ログイン', 'ログアウト']],
   ['general', '外観', ['外観']],
-  ['general', 'ホットキー', ['音声入力ホットキー', '議事録ホットキー']],
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 「ホットキー」は議事録の1行・「文字起こし」から自動貼り付けと口述の整えの2行を外した
+  ['general', 'ホットキー', ['議事録ホットキー']],
   ['general', '起動と終了', ['Windowsサインイン時に自動起動', 'ウィンドウを閉じてもタスクトレイに残す', '効果音']],
   // 0.9.3 M-4（計画 docs/plans/2026-10-22-093.md の決めたこと 11）で意図して変えた: 「録音」の頭に「会議の検出」のカード
   // 0.12.1 LV-4（計画 docs/plans/2026-10-24-121.md の決めたこと L15）で意図して変えた: カード「会議の検出」の2行目に「会議を出たら自動で止める」
@@ -398,7 +399,7 @@ const CARDS = [
   // 0.9.1 Q-3（D29）で意図して変えた: 「話し声が無いとき」のカード
   ['record', '話し声が無いとき', ['話し声が無いときに自動で止める', '知らせるまでの時間']],
   // 0.14.0 DQ-3（計画 docs/plans/2026-10-26-140.md の決めたこと 56・BQ27 (a)）で意図して変えた: 「フィラー除去」のすぐ下に「口述の文を AI で整える」
-  ['record', '文字起こし', ['認識言語', '文字起こし後、カーソル位置へ自動貼り付け', 'フィラー除去', '口述の文を AI で整える']],
+  ['record', '文字起こし', ['認識言語', 'フィラー除去']],
   ['record', 'ユーザー辞書（認識ヒント）', ['ユーザー辞書', '業務でよく使う言葉のヒントも渡す']],
   ['summary', '要約（Claude Code）', ['Claude Code', 'Claude Code の場所']],
   // 0.10.0 C-3（MR8）で意図して足した: 要約（Claude Code）の次にカード「Claude との連携（MCP）」（行は1つ。D64 で Claude Code の行は作らない）
@@ -411,18 +412,19 @@ const CARDS = [
 ];
 // 行の名前 → その行にある入力の id（今の id のまま動かしたことを見る）
 const ROW_IDS = {
-  ログイン: ['accountSignIn'], ログアウト: ['accountLogout', 'accountWho'], 外観: ['themeSel'], 音声入力ホットキー: ['hotkey', 'hotkeyWarn'], 議事録ホットキー: ['meetingHotkey', 'meetingHotkeyWarn'],
+  ログイン: ['accountSignIn'], ログアウト: ['accountLogout', 'accountWho'], 外観: ['themeSel'], 議事録ホットキー: ['meetingHotkey', 'meetingHotkeyWarn'],   // 0.15.1 ND-3 で音声入力ホットキーの行を外した
   会議の検出の通知: ['meetingDetect'], 通知を出さないアプリ: ['meetingDetectMuteList'],   // 0.9.3 M-4 で意図して足した
   会議を出たら自動で止める: ['autoStopLeave'],   // 0.12.1 LV-4 で意図して足した
   Windowsサインイン時に自動起動: ['autoLaunch'], ウィンドウを閉じてもタスクトレイに残す: ['stayInTray'], 効果音: ['soundFeedback'], 録音バーの置き場所: ['pillPos'],
   使用するマイク: ['micSelect', 'micReloadBtn'], 議事録で相手の声も録る: ['useSystemAudio'], 録音されるスピーカー: ['spkNow', 'spkReloadBtn', 'spkSettingsBtn'], 認識言語: ['language'],
   話し声が無いときに自動で止める: ['autoStopQuiet'], 知らせるまでの時間: ['autoStopMin'],
-  '文字起こし後、カーソル位置へ自動貼り付け': ['autoPaste'], フィラー除去: ['removeFillers'], ユーザー辞書: ['dictionary', 'dictWarn'], 業務でよく使う言葉のヒントも渡す: ['useBuiltinTerms'],
+  フィラー除去: ['removeFillers'],   // 0.15.1 ND-3 で自動貼り付けの行を外した
+  ユーザー辞書: ['dictionary', 'dictWarn'], 業務でよく使う言葉のヒントも渡す: ['useBuiltinTerms'],
   'Claude Code': ['claudeState', 'claudeTest', 'claudeLogin', 'claudeInstall', 'claudeHelp'], 'Claude Code の場所': ['claudeExe'], 'Claude デスクトップから読む': ['mcpDesktopState', 'mcpRegister', 'mcpUnregister'], 'PC の中の文字起こし': ['engineState', 'testBtn'],
   'PC の中の文字起こしを取り込む': ['engineFetchBtn', 'engineFetchSummary'], 詳細設定: ['localServerExe', 'localThreads', 'engineIdleMin'],   // 0.10.0 LS-3 で要約の文脈長（sumCtx）の欄を外した
   更新を確認: ['verNow', 'chkUpdBtn', 'applyUpdBtn', 'updMsg'],
   打ち合わせの質の点数: ['qualityScore'],   // 0.11.0 V-3 で意図して足した
-  '口述の文を AI で整える': ['aiTidy', 'aiTidyDesc', 'aiTidyWarn'],   // 0.14.0 DQ-3 で意図して足した
+  // 0.14.0 DQ-3 で足した「口述の文を AI で整える」の行は 0.15.1 ND-3 で外した
 };
 const cardsOf = (root) => root.querySelector('#tabSettings').querySelector('.scroll').children.filter((c) => c.classList.contains('card'));
 const titleOf = (c) => c.querySelector('h2').textContent.trim();
@@ -469,7 +471,8 @@ test('SP4: カードの data-sec と見出しの並びが「設定の項目と�
 // 0.12.1 LV-4（決めたこと L15）で意図して変えた: カード「会議の検出」に行「会議を出たら自動で止める」の label を2つ（名前の label for・トグルを包む label.check）足した（34 → 36。前の値は 87f6c483…）
 // 0.14.0 DQ-3（決めたこと 56・BQ27 (a)）で意図して変えた: 「フィラー除去」の下に行「口述の文を AI で整える」の label.check を1つ足した（36 → 37。説明は .check の中の .d なので 20 のまま。前の値は 47951f58…）
 // 0.14.0 DQ-3 直し2（R202）で意図して変えた: その行を説明と注意のあるトグルの行の形（名前の label for と、トグルだけを包む文の無い label.check）にした（37 → 38。前の値は 7d0c5cdc…）
-const TEXTS_080 = { labels: [38, 'a73bf4cc61a2257f17205e42096c65500cc2f4b829ed19cf862eacf50a1c6367'], descs: [20, '465336df080b0cffd78a1a5effa11c325cda3c37e989c1cd44d8317e639d25ca'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）。0.11.0 V-3 で 18 → 20（前の値は 5bc6662f…）
+// 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力ホットキー・自動貼り付け・口述の整え（名前の label for とトグルの label.check）の label を4つ外し、「起動と終了」の説明を直した（38 → 34。前の値は a73bf4cc…）
+const TEXTS_080 = { labels: [34, '0e4752f86147fc8775e90bc5319fdfdec6540479d9de61d108bca209141597ab'], descs: [20, '465336df080b0cffd78a1a5effa11c325cda3c37e989c1cd44d8317e639d25ca'] };   // 説明 21 → 18（LS-3 の前の値は aed31061…）。0.11.0 V-3 で 18 → 20（前の値は 5bc6662f…）
 test('SP4: 動かした入力の id が全部あり、その行の中にある。文が 0.8.0 と同じ（label の文・.check の文・説明の文）', T, () => {
   const sec = doc.querySelector('#tabSettings');
   for (const [name, ids] of Object.entries(ROW_IDS)) {
@@ -542,8 +545,9 @@ test('SP5: 『マイク』で使用するマイクの行だけ、『ﾏｲｸ』
   // 項目をまたぐ当たりは、項目ごとの小見出しの下に（左の列の順）
   // 0.9.2 I-2 で意図して変えた: 説明（トレイに残す）と吹き出し（相手の声の「音声入力（ホットキー）」）でも当たる
   await search(l, 'ホットキー');
-  assert.deepStrictEqual(shownRows(l), ['音声入力ホットキー', '議事録ホットキー', 'ウィンドウを閉じてもタスクトレイに残す', '議事録で相手の声も録る']);
-  assert.deepStrictEqual(groups(), ['一般', '録音']);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力ホットキーの行と、相手の声の吹き出しの「音声入力（ホットキー）は…」の行を消した
+  assert.deepStrictEqual(shownRows(l), ['議事録ホットキー', 'ウィンドウを閉じてもタスクトレイに残す']);
+  assert.deepStrictEqual(groups(), ['一般']);
   // 0.9.2 I-3 で意図して変えた: アカウントのカードの頭（「…クラウドで文字起こしします。」）でも当たる
   await search(l, '文字起こし');
   // 0.10.0 C-3 で意図して変えた: カード「Claude との連携（MCP）」の吹き出し（「…メモ・文字起こしは、Claude（Anthropic）へ送られます」）でも当たる
@@ -663,8 +667,9 @@ test('SP5: data-row の名前はどれも、その行のラベル（label の文
 // 0.9.0 O-4（RP1）で意図して変えた（統合で当てた）: 録音バーの置き場所は pillPos でなく pillSlot（置き場所の名前。既定は bottom-center）で保存する
 const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\\m\\ggml.bin', localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
   engineIdleMin: 10,   // 0.10.0 LS-3（D59）で意図して直した: 要約のエンジンの5つ（sumServerExe など）を送らない
-  hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
-  segmentSec: 75, pillSlot: 'bottom-center', micId: '', language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, dictionary: ['固有名詞'],
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のホットキー・自動貼り付け・口述の整え（下の aiTidy）は送らない
+  meetingHotkey: 'Alt+M',
+  segmentSec: 75, pillSlot: 'bottom-center', micId: '', language: 'ja', removeFillers: true, soundFeedback: true, autoLaunch: false, dictionary: ['固有名詞'],
   useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false, claudeExe: '',
   // 0.9.1 Q-3（D29）で意図して変えた: 話し声が無いときに自動で止める（読んだ設定に無ければ既定のオン・10 分で送る）
   autoStopQuiet: true, autoStopMin: 10,
@@ -673,26 +678,25 @@ const SAVED_080 = { localServerExe: 'C:\\srv\\whisper.exe', localModelPath: 'C:\
   // 0.12.1 LV-4 で意図して変えた: 会議を出たら自動で止める（読んだ設定に無ければ既定のオン）
   autoStopLeave: true,
   // 0.11.0 V-3（QM6）で意図して変えた: 打ち合わせの質の点数（読んだ設定に無ければ既定の all で送る）
-  qualityScore: 'all',
-  // 0.14.0 DQ-3（決めたこと 56）で意図して変えた: 口述の文を AI で整える（読んだ設定に無ければ既定のオンで送る）
-  aiTidy: true };
+  qualityScore: 'all' };   // 0.14.0 DQ-3 で足した aiTidy は 0.15.1 ND-3 で外した
 test('SP4: 選んだ項目でない欄を変えても、自動保存が今と同じ値を保存する（#tabSettings の change → saveSettings の引数が 0.8.0 と同じキーと値）', T, async () => {
   const l = await open();
   await l.drain();
   await click(l, 'tabBtnSettings');
   await pick(l, 'account');   // 録音の欄は隠れている
-  $(l, 'autoPaste').checked = false;
-  l.byId.get('tabSettings').dispatchEvent({ type: 'change', target: $(l, 'autoPaste') });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 自動貼り付けの欄は無いので、同じ［録音］の「議事録で相手の声も録る」で見る
+  $(l, 'useSystemAudio').checked = true;
+  l.byId.get('tabSettings').dispatchEvent({ type: 'change', target: $(l, 'useSystemAudio') });
   await l.drain();
   const saved = l.called('saveSettings');
   assert.strictEqual(saved.length, 1, '自動保存が走らない（結線が切れた）');
-  assert.deepStrictEqual(saved[0].args[0], { ...SAVED_080, autoPaste: false });
+  assert.deepStrictEqual(saved[0].args[0], { ...SAVED_080, useSystemAudio: true });
   // 検索の間も同じ
   await search(l, 'フィラー');
   $(l, 'removeFillers').checked = false;
   l.byId.get('tabSettings').dispatchEvent({ type: 'change', target: $(l, 'removeFillers') });
   await l.drain();
-  assert.deepStrictEqual(l.called('saveSettings')[1].args[0], { ...SAVED_080, autoPaste: false, removeFillers: false });
+  assert.deepStrictEqual(l.called('saveSettings')[1].args[0], { ...SAVED_080, useSystemAudio: true, removeFillers: false });
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -820,7 +824,8 @@ test('見た目の直し（モック 案C）: 検索の欄の左に虫めがね�
 });
 
 // 2列の行（名前と説明が左、入力が右）。表のどの欄が2列になるか（左の名前の文）
-const TWO_COL = { themeSel: '外観', hotkey: '音声入力ホットキー', meetingHotkey: '議事録ホットキー', pillPos: '録音バーの置き場所', micSelect: '使用するマイク',
+const TWO_COL = { themeSel: '外観', meetingHotkey: '議事録ホットキー',   // 0.15.1 ND-3 で音声入力ホットキーを外した
+  pillPos: '録音バーの置き場所', micSelect: '使用するマイク',
   spkNow: '録音されるスピーカー', language: '認識言語', claudeTest: '要約（Claude Code）', claudeExe: 'Claude Code の場所',
   autoStopMin: '知らせるまでの時間',   // 0.9.1 Q-3 で意図して足した
   qualityScore: '打ち合わせの質の点数' };   // 0.11.0 V-3 で意図して足した
@@ -836,7 +841,8 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
   // 2列になる欄（.frow）は表の欄だけ（詳細設定の中は今のまま）。左（.flead）に名前と説明、右に入力が1つ
   // 0.9.2 I-3 で意図して変えた: ログインの行も名前（と ⓘ）が左・［ログイン］が右の2列
   // 0.9.3 M-4 で意図して変えた: 「通知を出さないアプリ」も名前が左・札が右の2列
-  assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['ログイン', '外観', '音声入力ホットキー', '議事録ホットキー', '通知を出さないアプリ', '録音バーの置き場所', '使用するマイク',
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力ホットキーの行を外した
+  assert.deepStrictEqual(doc.querySelectorAll('.frow').map((f) => f.dataset.row), ['ログイン', '外観', '議事録ホットキー', '通知を出さないアプリ', '録音バーの置き場所', '使用するマイク',
     '録音されるスピーカー', '知らせるまでの時間', '認識言語', 'Claude Code', 'Claude Code の場所', 'Claude デスクトップから読む', '打ち合わせの質の点数']);   // 0.10.0 C-3 で意図して足した（.fstack で縦に積む行）。0.11.0 V-3 で打ち合わせの質の点数を意図して足した
   for (const [id, name] of Object.entries(TWO_COL)) {
     const field = doc.querySelector(`#${id}`).closest('.field');
@@ -859,7 +865,7 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
   assert.strictEqual(flab.getAttribute('aria-hidden'), 'true');
   assert.strictEqual(doc.querySelector('#themeSel').getAttribute('aria-labelledby'), 'appearanceTitle');
   // 名前の後ろの（…）は説明として名前の下に出す（label の文は 0.8.0 のまま: 上の「文が 0.8.0 と同じ」。かっこは出さない）
-  for (const id of ['hotkey', 'meetingHotkey', 'pillPos', 'claudeExe']) {
+  for (const id of ['meetingHotkey', 'pillPos', 'claudeExe']) {   // 0.15.1 ND-3 で音声入力ホットキーを外した
     const lab = doc.querySelector(`label[for="${id}"]`);
     assert.ok(lab.querySelector('.lhint'), `#${id} の名前の（…）が説明になっていない`);
   }
@@ -869,31 +875,31 @@ test('見た目の直し（モック 案C）: 設定の行は、名前（と説�
 
 const capsOf = (l, id) => $(l, `${id}Caps`).querySelectorAll('kbd').map((k) => k.textContent);
 test('見た目の直し（モック 案C）: ホットキーはキーの形の箱（Ctrl・Shift・Space）。欄を押してキーを押すと今どおり取り込み、箱も替わる。保存で戻った値・設定の読み込みでも箱が替わる', T, async () => {
-  const l = await open({ saveSettings: (next) => ({ ok: true, applied: { hotkey: 'Control+Shift+Space' } }) });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: ホットキーの欄は議事録の1つ（箱の Ctrl・Shift・Space は Ctrl・Alt・K などで見る）
+  const l = await open({ saveSettings: (next) => ({ ok: true, applied: { meetingHotkey: 'Control+Shift+Space' } }) });
   await l.drain();
   await click(l, 'tabBtnSettings');
-  assert.deepStrictEqual(capsOf(l, 'hotkey'), ['Ctrl', 'Shift', 'Space']);
   assert.deepStrictEqual(capsOf(l, 'meetingHotkey'), ['Alt', 'M']);
-  for (const id of ['hotkey', 'meetingHotkey']) {
+  for (const id of ['meetingHotkey']) {
     const caps = $(l, `${id}Caps`);
     assert.strictEqual(caps.getAttribute('aria-hidden'), 'true', `${id}: 箱が読み上げに出る（読み上げは欄の値）`);
     assert.strictEqual(caps.parentNode, $(l, id).parentNode, `${id}: 箱が欄と同じ .hkbox に無い`);
     assert.ok(caps.parentNode.classList.contains('hkbox'));
     assert.strictEqual($(l, id).getAttribute('readonly'), '', `${id}: 欄が readonly でない`);
   }
-  const hk = $(l, 'hotkey');
+  const hk = $(l, 'meetingHotkey');
   hk.focus();
   const ev = l.key({ key: 'k', ctrlKey: true, altKey: true }, hk);
   assert.strictEqual(ev.defaultPrevented, true);
   assert.strictEqual(hk.value, 'Control+Alt+K', '欄の値（保存する値）が変わった');
-  assert.deepStrictEqual(capsOf(l, 'hotkey'), ['Ctrl', 'Alt', 'K'], 'キーを押しても箱が替わらない');
-  l.key({ key: 'F9' }, $(l, 'meetingHotkey'));
+  assert.deepStrictEqual(capsOf(l, 'meetingHotkey'), ['Ctrl', 'Alt', 'K'], 'キーを押しても箱が替わらない');
+  l.key({ key: 'F9' }, hk);
   assert.deepStrictEqual(capsOf(l, 'meetingHotkey'), ['F9']);
   // 保存で main が戻した値（applied）に箱もそろえる
   $(l, 'tabSettings').dispatchEvent({ type: 'change' });
   await l.drain();
   assert.strictEqual(hk.value, 'Control+Shift+Space');
-  assert.deepStrictEqual(capsOf(l, 'hotkey'), ['Ctrl', 'Shift', 'Space'], '保存で戻った値に箱がそろわない');
+  assert.deepStrictEqual(capsOf(l, 'meetingHotkey'), ['Ctrl', 'Shift', 'Space'], '保存で戻った値に箱がそろわない');
   // 箱は欄の上に重ねる飾り: 押すと下の欄に届き（pointer-events: none）、欄の文字は見せない
   assert.strictEqual(decl('.hkcaps')['pointer-events'], 'none');
   assert.strictEqual(decl('.hkbox input').color, 'transparent');

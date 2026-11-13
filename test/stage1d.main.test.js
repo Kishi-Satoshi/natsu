@@ -306,12 +306,7 @@ test('RF28（今の守り）: ［この会議は PC の中だけ］の会議で�
   assert.strictEqual(l.decrypts, l1.decrypts, `［PC の中だけ］の区間で復号した（区間 2 つで ${l.decrypts} 回・1つで ${l1.decrypts} 回）`);
 });
 
-test('RL11: 音声入力（口述）も同じ経路（ログインしていれば中継）', T, async () => {
-  const o = await run(['text', '--relay=text', '--dictate']);
-  assert.strictEqual(posts(o.relayCalls), 1);
-  assert.strictEqual(o.history[0].text.startsWith('本日の議題は進捗の確認です'), true);
-  assert.strictEqual(whisperSpawned(o), false);
-});
+// 0.15.1 ND-2（D114）: 音声入力の中継の経路（RL11 の口述の分）のテストは、音声入力と一緒に消した（会議の区間と復旧の同じ道は RL11 の残り）
 
 test('RL11: 復旧の文字起こしも同じ経路（ログインしていれば中継。手元のエンジンを起こさない）', T, async () => {
   const o = await run(['text', '--relay=text', '--recover']);

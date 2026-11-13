@@ -22,14 +22,17 @@ const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, 
 const open = (o = {}) => load(APP, { preloadSrc: P1B, returns: { pagesSearch: () => LIST, pageGet: PAGE, uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: [], active: '' } }), ...o } });
 const saves = (l) => l.called('uiSave').map((c) => c.args[0]);
 
-test('N2: サイドバーは議事録のタブの外にいて、上から NaTsu・検索・記録開始・議事録の一覧、下に音声入力と設定', async () => {
+test('N2: サイドバーは議事録のタブの外にいて、上から NaTsu・検索・記録開始・議事録の一覧、下にゴミ箱と設定', async () => {
   const l = await open();
   await l.drain();
   const side = l.byId.get('side');
   assert.ok(side && !side.closest('#tabNotes'), 'サイドバーが議事録のタブの中にある（ほかのタブで消える）');
   // 第1b2回 L-2: 検索の欄は検索の窓へ移り、サイドバーには窓を開く［🔍 検索］（#sideSearch）がある
   assert.ok(!side.querySelector('#searchBox'), '検索の欄がサイドバーに残っている');
-  const order = ['wordmark', 'sideSearch', 'mtToggleBtn', 'tabBtnNotes', 'plist', 'tabBtnDictation', 'tabBtnSettings'];
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 下の行は［⚙️ 設定］（音声入力の行は無い）
+  // 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D124）で意図して変えた: 一覧の見出しは「プライベート」（#privHead）
+  const order = ['wordmark', 'sideSearch', 'mtToggleBtn', 'privHead', 'plist', 'tabBtnTrash', 'tabBtnSettings'];
+  assert.ok(!side.querySelector('#tabBtnDictation'), '［🎤 音声入力］の行が残っている');
   const all = side._walk([]);
   const at = (k) => all.findIndex((e) => e.id === k || e.className === k);
   assert.deepStrictEqual(order.map(at).filter((i) => i < 0), [], '足りない部品がある');
@@ -106,24 +109,26 @@ test('N3: 一覧を押すと今のページのタブで開き、Ctrl+クリッ�
 
 // 0.9.0 U-1（SP1・D24）で意図して変えた: 設定はタブでなく、今のページの上に開くポップアップ（上の帯に足さない・今のタブを替えない）。
 // 1つずつ開くことと閉じ方は、音声入力とページのタブで見る
-test('N3・0.9.0 U-1: 音声入力はタブで開き（1つずつ）、設定はタブにしない。× と中クリックで閉じる。選んでいたタブを閉じたら隣へ移り、全部閉じたら空のページ', async () => {
+test('N3・0.9.0 U-1: ページはタブで開き（同じページは1つずつ）、設定はタブにしない。× と中クリックで閉じる。選んでいたタブを閉じたら隣へ移り、全部閉じたら空のページ', async () => {
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、2つ目のタブはページの Ctrl+クリックの新しいタブ（同じページは1つ）
   const l = await open();
-  await l.drain();
-  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
   await l.drain();
   row(l, 0).dispatchEvent({ type: 'click' });
   await l.drain();
-  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
+  row(l, 1).dispatchEvent({ type: 'click', ctrlKey: true });
+  await l.drain();
+  row(l, 1).dispatchEvent({ type: 'click', ctrlKey: true });
   l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' });
   await l.drain();
-  assert.deepStrictEqual(keysOf(l), ['dictation', 'page:pa1'], '音声入力のタブを2つ作った・設定のタブを足した');
+  assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2'], '同じページのタブを2つ作った・設定のタブを足した');
   assert.ok(l.byId.get('tabSettings').className.includes('active'));
-  assert.ok(l.byId.get('tabDictation').className.includes('active'), '設定を開いたら後ろのタブが替わった');
+  assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true', '設定を開いたら後ろのタブが替わった');
   l.key({ key: 'Escape' });
   await l.drain();
-  tabs(l)[0].querySelector('button').dispatchEvent({ type: 'click' });
+  tabs(l)[1].querySelector('button').dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(keysOf(l), ['page:pa1']);
+  assert.strictEqual(tabs(l)[0].getAttribute('aria-selected'), 'true', '隣のタブへ移っていない');
   assert.ok(l.byId.get('tabNotes').className.includes('active'), '隣のタブへ移っていない');
   tabs(l)[0].dispatchEvent({ type: 'auxclick', button: 1 });
   await l.drain();
@@ -138,33 +143,53 @@ test('N3・N6・F7: 起動のときに覚えたタブを開いて選んでいた
   assert.deepStrictEqual(keysOf(l), ['page:pa1', 'page:pb2']);
   assert.strictEqual(tabs(l)[0].textContent.includes(titleAt('2026-10-16T01:00:00.000Z')), true, 'タブの名前がページの題名でない');
   assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]), ['pa1']);
-  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 3つ目のタブはページ（Ctrl+クリック）
+  row(l, 2).dispatchEvent({ type: 'click', ctrlKey: true });
   await l.drain();
-  assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1', 'page:pb2', 'dictation'], active: 'dictation' } });
+  assert.deepStrictEqual(saves(l).pop(), { tabs: { open: ['page:pa1', 'page:pb2', 'page:pc3'], active: 'page:pc3' } });
 });
 
 test('N3・F8: タブを替える前に書きかけの題名を元のページへ保存する（blur は来ない）', async () => {
   const l = await open();
   await l.drain();
-  row(l, 0).dispatchEvent({ type: 'click' });
+  row(l, 1).dispatchEvent({ type: 'click' });
   await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click', ctrlKey: true });   // 0.15.1 ND-3: 2つ目のタブ（pa1）を開いて選ぶ
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pb2', 'page:pa1'], '前提: タブが2つ');
   l.byId.get('pTitle').textContent = '直した題名';
   // 0.9.0 U-1 で意図して変えた: 設定はタブを替えない（ポップアップ）ので、音声入力のタブへ替える
-  l.byId.get('tabBtnDictation').dispatchEvent({ type: 'click' });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブは無いので、先に開いておいたほかのページのタブを帯で押して替える（タブを選ぶ activateTab の書き出しを見る）
+  tabs(l)[0].dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa1', '直した題名']]);
+});
+
+// 0.15.1 ND-3 直し（C。計画 docs/plans/2026-11-04-151.md の R12 を直した）: 同じページのタブを選び直すと（タブが1つの Ctrl+Tab・自分のタブを押す）、
+// openPage を通らないので、activateTab の頭の書き出し（flushEdits）だけが書きかけの題名を保存する（前の版の変異 ui-tab-flush）
+test('N3・F8・0.15.1 ND-3 直し: タブが1つのときの Ctrl+Tab（同じページのタブを選び直す）でも、書きかけの題名を保存する', async () => {
+  const l = await open();
+  await l.drain();
+  row(l, 0).dispatchEvent({ type: 'click' });
+  await l.drain();
+  assert.deepStrictEqual(keysOf(l), ['page:pa1'], '前提: タブが1つ');
+  l.byId.get('pTitle').textContent = '直した題名';
+  l.key({ key: 'Tab', code: 'Tab', ctrlKey: true });
   await l.drain();
   assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [['pa1', '直した題名']]);
 });
 
 // 0.9.0 U-1（SP1・SP3）で意図して変えた: 設定のタブは無いので、3つ目は2つ目のページのタブ（End で移り、Ctrl+Tab で最初のページへ回る）
 test('N3・画面の使いやすさ: タブの帯は ←／→／Home／End で移り（選んでいるタブだけ Tab で届く）、Ctrl+Tab で次のタブ', async () => {
-  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'page:pb2'], active: 'page:pa1' } }) });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 2つ目のタブは音声入力でなくページ（pc3）
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'page:pc3', 'page:pb2'], active: 'page:pa1' } }) });
   await l.drain();
   assert.deepStrictEqual(tabs(l).map((t) => t.tabIndex), [0, -1, -1]);
   tabs(l)[0].dispatchEvent({ type: 'keydown', key: 'ArrowRight' });
   await l.drain();
   // 0.11.0（R22）: 要素どうしは assert.ok(a === b) で比べる（赤のときに報告が最小 DOM の木を丸ごと書き出し、変異確認の写しで数 GB の記憶を使った）
   assert.ok(l.document.activeElement === tabs(l)[1]);
-  assert.ok(l.byId.get('tabDictation').className.includes('active'));
+  assert.strictEqual(tabs(l)[1].getAttribute('aria-selected'), 'true');
   tabs(l)[1].dispatchEvent({ type: 'keydown', key: 'End' });
   await l.drain();
   assert.ok(l.byId.get('tabNotes').className.includes('active'));
@@ -447,7 +472,8 @@ test('N2・N3（足した守り）: 覚え書きが届く前に利用者がサ�
   row(l, 0).dispatchEvent({ type: 'click' });
   await l.drain();
   assert.strictEqual(l.byId.get('side').style.width, '276px', '前提: ← → で幅が変わる');
-  ui.give({ sidebar: { width: 400, collapsed: true }, tabs: { open: ['dictation'], active: 'dictation' } });   // 0.9.0 U-1: 設定のタブは無い（落とすので上書きの見張りが空振りする）。音声入力にした
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 音声入力のタブも落とす（上書きの見張りが空振りする）ので、ほかのページのタブにした
+  ui.give({ sidebar: { width: 400, collapsed: true }, tabs: { open: ['page:pb2'], active: 'page:pb2' } });   // 0.9.0 U-1: 設定のタブは無い（落とすので上書きの見張りが空振りする）
   await l.drain();
   assert.strictEqual(l.byId.get('side').style.width, '276px', '遅れて届いた幅で利用者の幅を上書きした');
   assert.ok(!l.byId.get('side').closest('.app').className.includes('side-collapsed'), '遅れて届いた畳みで畳んだ');
@@ -487,7 +513,8 @@ test('画面の使いやすさ・F12: キーボードだけで、サイドバー
   const order = tabbables(l);
   const at = (k) => order.indexOf(k);
   // 第1b2回 L-2: 検索の欄は閉じた検索の窓（hidden）の中なので届かない。サイドバーは［🔍 検索］から
-  for (const k of ['sideSearch', 'mtToggleBtn', 'tabBtnDictation', 'tabBtnSettings', 'sideCollapse', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript']) assert.ok(at(k) >= 0, `${k} に Tab で届かない`);
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: サイドバーの［🎤 音声入力］は無い
+  for (const k of ['sideSearch', 'mtToggleBtn', 'tabBtnSettings', 'sideCollapse', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript']) assert.ok(at(k) >= 0, `${k} に Tab で届かない`);
   assert.ok(!order.includes('searchBox'), '閉じた検索の窓の中に Tab で届く');
   const want = ['sideSearch', 'mtToggleBtn', 'sideGrip', 'page:pa1', 'pMore', 'pTitle', 'pType', 'paneBtnScript'];
   assert.deepStrictEqual(want.map(at), [...want.map(at)].sort((a, b) => a - b), order.join(' → '));
@@ -507,12 +534,13 @@ test('画面の使いやすさ: つまみの Enter は畳む・出すだが、�
 
 test('画面の使いやすさ・F12（足した守り）: 選んでいるタブの × にも Tab で届き（ほかのタブの × は届かない）、× で閉じたらフォーカスは隣のタブへ移る', async () => {
   // 0.9.0 U-1（SP3）で意図して変えた: 設定のタブは無いので、3つ目は2つ目のページのタブ
-  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation', 'page:pb2'], active: 'dictation' } }) });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 2つ目のタブは音声入力でなくページ（pc3）
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'page:pc3', 'page:pb2'], active: 'page:pc3' } }) });
   await l.drain();
   const xs = () => tabs(l).map((t) => t.querySelector('.tx').tabIndex);
   assert.deepStrictEqual(xs(), [-1, 0, -1]);
   const order = tabbables(l);
-  assert.strictEqual(order[order.indexOf('dictation') + 1], 'tx', order.join(' → '));
+  assert.strictEqual(order[order.indexOf('page:pc3') + 1], 'tx', order.join(' → '));
   const x = tabs(l)[1].querySelector('.tx');
   x.focus();
   x.dispatchEvent({ type: 'click' });
@@ -523,7 +551,8 @@ test('画面の使いやすさ・F12（足した守り）: 選んでいるタブ
 });
 
 test('画面の使いやすさ・F12（足した守り）: タブの × にフォーカスがあるまま帯が描き直されても（一覧の更新など）、フォーカスは同じタブの × に残る', async () => {
-  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'dictation'], active: 'dictation' } }) });
+  // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 2つ目のタブは音声入力でなくページ（pb2）
+  const l = await open({ uiState: () => ({ sidebar: { width: 260, collapsed: false }, tabs: { open: ['page:pa1', 'page:pb2'], active: 'page:pb2' } }) });
   await l.drain();
   tabs(l)[1].querySelector('.tx').focus();
   l.fire('onPagesUpdated');
