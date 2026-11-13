@@ -10628,8 +10628,16 @@
       toast(code === 'too-big' ? DB_ROWS_FULL : code === 'bad-args' && bad ? bad : `変更を保存できませんでした: ${code}`);   // 0.16.0 DR-1: サブアイテムの輪は「その行の中へは入れられません」
       return null;
     }
-    if (dbUse(st)) await dbLoad(true);
+    await dbLoadSame(st);
     return r;
+  }
+  // 0.16.0 直し（rv53 I-3 (a)・R120）: 書いた・戻した表を読み直し、同じデータベースを見せているほかの表（本文のインラインの表・リンクドビュー）も読み直す。
+  // 書いた表から先に読み、終わったら今の表（dbSt）を書いた表に戻す（書いた表が画面に無ければ前の今の表のまま）
+  async function dbLoadSame(st) {
+    const was = dbSt;
+    if (dbUse(st)) await dbLoad(true, st);
+    for (const o of [...dbTables.values()]) if (o !== st && st && o.id === st.id && dbOnScreen(o)) await dbLoad(true, o);
+    if (!dbUse(st) && dbOnScreen(was)) dbSt = was;
   }
   // ---- セルの書き手（DV-1 は文字の種類だけ。Enter で決める・Esc でやめる・Tab で右へ。変換確定の Enter は抜ける: imeEnter）
   function dbEditStart(rowId, colId) {
@@ -10884,7 +10892,7 @@
       else { undoBk = putBack(undoBk, key, dir, got.entry, takenAt, slotNow.undo.length); if (code !== 'locked') toast(`変更を保存できませんでした: ${code}`); }
     } else if (run.tx) undoBk = bookDone(undoBk, key, dir, run.tx);
     pruneMarks();
-    if (dbUse(st)) await dbLoad(true);
+    await dbLoadSame(st);   // 0.16.0 直し（rv53 I-3 (a)）: 同じデータベースのほかの表も
   }
   // ================= 0.16.0 DV-4: 行を開く・行のメニュー・行のページ =================
   // 計画 docs/plans/2026-11-04-160.md の決めたこと 26・51・R49・R90〜R93。題名のセルの［開く］（Ctrl+クリックで新しいタブ）・選んだセルの Space で、
@@ -11276,9 +11284,10 @@
     if (dbSubOpen(st).has(rowId) === on) return null;
     return dbSubToggle(rowId, on);
   }
+  // 0.16.0 直し（rv53 I-3 (b)・R120）: 渡された表を読み直す（今の表 dbSt でない）。行が 0 の表（全部ゴミ箱へ入れた）でも印を読み直す（force）
   function dbReread(st) {
     st.sig = ''; st.rows.clear(); st.heights.clear();
-    return dbLoad(false);
+    return dbLoad(true, st);
   }
   // 行のメニューの［サブアイテムを足す］: 新しい行を子にして作り（rel.link の1回）、親を開いて子の題名を書く
   async function dbSubAdd(rowId) {

@@ -3270,3 +3270,87 @@ test('R120 (a)・rv53 I-2: 本文の ↑・↓ はインラインの表とリン
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+// rv53 I-3 (a): 同じデータベースを見せる2つの表（リンクドビュー2つ）は、片方で書く・Ctrl+Z で戻すと、もう片方も読み直す
+const twoLinked = (call, d) => {
+  const s = linkSetup(call, d);
+  const L1 = call('block.insertDbView', { pageId: s.P, afterId: s.b1, db: d.id }).blockId;
+  const L2 = call('block.insertDbView', { pageId: s.P, afterId: s.b2, db: d.id }).blockId;
+  return { ...s, L1, L2 };
+};
+test('R120・rv53 I-3 (a): 同じデータベースのリンクドビュー2つ。片方で行を足すともう片方にも出て、片方の Ctrl+Z で戻すともう片方からも消える', T, async () => {
+  const l = await openDb({ before: twoLinked });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const [h1, h2] = [hostOf(l, l.L1), hostOf(l, l.L2)];
+    assert.deepStrictEqual([rowTitles(h1).length, rowTitles(h2).length], [3, 3]);
+    await clickEl(l, h1.querySelector('.dbadd'), 300);
+    assert.deepStrictEqual(l.called('rowAdd').map((c) => c.args[0]), [l.id]);
+    assert.strictEqual(rowTitles(hostOf(l, l.L1)).length, 4, '足した表に行が出ない');
+    assert.strictEqual(rowTitles(hostOf(l, l.L2)).length, 4, '同じデータベースのもう1つのリンクドビューに足した行が出ない');
+    const ed = hostOf(l, l.L1).querySelector('.dbedit');
+    if (ed) await press(l, ed, { key: 'Escape' });
+    const g1 = hostOf(l, l.L1).querySelector('.dbgrid');
+    await press(l, g1, { key: 'z', code: 'KeyZ', ctrlKey: true }); await l.drain(300);
+    assert.deepStrictEqual(l.called('editRevert').map((c) => c.args[0]), [l.id], 'Ctrl+Z が元のデータベースの歩みを戻さない');
+    assert.strictEqual(rowTitles(hostOf(l, l.L1)).length, 3, 'Ctrl+Z で戻した表から行が消えない');
+    assert.strictEqual(rowTitles(hostOf(l, l.L2)).length, 3, 'Ctrl+Z で戻したとき、もう1つのリンクドビューから行が消えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv53 I-3 (b): ゴミ箱から行を戻したとき、その行のデータベースの表（押していない表も）を読み直す。全部の行を消して1つ戻す（shown 0）
+test('R120・rv53 I-3 (b): 本文の2つの表。2つ目の表の行を全部ゴミ箱へ入れ、1つ目の表を押してから［ゴミ箱］で戻すと、2つ目の表に戻した行が出る', T, async () => {
+  const l = await openDb({ before: twoInline });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const r2 = l.call('db.view', { id: l.D2, viewId: l.call('db.get', { id: l.D2 }).views[0].id, from: 0, count: 10 }).rows[0].id;
+    l.call('rows.trash', { db: l.D2, ids: [r2] });
+    await l.K.pagesTrash(); l.fire('onPagesUpdated'); await l.drain(300);
+    assert.deepStrictEqual(inlineOf(l).map(rowTitles), [['いちの行'], []], '2つ目の表から行が消えない');
+    // 1つ目の表のセルを押す（今の表 = 1つ目）
+    const c1 = inlineOf(l)[0].querySelectorAll('.dbrow').find((r) => r.dataset.id).querySelectorAll('.dbcell').find((c) => c.dataset.col === 'title');
+    await clickEl(l, c1, 120);
+    const ed = inlineOf(l)[0].querySelector('.dbedit');
+    if (ed) await press(l, ed, { key: 'Escape' });
+    await clickEl(l, $(l, 'tabBtnTrash'), 80);
+    await clickEl(l, $(l, 'trashList').querySelectorAll('.tprow').find((e) => e.dataset.pid === r2).querySelector('button'), 400);
+    assert.deepStrictEqual(l.called('pageRestore').map((c) => c.args), [[r2]]);
+    assert.deepStrictEqual(inlineOf(l).map(rowTitles), [['いちの行'], ['にの行']], '戻した行が2つ目の表に出ない（押していた表を読み直した・行の無い表を読み直さない）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+// rv53 I-4: 本文の表（リンクドビュー・インライン）の Ctrl+Z は元のデータベースの歩み（editRevert の pageId は元のデータベース。開いているページでない）
+test('R120・rv53 I-4: リンクドビューで列を足して Ctrl+Z → editRevert(元のデータベース, [列を足した歩み]) の1回で列が消える。インラインの表の Ctrl+Z もそのデータベース', T, async () => {
+  const l = await openDb({ before: (call, d) => {
+    const s = linkSetup(call, d);
+    const L = call('block.insertDbView', { pageId: s.P, afterId: s.b1, db: d.id }).blockId;
+    const D = call('db.create', { parentId: s.P, inline: s.b2 }).id;
+    call('row.add', { db: D, title: 'にの行' });   // データベースの行の題名（D77 の会議の題名でない）
+    return { ...s, L, D };
+  } });
+  try {
+    l.fire('onPageOpen', l.P); await l.drain(300);
+    const h = hostOf(l, l.L);
+    const cols0 = l.call('db.get', { id: l.id }).cols.length;
+    await clickEl(l, h.querySelector('.dbcoladd'));
+    await clickEl(l, hostItem(h, 'テキスト'), 300);
+    assert.deepStrictEqual(l.called('colAdd').map((c) => c.args), [[l.id, 'text']]);
+    const nm = hostMenu(hostOf(l, l.L)) && hostMenu(hostOf(l, l.L)).querySelector('input');
+    if (nm) await press(l, nm, { key: 'Escape' });
+    assert.strictEqual(l.call('db.get', { id: l.id }).cols.length, cols0 + 1);
+    const step = l.steps.filter((s) => s.cmd === 'col.add').map((s) => [s.pageId, s.step]);
+    assert.deepStrictEqual(step.map((x) => x[0]), [l.id], '列を足した歩みが元のデータベースの ID でない');
+    await press(l, hostOf(l, l.L).querySelector('.dbgrid'), { key: 'z', code: 'KeyZ', ctrlKey: true }); await l.drain(300);
+    assert.deepStrictEqual(l.called('editRevert').map((c) => c.args), [[l.id, [step[0][1]]]], 'リンクドビューの Ctrl+Z が元のデータベースの歩みで戻さない（開いているページの歩みで戻した）');
+    assert.strictEqual(l.call('db.get', { id: l.id }).cols.filter((c) => !c.gone).length, cols0, 'Ctrl+Z で足した列が消えない');
+    // インラインの表: 行を足して Ctrl+Z → editRevert(インラインのデータベース, …)
+    const hi = hostOf(l, l.b2);
+    await clickEl(l, hi.querySelector('.dbadd'), 300);
+    const ed = hostOf(l, l.b2).querySelector('.dbedit');
+    if (ed) await press(l, ed, { key: 'Escape' });
+    await press(l, hostOf(l, l.b2).querySelector('.dbgrid'), { key: 'z', code: 'KeyZ', ctrlKey: true }); await l.drain(300);
+    assert.deepStrictEqual(l.called('editRevert').map((c) => c.args[0]), [l.id, l.D], 'インラインの表の Ctrl+Z がそのデータベースの歩みでない');
+    assert.ok(l.called('editRevert').every((c) => c.args[0] !== l.P), 'editRevert に開いているページを渡した');
+    assert.deepStrictEqual(rowTitles(hostOf(l, l.b2)), ['にの行'], 'インラインの表の Ctrl+Z で足した行が消えない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
