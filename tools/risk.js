@@ -22,14 +22,23 @@ const MOVES = require('./lib/moves');
 const ROOT = path.resolve(__dirname, '..');
 // git の stderr は画面に流さず、受け取っておく。基準の版に無いファイルを読むと fatal の行が出て、
 // BLOCK 0 でもリリースのゲートの記録では失敗に見える（失敗したときは、例外の文に stderr が入る）
-const git = (a) => execFileSync('git', a, { cwd: ROOT, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+// 0.16.0 R121: 1回の git が止まったら（ロック待ち・資格の問い・部分クローンの取りに行き）黙って待たず、その git の引数を言って落ちる（at の
+// 「読めない = null」にも飲ませない）。git の1回はどれも 1 秒より短い（30 の commit を見るテストの analyze の1回は 1 秒ほど）
+const GIT_TIMEOUT_MS = 120000;
+const gitBuf = (a, maxBuffer = 64 << 20) => {
+  try { return execFileSync('git', a, { cwd: ROOT, maxBuffer, stdio: ['ignore', 'pipe', 'pipe'], timeout: GIT_TIMEOUT_MS }); } catch (e) {
+    if (e && e.code === 'ETIMEDOUT') { const x = new Error(`git ${a.join(' ')} が ${GIT_TIMEOUT_MS / 1000} 秒で終わらない（止まった git）`); x.gitStall = true; throw x; }
+    throw e;
+  }
+};
+const git = (a) => gitBuf(a).toString();
 // rev: null=作業ツリー / 'INDEX'=コミット予定の内容 / それ以外=git の版
 const at = (rev, f) => {
   try {
     if (rev === null) return fs.readFileSync(path.join(ROOT, f), 'utf8');
     if (rev === 'INDEX') return git(['show', `:${f}`]);
     return git(['show', `${rev}:${f}`]);
-  } catch { return null; }
+  } catch (e) { if (e && e.gitStall) throw e; return null; }
 };
 
 let F = [];
@@ -212,22 +221,39 @@ function inkFindings(htmlSrc) {
 
 // ---------- 配布物（.ps1） ----------
 function checkPs1(rev) {
-  const files = git(['ls-files']).split('\n').filter((f) => f.endsWith('.ps1'));
+  const tracked = git(['ls-files']).split('\n');
+  const files = tracked.filter((f) => f.endsWith('.ps1'));
   for (const f of files) {
     let buf;
     try {
       buf = rev === null ? fs.readFileSync(path.join(ROOT, f))
-        : execFileSync('git', ['show', rev === 'INDEX' ? `:${f}` : `${rev}:${f}`], { cwd: ROOT, maxBuffer: 1 << 24, stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch { continue; } // 基準の版に無い .ps1（後で足したもの）は読めないので見ない。git の fatal の行は画面に出さない
+        : gitBuf(['show', rev === 'INDEX' ? `:${f}` : `${rev}:${f}`], 1 << 24);
+    } catch (e) { if (e && e.gitStall) throw e; continue; } // 基準の版に無い .ps1（後で足したもの）は読めないので見ない。git の fatal の行は画面に出さない
     if (!(buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf))
       add('BLOCK', '配布-ps1', f, 'BOM が無い。PowerShell 5.1 が Shift-JIS と誤読して構文エラーになる', 'tools/write-ps1.js を通して書き出す');
   }
   // 生成器を通さずに .ps1 を書いているコードが無いこと
-  for (const f of git(['ls-files']).split('\n').filter((x) => /\.(js|cjs|mjs)$/.test(x) && !x.startsWith('tools/write-ps1'))) {
+  // 0.16.0 R121: .js を1つずつ git show で読まない（1回の analyze で約 380 回の git の起動になり、30 の commit を見るテストが CI で 104 秒・
+  // Windows で 493 秒かかった）。writeFileSync と .ps1 の字の両方があるファイルだけを git grep の1回で選んでから読む（決まりは同じ）
+  for (const f of ps1WriterCandidates(rev, tracked)) {
     const s = at(rev, f) || '';
     if (/writeFileSync\([^)]*\.ps1/.test(stripJs(s)))
       add('BLOCK', '配布-ps1', f, '.ps1 を直接書き出している', 'tools/write-ps1.js の writePs1() を使う（BOM+CRLF を必ず付ける）');
   }
+}
+
+// 0.16.0 R121: rev の中で writeFileSync と .ps1 の字の両方を持つ .js・.cjs・.mjs（今の ls-files にあるもの。tools/write-ps1 は除く）。
+// 中身の決まり（/writeFileSync\([^)]*\.ps1/）は読んだ後に今どおり見る。git grep は当たりが無いと 1 で終わる（空の並び）
+function ps1WriterCandidates(rev, tracked = git(['ls-files']).split('\n')) {
+  const want = new Set(tracked.filter((x) => /\.(js|cjs|mjs)$/.test(x) && !x.startsWith('tools/write-ps1')));
+  const args = ['grep', '-l', '-z', '-F', '--all-match', '-e', 'writeFileSync', '-e', '.ps1'];
+  if (rev === 'INDEX') args.push('--cached');
+  else if (rev !== null) args.push(rev);
+  args.push('--', '*.js', '*.cjs', '*.mjs');
+  let out = '';
+  try { out = git(args); } catch (e) { if (!e || e.status !== 1) throw e; }
+  const pre = rev !== null && rev !== 'INDEX' ? `${rev}:` : '';
+  return out.split('\0').filter(Boolean).map((l) => (pre && l.startsWith(pre) ? l.slice(pre.length) : l)).filter((f) => want.has(f));
 }
 
 // ---------- 復旧の導線 ----------
@@ -937,4 +963,4 @@ function main(argv) {
   return blocks.length ? 1 : 0;
 }
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { analyze, htmlSinks, htmlSinkFindings, lexJs, checkHtml, htmlFindings, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, relayFindings, relayTarget, SCOPE, scopeNote };
+module.exports = { analyze, ps1WriterCandidates, htmlSinks, htmlSinkFindings, lexJs, checkHtml, htmlFindings, windows, mineHits, inkFindings, refIds, fetchFindings, jsonWriteFindings, onlineFindings, relayFindings, relayTarget, SCOPE, scopeNote };

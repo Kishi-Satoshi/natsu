@@ -9,12 +9,18 @@
 //   exitCodeOf(results)        … 全部 'killed' なら 0、それ以外は 1
 //   failsOf(tap)               … 0.13.2 LN-1（LR15）: node --test の TAP から赤いテストを [{ name, reason }] で取り出す（入れ子も。子の失敗だけで赤い親
 //                                （failureType: 'subtestsFailed'）と # SKIP・# TODO は外す。reason は YAML の行を 40 行まで）
-//   reportLines(results)       … 結果を出す行（BASELINE-RED の後に赤いテストを「  ✖ 名前」と理由で並べ、最後の出力も残す）
+//   reportLines(results)       … 結果を出す行（BASELINE-RED の後に赤いテストを「  ✖ 名前」と理由で並べ、最後の出力も残す。0.16.0 R121: 時間切れなら
+//                                そのとき走っていたファイルを「  ⏱ 走っていたファイル」で、終わったファイルの時間を長い順に並べる）
+//   fileTimesOf(text)          … 0.16.0 R121: tools/lib/file-times.js の行から { files: [{ file, ms }]（終わったもの・長い順）, running: [{ file, at }]（走り始めて
+//                                終わっていないもの） } を取り出す
+//   baselineLines(info)        … 0.16.0 R121: 元のままの確かめの時間と、ファイルごとの時間（長い順）の行
 //
 // 決め方:
 //  - 当たらない変異は 'stale'（黙って殺したと数えない。一覧が古くなったしるし）。
 //  - 写しは root の中を node_modules・dist のほか全部（.git も）写す。テストは README.md・.gitignore・.ps1・ワークフロー・git の履歴も読むので、
 //    一部だけを写すと元のテストが赤くなり、何でも「殺した」に見える。
+//  - 0.16.0 R121: 元のままの確かめは TAP のほかに tools/lib/file-times.js の報告（stderr）も受け、ファイルごとの時間を出す。node --test は終わった
+//    ファイルの TAP を名前の順に溜めて出すので、時間切れの TAP の末は「止まったファイルの1つ前」で、どれが止まったかが分からなかった（f58b2bb の CI の mutate-2）。
 //  - 変異を試す前に、一覧のテストの組を写しで元のまま走らせる。赤があれば 'baseline-red' を返して止める。0.13.2 LN-1（LR15）から、元のままの確かめは
 //    TAP を全部受け（最後の 8000 文字には赤いテストの名前が残らないことがあった: 68767ba の CI）、赤いテストを fails に持たせる。変異1つの確かめは今のまま。
 //  - 子は process.execPath で走らせる（Electron の Node で回すときも同じ Node で走る）。env から NODE_TEST_CONTEXT を消し
@@ -34,6 +40,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
 
 const SKIP_DIRS = new Set(['node_modules', 'dist']);   // 写さない（根の直下の名前）
 const OUTPUT_KEEP = 8000;                              // 子の出力は最後のこれだけ残す（元のままが赤いときに見せる）
@@ -91,23 +98,56 @@ function childEnv() {
   return env;
 }
 
-// テストのファイルを写しで走らせる → { code, timedOut, output, tap }
+// テストのファイルを写しで走らせる → { code, timedOut, output, tap, times, ms }
 // keepAll が真なら stdout（TAP）を全部 tap に持つ（元のままの確かめ: LR15）。偽なら tap は output と同じ（最後の 8000 文字だけ）
+// 0.16.0 R121: keepAll（元のままの確かめ）は、ファイルごとの走り始めと終わりの報告（FILE_TIMES）も stderr に受け、times（fileTimesOf）に持つ
+const FILE_TIMES = pathToFileURL(path.join(__dirname, 'lib', 'file-times.js')).href;
 function runTests(cwd, tests, timeoutMs, pattern, keepAll = false) {
   return new Promise((resolve) => {
     let output = '';
     const chunks = [];
+    const errs = [];
     const keep = (b) => { output = (output + b.toString('utf8')).slice(-OUTPUT_KEEP); };
     const only = typeof pattern === 'string' ? [`--test-name-pattern=${pattern}`] : [];
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...only, ...tests], { cwd, env: childEnv(), windowsHide: true });
+    const rep = keepAll ? ['--test-reporter=tap', '--test-reporter-destination=stdout', `--test-reporter=${FILE_TIMES}`, '--test-reporter-destination=stderr'] : ['--test-reporter=tap'];
+    const t0 = Date.now();
+    const child = spawn(process.execPath, ['--test', ...rep, ...only, ...tests], { cwd, env: childEnv(), windowsHide: true });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
     child.stdout.on('data', (b) => { if (keepAll) chunks.push(b); keep(b); });
-    child.stderr.on('data', keep);
+    child.stderr.on('data', (b) => { if (keepAll) errs.push(b); keep(b); });
     const tapNow = () => (keepAll ? Buffer.concat(chunks).toString('utf8') : output);
-    child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, timedOut, output: output + String(e && e.message), tap: tapNow() }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ code: code === null ? -1 : code, timedOut, output, tap: tapNow() }); });
+    const done = (code, extra = '') => {
+      clearTimeout(timer);
+      const times = keepAll ? fileTimesOf(Buffer.concat(errs).toString('utf8')) : null;
+      resolve({ code, timedOut, output: output + extra, tap: tapNow(), times, ms: Date.now() - t0 });
+    };
+    child.on('error', (e) => done(-1, String(e && e.message)));
+    child.on('close', (code) => done(code === null ? -1 : code));
   });
+}
+
+// 0.16.0 R121: tools/lib/file-times.js の行（# natsu-file start <ファイル> <ms>・# natsu-file done <ファイル> <ms> <かかった ms>）
+function fileTimesOf(text) {
+  const start = new Map();
+  const done = new Map();
+  for (const m of String(text || '').matchAll(/^# natsu-file (start|done) (\S+) (\d+)(?: (\d+))?\r?$/gm)) {
+    if (m[1] === 'start') start.set(m[2], Number(m[3]));
+    else done.set(m[2], Number(m[4] === undefined ? 0 : m[4]));
+  }
+  const files = [...done].map(([file, ms]) => ({ file, ms })).sort((a, b) => b.ms - a.ms || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+  const running = [...start].filter(([file]) => !done.has(file)).map(([file, at]) => ({ file, at }));
+  return { files, running };
+}
+const sec = (ms) => `${(Number(ms) / 1000).toFixed(1)} 秒`;
+// 元のままの確かめの時間と、ファイルごとの時間（長い順）。時間切れなら走っていたファイルを先に
+function baselineLines(info) {
+  const t = info.times || { files: [], running: [] };
+  const lines = [`元のままの確かめ: ${sec(info.ms)}（見張り ${sec(info.limitMs)}・ファイル ${t.files.length + t.running.length}）${info.timedOut ? '（時間切れ）' : ''}`];
+  for (const r of t.running) lines.push(`  ⏱ 走っていたファイル ${r.file}（走り始めから ${sec(Math.max(0, info.ms - r.at))}・終わっていない）`);
+  if (t.files.length) lines.push('  ファイルごとの時間（長い順）:');
+  for (const f of t.files) lines.push(`  ${sec(f.ms).padStart(9)}  ${f.file}`);
+  return lines;
 }
 
 // 0.13.2 LN-1（LR15）: TAP の赤いテスト。行の頭の空白は入れ子の深さ（node --test は 4 つずつ下げる）。名前の \# と \\ は TAP の書き方を戻す
@@ -140,8 +180,12 @@ function failsOf(tap) {
 
 // 元のままの確かめの見張り。一覧のテストのほぼ全部（ふだん 100〜130 秒）を1回で走らせるので、変異1つの見張り（120 秒）とは分ける
 // （同じ見張りだと遅い機械で「元のままで赤（時間切れ）」になり、変異を1つも試さずに止まった: CI run 39491867266）
-const BASE_TIMEOUT_MS = 600000;
-async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000, baseTimeoutMs = BASE_TIMEOUT_MS }) {
+// 0.16.0 R121 で 600 → 900 秒: 600 秒は元のままの確かめが 100〜130 秒だったときの見張り（4.6〜6 倍）。0.16.0 では一覧のテストが 203 のうち
+// 159〜185 のファイルになり、CI の test のジョブの npm test は 214 秒（2026-10-23）→ 423 秒（f58b2bb）。同じ組の mutate-2 の全体の時間は回によって
+// 1.28 倍違う（1102 秒・1409 秒）。600 秒では 1.3〜1.5 倍しか残らず、止まっていなくても切られる。900 秒で 2 倍に戻す（止まったときは、走っていた
+// ファイルの名前が出る: file-times.js）。ジョブの 40 分には、切られても届かない
+const BASE_TIMEOUT_MS = 900000;
+async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000, baseTimeoutMs = BASE_TIMEOUT_MS, onBaseline = () => {} }) {
   const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
   const stale = new Set(findStale(mutants, read));
   const results = mutants.map((m) => ({ id: m.id, status: stale.has(m.id) ? 'stale' : null, file: m.file, why: m.why }));
@@ -156,12 +200,14 @@ async function runAll({ root, mutants, jobs = 2, timeoutMs = 120000, baseTimeout
     // 元のままで、一覧のテストの組が緑か
     const allTests = [...new Set(todo.flatMap(({ m }) => m.tests))];
     const base = await runTests(copies[0], allTests, baseTimeoutMs, undefined, true);
+    const info = { ms: base.ms, limitMs: baseTimeoutMs, timedOut: base.timedOut, times: base.times };
     if (base.code !== 0) {
       return [
         ...results.filter((r) => r.status === 'stale'),
-        { id: '(元のまま)', status: 'baseline-red', file: '', why: `元のままで赤いテストがある: ${allTests.join(' ')}`, timedOut: base.timedOut, output: base.output, fails: failsOf(base.tap) },
+        { id: '(元のまま)', status: 'baseline-red', file: '', why: `元のままで赤いテストがある: ${allTests.join(' ')}`, timedOut: base.timedOut, output: base.output, fails: failsOf(base.tap), base: info },
       ];
     }
+    onBaseline(info);
 
     let next = 0;
     const worker = async (dir) => {
@@ -211,6 +257,7 @@ function reportLines(results) {
       for (const l of f.reason ? f.reason.split('\n') : []) lines.push(`      ${l}`);
     }
     if (r.output) lines.push(r.output);
+    if (r.base) lines.push(...baselineLines(r.base));   // 0.16.0 R121: 時間切れなら走っていたファイル・ファイルごとの時間（最後の出力の後: 記録の末に残る）
   }
   return lines;
 }
@@ -235,7 +282,7 @@ async function main(argv) {
   }
   const jobs = Number(arg('--jobs')) || 2;
   const started = Date.now();
-  const results = await runAll({ root: path.join(__dirname, '..'), mutants, jobs });
+  const results = await runAll({ root: path.join(__dirname, '..'), mutants, jobs, onBaseline: (info) => { for (const l of baselineLines(info)) console.log(l); } });
   for (const l of reportLines(results)) console.log(l);
   const count = (s) => results.filter((r) => r.status === s).length;
   console.log(`殺した ${count('killed')} / 生き残り ${count('survived')} / 古い ${count('stale')} / 元のままで赤 ${count('baseline-red')}（${mutants.length} 個・${Math.round((Date.now() - started) / 1000)} 秒）`);
@@ -246,4 +293,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { console.error(e && e.stack || e); process.exitCode = 1; });
 }
 
-module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, partOf, childEnv, failsOf, reportLines, BASE_TIMEOUT_MS, CHILD_HEAP_MB };
+module.exports = { applyMutant, findStale, runAll, exitCodeOf, copyRepo, partOf, childEnv, failsOf, reportLines, fileTimesOf, baselineLines, BASE_TIMEOUT_MS, CHILD_HEAP_MB };

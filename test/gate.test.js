@@ -64,20 +64,64 @@ test('ゲートが、実機で起きた5件のデグレを、それが入った�
   }
 });
 
+// 0.16.0 R121: 30 件の検査に予算を置く（越えたら、何件目のどの commit までを見たかと commit ごとの時間を言って落ちる。黙って止まらない）。
+// analyze の1回は今 1 秒ほど（R121 の前は git の起動が約 390 回で 2〜3 秒・CI の Linux で 30 件 104 秒・Windows で 493 秒）。
+// 1回の git が止まったときは risk.js の git の見張り（GIT_TIMEOUT_MS）が、その git の引数を言って落とす（同期の analyze の間は test の timeout が効かない）
+const GATE_30_BUDGET_MS = 300000;
 test('ゲートが、健全なコミットでは鳴らない（誤検知の実測）', { skip: !hasGit && 'git が無い' }, () => {
   const R = require('../tools/risk');
   const bug = new Set(['4fd8de5', 'c71fabc', 'cd6c365']);
   const log = cp.execFileSync('git', ['log', '--format=%h', '-30'], { cwd: ROOT }).toString().trim().split('\n');
   let checked = 0;
+  const t0 = Date.now();
+  const took = [];
   for (const h of log) {
     let b;
     try { b = cp.execFileSync('git', ['rev-parse', '--short', h + '^'], { cwd: ROOT }).toString().trim(); } catch { continue; }
     if (bug.has(h)) continue;
+    const t = Date.now();
     const news = R.analyze(b, h).findings.filter((f) => f.level === 'BLOCK' && f.rule !== '復旧の導線' && f.rule !== '配布-ps1');
+    took.push(`${h} ${((Date.now() - t) / 1000).toFixed(1)}秒`);
     assert.deepStrictEqual(news.map((f) => f.rule + ': ' + f.msg.split('\n')[0]), [], `健全な ${h} で鳴った`);
     checked++;
+    assert.ok(Date.now() - t0 <= GATE_30_BUDGET_MS, `健全なコミットの検査が ${GATE_30_BUDGET_MS / 1000} 秒を越えた（${checked} 件目の ${h} まで。commit ごと: ${took.join('・')}）`);
   }
   assert.ok(checked >= 20, `検査したコミットが ${checked} 件しかない（空振り）`);
+});
+
+// 0.16.0 R121（f58b2bb の CI の mutate-2 が元のままの確かめの 600 秒で切られた）: 上の「健全なコミット」の 30 件は、analyze の1回で git を約 390 回
+// 起動していた（checkPs1 が .js を1つずつ git show で読む）。CI の Linux で 104 秒・Windows で 493 秒かかり、テストの中でいちばん長い。
+// .js は writeFileSync の字のあるものだけを git grep の1回で選んでから読む（決まりは同じ）
+test('R121: analyze の1回は git を 40 回までしか起動しない（.js を1つずつ git show で読まない）', { skip: !hasGit && 'git が無い', timeout: 60000 }, () => {
+  const code = "const cp = require('child_process'); const o = cp.execFileSync; let n = 0;"
+    + "cp.execFileSync = function (f, ...a) { if (f === 'git') n += 1; return o.call(this, f, ...a); };"
+    + "require('./tools/risk').analyze('0b16804^', '0b16804'); console.log(n);";
+  const r = cp.spawnSync(process.execPath, ['-e', code], { cwd: ROOT, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const n = Number(r.stdout.trim());
+  assert.ok(n > 0 && n <= 40, `analyze の1回で git を ${n} 回起動した`);
+});
+test('R121: risk.js の git はどれも見張り（timeout）付きで起動し、止まった git（ETIMEDOUT）は「読めない」に飲まずに、その git の引数を言って落ちる', { skip: !hasGit && 'git が無い', timeout: 60000 }, () => {
+  const code = "const cp = require('child_process'); const o = cp.execFileSync; const seen = []; let stalled = false;"
+    + "cp.execFileSync = function (f, a, opt) { if (f === 'git') { seen.push(opt && opt.timeout); if (!stalled && a[0] === 'show') { stalled = true; const e = new Error('spawnSync git ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; } } return o.call(this, f, a, opt); };"
+    + "let msg = ''; let flag = false; try { require('./tools/risk').analyze('0b16804^', '0b16804'); } catch (e) { msg = e.message; flag = Boolean(e.gitStall); }"
+    + "console.log(JSON.stringify({ msg, flag, n: seen.length, untimed: seen.filter((t) => !(t > 0)).length }));";
+  const r = cp.spawnSync(process.execPath, ['-e', code], { cwd: ROOT, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const got = JSON.parse(r.stdout.trim());
+  assert.ok(got.n > 0 && got.untimed === 0, `見張りの無い git がある: ${JSON.stringify(got)}`);
+  assert.ok(got.flag && /^git show .* 秒で終わらない（止まった git）$/.test(got.msg), `止まった git を名前付きで落とさない: ${JSON.stringify(got)}`);
+});
+test('R121: ps1WriterCandidates は writeFileSync と .ps1 の字の両方がある .js・.cjs・.mjs（今の ls-files にあるもの。tools/write-ps1 を除く）を、1つずつ読んだときと同じだけ選ぶ', { skip: !hasGit && 'git が無い', timeout: 30000 }, () => {
+  const R = require('../tools/risk');
+  const tracked = cp.execFileSync('git', ['ls-files'], { cwd: ROOT }).toString().split('\n');
+  const want = tracked.filter((f) => /\.(js|cjs|mjs)$/.test(f) && !f.startsWith('tools/write-ps1') && fs.existsSync(path.join(ROOT, f)) && [fs.readFileSync(path.join(ROOT, f), 'utf8')].every((t) => t.includes('writeFileSync') && t.includes('.ps1')));
+  assert.ok(want.length >= 1, '見本が無い（このテストの前提が崩れた）');
+  assert.deepStrictEqual([...R.ps1WriterCandidates(null)].sort(), want.sort(), '作業ツリーの候補が1つずつ読んだときと違う');
+  const head = R.ps1WriterCandidates('HEAD');
+  assert.ok(head.length >= 1 && head.every((f) => [cp.execFileSync('git', ['show', `HEAD:${f}`], { cwd: ROOT }).toString()].every((t) => t.includes('writeFileSync') && t.includes('.ps1'))), 'HEAD の候補に writeFileSync か .ps1 の無いファイルがある');
+  assert.ok(R.ps1WriterCandidates('INDEX').length >= 1, 'コミット予定の候補が無い');
+  assert.ok(!head.includes('tools/write-ps1.js'), 'tools/write-ps1 を候補にした');
 });
 
 test('N2・F9: 台帳にある意図した移動だけ WARN「意図した移動」。台帳に無い id・枠・ファイルの離脱は今までどおり BLOCK', () => {

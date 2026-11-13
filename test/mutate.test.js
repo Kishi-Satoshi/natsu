@@ -106,6 +106,40 @@ test('G3: 元のままの確かめは変異1つの見張り（timeoutMs）でな
   assert.ok(M.BASE_TIMEOUT_MS >= 4 * 120000, '元のままの見張りの既定が、一覧のテストの全部を走らせる長さに足りない');
 });
 
+// 0.16.0 R121（f58b2bb の CI run 43340092360 の mutate-2）: 元のままの確かめが 600 秒で切られ、TAP の末は gate.test.js の1つ前のファイル
+// （node --test は終わったファイルの TAP を名前の順に溜めて出す）で、どのファイルが止まっていたかが記録に無かった。ファイルごとの時間と、
+// 時間切れのときに走っていたファイルの名前を出す
+test('R121: fileTimesOf は報告の道具の行から、終わったファイルの時間（長い順）と、走り始めて終わっていないファイルを取り出す', { timeout: 5000 }, () => {
+  const text = ['# natsu-file start test/a.test.js 5', 'ほかの行', '# natsu-file start test/gate.test.js 7', '# natsu-file start test/b.test.js 9',
+    '# natsu-file done test/b.test.js 300 291', '# natsu-file done test/a.test.js 1200 1195\r', ''].join('\n');
+  assert.deepStrictEqual(M.fileTimesOf(text), { files: [{ file: 'test/a.test.js', ms: 1195 }, { file: 'test/b.test.js', ms: 291 }], running: [{ file: 'test/gate.test.js', at: 7 }] });
+  assert.deepStrictEqual(M.fileTimesOf(''), { files: [], running: [] });
+  const lines = M.baselineLines({ ms: 600000, limitMs: 600000, timedOut: true, times: M.fileTimesOf(text) });
+  assert.match(lines[0], /^元のままの確かめ: 600\.0 秒（見張り 600\.0 秒・ファイル 3）（時間切れ）$/);
+  assert.ok(lines.some((l) => /⏱ 走っていたファイル test\/gate\.test\.js（走り始めから 600\.0 秒・終わっていない）/.test(l)), lines.join('\n'));
+  assert.ok(lines.indexOf(lines.find((l) => l.includes('test/a.test.js'))) < lines.indexOf(lines.find((l) => l.includes('test/b.test.js'))), '長い順でない');
+});
+test('R121: 元のままの確かめが時間切れなら、そのとき走っていたファイルの名前を出す（終わったファイルはその時間）。緑なら onBaseline にファイルごとの時間', { timeout: 60000 }, async () => {
+  const mut = [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js', 'test/hang.test.js'], why: 'x' }];
+  const root = fixtureRepo();
+  fs.writeFileSync(path.join(root, 'test', 'hang.test.js'), "'use strict';\nconst test = require('node:test');\ntest('止まる', () => new Promise((r) => setTimeout(r, 15000)));\n");
+  const late = await M.runAll({ root, jobs: 1, timeoutMs: 20000, baseTimeoutMs: 6000, mutants: mut });
+  assert.deepStrictEqual(late.map((x) => [x.status, x.timedOut]), [['baseline-red', true]]);
+  assert.deepStrictEqual(late[0].base.times.running.map((x) => x.file), ['test/hang.test.js'], '走っていたファイルの名前が無い');
+  assert.deepStrictEqual(late[0].base.times.files.map((x) => x.file), ['test/add.test.js'], '終わったファイルの時間が無い');
+  const text = M.reportLines(late).join('\n');
+  assert.match(text, /⏱ 走っていたファイル test\/hang\.test\.js（走り始めから \d+\.\d 秒・終わっていない）/);
+  let seen = null;
+  const ok = await M.runAll({ root: fixtureRepo(), jobs: 1, mutants: [{ ...mut[0], tests: ['test/add.test.js'] }], onBaseline: (info) => { seen = info; } });
+  assert.deepStrictEqual(ok.map((x) => x.status), ['killed']);
+  assert.ok(seen && seen.timedOut === false && seen.limitMs === M.BASE_TIMEOUT_MS, '緑の元のままの確かめで onBaseline を呼ばない');
+  assert.deepStrictEqual(seen.times.files.map((x) => x.file), ['test/add.test.js']);
+  assert.deepStrictEqual(seen.times.running, []);
+  assert.match(M.baselineLines(seen).join('\n'), /ファイルごとの時間（長い順）:\n +\d+\.\d 秒 {2}test\/add\.test\.js/);
+  // 0.16.0 R121 で意図して 600 → 900 秒（ふだんの元のままの確かめは CI で 400 秒あまり。600 秒では 1.3〜1.5 倍しか残らない: 計画の R121）
+  assert.strictEqual(M.BASE_TIMEOUT_MS, 900000, '元のままの見張りが R121 の 900 秒でない');
+});
+
 test('G3・F10: 元のテストが赤なら、変異を試さずに止める（何でも「殺した」に見えるため）', { timeout: 20000 }, async () => {
   const r = await M.runAll({ root: fixtureRepo({ red: true }), jobs: 1, mutants: [{ id: 'kill', file: 'src/add.js', from: 'a + b', to: 'a - b', tests: ['test/add.test.js'], why: 'x' }] });
   assert.deepStrictEqual(r.map((x) => x.status), ['baseline-red']);
