@@ -1320,7 +1320,44 @@ test('0.16.0 Task G: 設計書の版の表の 0.16.0 の欄・節「利用者が
   // 計画: MQ6 の答え・R126・R127・今の状態
   for (const r of ['R126', 'R127']) assert.strictEqual(plan.split('\n').filter((l) => l.startsWith(`- **${r}（`)).length, 1, `計画に ${r} が1つでない`);
   assert.ok(plan.includes('- **持ち主の答え（2026-11-13）:「データベースを足す（おすすめ）」。**'), '計画に MQ6 の答えが無い');
-  assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-13）: Task G の前半まで済んだ（R127）。**'), '計画の頭の今の状態が Task G の前半でない');
+  // 0.16.0 Task G の後半（R130）で意図して直した: 計画の頭の今の状態は「Task G 済み・リリースの合図待ち」になり、前半の後の状態はその下に記録として残る
+  assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-13）: Task G 済み・リリースの合図待ち（R127・R130）。**'), '計画の頭の今の状態が Task G 済みでない');
+  assert.ok(plan.includes('\n> **Task G の前半の後の状態（2026-11-13。記録）: Task G の前半まで済んだ（R127）。**'), '計画に Task G の前半の後の状態の記録が無い');
+});
+
+// ---------------------------------------------------------------- 0.16.0 Task G の後半（計画の Task G・R130）: README の3か所（MQ7）と Ctrl+Shift+N の括弧（MQ10）・計画の R130
+test('0.16.0 Task G の後半: README の「画面の使い方」・「ホットキー」・「Claude から議事録を読む（MCP）」にデータベース（MQ7 の3か所の下書きの字のまま）、Ctrl+Shift+N の括弧は「（白紙のページ・議事録・データベースを選ぶ）」（MQ10）。計画に R130 と取り直しの OK', { timeout: 5000 }, () => {
+  const readme = read('README.md');
+  const use = readme.slice(readme.indexOf('### 画面の使い方'), readme.indexOf('\n### 音声入力'));
+  const dbLine = use.split('\n').filter((l) => l.startsWith('- **データベース（0.16.0 から）:**'));
+  assert.strictEqual(dbLine.length, 1, 'README の「画面の使い方」にデータベースの1行が無い');
+  assert.ok(use.indexOf('- **ゴミ箱（0.15.0 から）:**') < use.indexOf(dbLine[0]) && use.indexOf(dbLine[0]) < use.indexOf('- **ページのアイコンと見た目（0.15.0 から）:**'), 'データベースの1行が「ゴミ箱（0.15.0 から）」の次に無い');
+  for (const w of ['1行が1ページの表を作れます。', '`Ctrl+Shift+N` の［🗃️ データベース］', '［中にデータベースを作る］', '`/データベース`', '`/リンクドビュー`', 'ID とリレーションです。',
+    'サブアイテムで行の下に行をぶら下げられます。', 'データベースはサイドバーの木に 🗃️ で並び、行は出ません（行は検索の窓で見つかります）。', '1つのデータベースに 1万行まで（ヘルプの「データベース」）。']) {
+    assert.ok(dbLine[0].includes(w), `README のデータベースの1行に「${w}」が無い`);
+  }
+  const app = read('src/renderer/app.html');
+  for (const m of dbLine[0].matchAll(/［([^］]+)］/g)) {
+    const n = m[1].replace(/^[^\p{L}\p{N}]+\s*/u, '');
+    assert.ok(app.includes(n), `README の［${m[1]}］がアプリに無い`);
+  }
+  const keys = readme.slice(readme.indexOf('### ホットキー'), readme.indexOf('\n## ', readme.indexOf('### ホットキー')));
+  assert.ok(keys.includes('`Ctrl+Shift+N` … 新しいページ（白紙のページ・議事録・データベースを選ぶ）、'), 'README の Ctrl+Shift+N の括弧が MQ10 の字でない');
+  assert.ok(!readme.includes('白紙のページか議事録を選ぶ'), 'README に前の Ctrl+Shift+N の説明が残る');
+  const ctrlW = keys.split('\n').find((l) => l.startsWith('- `Ctrl+W` …'));
+  assert.ok(ctrlW && ctrlW.endsWith('（要約とメモの行の近道も）。データベースの表のセルを選んでいるときのキー（↑↓←→・`Tab`・`Enter`・`Esc`・`Space` で行のページを開く・`Ctrl+C`／`Ctrl+V`）も、同じ一覧にあります（0.16.0 から）。'), 'README の Ctrl+W の行の末に表のキーの文が無い');
+  assert.ok(require('../src/shortcuts').SHORTCUTS.some((r) => r.where === 'データベースの表のセルを選んでいるとき'), '近道の一覧にデータベースの表の見出しが無い');
+  const mcp = readme.slice(readme.indexOf('### Claude から議事録を読む（MCP）'), readme.indexOf('\n## ', readme.indexOf('### Claude から議事録を読む（MCP）')));
+  const blank = '- **白紙のページと中のページ（0.15.0 から）:**';
+  const dbMcp = '- **データベース（0.16.0 から）:** データベースも Claude から読めます（列の名前と種類と、最初のビューの並べ替えの順で 100 行まで）。Claude から行を絞り込んで読むことは後の版でできるようになります。Claude はデータベースを書き換えません。';
+  assert.ok(mcp.includes(dbMcp), 'README の MCP の節にデータベースの1行が無い');
+  assert.strictEqual(mcp.split('\n')[mcp.split('\n').findIndex((l) => l.startsWith(blank)) + 1], dbMcp, 'MCP の節のデータベースの1行が「白紙のページと中のページ（0.15.0 から）」の次に無い');
+  for (const t of [dbLine[0], dbMcp, ctrlW]) assert.ok(!/notion/i.test(t), 'README の 0.16.0 の文に参考にしたアプリの名前がある');
+  // 計画: R130 と今の状態
+  const plan = read('docs/plans/2026-11-04-160.md');
+  assert.strictEqual(plan.split('\n').filter((l) => l.startsWith('- **R130（')).length, 1, '計画に R130 が1つでない');
+  assert.ok(plan.includes('持ち主が「OK」（2026-11-13。言葉はそのまま）と答えた'), '計画に持ち主の取り直しの OK が無い');
+  assert.ok(plan.includes('**（2026-11-13: 済み。前半を済ませた（R127）。後半は、'), '計画の Task G が済みでない');
 });
 
 // ---------------------------------------------------------------- 0.16.0 持ち主の答え MQ10（2026-11-13。R128）: Ctrl+Shift+N の説明にデータベース

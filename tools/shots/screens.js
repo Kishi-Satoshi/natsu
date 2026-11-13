@@ -815,11 +815,11 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // DL-1 (2b) で足した白紙のページの本文のリンクドビュー（まだ基準が無い）
 // 0.15.1 を出した main の取り込み（R123）: 0.15.1 で足した行の［···］のメニュー side-row-menu-light（main の基準がある）は、0.16.0 の［中にデータベースを作る］が増えるので取り直す
 // 0.16.0 直し（R128）: 近道の表をデータベースの行まで捲った settings-shortcuts-db-light（まだ基準が無い）
-const RETAKE = new Set(['db-table-light', 'db-table-dark', 'db-table-zoom200-light', 'db-colmenu-light', 'db-cell-select-light', 'db-cell-date-light',
-  'db-list-light', 'db-filter-light', 'db-group-light', 'db-views-light', 'db-row-page-light', 'db-relation-light', 'db-subitems-light',
-  'sidebar-db-light', 'trash-pop-rows-light', 'db-inline-light', 'db-linked-light', 'settings-shortcuts-db-light',
-  'settings-shortcuts-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'new-pop-light',
-  'side-row-menu-light']);
+// 0.16.0（版を 0.16.0 に上げる commit。Task G の後半: R130）: 持ち主が取り直しの見比べ（新しい画面 18 枚: データベースの表の明暗と拡大 200%・列のメニュー・選択肢の選び・暦・
+// リスト・絞り込みの窓・グループ・ビューのタブ・行のページ・リレーション・サブアイテム・サイドバーのデータベース・ゴミ箱の行・本文の表・リンクドビュー・近道の表のデータベースの行。
+// 違いのある画面 6 枚: 設定の近道の表と［一般］の3枚・Ctrl+Shift+N の新しいページ・行の［···］のメニュー）に「OK」（2026-11-13）と答えたので、
+// CI run 43448034019（54ba556）の artifact 14048528391 の .after.png（24 枚）をバイトのまま基準にし、空に戻した（基準は 221 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
