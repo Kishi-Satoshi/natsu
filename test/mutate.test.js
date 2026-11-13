@@ -1417,7 +1417,7 @@ test('G3・0.15.0: 0.15.0 の変異が一覧にそろい、IDS_150 は計画の�
 
 // 0.16.0（計画 docs/plans/2026-11-04-160.md の「変異の表」の tb-・vw- の行）: データベースの保存の形・命令・純粋な部品（tb-）と、画面と結線（vw-）の
 // 直しを1つずつ戻す変異。タスクを作るたびに表の行の順で足す（DS-1 から。1つの版: DQ1）。1つのタスクの行は表の中で続いていないので、作りながらは
-// 「表の行の順に並んだ一部」を見て、表の全部とちょうど同じかは Task G で見る（計画の Ruling R1）。頭は前の版の照らしに当たらない
+// 「表の行の順に並んだ一部」を見て、表の全部とちょうど同じかは Task G で見る（計画の Ruling R1）。Task G の前半で表の全部とちょうど同じにそろえた（R127）。頭は前の版の照らしに当たらない
 const IDS_160 = [
   // 0.16.0 DS-1・DS-2・DS-3 で作った行（表の行の順に。R1: 1つのタスクの行は表の中で続いていない）
   'tb-cell-number', 'tb-cell-select', 'tb-cell-url', 'tb-cell-len', 'tb-cell-date', 'tb-cell-readonly', 'tb-convert-num', 'tb-convert-undo',
@@ -1473,7 +1473,7 @@ function planRows160() {
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   return [...table.matchAll(/^\| ((?:tb|vw)-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
 }
-test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の「変異の表」の tb-・vw- の行の順に並んだ一部。tb-・vw- の変異は IDS_160 にある。どれも決まったテストのファイルを持ち、why が 0.16.0 で始まる', { timeout: 5000 }, () => {
+test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の「変異の表」の tb-・vw- の行とちょうど同じ（行の順）。tb-・vw- の変異は IDS_160 にある。どれも決まったテストのファイルを持ち、why が 0.16.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_160.filter((id) => !byId.has(id)), [], 'IDS_160 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_160).size, IDS_160.length, 'IDS_160 に重なり');
@@ -1501,6 +1501,9 @@ test('G3・0.16.0: 0.16.0 の変異が一覧にそろい、IDS_160 は計画の�
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_160.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_160, rows.filter((id) => IDS_160.includes(id)), 'IDS_160 が表の行の順でない');
+  // 0.16.0 Task G の前半（R127）で意図して直した: 前は作ったタスクの行だけの「表の行の順に並んだ一部」を見ていた（R1）。DH-1 までで表の 136 行が
+  // 全部そろったので、表の全部とちょうど同じかを見る（0.15.0 の R78 と同じ）
+  assert.deepStrictEqual(IDS_160, rows, 'IDS_160 が計画の「変異の表」の tb-・vw- の行とちょうど同じでない');
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/]) {
     assert.deepStrictEqual(IDS_160.filter((id) => re.test(id)), [], `${re} に当たる 0.16.0 の id`);
   }

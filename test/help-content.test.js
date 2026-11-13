@@ -1266,3 +1266,59 @@ test('R125・MQ5: find/page-tree の #rename に、データベースの名前�
   assert.ok(ren.includes(yes), '#rename にデータベースの名前の例外が無い');
   assert.ok(ren.indexOf(no) < ren.indexOf(yes), '#rename の例外が戻せない文の後ろに無い');
 });
+
+// 0.16.0 R126（MQ6。2026-11-13 の持ち主の答え「データベースを足す（おすすめ）」）: 無題のデータベースも名前を変える欄が空から始まる（R125 (c)）ので、
+// #rename の題名の無いページの例にデータベースの「無題のデータベース」を足す
+test('R126・MQ6: find/page-tree の #rename の題名の無いページの例に、データベースの「無題のデータベース」がある', { timeout: 5000 }, () => {
+  const ren = ek7Sec(read(fileOf('find/page-tree')), 'rename');
+  assert.ok(ren.includes('- 題名の無いページ（一覧で「無題のページ」、議事録は「(無題の議事録)」、データベースは「無題のデータベース」と出るページ）では、欄は空から始まります。'), '#rename の題名の無いページの例にデータベースが無い');
+  assert.ok(!ren.includes('議事録は「(無題の議事録)」と出るページ'), '#rename に前の例（データベースの無い文）が残る');
+});
+
+// ---------------------------------------------------------------- 0.16.0 Task G の前半（計画の Task G・R127）: 設計書の版の表と D127〜D139・第11回の書き添え、notion-behavior の答え
+test('0.16.0 Task G: 設計書の版の表の 0.16.0 の欄・節「利用者が決めたこと（データベース。…）」の D127〜D139（持ち主の言葉は計画の字のまま）・第11回の D1・D3・D4・D7・D8 の書き添え・振り分けの D4、notion-behavior の R-15・X-08・X-10〜X-12・Q-19 と DR-1・DL-1 の項目、計画の R126・R127', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const plan = read('docs/plans/2026-11-04-160.md');
+  // 版の表の 0.16.0 の欄
+  assert.ok(d.includes('| 0.16.0（データベース: `docs/plans/2026-11-04-160.md`。') && d.includes('D113 で 15b より前へ。D127〜D139） |'), '版の表の 0.16.0 の欄に計画と D127〜D139 が無い');
+  // 0.16.0 の節: D127〜D139 がちょうど1つずつ、節の中に並ぶ
+  const h = '## 利用者が決めたこと（データベース。2026-11-04〜11-13）';
+  const at = d.indexOf(`\n${h}\n`);
+  assert.ok(at > 0, `設計書に節「${h}」が無い`);
+  const sec = d.slice(at, d.indexOf('\n## ', at + 5));
+  const ids = [...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(ids, Array.from({ length: 13 }, (_, i) => `D${127 + i}`), '0.16.0 の節の D の行が D127〜D139 でない');
+  for (const id of ids) assert.strictEqual(d.split('\n').filter((l) => l.startsWith(`| ${id} |`)).length, 1, `設計書に ${id} の行が1つでない`);
+  assert.ok(d.indexOf('\n| D113 |') < at && at < d.indexOf('\n## 作り方（Superpowers の進め方。'), '0.16.0 の節が D113 の節と「作り方」の間に無い');
+  // 持ち主の言葉（「…（おすすめ）」）は計画にある字のまま
+  const quotes = [...sec.matchAll(/「([^「」]|「[^「」]*(「[^「」]*」[^「」]*)*」)*（おすすめ）」/g)].map((m) => m[0]);
+  assert.ok(quotes.length >= 25, `0.16.0 の節の持ち主の答えの字が少ない（${quotes.length}）`);
+  for (const q of quotes) assert.ok(plan.includes(q), `設計書の ${q} が計画に無い（持ち主の言葉の字が違う）`);
+  for (const k of ['DQ1', 'DQ2', 'DQ3', 'DQ4', 'DQ5', 'DQ6', 'DQ7', 'DQ8', 'DQ9', 'DQ10', 'DQ11', 'M14', 'M15-1', 'M15-4', 'M16', 'MQ1', 'MQ2', 'MQ3', 'MQ4', 'MQ5', 'MQ6']) {
+    assert.ok(new RegExp(`${k}(?![0-9-])`).test(sec), `0.16.0 の節に ${k} の答えが無い`);
+  }
+  assert.ok(sec.includes('（DQ8「0.17.0 まで「議事録」のまま（おすすめ）」） | 2026-11-06 の D124 で、0.15.1 から見出しは「プライベート」になった（D124 が追い越した） |'), 'D135 に D124 が追い越した印が無い');
+  // 第11回の行の書き添え（第1c回の D1〜D10 と同じ番号なので、第11回の節の中で見る）
+  const a11 = d.indexOf('\n### 第11回 — データベース（表・リスト）\n');
+  const s11 = d.slice(a11, d.indexOf('\n### ', a11 + 5)).split('\n');
+  const r11 = (k) => { const xs = s11.filter((l) => l.startsWith(`| ${k} |`)); assert.equal(xs.length, 1, `第11回に ${k} の行が1つでない`); return xs[0]; };
+  assert.ok(r11('D1').includes('**（0.16.0 の形: データベースはページの行（`kind: \'database\'`）、行は新しい型 `row`。'), '第11回の D1 に 0.16.0 の形が無い');
+  assert.ok(r11('D3').includes('**（0.16.0 で全部入れた: D128。ユーザーは人の名前を書く列: D129）**'), '第11回の D3 に書き添えが無い');
+  assert.ok(r11('D4').includes('**（0.16.0 はリレーションだけ。ロールアップは 11b: D128。細かい形: D136）**'), '第11回の D4 に書き添えが無い');
+  assert.ok(r11('D7').includes('**（0.16.0 で入れた: D130。ホームビューは第17回）**') && r11('D8').includes('**（0.16.0 で入れた: D136）**'), '第11回の D7・D8 に書き添えが無い');
+  assert.ok(!r11('D5').includes('0.16.0') && !r11('D9').includes('0.16.0'), '第11回の D5・D9（11b）に 0.16.0 の書き添えがある');
+  assert.ok(d.includes('- **11a:** D1〜D4（D4 はリレーションだけ。ロールアップは 11b: 2026-11-04 の 0.16.0 の計画の DQ2 の答え「17種類を入れる（おすすめ）」）'), '振り分けの D4 の書き添え（第2版）が無い');
+  // notion-behavior
+  const nb = read('docs/plans/notion-behavior.md');
+  const nrow = (k) => { const xs = nb.split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.equal(xs.length, 1, `notion-behavior に ${k} の行が1つでない`); return xs[0]; };
+  assert.ok(nrow('R-15').endsWith('| 11a（設計書 D4）→ 11b（2026-11-04 の 0.16.0 の DQ2「17種類を入れる（おすすめ）」。設計書 D128） |'), 'notion-behavior の R-15 に 11b が無い（食い違い M5）');
+  assert.ok(nrow('X-08').includes('**（0.16.0 の形: 計画の決めたこと 52・設計書 D134）** NaTsu の表の中の Ctrl+D は何もしない（下へ埋めるは入れない）。'), 'notion-behavior の X-08 に 0.16.0 の答えが無い');
+  for (const k of ['X-10', 'X-11', 'X-12']) assert.ok(nrow(k).includes('（2026-11-09: 持ち主の答え') && nrow(k).includes('計画の R98'), `notion-behavior の ${k} に M15 の答えが無い`);
+  assert.ok(nrow('Q-19').includes('**（0.16.0 の形: 公開の資料に無いので作り手が決めた（計画の決めたこと 20・23・24・51）。') && nrow('Q-19').includes('Space で行のページを開く。') && nrow('Q-19').includes('リスト: 下の［＋ 新しい行］で足し、'), 'notion-behavior の Q-19 に 0.16.0 の答えが無い');
+  for (let n = 25; n <= 36; n++) nrow(`V-T${n}`);
+  for (let n = 10; n <= 13; n++) nrow(`X-${n}`);
+  // 計画: MQ6 の答え・R126・R127・今の状態
+  for (const r of ['R126', 'R127']) assert.strictEqual(plan.split('\n').filter((l) => l.startsWith(`- **${r}（`)).length, 1, `計画に ${r} が1つでない`);
+  assert.ok(plan.includes('- **持ち主の答え（2026-11-13）:「データベースを足す（おすすめ）」。**'), '計画に MQ6 の答えが無い');
+  assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-13）: Task G の前半まで済んだ（R127）。**'), '計画の頭の今の状態が Task G の前半でない');
+});
