@@ -290,9 +290,89 @@ test('PD-1・F188: Ctrl+Z（edit.revert の歩み）で白紙のページに戻�
   const rid = ok(call(db, 'row.add', { db: R, title: '行' }), 'row.add').result.id;   // データベースの行の題名（D77 の外）
   ok(call(db, 'rows.trash', { db: R, ids: [rid] }), 'rows.trash');
   const snap = dump(db);
-  assert.strictEqual(revert(R, 'a:s170-undo-3').code, 'stale', '行があるのに白紙のページに戻した');
+  assert.strictEqual(revert(R, 'a:s170-undo-3').code, 'has-rows', '行があるのに白紙のページに戻した（行で断った答えは has-rows: rv58 軽い 1）');
   assert.deepStrictEqual(dump(db), snap);
   assert.ok(require('../src/undoBook').UNDO_CMDS.has('page.toDb'), 'UNDO_CMDS に page.toDb が無い');
+}));
+
+test('PD-1・F188（rv58 軽い 1）: データベースから白紙のページへ戻せない答えは、行があるときだけ has-rows。ほかの理由（後で列を足した・アイコンを選び直した）は今の stale のまま', T, () => withDb((db) => {
+  const revert = (id, tx) => { tick(); return call(db, 'edit.revert', { pageId: id, steps: [tx] }); };
+  const P = blankWith(db, { icon: 'ic:star' });
+  ok(toDb(db, P, 'a:s170-why-1'), 'page.toDb');
+  ok(call(db, 'col.add', { db: P, type: 'text', name: 'メモ' }), 'col.add');
+  assert.strictEqual(revert(P, 'a:s170-why-1').code, 'stale', '列が残るときの答え');
+  const Q = blankWith(db, { icon: 'ic:star' });
+  ok(toDb(db, Q, 'a:s170-why-2'), 'page.toDb');
+  ok(call(db, 'page.setIcon', { id: Q, icon: 'ic:mic' }), 'page.setIcon');   // データベースにした後にアイコンを選び直した
+  assert.strictEqual(revert(Q, 'a:s170-why-2').code, 'stale', 'アイコンを選び直したときの答え');
+  ok(call(db, 'row.add', { db: Q, title: '行' }), 'row.add');   // データベースの行の題名（D77 の外）
+  assert.strictEqual(revert(Q, 'a:s170-why-2').code, 'has-rows', '行があれば、ほかの理由より先に has-rows');
+}));
+
+test('PD-1・F188（rv58 重要 2）: やり直し（白紙のページに戻した歩みをもう一度戻す）も page.toDb と同じ照らし。本文に文・子のページ（ゴミ箱の子も）・メモがあれば stale で何も変えない。空のままならデータベースに戻る', T, () => withDb((db) => {
+  const revert = (id, tx) => { tick(); return call(db, 'edit.revert', { pageId: id, steps: [tx] }); };
+  const cycle = (tag) => {
+    const P = blankWith(db, { icon: '' });
+    ok(toDb(db, P, `a:s170-redo-${tag}`), 'page.toDb');
+    return { P, back: ok(revert(P, `a:s170-redo-${tag}`), 'edit.revert').tx };
+  };
+  // 本文に文（戻した空のテキストの行はそのままで、その下の新しい行に書いた）
+  const a = cycle('a');
+  const ab = call(db, 'page.get', { id: a.P }).result.page.blocks[0].id;
+  ok(call(db, 'block.insert', { pageId: a.P, afterBlockId: ab, type: 'paragraph' }), 'block.insert');
+  const nb = call(db, 'page.get', { id: a.P }).result.page.blocks.find((x) => x.id !== ab).id;
+  ok(call(db, 'block.update', { pageId: a.P, blockId: nb, patch: { text: '大事なメモ' } }), 'block.update');
+  // 子のページ（生きている子）・ゴミ箱の子だけ・メモ
+  const b = cycle('b'); create(db, b.P);
+  const c = cycle('c'); ok(call(db, 'page.delete', { id: create(db, c.P) }), 'page.delete');
+  const m = cycle('m'); ok(call(db, 'page.setMemo', { id: m.P, memo: 'メモ' }), 'page.setMemo');
+  const snap = dump(db); const n0 = oplogN(db);
+  for (const [x, why] of [[a, '本文に文'], [b, '子のページ'], [c, 'ゴミ箱の子だけ'], [m, 'メモ']]) {
+    assert.strictEqual(revert(x.P, x.back).code, 'stale', `${why}があるのにやり直しでデータベースにした`);
+  }
+  assert.deepStrictEqual(dump(db), snap, '断ったのに書いた');
+  assert.strictEqual(oplogN(db), n0, '断ったのに操作の行を積んだ');
+  for (const x of [a, b, c, m]) assert.strictEqual(attrsOf(db, x.P).kind, 'blank');
+  // 空のままならやり直せる
+  const e = cycle('e');
+  ok(revert(e.P, e.back), 'やり直し');
+  assert.strictEqual(attrsOf(db, e.P).kind, 'database');
+}));
+
+test('PD-1・F188（rv58 重要 3）: データベースから白紙のページへ戻す前に、ほかの所からの指し（生きているデータベースのリレーションの列（消した列も）の相手・生きているリンクドビューの行）があれば stale で何も変えない。指しが無くなれば戻る', T, () => withDb((db) => {
+  const revert = (id, tx) => { tick(); return call(db, 'edit.revert', { pageId: id, steps: [tx] }); };
+  // ほかのデータベースのリレーションの列（片側）の相手
+  const P = blankWith(db, { icon: '' });
+  ok(toDb(db, P, 'a:s170-ptr-1'), 'page.toDb');
+  const O = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const col = ok(call(db, 'col.add', { db: O, type: 'rel', target: P }), 'col.add').result.col.id;
+  let snap = dump(db); let n0 = oplogN(db);
+  assert.strictEqual(revert(P, 'a:s170-ptr-1').code, 'stale', 'リレーションの列の相手なのに白紙のページに戻した');
+  assert.deepStrictEqual([dump(db), oplogN(db)], [snap, n0], '断ったのに書いた');
+  ok(call(db, 'col.remove', { db: O, col }), 'col.remove');   // 消した列は戻せる（col.restore）ので、まだ指している
+  assert.strictEqual(revert(P, 'a:s170-ptr-1').code, 'stale', '消した（戻せる）リレーションの列の相手なのに戻した');
+  ok(call(db, 'col.purge', { db: O, col }), 'col.purge');
+  ok(revert(P, 'a:s170-ptr-1'), '列を完全に消した後');
+  assert.strictEqual(attrsOf(db, P).kind, 'blank');
+  // ゴミ箱のデータベースの列は数えない（生きているデータベースだけ）
+  const Q = blankWith(db, { icon: '' });
+  ok(toDb(db, Q, 'a:s170-ptr-2'), 'page.toDb');
+  const O2 = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  ok(call(db, 'col.add', { db: O2, type: 'rel', target: Q }), 'col.add');
+  ok(call(db, 'page.delete', { id: O2 }), 'page.delete');
+  ok(revert(Q, 'a:s170-ptr-2'), 'ゴミ箱のデータベースの列で断った');
+  // ほかの白紙のページのリンクドビューの行
+  const S = blankWith(db, { icon: '' });
+  ok(toDb(db, S, 'a:s170-ptr-3'), 'page.toDb');
+  const host = blankWith(db, { icon: '' });
+  ok(call(db, 'block.insertDbView', { pageId: host, afterId: '', db: S }), 'block.insertDbView');
+  const vid = call(db, 'page.get', { id: host }).result.page.blocks.find((x) => x.type === 'dbview').id;
+  snap = dump(db); n0 = oplogN(db);
+  assert.strictEqual(revert(S, 'a:s170-ptr-3').code, 'stale', 'リンクドビューが指しているのに白紙のページに戻した');
+  assert.deepStrictEqual([dump(db), oplogN(db)], [snap, n0], '断ったのに書いた');
+  ok(call(db, 'block.remove', { pageId: host, blockId: vid }), 'block.remove');
+  ok(revert(S, 'a:s170-ptr-3'), 'リンクドビューを消した後');
+  assert.strictEqual(attrsOf(db, S).kind, 'blank');
 }));
 
 test('PD-1: T4b（控えに後の oplog（page.toDb・edit.revert・やり直しを含む）を前へ当て直すと今の表と同じ）', T, async () => {

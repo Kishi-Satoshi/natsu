@@ -1665,12 +1665,15 @@ const IDS_170 = [
   'ig-find-yomi', 'ig-find-en', 'ig-find-kind', 'ig-recent-icon', 'ig-setIcon-icon', 'ig-mcp-none',
   // 0.17.0 IV-1 で作った行（表の行の順に）
   'iv-svg-ns', 'iv-fill-current', 'iv-aria-hidden', 'iv-size', 'iv-clone', 'iv-tab-el', 'iv-live-crumb', 'iv-inline-head', 'iv-list-row', 'iv-rel-chip',
+  'iv-rel-row',   // 点検 1（rv58 軽い 4）の直しで足した行
   'iv-newpop', 'iv-crumb-more', 'iv-trash', 'iv-kids', 'iv-subrow',
   // 0.17.0 PD-1 で作った行（表の行の順に）
   'pd-empty-text', 'pd-empty-kids', 'pd-empty-trashkid', 'pd-keep-title', 'pd-icon-off', 'pd-icon-undo', 'pd-keep-place', 'pd-kind-only-blank', 'pd-live', 'pd-same-shape',
   'pd-undo', 'pd-undo-rows', 'pd-parent-row',
+  'pd-redo-same', 'pd-undo-rel', 'pd-undo-linked', 'pd-undo-why',   // 点検 1（rv58 重要 2・3・軽い 1）の直しで足した行
   // 0.17.0 PD-2 で作った行（表の行の順に）
   'pd-ui-blank-only', 'pd-ui-hide', 'pd-ui-ime', 'pd-ui-focus',
+  'pd-ui-row-kid', 'pd-ui-trash-up', 'pd-ui-undo-why', 'pd-ui-err-code',   // 点検 1（rv58 重要 1・軽い 1・2）の直しで足した行
   // 0.17.0 SV-1・SV-2 で作った行（表の行の順に。sw-fresh は SV-2: R26）
   'sw-rows-under', 'sw-fresh', 'sw-list-speed', 'sw-open-key', 'sw-key-nav', 'sw-key-left', 'sw-no-drag', 'sw-no-select', 'sw-only-tree', 'sw-open-view',
   'sw-mark', 'sw-focus-gone',
@@ -1689,7 +1692,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
-  assert.strictEqual(rows.length, 133, '計画の 0.17.0 の表（ig- 25・iv- 30・pd- 17・sw- 12・mg- 25・tk- 11・rt- 8・lc- 5）が読めない');
+  assert.strictEqual(rows.length, 142, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 25・sw- 12・mg- 25・tk- 11・rt- 8・lc- 5。点検 1 の rv58 の直しで iv- 1・pd- 8 を足した）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');

@@ -19,6 +19,7 @@ const open = async (l, id) => { l.fire('onPageOpen', id); await l.drain(80); };
 const shown = (l) => $(l, 'emptyDb').hidden === false;
 const noteRows = (l) => $(l, 'pNote').querySelectorAll('.blk');
 const typeRow = async (l, el, text) => { const t = el._txt; t.focus(); t.textContent = text; t.dispatchEvent({ type: 'input' }); await l.drain(); };
+const curOf = (l) => { const t = l.document.querySelector('.tabitem.active'); return t ? String(t.dataset.key).replace(/^page:/, '') : null; };
 const sideRow = (l, id) => $(l, 'plist').querySelectorAll('.pitem').find((r) => r.dataset.pid === id);
 
 // ---------------------------------------------------------------- PD-2
@@ -133,6 +134,82 @@ test('PD-2: Ctrl+Z（表の中）で白紙のページに戻ると、本文の�
     l.key({ key: 'z', code: 'KeyZ', ctrlKey: true }, g2); await l.drain(200);
     assert.strictEqual($(l, 'toast').textContent, '行のあるデータベースは白紙のページに戻せません。');
     assert.ok($(l, 'pageWrap').classList.contains('db'), '行のあるデータベースを戻した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PD-2（rv58 軽い 1）: データベースにした歩みを戻せないとき、行が無ければ行の文を出さず、今の「ほかの所で変わったので、元に戻せませんでした」（アイコンを選び直した・ほかのデータベースのリレーションの列が指している）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const P = call('page.create', {}).id;
+    call('page.setIcon', { id: P, icon: 'ic:star' });   // 付けていたアイコン（データベースにすると外れる: RQ2）
+    return { P, Q: call('page.create', {}).id };
+  } });
+  try {
+    const { P, Q } = l.made;
+    await open(l, P);
+    $(l, 'emptyDbBtn').dispatchEvent({ type: 'click' }); await l.drain(200);
+    l.call('page.setIcon', { id: P, icon: 'ic:mic' });   // データベースにした後に、ページの頭でアイコンを選び直した
+    l.key({ key: 'z', code: 'KeyZ', ctrlKey: true }, $(l, 'pDb').querySelector('.dbgrid')); await l.drain(200);
+    assert.strictEqual($(l, 'toast').textContent, 'ほかの所で変わったので、元に戻せませんでした', 'アイコンを選び直したときの知らせ');
+    assert.ok($(l, 'pageWrap').classList.contains('db'));
+    await open(l, Q);
+    $(l, 'emptyDbBtn').dispatchEvent({ type: 'click' }); await l.drain(200);
+    const O = l.call('db.create', {}).id;
+    l.call('col.add', { db: O, type: 'rel', target: Q });
+    l.key({ key: 'z', code: 'KeyZ', ctrlKey: true }, $(l, 'pDb').querySelector('.dbgrid')); await l.drain(200);
+    assert.strictEqual($(l, 'toast').textContent, 'ほかの所で変わったので、元に戻せませんでした', 'リレーションの列が指しているときの知らせ');
+    assert.ok($(l, 'pageWrap').classList.contains('db'));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PD-2・F189（rv58 重要 1）: DB が断るページには［データベース］を出さない（データベースの行の中の白紙のページ・祖先がゴミ箱の白紙のページ・一覧に無いページ）。行の中のページの中のページには出る（DB も通す）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const d = call('db.create', {}).id;
+    const r = call('row.add', { db: d, title: '見積もり' }).id;   // 行の題名（D77 の外）
+    const inRow = call('page.create', { parentId: r }).id;   // 行の本文の /ページ（親がデータベースの行）
+    const nested = call('page.create', { parentId: call('page.create', { parentId: r }).id }).id;   // 行の中のページの中のページ（親は白紙のページ）
+    const up = call('page.create', {}).id;
+    const kid = call('page.create', { parentId: up }).id;
+    const gone = call('page.create', {}).id;
+    return { inRow, nested, up, kid, gone };
+  } });
+  try {
+    const { inRow, nested, up, kid, gone } = l.made;
+    await open(l, inRow);
+    assert.ok(curOf(l) === inRow && !shown(l), 'データベースの行の中の白紙のページに出た');
+    await open(l, nested);
+    assert.ok(curOf(l) === nested && shown(l), '行の中のページの中のページに出ない');
+    // 祖先がゴミ箱（命令では作れない形: 親だけがゴミ箱に入った）
+    await open(l, kid);
+    assert.ok(shown(l), '前提: 白紙のページの子に出ない');
+    l.db.prepare('update blocks set trashed_at = ? where id = ?').run('2026-11-14T02:00:00.000Z', up);
+    l.fire('onPagesUpdated'); await l.drain(200);
+    assert.ok(curOf(l) === kid && !shown(l), '祖先がゴミ箱の白紙のページに出た');
+    // 一覧に無い（開いている間にほかの所でゴミ箱へ）
+    await open(l, gone);
+    assert.ok(shown(l), '前提: 白紙のページに出ない');
+    l.db.prepare('update blocks set trashed_at = ? where id = ?').run('2026-11-14T02:00:00.000Z', gone);
+    l.fire('onPagesUpdated'); await l.drain(200);
+    assert.ok(!shown(l), '一覧に無いページに出た');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PD-2・F189（rv58 軽い 2）: ［データベース］が断られた知らせは、DB が中身で断ったとき（bad-args）だけ「中身のあるページはデータベースにできません。」。ほかの失敗は今の「変更を保存できませんでした: <符号>」', T, async () => {
+  const codes = ['busy'];
+  const l = await realApp({
+    before: (call) => ({ P: call('page.create', {}).id }),
+    returns: { pageToDb: () => Promise.reject(Object.assign(new Error(codes[0]), { code: codes[0] })) },
+  });
+  try {
+    const { P } = l.made;
+    await open(l, P);
+    $(l, 'emptyDbBtn').dispatchEvent({ type: 'click' }); await l.drain(200);
+    assert.strictEqual($(l, 'toast').textContent, '変更を保存できませんでした: busy');
+    codes[0] = 'bad-args';
+    $(l, 'emptyDbBtn').dispatchEvent({ type: 'click' }); await l.drain(200);
+    assert.strictEqual($(l, 'toast').textContent, '中身のあるページはデータベースにできません。');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

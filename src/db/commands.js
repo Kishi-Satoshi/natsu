@@ -1735,20 +1735,28 @@ function dbCreate(db, a, ctx) {
 // データベースにする（種類・db.create と同じ列とビューと次の番号を書き、空のテキストの行を消し、付けていたアイコンを外す: RQ2）。どれも前の値を持つ
 //（1つのトランザクション＝oplog の1行。Ctrl+Z は toDbRevert）。断る（bad-args・何も変えない）: 無い・ゴミ箱（祖先も）・白紙のページでない（議事録・行・
 // データベース）・録音中の写し・空でない（本文の文・子のページ（ゴミ箱の子も）・メモ）・親がデータベースの行（行の中にデータベースを作らない）
-function pageToDb(db, a, ctx) {
+// 0.17.0 PD-1 直し（rv58 重要 2）: データベースにしてよい白紙のページか（page.toDb と、白紙のページからデータベースへ戻す Ctrl+Z のやり直しが同じ照らしを当てる）
+// → { me（ページの行）, hasKid（ゴミ箱の子も数えた子の有無） } | null（無い・ゴミ箱・祖先のどれかがゴミ箱・録音中の写し・白紙のページでない・親がデータベースの行）。
+// 本文とメモの「空」（isEmptyBlank）は呼び手が読んだページで見る
+function toDbHost(db, id) {
   const rows = pageRowsOf(db);
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const me = byId.get(a.id);
-  if (!me || me.trashedAt !== null || isLive(me.attrs) || !isBlankPage(me.attrs)) throw refuse('bad-args');
-  if (me.parentId !== null && isRowId(db, me.parentId)) throw refuse('bad-args');
+  const me = byId.get(id);
+  if (!me || me.trashedAt !== null || isLive(me.attrs) || !isBlankPage(me.attrs)) return null;
+  if (me.parentId !== null && isRowId(db, me.parentId)) return null;
   for (let up = me.parentId, seen = new Set(); up !== null && !seen.has(up);) {
     seen.add(up);
     const r = byId.get(up);
     if (!r) break;
-    if (r.trashedAt !== null) throw refuse('bad-args');
+    if (r.trashedAt !== null) return null;
     up = r.parentId;
   }
-  const hasKid = rows.some((r) => r.parentId === a.id);   // ゴミ箱の子も（pageRows はゴミ箱の行も読む）
+  return { me, hasKid: rows.some((r) => r.parentId === id) };   // ゴミ箱の子も（pageRows はゴミ箱の行も読む）
+}
+function pageToDb(db, a, ctx) {
+  const host = toDbHost(db, a.id);
+  if (!host) throw refuse('bad-args');
+  const { hasKid } = host;
   const r = editPage(db, a.id, ctx, (p) => {
     if (!PT.isEmptyBlank(p, hasKid)) throw refuse('bad-args');
     const cols = [{ ...TITLE_COL }];
@@ -1765,6 +1773,13 @@ function pageToDb(db, a, ctx) {
 // データベースから白紙のページへ戻すときは、行が1つでもあれば（ゴミ箱の行も）戻さない（行を見えなくしない）。種類・列・アイコンと本文の行が、その歩みの後の
 // 形のままでなければ（後で列を変えて、その歩みがまだ戻っていない・戻した後に本文を書いた）stale。ビューと次の番号は見た目と数なので見ない（前の値へ戻す）
 const KIND_SWITCH_SKIP = Object.freeze(['views', 'nextNo', 'updatedAt']);
+// 0.17.0 PD-1 直し（rv58 重要 3）: ほかの所からこのデータベースへの指し。生きているデータベースのリレーションの列（消した列も: col.restore で戻せるので）の相手か、
+// 生きているリンクドビューの行（attrs.db）の元か。あれば白紙のページへ戻さない（つなげない列・データベースでないページを指すビューを作らない）
+function relColsTo(db, id) {
+  return db.prepare("select attrs from blocks where type = 'page' and trashed_at is null and json_extract(attrs, '$.kind') = 'database'").all()
+    .some((r) => { const cols = JSON.parse(r.attrs || '{}').cols; return Array.isArray(cols) && cols.some((c) => isObj(c) && c.type === 'rel' && c.db === id); });
+}
+const linkedViewsTo = (db, id) => db.prepare("select count(*) as c from blocks where type = 'dbview' and trashed_at is null and json_extract(attrs, '$.db') = ?").get(id).c > 0;
 function kindSwitchRevert(db, a, ctx, fwd) {
   const id = a.pageId;
   const row = db.prepare('select type, attrs, trashed_at from blocks where id = ?').get(id);
@@ -1772,7 +1787,15 @@ function kindSwitchRevert(db, a, ctx, fwd) {
   const attrs = JSON.parse(row.attrs || '{}');
   const kindOp = fwd.find((o) => o.op === 'set' && o.id === id && o.key === 'kind');
   if (!kindOp) throw refuse('bad-args');
-  if (kindOp.value === 'database' && db.prepare(HOT_QUERIES.dbAllRows).all(id).length) throw refuse('stale');
+  if (kindOp.value === 'database') {   // データベース → 白紙のページ（Ctrl+Z）
+    if (db.prepare(HOT_QUERIES.dbAllRows).all(id).length) throw refuse('has-rows');   // 行（ゴミ箱の行も）。知らせを分ける答え（rv58 軽い 1）
+    if (relColsTo(db, id)) throw refuse('stale');   // rv58 重要 3: ほかのデータベースのリレーションの列の相手
+    if (linkedViewsTo(db, id)) throw refuse('stale');   // rv58 重要 3: リンクドビューの行の元
+  } else {   // 白紙のページ → データベース（やり直し）: page.toDb と同じ照らし（rv58 重要 2。中身・子・録音中・親が行・祖先がゴミ箱なら変えない）
+    const host = toDbHost(db, id);
+    const l = host ? loadPage(db, id) : null;
+    if (!l || !PT.isEmptyBlank(l.page, host.hasKid)) throw refuse('stale');
+  }
   const blockNow = db.prepare('select type, page_id, text, attrs from blocks where id = ?');
   const back = [];
   for (const o of [...fwd].reverse()) {

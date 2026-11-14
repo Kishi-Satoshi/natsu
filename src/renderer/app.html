@@ -12280,10 +12280,11 @@
     try { await inFlight(window.koeApp.editRevert(id, got.entry.steps)); }
     catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
     finally { if (reverting === run) reverting = null; }
-    // 0.17.0 PD-2（決めたこと 33）: データベースにした歩みを戻すと白紙のページ（開き直す）。行のあるデータベースは戻さない（DB は stale で断る）
+    // 0.17.0 PD-2（決めたこと 33）: データベースにした歩みを戻すと白紙のページ（開き直す）。行のあるデータベースは戻さない（DB は has-rows で断る。
+    // rv58 軽い 1: 行の文は行で断ったときだけ。ほかの理由（アイコンを選び直した・ほかの所からの指し）の stale は今の文）
     const toDbStep = dir === 'undo' && got.entry.steps.some((x) => toDbSteps.has(x));
     if (code) {
-      if (code === 'stale' && toDbStep) { toast(TODB_UNDO_ROWS); undoBk = bookDrop(undoBk, key); }
+      if (code === 'has-rows') { toast(TODB_UNDO_ROWS); undoBk = bookDrop(undoBk, key); }
       else if (code === 'stale' || code === 'bad-args') { toast('ほかの所で変わったので、元に戻せませんでした'); undoBk = bookDrop(undoBk, key); }
       else { undoBk = putBack(undoBk, key, dir, got.entry, takenAt, slotNow.undo.length); if (code !== 'locked') toast(`変更を保存できませんでした: ${code}`); }
     } else if (run.tx) undoBk = bookDone(undoBk, key, dir, run.tx);
@@ -12541,7 +12542,7 @@
   const dbRelCol = (col) => Boolean(col && col.type === 'rel' && !col.gone);
   // 0.17.0 IV-1（決めたこと 21）: 相手の行の名前（字だけ）と、頭のアイコンの値（行のページの既定: 書類。前は決め打ちの 📄）
   const dbRelName = (r) => oneLine(r && r.title) || blankUntitled();
-  const dbRelIcon = (r) => (r && pageIconView.isPageIconValue(r.icon) ? r.icon : pageIconValue({ kind: 'row' }));
+  const dbRelIcon = () => pageIconValue({ kind: 'row' });   // rv58 軽い 4（R8）: 相手は行のページなので、行に入った値を見ずにいつも行の既定（書類。ほかの所と同じ）
   // サブアイテムの列（親アイテム・サブアイテム）か
   const dbSubCol = (info, colId) => Boolean(info && info.sub && (info.sub.parent === colId || info.sub.kids === colId));
   // セルの「📄 題名」の並び（rel: 相手の行の ID → { title, icon? }。無い行は出さない）。押すと相手の行を開く（Ctrl+クリックで新しいタブ）
@@ -15916,6 +15917,19 @@
   $('emptyDbBtn').prepend(iconLead(pageIconView.DEFAULT_ICON.database));
   function emptyDbOn() {
     if (!curPage || !curId || activeTab !== `page:${curId}` || !isBlankPage(curPage) || isLiveCopy(curPage)) return false;
+    // 0.17.0 PD-2 直し（rv58 重要 1）: DB の page.toDb の断り（無い・祖先がゴミ箱・親がデータベースの行）と同じ表を画面にも置く（押すといつも断られるボタンを出さない）。
+    // 一覧（pages）に無いページ・祖先は、ゴミ箱か無い物。行の中のページは一番近い行（inRow.row）までたどる（行は一覧に無い）
+    const byId = new Map(pages.filter(Boolean).map((p) => [p.id, p]));
+    const me = byId.get(curId);
+    if (!me) return false;
+    const rowUp = me.inRow ? me.inRow.row : null;
+    if (rowUp !== null && me.parentId === rowUp) return false;   // 親がデータベースの行
+    for (let up = me.parentId, seen = new Set(); up && up !== rowUp && !seen.has(up);) {
+      seen.add(up);
+      const r = byId.get(up);
+      if (!r) return false;   // 祖先がゴミ箱（か無い）
+      up = r.parentId;
+    }
     const blocks = [...$('pNote').querySelectorAll('.blk')].filter((e) => e._b).map((e) => ({ ...e._b, text: e._txt ? e._txt.textContent : e._b.text }));
     const hasKid = pages.some((p) => p && p.parentId === curId);
     return pageTreeView.isEmptyBlank({ kind: 'blank', blocks, memo: curPage.memo, memoDoc: curPage.memoDoc }, hasKid);
@@ -15927,8 +15941,10 @@
     toDbBusy = true;
     flushEdits();
     let r = null;
-    try { r = await inFlight(window.koeApp.pageToDb(id)); } catch (_) { r = null; } finally { toDbBusy = false; }
-    if (!r || r.id !== id) { toast(EMPTY_DB_NO); return; }
+    let code = '';
+    try { r = await inFlight(window.koeApp.pageToDb(id)); } catch (e) { r = null; code = String((e && (e.code || e.message)) || 'internal'); } finally { toDbBusy = false; }
+    // rv58 軽い 2: 中身の知らせは DB が中身で断ったとき（bad-args）だけ。ほかの失敗（busy・internal・DB が止まった）は今の「変更を保存できませんでした: <符号>」
+    if (!r || r.id !== id) { toast(code === 'bad-args' ? EMPTY_DB_NO : `変更を保存できませんでした: ${code || 'internal'}`); return; }
     dbFocusWant = id;
     await refreshList();
     if (curId === id) await openPage(id);

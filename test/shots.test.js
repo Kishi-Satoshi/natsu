@@ -1320,7 +1320,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 SV-1: pageTree の写しに withViewRows を足した（<script> の中だけ。まだ使わないので見た目は変わらない）。値を今の app.html に合わせた（前の値は 168375fd…）
   // 0.17.0 SV-2: サイドバーの木で開いたデータベースの下のビューの行（.pview・頭の•・押す・キー・印・ビューの命令の後の一覧の読み直し）と、データベースの行の ▸。変わる画面は
   // 足した sidebar-db-views-light・sidebar-db-views-dark（NEW_170・RETAKE）と、ビューのあるデータベースの行が出る画面（アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 001daeb2…）
-  assert.strictEqual(sha, '1e02b4b45f69f857159ab47d09347fe4d4e8a4e406e20656e3c8b6c283db2825',
+  // 0.17.0 直し（rv58）: 空のページの［データベース］を DB が断るページ（行の中のページ・祖先がゴミ箱）に出さない・失敗と Ctrl+Z の知らせの出し分け・リレーションのセルの
+  // アイコンはいつも行の既定（<script> の中だけ。撮る画面の種はどれもこの形に当たらないので見た目は変わらない。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 1e02b4b4…）
+  assert.strictEqual(sha, '37a65077959e63c0bf96c36865de36ee18ffc8db208cefc9d17194c5d1d64b82',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

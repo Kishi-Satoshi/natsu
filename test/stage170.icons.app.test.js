@@ -290,6 +290,7 @@ test('IV-1・F180: データベースの所（インラインの表の頭はそ�
     call('page.setTitle', { id: d2, title: '案件' });   // データベースの題名（D77 の外）
     call('page.setIcon', { id: d2, icon: 'ic:star' });
     const r1 = call('row.add', { db: d1, title: '取引先 甲' }).id;   // 行の題名（D77 の外）
+    call('page.setIcon', { id: r1, icon: 'ic:mic' });   // rv58 軽い 4: DB は行のページの値も受けるが、行のアイコンはいつも書類（R8）
     const rel = call('col.add', { db: d2, type: 'rel', name: '相手', target: d1 }).col.id;
     const r2 = call('row.add', { db: d2, title: '案件 一' }).id;   // 行の題名（D77 の外）
     call('view.add', { db: d1, layout: 'list', name: '一覧' });
@@ -311,7 +312,7 @@ test('IV-1・F180: データベースの所（インラインの表の頭はそ�
     // リレーションのセル（相手の行のページの既定: 書類）。字は題名
     const chip = hosts.find((h) => h._b.page === d2).querySelectorAll('.dbrel')[0];
     assert.ok(chip, 'リレーションのセルが無い');
-    assert.deepStrictEqual([iconOf(chip), chip.textContent.trim()], [DOC, '取引先 甲'], 'リレーションのセル');
+    assert.deepStrictEqual([iconOf(chip), chip.textContent.trim()], [DOC, '取引先 甲'], 'リレーションのセル（行に値が入っていても行の既定）');
     // リストの行（リストのビュー）
     l.fire('onPageOpen', d1); await l.drain(200);
     const vt = $(l, 'pDb').querySelectorAll('.dbtab');
