@@ -540,6 +540,11 @@
   #pageWrap.blank .mblock { border-color: transparent; }
   #pTitle[data-ph]:empty::before { content: attr(data-ph); color: var(--muted); }
   .bodyph { color: var(--muted); padding: 4px 2px; border-radius: 6px; cursor: text; }
+  /* 0.17.0 PD-2（決めたこと 30・RQ1）: 空の白紙のページのいちばん下の灰色の小さな文と［データベース］ */
+  .emptydb { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 24px 0 8px; }
+  .emptydb[hidden] { display: none; }
+  .emptydb-t { color: var(--muted); font-size: 12px; }
+  .emptydb-b { display: inline-flex; align-items: center; }
   .bodyph:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .pitem .m { font-size: 11px; color: var(--muted); margin-top: 1px; display: flex; gap: 8px;
     white-space: nowrap; overflow: hidden; }
@@ -1434,6 +1439,8 @@
             <div id="pNote" class="pane active" role="tabpanel" aria-labelledby="paneBtnNote"></div>
             <!-- 0.15.0 PR-2（決めたこと 55・HR16）: 白紙のページの本文に行の無い子の一覧（「このページの中のページ」。子が無ければ隠す） -->
             <div id="bodyKids" class="bodykids" hidden></div>
+            <!-- 0.17.0 PD-2（計画 docs/plans/2026-11-13-170.md の決めたこと 30・RQ1）: 空の白紙のページのいちばん下の［データベース］（本文が空の間だけ。前に表のアイコン） -->
+            <div id="emptyDb" class="emptydb" hidden><span class="emptydb-t">空のページは、次の形にできます</span><button type="button" class="ghost emptydb-b" id="emptyDbBtn" aria-label="このページをデータベースにする">データベース</button></div>
             <!-- 0.15.0 PH-5（決めたこと 27・BQ3）: 議事録の［AI 要約］の欄の最後の「このページの中のページ」（子が無ければ隠す。本文のブロックではない） -->
             <div id="pKids" class="bodykids" hidden></div>
             <div id="pPending" class="pendline" role="status" hidden><span id="pPendingText"></span><button type="button" class="ghost" id="pRetranscribe">もう一度文字起こし</button></div>
@@ -2745,6 +2752,7 @@
     c.querySelector('.ct').textContent = title;
     c.title = title;
     const on = isPageKey(k) && Boolean(curPage) && k.slice(5) === curId;
+    paintEmptyDb();   // 0.17.0 PD-2: タブを替えたら（記録中・設定・ほかのページ）［データベース］も今のページの形に
     if (!on && !$('pMenu').hidden) setMoreOpen(false);
     $('pActs').hidden = !on;
   }
@@ -11143,6 +11151,7 @@
   window.koeApp.onEditStep((s) => {
     if (!s || typeof s.step !== 'string' || typeof s.pageId !== 'string') return;
     if (s.cmd === 'edit.revert') { if (reverting && reverting.pid === s.pageId) reverting.tx = s.step; return; }
+    if (s.cmd === 'page.toDb') toDbSteps.add(s.step);   // 0.17.0 PD-2: データベースにした歩み（戻すと白紙のページ: 知らせと開き直し）
     const key = s.cmd === 'page.setMemoDoc' ? memoKeyOf(s.pageId) : /^blocks?\./.test(String(s.cmd)) ? noteKey(s.pageId)
       : DB_STEP_RE.test(String(s.cmd)) ? dbStepKey(s.pageId) : '';   // 0.16.0 DV-1（決めたこと 47）: 表の命令はデータベースの歩み
     if (!key) return;
@@ -11296,7 +11305,7 @@
   const DB_READ_MAX = 200;    // db.view の1回の行（src/db/commands.js の DB_VIEW_MAX と同じ）
   const DB_SEL_MAX = 2000;    // 選んだ行の命令の上限（src/db/validate.js の LIMITS.blocks と同じ: R47）
   const DB_EDIT_TYPES = ['title', 'text', 'url', 'email', 'phone', 'number'];   // 1行の文字の欄で書く種類（0.16.0 DV-2: 数値も。選択肢・ユーザー・日付・チェックの書き手は下の DV-2 の節）
-  const DB_STEP_RE = /^(?:rows?|col|rel|db)\./;   // データベースの歩みの命令（ビューの命令は歩みにしない: 決めたこと 47）
+  const DB_STEP_RE = /^(?:(?:rows?|col|rel|db)\.|page\.toDb$)/;   // データベースの歩みの命令（ビューの命令は歩みにしない: 決めたこと 47。0.17.0 PD-2: データベースにした歩みも）
   const DB_ROWS_FULL = '1つのデータベースの行は 10,000 までです。';
   const DB_AGG_LABEL = { count: '全件', values: '値のある件数', unique: '異なる値の数', empty: '空の数', filled: '空でない数', emptyPct: '空の割合', filledPct: '空でない割合',
     sum: '合計', avg: '平均', median: '中央値', min: '最小', max: '最大', range: '範囲', earliest: '最も早い', latest: '最も遅い',
@@ -11304,6 +11313,7 @@
   // 0.16.0 DL-1 (2)（R111）: 表ごとの状態。画面にある表は dbTables（鍵 → 状態。データベースのページは 'page'、白紙のページの本文の表は行の ID）。
   // dbSt は「いま操作している表」（押した・書いた表）。待った後は dbUse でその表に戻してから描く・書く（ほかの表を押していても取り違えない）
   let dbSt = null;   // いま操作している表（窓のメモリ。ページを替えると捨てる）
+  let dbFocusWant = '';   // 0.17.0 PD-2: ［データベース］で変えたページ（開いた表にフォーカスする）
   const dbTables = new Map();
   const dbOnScreen = (st) => Boolean(st) && dbTables.get(st.key) === st;
   function dbUse(st) { if (!dbOnScreen(st)) return false; dbSt = st; return true; }
@@ -11467,6 +11477,8 @@
     st.viewId = st.info ? (st.info.views.some((v) => v.id === want) ? want : st.info.views[0].id) : '';
     dbPaint(st);
     await dbLoad(false, st);
+    // 0.17.0 PD-2（決めたこと 30）: ［データベース］で変えたページは、開き直した表（最初の行の題名のセル。行が無ければ表）にフォーカス
+    if (key === 'page' && dbFocusWant === id && dbUse(st)) { dbFocusWant = ''; if (st.shown > 0) await dbSelectAt(0, 'title'); else dbSelect(null); }
   }
   // 窓の行を読む（force: 印が変わったかを見るために読み直す）。読んだ分の印が変わっていれば、覚えた行を捨てて窓を読み直す
   // DV-1 直し（rv44 F1・F7・R72）: 印を確かめる頼み（force）は st.check に残し、後から来た読み（捲る）に追い越されても、その読みが確かめる。
@@ -12189,11 +12201,15 @@
     try { await inFlight(window.koeApp.editRevert(id, got.entry.steps)); }
     catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
     finally { if (reverting === run) reverting = null; }
+    // 0.17.0 PD-2（決めたこと 33）: データベースにした歩みを戻すと白紙のページ（開き直す）。行のあるデータベースは戻さない（DB は stale で断る）
+    const toDbStep = dir === 'undo' && got.entry.steps.some((x) => toDbSteps.has(x));
     if (code) {
-      if (code === 'stale' || code === 'bad-args') { toast('ほかの所で変わったので、元に戻せませんでした'); undoBk = bookDrop(undoBk, key); }
+      if (code === 'stale' && toDbStep) { toast(TODB_UNDO_ROWS); undoBk = bookDrop(undoBk, key); }
+      else if (code === 'stale' || code === 'bad-args') { toast('ほかの所で変わったので、元に戻せませんでした'); undoBk = bookDrop(undoBk, key); }
       else { undoBk = putBack(undoBk, key, dir, got.entry, takenAt, slotNow.undo.length); if (code !== 'locked') toast(`変更を保存できませんでした: ${code}`); }
     } else if (run.tx) undoBk = bookDone(undoBk, key, dir, run.tx);
     pruneMarks();
+    if (!code && toDbStep) { await refreshList(); if (curId === id) await openPage(id); return; }
     await dbLoadSame(st);   // 0.16.0 直し（rv53 I-3 (a)）: 同じデータベースのほかの表も
   }
   // ================= 0.16.0 DV-4: 行を開く・行のメニュー・行のページ =================
@@ -14466,6 +14482,7 @@
     txt.addEventListener('keyup', () => markBarSync(el));
     // 行頭の記法は打ったときだけ（貼り付け・変換中は決めない。変換が終わったら決める: F43）
     txt.oninput = (ev) => {
+      if (isIn(el, $('pNote'))) paintEmptyDb();   // 0.17.0 PD-2: 本文に1字書くと［データベース］が消え、空に戻すとまた出る
       typedRich(el, ev);   // 0.14.0 EB-4: 打った文字の飾りと文中の記法（変換中は中で抜ける）
       const mb = rowsBoxOf(el);
       if (mb && mb._memoTg) memoTyped(mb._memoTg);   // 0.14.0 MB-4: メモの手引きと録音中の一言（memoPlain で見る）
@@ -15460,6 +15477,7 @@
   // 白紙のページの本文の子ページの行を今の一覧の値で描き直し、行の無い子の一覧（#bodyKids）を作る（決めたこと 55・56・HR16）
   const dbInHost = (ev) => Boolean(ev && ev.target && ev.target.closest && ev.target.closest('.dbhost'));
   function paintBodyPages() {
+    paintEmptyDb();   // 0.17.0 PD-2: 本文と一覧を描き直したら［データベース］も
     dbSweep();   // 0.16.0 DL-1 (2): 本文から消えた表を捨てる
     const note = $('pNote');
     const box = $('bodyKids');
@@ -15799,6 +15817,40 @@
     renumberRows();
     renderQualityCard(box);   // 0.11.0 V-2: 点のカードは要約の欄の最後（決めたこと 28）
   }
+
+  // ---------------- 0.17.0 PD-2（計画 docs/plans/2026-11-13-170.md の決めたこと 30・33・35・RQ1・F189）: 空の白紙のページのいちばん下の［データベース］
+  // 白紙のページ（議事録・データベースの行・録音の前のページ・データベースのページでない）で、本文が空の間だけ出す（pageTreeView.isEmptyBlank。本文は画面の行の
+  // 今の文で見る: 本文に1字書くと消え、その字を消すとまた出る。題名は数えない）。押す・Enter・Space で pageToDb の1回（変換中の Enter は抜ける）→ 一覧を読み直し、
+  // データベースのページを開き直して表にフォーカス。断られたら（ゴミ箱の子など画面に見えない中身）知らせ。Ctrl+Z は表の中の元に戻す（dbUndoRun）
+  const EMPTY_DB_NO = '中身のあるページはデータベースにできません。';
+  const TODB_UNDO_ROWS = '行のあるデータベースは白紙のページに戻せません。';
+  const toDbSteps = new Set();   // データベースにした歩みの tx（窓のメモリ）
+  let toDbBusy = false;
+  $('emptyDbBtn').prepend(iconLead(pageIconView.DEFAULT_ICON.database));
+  function emptyDbOn() {
+    if (!curPage || !curId || activeTab !== `page:${curId}` || !isBlankPage(curPage) || isLiveCopy(curPage)) return false;
+    const blocks = [...$('pNote').querySelectorAll('.blk')].filter((e) => e._b).map((e) => ({ ...e._b, text: e._txt ? e._txt.textContent : e._b.text }));
+    const hasKid = pages.some((p) => p && p.parentId === curId);
+    return pageTreeView.isEmptyBlank({ kind: 'blank', blocks, memo: curPage.memo, memoDoc: curPage.memoDoc }, hasKid);
+  }
+  function paintEmptyDb() { $('emptyDb').hidden = !emptyDbOn(); }
+  async function emptyDbRun() {
+    const id = curId;
+    if (toDbBusy || !emptyDbOn()) return;
+    toDbBusy = true;
+    flushEdits();
+    let r = null;
+    try { r = await inFlight(window.koeApp.pageToDb(id)); } catch (_) { r = null; } finally { toDbBusy = false; }
+    if (!r || r.id !== id) { toast(EMPTY_DB_NO); return; }
+    dbFocusWant = id;
+    await refreshList();
+    if (curId === id) await openPage(id);
+  }
+  $('emptyDbBtn').onclick = () => emptyDbRun();
+  $('emptyDbBtn').onkeydown = (ev) => {
+    if (imeEnter(ev)) return;
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); emptyDbRun(); }
+  };
 
   // 0.15.0 PH-4（決めたこと 24・BQ2 (a)）: 白紙のページの本文。要約と同じ行の部品（飾り・/・⠿ と ＋・貼り付け・選択・Ctrl+Z）で描き、要約の決まりは通さない
   // （書いた順のまま: orderForView を通さない・出典の札を出さない・要約の欄の鍵を見ない）。空なら最初の行を足す手引き

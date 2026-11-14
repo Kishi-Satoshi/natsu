@@ -680,6 +680,9 @@ const SCREENS = [
   // 0.16.0 直し（R128）: 設定の近道の表を、見出し「データベースの表のセルを選んでいるとき」まで捲った形（settings-shortcuts-light の下の方で写らない、
   // データベースの表・ビューのタブ・リレーションの窓の行を見せる。足した画面。まだ基準が無い）
   { name: 'settings-shortcuts-db-light', page: 'app', theme: 'light', act: `${OPEN_SETTINGS}; [...document.querySelectorAll('#shortcutRows th')].find((th) => th.textContent === 'データベースの表のセルを選んでいるとき').scrollIntoView({ block: 'start' })` },
+  // 0.17.0 PD-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」。アプリの画面のいちばん後ろに足す）: 空の白紙のページ（本文の手引きと、いちばん下の灰色の文と［データベース］）
+  { name: 'page-blank-empty-light', page: 'app', theme: 'light', get answers() { return blankEmptyAnswers(); }, act: OPEN_PAGE },
+  { name: 'page-blank-empty-dark', page: 'app', theme: 'dark', get answers() { return blankEmptyAnswers(); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -1067,6 +1070,14 @@ function blankAnswers() {
     { id: 'q6', type: 'paragraph', text: '次の打ち合わせで決まったことを書き足す。', citeState: 'manual', cites: [] },
   ] };
   const row = { id: 'pb1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
+  return { 'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
+}
+
+/** 0.17.0 PD-2: 一覧のいちばん上の、本文が空の白紙のページ pe1（題名だけ） */
+function blankEmptyAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const page = { id: 'pe1', kind: 'blank', title: '新しい案', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [] };
+  const row = { id: 'pe1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'blank' };
   return { 'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
 }
 

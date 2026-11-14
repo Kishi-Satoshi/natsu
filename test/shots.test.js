@@ -261,7 +261,10 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.16.0 で足した画面（NEW_160）は 0.15.1 の画面に数えない
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
 const RETAKE_170 = SH.SCREENS.filter((s) => s.page === 'app').map((s) => s.name);
-const ADDED_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name)).map((s) => s.name);
+// 0.17.0 PD-2 で足した2枚（空の白紙のページの［データベース］。まだ基準が無い）
+const NEW_170 = ['page-blank-empty-light', 'page-blank-empty-dark'];
+// 0.17.0 PD-2 で意図して直した: 0.17.0 で足した画面（NEW_170）も 0.15.1 の画面に数えない
+const ADDED_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name) && !NEW_170.includes(s.name)).map((s) => s.name);
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
 const tmp = (t, name) => {
@@ -318,7 +321,9 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     NEW_151,
     // 0.16.0 DV-1 で意図して変えた: データベースの表の明暗と拡大 200% の3枚を足した（取り直し待ち・まだ基準が無い）。DV-2 で列のメニュー・選択肢の選び・暦の3枚を足した。
     // DV-3〜DX-2・R128 で足した画面も（版を 0.16.0 に上げる commit で基準にした）
-    NEW_160));
+    NEW_160,
+    // 0.17.0 PD-2 で意図して変えた: 空の白紙のページの明暗の2枚を足した（取り直し待ち・まだ基準が無い）
+    NEW_170));
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'nudge').map((s) => s.name), M7_NUDGE_093);
@@ -880,8 +885,13 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
     assert.ok(SH.SCREENS.some((s) => s.name === n), `${n} が撮る画面に無い`);
     assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準が無い`);
   }
+  // 0.17.0 PD-2 で意図して変えた: 0.17.0 で足した画面（NEW_170）はまだ基準が無い（Task G の前に基準にする）。どれも計画の「取り直す画面（RETAKE）」の表にある
+  const plan170 = read('docs/plans/2026-11-13-170.md');
+  const table170 = plan170.slice(plan170.indexOf('## 取り直す画面（RETAKE）'), plan170.indexOf('\n## ', plan170.indexOf('## 取り直す画面（RETAKE）') + 5));
+  for (const n of NEW_170) assert.ok(table170.includes(`\`${n}\``) && SH.RETAKE.has(n), `0.17.0 の計画の「取り直す画面」の表か取り直し待ちに ${n} が無い`);
   for (const s of SH.SCREENS) {
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
+    if (NEW_170.includes(s.name)) { assert.ok(!fs.existsSync(f), `${s.name} の基準を Task G の前に置いた`); continue; }
     assert.ok(fs.existsSync(f), `${s.name} の基準が無い`);
     if (s.page !== 'app') continue;   // 0.9.3 M-7 で意図して変えた: パネル（nudge）の画面も、録音バーと同じく窓の大きさが中身で決まる
     const im = P.decodePng(fs.readFileSync(f));
@@ -1304,7 +1314,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 検索・ゴミ箱・移動先・新しいページ・子ページの行・インラインの表の頭・リストの行・リレーションのセル）。変わる画面はアプリの画面の全部（RETAKE_170）。
   // 値を今の app.html に合わせた（前の値は 79b18c84…）
   // 0.17.0 PD-1: pageTree の写しに isEmptyBlank を足した（<script> の中だけ。まだ使わないので見た目は変わらない）。値を今の app.html に合わせた（前の値は 8fcd6cd1…）
-  assert.strictEqual(sha, 'f402b450e68dd9d82743bba21ac44b1c316ee6d9509769863d83455cda9edcda',
+  // 0.17.0 PD-2: 空の白紙のページのいちばん下の灰色の文と［データベース］（#emptyDb・その CSS・押す・キー・Ctrl+Z で戻す・表へのフォーカス）。変わる画面は足した
+  // page-blank-empty-light・page-blank-empty-dark（NEW_170・RETAKE）。空の白紙のページを開くほかの画面があっても、アプリの画面はどれも RETAKE_170 にある。値を今の app.html に合わせた（前の値は f402b450…）
+  assert.strictEqual(sha, '168375fd26ddc1a34314bbb625e930ddd4066206eebd82d4c44d0ba8bdd8081f',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1579,7 +1591,8 @@ test('ND-5・0.15.1 Task G: 撮る画面の一覧に音声入力の画面が無�
   assert.deepStrictEqual(names.filter((n) => /dictation|history-tidy/.test(n) || GONE_SHOTS_151.includes(n)), [], '音声入力の画面が残っている');
   for (const n of rows.flatMap(namesIn).filter((x) => !gone.includes(x))) assert.ok(ADDED_151.includes(n), `表の ${n} が 0.15.1 の画面に無い`);
   // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.16.0 で足した画面（NEW_160）は数えない。取り直し待ちは 0.16.0 の画面だけ（NEW_160・RETAKEN_160）
-  assert.deepStrictEqual(ADDED_151, SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name)).map((s) => s.name), '0.15.1 の画面がサイドバーの出る app の画面の全部でない');
+  // 0.17.0 PD-2 で意図して直した: 0.17.0 で足した画面（NEW_170）も数えない
+  assert.deepStrictEqual(ADDED_151, SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name) && !NEW_170.includes(s.name)).map((s) => s.name), '0.15.1 の画面がサイドバーの出る app の画面の全部でない');
   // 0.17.0 IV-1 で意図して変えた: 0.17.0 の取り直し待ち（RETAKE_170: アプリの画面の全部）は数えない
   assert.deepStrictEqual([...SH.RETAKE].filter((n) => !NEW_160.includes(n) && !RETAKEN_160.includes(n) && !RETAKE_170.includes(n)), [], '0.15.1 の取り直し待ちが残っている');
   for (const n of ADDED_151) assert.ok(names.includes(n) && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n}: 撮る画面に無いか、基準が無い`);

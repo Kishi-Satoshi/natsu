@@ -1669,6 +1669,8 @@ const IDS_170 = [
   // 0.17.0 PD-1 で作った行（表の行の順に）
   'pd-empty-text', 'pd-empty-kids', 'pd-empty-trashkid', 'pd-keep-title', 'pd-icon-off', 'pd-icon-undo', 'pd-keep-place', 'pd-kind-only-blank', 'pd-live', 'pd-same-shape',
   'pd-undo', 'pd-undo-rows', 'pd-parent-row',
+  // 0.17.0 PD-2 で作った行（表の行の順に）
+  'pd-ui-blank-only', 'pd-ui-hide', 'pd-ui-ime', 'pd-ui-focus',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
 function planRows170() {
