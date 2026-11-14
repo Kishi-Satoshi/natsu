@@ -480,7 +480,8 @@ function loadPreload() {
 test('NE-2: preload の APP_COMMANDS（58）は役 app の命令と同じ集まり。koeApp.blockIndent などは dbCall の1回で tx が付く。足した引数が無ければ今の形を送る。json-backend に block.indent は unknown-cmd', T, async () => {
   const { exposed, p, SRC } = loadPreload();
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 64);
+  // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して直した: 空の白紙のページをデータベースにする page.toDb を足して 65（照らしは同じ）
+  assert.strictEqual(names.length, 65);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const k = exposed.koeApp;
   k.blockIndent('pa1', 'b2', 'in'); k.blockSetOpen('pa1', 't', false); k.blockSetOpenAll('pa1', true);

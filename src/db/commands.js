@@ -743,6 +743,12 @@ function editRevert(db, a, ctx) {
     return r;
   });
   rows.sort((x, y) => x.seq - y.seq);
+  // 0.17.0 PD-1（決めたこと 33）: 種類を替えた歩み（page.toDb と、それを戻した edit.revert）は、その1つの歩みだけで戻す（表の操作の歩みと混ぜない）
+  const switched = rows.map((r) => JSON.parse(r.ops || '[]')).map((ops) => ops.some((o) => isObj(o) && o.op === 'set' && o.id === a.pageId && o.key === 'kind'));
+  if (switched.some(Boolean)) {
+    if (rows.length !== 1) throw refuse('bad-args');
+    return kindSwitchRevert(db, a, ctx, JSON.parse(rows[0].ops || '[]'));
+  }
   // 0.16.0 DS-3（決めたこと 47・48）: データベースのページの歩みは、表の操作だけを戻す（要約・メモの欄の決まりは通らない）
   if (dbOf(db, a.pageId)) return rows.length ? dbRevert(db, a, ctx, rows.flatMap((r) => JSON.parse(r.ops || '[]'))) : { ops: [], pageIds: [], result: null };
   // 0.14.0 MB-2（R76）: 1回に戻すのは1つの欄の歩みだけ（メモの歩みと要約の歩みを混ぜたら断る。列は欄ごと: BQ22 (a)）
@@ -1716,6 +1722,68 @@ function dbCreate(db, a, ctx) {
   if (body) ops.push(...body);
   applyOps(db, ops);
   return { ops, pageIds: body ? [id, parentId] : [id], result: { page: readPage(db, id), id } };
+}
+// 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の決めたこと 31〜34・F187・F188）: 空の白紙のページを、同じ ID・同じ親と並びの鍵・同じ題名と見た目のまま
+// データベースにする（種類・db.create と同じ列とビューと次の番号を書き、空のテキストの行を消し、付けていたアイコンを外す: RQ2）。どれも前の値を持つ
+//（1つのトランザクション＝oplog の1行。Ctrl+Z は toDbRevert）。断る（bad-args・何も変えない）: 無い・ゴミ箱（祖先も）・白紙のページでない（議事録・行・
+// データベース）・録音中の写し・空でない（本文の文・子のページ（ゴミ箱の子も）・メモ）・親がデータベースの行（行の中にデータベースを作らない）
+function pageToDb(db, a, ctx) {
+  const rows = pageRowsOf(db);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const me = byId.get(a.id);
+  if (!me || me.trashedAt !== null || isLive(me.attrs) || !isBlankPage(me.attrs)) throw refuse('bad-args');
+  if (me.parentId !== null && isRowId(db, me.parentId)) throw refuse('bad-args');
+  for (let up = me.parentId, seen = new Set(); up !== null && !seen.has(up);) {
+    seen.add(up);
+    const r = byId.get(up);
+    if (!r) break;
+    if (r.trashedAt !== null) throw refuse('bad-args');
+    up = r.parentId;
+  }
+  const hasKid = rows.some((r) => r.parentId === a.id);   // ゴミ箱の子も（pageRows はゴミ箱の行も読む）
+  const r = editPage(db, a.id, ctx, (p) => {
+    if (!PT.isEmptyBlank(p, hasKid)) throw refuse('bad-args');
+    const cols = [{ ...TITLE_COL }];
+    p.kind = 'database';
+    p.cols = cols;
+    p.views = [DV.defaultView('v1', 'table', cols)];
+    p.nextNo = 1;
+    p.blocks = [];
+    delete p.icon;
+  });
+  return { ...r, result: r.result ? { page: r.result, id: a.id } : null };
+}
+// PD-1（決めたこと 33）: 種類を替えた歩み（page.toDb か、それを戻した edit.revert）を戻す。fwd はその1つの歩みの操作（ページの欄の set と、本文の行の trash か add）。
+// データベースから白紙のページへ戻すときは、行が1つでもあれば（ゴミ箱の行も）戻さない（行を見えなくしない）。種類・列・アイコンと本文の行が、その歩みの後の
+// 形のままでなければ（後で列を変えて、その歩みがまだ戻っていない・戻した後に本文を書いた）stale。ビューと次の番号は見た目と数なので見ない（前の値へ戻す）
+const KIND_SWITCH_SKIP = Object.freeze(['views', 'nextNo', 'updatedAt']);
+function kindSwitchRevert(db, a, ctx, fwd) {
+  const id = a.pageId;
+  const row = db.prepare('select type, attrs, trashed_at from blocks where id = ?').get(id);
+  if (!row || row.type !== 'page' || row.trashed_at !== null) throw refuse('stale');
+  const attrs = JSON.parse(row.attrs || '{}');
+  const kindOp = fwd.find((o) => o.op === 'set' && o.id === id && o.key === 'kind');
+  if (!kindOp) throw refuse('bad-args');
+  if (kindOp.value === 'database' && db.prepare(HOT_QUERIES.dbAllRows).all(id).length) throw refuse('stale');
+  const blockNow = db.prepare('select type, page_id, text, attrs from blocks where id = ?');
+  const back = [];
+  for (const o of [...fwd].reverse()) {
+    if (o.op === 'set' && o.id === id) {
+      if (!KIND_SWITCH_SKIP.includes(o.key) && !isDeepStrictEqual(attrs[o.key], o.value)) throw refuse('stale');
+      if (o.key === 'updatedAt') continue;
+      back.push({ op: 'set', id, key: o.key, value: o.old, old: attrs[o.key] });
+    } else if (o.op === 'trash' && isObj(o.old) && o.old.page_id === id && o.old.type === 'paragraph') {
+      if (blockNow.get(o.id)) throw refuse('stale');
+      back.push({ op: 'add', id: o.id, row: o.old });
+    } else if (o.op === 'add' && isObj(o.row) && o.row.page_id === id && o.row.type === 'paragraph') {
+      const b = blockNow.get(o.id);
+      if (!b || b.type !== 'paragraph' || String(b.text || '') !== '' || !isDeepStrictEqual(JSON.parse(b.attrs || '{}'), isObj(o.row.attrs) ? o.row.attrs : {})) throw refuse('stale');
+      back.push({ op: 'trash', id: o.id, old: o.row });
+    } else throw refuse('bad-args');
+  }
+  back.push({ op: 'set', id, key: 'updatedAt', value: ctx.now().toISOString(), old: db.prepare('select updated_at from blocks where id = ?').get(id).updated_at });
+  applyOps(db, back);
+  return { ops: back, pageIds: [id], result: { page: readPage(db, id) } };
 }
 // 0.16.0 DX-3（決めたこと 49・R103）: Claude（MCP）が読むデータベースの中身。列（消した列は除く。名前と種類の名前）と、最初のビューの並べ替えの順
 // （ビューの絞り込みとグループは当てない: Claude からの絞り込みは 0.18.0）の行の頭から max 行。値は画面と同じ見せ方の文字（fmtCell。リレーションは生きている相手の題名）。
@@ -3014,6 +3082,8 @@ const DEFS = {
     run: segmentRemove, dupResult: resegments },
 
   // ---- 0.16.0 DS-3: データベース・行・列・ビュー（どれも役 app だけ。oplog の page_id はデータベース: 元に戻すの列はデータベースの歩み）
+  // 0.17.0 PD-1（決めたこと 32）: 空の白紙のページをデータベースにする（oplog の page_id はそのページ・元に戻すの歩みはデータベースの歩み）→ { page, id }
+  'page.toDb': { roles: ['app'], write: true, args: { id: 'id' }, run: pageToDb, dupResult: (db, a) => { const page = readPage(db, a.id); return page ? { page, id: a.id } : null; } },
   'db.create': { roles: ['app'], write: true, args: { parentId: 'id?', inline: 'id?' }, pageOf: () => null,
     run: dbCreate,
     dupResult: (db, _a, row) => {

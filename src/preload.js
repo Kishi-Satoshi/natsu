@@ -27,7 +27,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.16.0 DR-1（決めたこと 33〜38・R98）: リレーションの行を足す・外す・サブアイテム・つなぐ先の行を探す（62）
   'rel.link', 'rel.unlink', 'db.setSub', 'rel.find',
   // 0.16.0 DL-1（決めたこと 39・40・R105）: リンクドビューの行を置く・データベースの題名（64）
-  'block.insertDbView', 'db.setTitle']);
+  'block.insertDbView', 'db.setTitle',
+  // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の決めたこと 32）: 空の白紙のページをデータベースにする（65）
+  'page.toDb']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -39,6 +41,7 @@ const UNDO_CMDS = new Set([
   'rel.link', 'rel.unlink', 'db.setSub',   // 0.16.0 DR-1（決めたこと 47）
   // 0.16.0 DL-1（決めたこと 40・R105）: リンクドビューの行を置く（本文の歩み）・データベースの題名（データベースの歩み）
   'block.insertDbView', 'db.setTitle',
+  'page.toDb',   // 0.17.0 PD-1（決めたこと 33）: データベースにした歩み（args.id はそのページ = データベース）
 ]);
 const editSteps = [];
 function editStep(req) {
@@ -232,6 +235,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // ビューの命令と［完全に消す］は歩みにしない。どれも引数をそのまま送り、DB が照らす（無い引数は送らない）
   // 0.16.0 DL-1（決めたこと 39・40・R105）: inline は /データベース を打った行（白紙のページの本文の表）。linked はリンクドビューの行（その行のビューを読む・書く。
   // 元のデータベースのビューは変えない）。blockInsertDbView は /リンクドビュー（本文の歩み）、dbSetTitle はデータベースの題名（データベースの歩み）
+  // 0.17.0 PD-1（決めたこと 32・33）: 空の白紙のページを同じ ID のままデータベースにする（元に戻すの歩み: onEditStep の pageId はそのページ）
+  pageToDb: (id) => dbCall('page.toDb', { id }),
   dbCreate: (parentId, inline) => dbCall('db.create', { ...(parentId ? { parentId } : {}), ...(inline ? { inline } : {}) }),
   dbGet: (id, linked) => dbCall('db.get', { id, ...(linked ? { linked } : {}) }),
   dbView: (id, viewId, from, count, q, open, linked) => dbCall('db.view', { id, viewId, from, count, ...(q ? { q } : {}), ...(Array.isArray(open) && open.length ? { open } : {}), ...(linked ? { linked } : {}) }),   // 0.16.0 DR-1: open は開いたサブアイテムの行

@@ -1303,7 +1303,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 IV-1: ページのアイコンを描く部品（iconEl。SVG の線の絵・currentColor）と、アイコンが出る所の全部（タブの .ti・パンくず・サイドバー・ライブラリ・
   // 検索・ゴミ箱・移動先・新しいページ・子ページの行・インラインの表の頭・リストの行・リレーションのセル）。変わる画面はアプリの画面の全部（RETAKE_170）。
   // 値を今の app.html に合わせた（前の値は 79b18c84…）
-  assert.strictEqual(sha, '8fcd6cd1c8b9aa0eaa43edab170edac824525c7f31460dc5b02c2022ddb747bb',
+  // 0.17.0 PD-1: pageTree の写しに isEmptyBlank を足した（<script> の中だけ。まだ使わないので見た目は変わらない）。値を今の app.html に合わせた（前の値は 8fcd6cd1…）
+  assert.strictEqual(sha, 'f402b450e68dd9d82743bba21ac44b1c316ee6d9509769863d83455cda9edcda',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

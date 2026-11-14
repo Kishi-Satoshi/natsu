@@ -1406,7 +1406,8 @@ test('MB-2・F106: json-backend の page.setMemoDoc・page.setMemo の断りは 
 // 0.16.0 DL-1 (1)（計画 docs/plans/2026-11-04-160.md の「意図して変えるテスト」・R105・R111）で意図して直した: リンクドビューの行を置く block.insertDbView とデータベースの題名 db.setTitle を足して 64（照らしは今の役 app の命令と同じ集まり）
 test('MB-2: preload の APP_COMMANDS（58）は役 app の命令と同じ集まり。koeApp.pageSetMemoDoc は dbCall の1回で tx が付き、ok で changed なら onEditStep に { cmd, pageId: id, step }', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 64);
+  // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して直した: 空の白紙のページをデータベースにする page.toDb を足して 65（照らしは同じ）
+  assert.strictEqual(names.length, 65);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   assert.deepStrictEqual(core.COMMANDS['page.setMemoDoc'].roles, ['app']);
   const { k, givePort } = loadPreload();

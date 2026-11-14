@@ -3269,7 +3269,7 @@
   }
 
   // ---------------- 0.15.0 PH-3（計画 docs/plans/2026-11-03-150.md の決めたこと 18〜23・HR1・HR5）: サイドバーの木
-  // ---- pageTree の写し（src/pageTree.js の TOP_ORD から placeText まで。字は同じで、行の頭に4つの空白を足した。画面は並びの鍵を作らない（DB が作る）ので、
+  // ---- pageTree の写し（src/pageTree.js の TOP_ORD から isEmptyBlank まで（0.17.0 PD-1 で isEmptyBlank を足した）。字は同じで、行の頭に4つの空白を足した。画面は並びの鍵を作らない（DB が作る）ので、
   // keysBetween は呼ぶと投げる小さな関数にした。名前がぶつからないよう関数の中に閉じる。test/stage150.app.test.js が字と答えを照らす）
   const pageTreeView = (() => {
     const keysBetween = () => { throw new Error('画面では並びの鍵を作らない'); };
@@ -3485,7 +3485,20 @@
       const parts = shown.map((x) => String(titleOf(x) ?? ''));
       return (ids.length > n ? ['…', ...parts] : parts).join(' / ');
     }
-    return { pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, pageDropSpot, placeText };
+
+    // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の決めたこと 31・F187）: データベースにできる「空の白紙のページ」か。page は { kind, blocks, memo, memoDoc? }、
+    // hasKid はそのページを親にするページがあるか（ゴミ箱の子も数える）。本文の行が無いか、ある行が全部「空のテキストの行」（段落・文字が空・色と飾りが無い・
+    // 子が無い）で、子のページが無く、メモが空。題名・アイコン・見た目は数えない（題名と見た目は残し、アイコンは外す: RQ2）
+    const isBareParagraph = (b) => Boolean(b) && typeof b === 'object' && b.type === 'paragraph' && (b.text ?? '') === '' && !b.color
+      && !(Array.isArray(b.rich) && b.rich.length) && !(Array.isArray(b.children) && b.children.length);
+    function isEmptyBlank(page, hasKid) {
+      if (!page || typeof page !== 'object' || page.kind !== 'blank' || hasKid) return false;
+      if (page.blocks !== undefined && !Array.isArray(page.blocks)) return false;
+      if (!(page.blocks || []).every(isBareParagraph)) return false;
+      if (String(page.memo ?? '') !== '') return false;
+      return !(Array.isArray(page.memoDoc) && page.memoDoc.some((b) => !isBareParagraph(b)));
+    }
+    return { pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, pageDropSpot, placeText, isEmptyBlank };
   })();
   // ---- pageTree の写しはここまで
   // ---- sideSection の写し（0.15.1 PS-2。src/sideSection.js の SECTION_DEFAULT から oneLineTitle まで。字は同じで、行の頭に4つの空白を足した。

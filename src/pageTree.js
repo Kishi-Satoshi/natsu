@@ -221,4 +221,17 @@ function placeText(tree, titleOf, id, max = 5) {
   return (ids.length > n ? ['…', ...parts] : parts).join(' / ');
 }
 
-module.exports = { TOP_ORD, pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, siblingKey, placeKeys, trashGroup, restoreGroup, pageDropSpot, placeText };
+// 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の決めたこと 31・F187）: データベースにできる「空の白紙のページ」か。page は { kind, blocks, memo, memoDoc? }、
+// hasKid はそのページを親にするページがあるか（ゴミ箱の子も数える）。本文の行が無いか、ある行が全部「空のテキストの行」（段落・文字が空・色と飾りが無い・
+// 子が無い）で、子のページが無く、メモが空。題名・アイコン・見た目は数えない（題名と見た目は残し、アイコンは外す: RQ2）
+const isBareParagraph = (b) => Boolean(b) && typeof b === 'object' && b.type === 'paragraph' && (b.text ?? '') === '' && !b.color
+  && !(Array.isArray(b.rich) && b.rich.length) && !(Array.isArray(b.children) && b.children.length);
+function isEmptyBlank(page, hasKid) {
+  if (!page || typeof page !== 'object' || page.kind !== 'blank' || hasKid) return false;
+  if (page.blocks !== undefined && !Array.isArray(page.blocks)) return false;
+  if (!(page.blocks || []).every(isBareParagraph)) return false;
+  if (String(page.memo ?? '') !== '') return false;
+  return !(Array.isArray(page.memoDoc) && page.memoDoc.some((b) => !isBareParagraph(b)));
+}
+
+module.exports = { TOP_ORD, pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, siblingKey, placeKeys, trashGroup, restoreGroup, pageDropSpot, placeText, isEmptyBlank };
