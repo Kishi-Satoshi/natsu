@@ -292,7 +292,7 @@ function setField(db, row, key, value, st) {
   }
   const attrs = JSON.parse(row.attrs || '{}');
   const prevCols = attrs.cols;
-  const cellKey = row.type === 'row' ? cellColOf(key) : null;
+  const cellKey = row.type === 'row' || row.type === 'page' ? cellColOf(key) : null;   // 0.17.0 MG-1: 「議事録」データベースの議事録のページのセルも（決めたこと 50）
   if (cellKey !== null) setCellIn(attrs, cellKey, value);   // 0.16.0 DS-3（決めたこと 5）: セルは列ごとの set（cell:<列の ID>）。cells の中の1つだけを書く
   else if (value === undefined) delete attrs[key]; else attrs[key] = value;
   db.prepare('update blocks set attrs = ? where id = ?').run(JSON.stringify(attrs), row.id);

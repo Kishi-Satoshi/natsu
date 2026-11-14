@@ -96,6 +96,8 @@ const HOT_QUERIES = Object.freeze({
   dbAllRows: "select id, attrs, trashed_at from blocks where type = 'row' and parent_id = ?",
   dbOrds: "select id, ord from blocks where type = 'row' and parent_id = ?",
   dbRowCount: "select count(*) as c from blocks where type = 'row' and parent_id = ? and trashed_at is null",
+  // 0.17.0 MG-1（決めたこと 46）: 「議事録」データベースの子のページ（議事録。ゴミ箱と録音中の写しは dbRowsOf が外す。一覧の1行の鍵を作る欄も読む）
+  minutesKids: "select rid, id, ord, text, attrs, rev, created_at, updated_at, trashed_at from blocks where type = 'page' and parent_id = ?",
   // 0.16.0 DX-2（決めたこと 44）: ゴミ箱の行（［ゴミ箱］の窓のまとまり）と、1つのまとまり（同じデータベース・同じ時刻）の行
   trashedRows: "select id, parent_id, ord, text, trashed_at from blocks where type = 'row' and trashed_at is not null",
   trashedRowsAt: "select id, trashed_at from blocks where type = 'row' and parent_id = ? and trashed_at = ? order by ord, id",
@@ -233,6 +235,10 @@ function keepStoredLook(was, page) {
   for (const k of ['icon', 'look']) {
     if (Object.hasOwn(was, k)) page[k] = structuredClone(was[k]); else delete page[k];
   }
+}
+// 0.17.0 MG-1（決めたこと 49・F195・P9）: 要約の書き戻しと締め直しは、「議事録」データベースの書ける列の値（議事録のページの attrs.cells）を DB の今の値のまま
+function keepStoredCells(was, page) {
+  if (Object.hasOwn(was, 'cells')) page.cells = structuredClone(was.cells); else delete page.cells;
 }
 function editPage(db, id, ctx, fn, { summary = false, view = false } = {}) {
   const w = forWrite(db, id);
@@ -612,6 +618,7 @@ function meetingSegment(db, { pageId, seg }, ctx) {
 // 締め・復旧のページを書く。前の行がゴミ箱の録音中の写し（app の page.delete で入る）なら、ゴミ箱から出す
 // （締めた議事録・下書きから戻した議事録をゴミ箱に置かない）。当てるのは1回だけ
 function putMeetingPage(db, page, segments, was) {
+  if (was) keepStoredCells(was.page, page);   // 0.17.0 MG-1（P9）: 締め直しは「議事録」の列の値を消さない
   const ops = diffPage(was ? was.page : null, page, { ords: was ? was.ords : undefined });
   ops.push(...diffSegments(was ? readSegments(db, page.id) : [], segments, page.id));
   if (was && was.trashedAt !== null && isLive(was.page)) ops.push({ op: 'restore', id: page.id, at: page.updatedAt, old: was.trashedAt });
@@ -1563,13 +1570,52 @@ function rowView(r) {
   const out = { id: r.id, ord: r.ord, title: r.text, cells: isObj(attrs.cells) ? attrs.cells : {}, createdAt: r.created_at, updatedAt: r.updated_at, by: isObj(attrs.by) ? attrs.by : {} };
   if (Number.isSafeInteger(attrs.no)) out.no = attrs.no;
   if (typeof attrs.icon === 'string' && attrs.icon) out.icon = attrs.icon;
+  if (r.page) {   // 0.17.0 MG-1（決めたこと 50）: 「議事録」データベースの議事録の行。作成者はいつも「自分」・日付と要約は議事録から読む
+    out.by = { c: 'me' };
+    const md = meetingDay(attrs.date, r.created_at);
+    if (md) out.mdate = md;
+    if (typeof r.msum === 'string' && r.msum) out.msum = r.msum;
+  }
+  return out;
+}
+// 会議の日付（ページの date）と始めた時刻（createdAt のその PC の時刻）→ 日付の列の値 { start, time? } | null
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+function meetingDay(date, createdAt) {
+  if (typeof date !== 'string' || !DAY_RE.test(date)) return null;
+  const at = new Date(createdAt);
+  if (typeof createdAt !== 'string' || Number.isNaN(at.getTime())) return { start: date };
+  return { start: date, time: `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` };
+}
+// 0.17.0 MG-1（計画 docs/plans/2026-11-13-170.md の決めたこと 45・46・50〜52・F196）: 「議事録」データベース（役の印 attrs.role 'minutes'）か
+const isMinutesDb = (d) => Boolean(d) && d.attrs.role === 'minutes';
+// 議事録のページの行か（ページで、種類（白紙のページ・データベース）が無く、録音中の写しでない。ゴミ箱は呼び手が見る）
+const isMeetingRaw = (attrs) => attrs.kind === undefined && !isLive(attrs);
+// データベースの行を読む1か所（db.view・rel.find・dbDump。書く道の liveRow も同じ決まり）→ 行の生の形（HOT_QUERIES.dbRows の欄）の並び。
+// 生きている行（row）からテンプレートの行（attrs.tpl: RT-1）を外し、「議事録」データベースなら子の議事録のページ（ゴミ箱・録音中の写し・白紙のページと
+// データベースを除く）を page: true と要約の最初の要点 msum（一覧の1行の preview。一覧と同じ覚えた1行を使う）を付けて足す
+function dbRowsOf(db, d) {
+  const out = db.prepare(HOT_QUERIES.dbRows).all(d.id).filter((r) => !(r.attrs.includes('"tpl"') && JSON.parse(r.attrs).tpl === true));
+  if (isMinutesDb(d)) {
+    const cache = cacheOf(db);
+    for (const r of db.prepare(HOT_QUERIES.minutesKids).all(d.id)) {
+      const attrs = JSON.parse(r.attrs || '{}');
+      if (r.trashed_at !== null || !isMeetingRaw(attrs)) continue;
+      const e = entryFor(db, cache, { id: r.id, key: keyOfRow(r), attrs, parentId: d.id, ord: r.ord });
+      out.push({ id: r.id, ord: r.ord, text: r.text, attrs: r.attrs, rev: r.rev, created_at: r.created_at, updated_at: r.updated_at, page: true, msum: e ? e.preview : '' });
+    }
+  }
   return out;
 }
 // そのデータベースの生きている行（書く命令はこの形に attrs と rev を足して使う）
 function liveRow(db, d, id) {
   const r = db.prepare(HOT_QUERIES.dbRow).get(id);
-  if (!r || r.type !== 'row' || r.parent_id !== d.id || (r.trashed_at !== null && r.trashed_at !== undefined)) throw refuse('bad-args');
-  return { ...rowView(r), raw: r, attrs: JSON.parse(r.attrs || '{}') };
+  if (!r || r.parent_id !== d.id || (r.trashed_at !== null && r.trashed_at !== undefined)) throw refuse('bad-args');
+  const attrs = JSON.parse(r.attrs || '{}');
+  // 0.17.0 MG-1: 「議事録」データベースでは子の議事録のページも行（dbRowsOf と同じ決まり。書けるのは書ける列だけ: 日付・作成者・要約は cellFor が断る）
+  const page = r.type === 'page' && isMinutesDb(d) && isMeetingRaw(attrs);
+  if (r.type !== 'row' && !page) throw refuse('bad-args');
+  const raw = page ? { ...r, page: true } : r;
+  return { ...rowView(raw), raw, attrs };
 }
 // 新しい行の ID（決めたこと 2: r＋時刻の36進＋5字。ページの ID と同じ作り方）
 // issued: 同じ命令の中で振った ID（まだ書いていない。同じ時刻に足す行で重ならない: rv42 M2・R60）
@@ -1624,6 +1670,7 @@ function touchOps(r, ctx) {
   const who = whoOf(ctx);
   const by = isObj(r.attrs.by) ? r.attrs.by : {};
   const out = [{ op: 'set', id: r.id, key: 'updatedAt', value: ctx.now().toISOString(), old: r.raw.updated_at || '' }];
+  if (r.raw.page) return out;   // 0.17.0 MG-1: 議事録のページには最終更新者を書かない（作成者・最終更新者はいつも「自分」）
   if (by.u !== who) out.push({ op: 'set', id: r.id, key: 'by', value: { ...by, u: who }, old: r.attrs.by });
   return out;
 }
@@ -1822,7 +1869,7 @@ function kindSwitchRevert(db, a, ctx, fwd) {
 function dbDump(db, id, max, nowMs) {
   const d = dbOf(db, id);
   if (!d) return null;
-  const list = db.prepare(HOT_QUERIES.dbRows).all(d.id).map(rowView);
+  const list = dbRowsOf(db, d).map(rowView);
   const v0 = d.views.length ? normView(d, d.views[0]) : DV.defaultView('v1', 'table', d.cols);
   const order = DV.applyView(list, { ...v0, filter: null, group: null }, d.cols, { now: nowMs }).order;
   const byId = new Map(list.map((r) => [r.id, r]));
@@ -1861,7 +1908,7 @@ function dbViewRead(db, a, ctx) {
   const raw = (L ? L.views : d.views).find((v) => v.id === a.viewId);
   if (!raw) throw refuse('bad-args');
   const v = normView(d, raw);
-  const stored = db.prepare(HOT_QUERIES.dbRows).all(d.id);
+  const stored = dbRowsOf(db, d);
   const list = stored.map(rowView);
   const sub = subOf(d);   // 0.16.0 DR-1: サブアイテムの木（開いた行は画面の窓のメモリ: 決めたこと 38）
   const out = DV.applyView(list, v, d.cols, { now: ctx.now().getTime(), q: a.q, ...(sub ? { sub, open: a.open || [] } : {}) });
@@ -2146,9 +2193,10 @@ function relTitlesOf(db, ids) {
   for (const id of ids) {
     if (Object.hasOwn(out, id)) continue;
     const r = db.prepare(HOT_QUERIES.dbRow).get(id);
-    if (!r || r.type !== 'row' || r.trashed_at !== null) continue;
-    if (!live.has(r.parent_id)) live.set(r.parent_id, Boolean(dbOf(db, r.parent_id)));
+    if (!r || (r.type !== 'row' && r.type !== 'page') || r.trashed_at !== null) continue;
+    if (!live.has(r.parent_id)) { const p = dbOf(db, r.parent_id); live.set(r.parent_id, p ? (isMinutesDb(p) ? 'minutes' : 'db') : ''); }
     if (!live.get(r.parent_id)) continue;
+    if (r.type === 'page' && (live.get(r.parent_id) !== 'minutes' || !isMeetingRaw(JSON.parse(r.attrs || '{}')))) continue;   // 0.17.0 MG-1: 「議事録」の議事録だけ
     const one = { title: r.text || '' };
     const attrs = JSON.parse(r.attrs || '{}');
     if (typeof attrs.icon === 'string' && attrs.icon) one.icon = attrs.icon;
@@ -2167,7 +2215,7 @@ const kanaFold = (s) => searchFold(s).replace(/[\u30a1-\u30f6]/g, (ch) => String
 function relFind(db, a) {
   const t = mustDb(db, a.db);
   const q = a.q ? kanaFold(a.q) : '';
-  const all = db.prepare(HOT_QUERIES.dbRows).all(t.id).sort((x, y) => cmpStr(x.ord, y.ord) || cmpStr(x.id, y.id));
+  const all = dbRowsOf(db, t).sort((x, y) => cmpStr(x.ord, y.ord) || cmpStr(x.id, y.id));
   const hits = q ? all.filter((r) => kanaFold(r.text || '').includes(q)) : all;
   const rows = hits.slice(0, DB_VIEW_MAX).map((r) => {
     const one = { id: r.id, title: r.text || '' };
@@ -2283,10 +2331,12 @@ function colMove(db, a) {
   return dbDone(db, d, [dbSet(d, 'cols', rest)], { col });
 }
 // 消す（gone を付けてビューから外す。セルは残す: R-24）・戻す・完全に消す（消した列だけ。セルも消す。Ctrl+Z の歩みにしない）
+const MINUTES_FIXED = Object.freeze(['mdate', 'cby', 'msum']);
 function colRemove(db, a) {
   const d = mustDb(db, a.db);
   const col = colIn(d.cols, a.col);
   if (!col || col.type === 'title') throw refuse('bad-args');   // 題名の列は消せない（J-18）
+  if (isMinutesDb(d) && MINUTES_FIXED.includes(col.type)) throw refuse('bad-args');   // 0.17.0 MG-1（決めたこと 50・76）: 「議事録」の日付・作成者・要約は消せない
   if (col.gone) return { ops: [], pageIds: [], result: { col } };
   // 0.16.0 DR-1 直し2（MQ2・R108）: サブアイテムを入れている間は2つの列を消せない（外すのは db.setSub の off だけ）
   const sub = subOf(d);
@@ -3086,6 +3136,7 @@ const DEFS = {
       const page = clone(a.page);
       keepStoredMemo(was.page, page);   // 0.14.0 MB-3（R165）: メモを送らない書き戻しは保存してあるメモのまま
       keepStoredLook(was.page, page);   // 0.15.0 PL-2: アイコンと見た目も保存してあるまま
+      keepStoredCells(was.page, page);   // 0.17.0 MG-1: 「議事録」の列の値も
       if (!Array.isArray(page.blocks)) page.blocks = [];
       const ops = saveOps(was, page, ctx.now);
       applyOps(db, ops);

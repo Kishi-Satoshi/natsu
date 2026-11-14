@@ -108,8 +108,11 @@ test('DS-1・F137: cellOf の表（種類ごとに通る値と断る値・空は
 });
 
 test('DS-1: 列の種類は 17（と題名）で、どれも名前・書けるか・既定の欄を持ち、colOk が形を照らす', () => {
-  assert.deepStrictEqual(M.TYPES, ['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no']);
-  assert.deepStrictEqual(M.TYPES.filter((t) => !M.COLS[t].writable), ['ctime', 'mtime', 'cby', 'mby', 'no']);
+  // 0.17.0 MG-1 で意図して変えた（計画 docs/plans/2026-11-13-170.md の R39）: 「議事録」データベースだけの書けない2つ（mdate・msum。利用者は足せない: auto）を末に足した。
+  // 利用者が使える種類は今の 17（と題名）のまま
+  assert.deepStrictEqual(M.TYPES, ['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no', 'mdate', 'msum']);
+  assert.deepStrictEqual(M.TYPES.filter((t) => !M.COLS[t].auto).length, 18);
+  assert.deepStrictEqual(M.TYPES.filter((t) => !M.COLS[t].writable), ['ctime', 'mtime', 'cby', 'mby', 'no', 'mdate', 'msum']);
   assert.deepStrictEqual(M.OPT_COLORS, ['default', 'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red']);
   for (const c of COLS) assert.ok(M.colOk(c), c.id);
   assert.ok(!M.colOk({ ...SEL, opts: [{ id: 'o1', name: 'A', color: 'red' }, { id: 'o2', name: 'a', color: 'red' }] }), '大文字小文字の重なり');

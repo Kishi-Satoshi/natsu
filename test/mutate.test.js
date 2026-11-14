@@ -1677,6 +1677,8 @@ const IDS_170 = [
   // 0.17.0 SV-1・SV-2 で作った行（表の行の順に。sw-fresh は SV-2: R26）
   'sw-rows-under', 'sw-fresh', 'sw-list-speed', 'sw-open-key', 'sw-key-nav', 'sw-key-left', 'sw-no-drag', 'sw-no-select', 'sw-only-tree', 'sw-open-view',
   'sw-mark', 'sw-focus-gone',
+  // 0.17.0 MG-1 で作った行（表の行の順に）
+  'mg-rows-pages', 'mg-rows-trash', 'mg-col-readonly', 'mg-sum-preview', 'mg-creator-me', 'mg-put-keep-cells', 'mg-rel-find',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
 function planRows170() {

@@ -1322,7 +1322,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 足した sidebar-db-views-light・sidebar-db-views-dark（NEW_170・RETAKE）と、ビューのあるデータベースの行が出る画面（アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 001daeb2…）
   // 0.17.0 直し（rv58）: 空のページの［データベース］を DB が断るページ（行の中のページ・祖先がゴミ箱）に出さない・失敗と Ctrl+Z の知らせの出し分け・リレーションのセルの
   // アイコンはいつも行の既定（<script> の中だけ。撮る画面の種はどれもこの形に当たらないので見た目は変わらない。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 1e02b4b4…）
-  assert.strictEqual(sha, '37a65077959e63c0bf96c36865de36ee18ffc8db208cefc9d17194c5d1d64b82',
+  // 0.17.0 MG-1: dbModel と dbView の写しに「議事録」の読む列（mdate・msum）を足した（<script> の中だけ。撮る画面の種に「議事録」データベースは無いので見た目は変わらない）。
+  // 値を今の app.html に合わせた（前の値は 37a65077…）
+  assert.strictEqual(sha, 'dec71caab2788d6c3ee7e971433a9aa6a3feb5b45a989ec09e96630a08fa9e9d',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

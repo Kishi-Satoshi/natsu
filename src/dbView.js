@@ -60,6 +60,7 @@ const FILTER_OPS = Object.freeze({
   multi: ['anyOf', 'allOf', 'empty'],
   date: DATE_OPS, ctime: DATE_OPS, mtime: DATE_OPS,
   check: ['yes', 'no'],
+  mdate: DATE_OPS, msum: TEXT_OPS,   // 0.17.0 MG-1: 議事録から読む列（日付と同じ・テキストと同じ）
   rel: ['contains', 'empty'],
 });
 const NO_VALUE = ['empty', 'notEmpty', 'today', 'yes', 'no'];
@@ -103,7 +104,7 @@ function matchCond(c, row, byId, now, memo) {
   if (c.cmp === 'empty') return col.type === 'check' ? v !== true : empty;
   if (c.cmp === 'notEmpty') return !empty;
   switch (col.type) {
-    case 'title': case 'text': case 'person': case 'url': case 'email': case 'phone': {
+    case 'title': case 'text': case 'person': case 'url': case 'email': case 'phone': case 'msum': {
       const s = foldedText(col, row, v, memo); const w = searchFold(c.value);
       if (c.cmp === 'contains') return s.includes(w);
       if (c.cmp === 'notContains') return !s.includes(w);
@@ -169,7 +170,7 @@ function cmpPlain(col, a, b) {
       for (let i = 0; i < Math.min(x.length, y.length); i += 1) if (x[i] !== y[i]) return x[i] - y[i];
       return x.length - y.length;
     }
-    case 'date': { const x = `${a.start} ${a.time || ''}`; const y = `${b.start} ${b.time || ''}`; return x < y ? -1 : x > y ? 1 : 0; }
+    case 'date': case 'mdate': { const x = `${a.start} ${a.time || ''}`; const y = `${b.start} ${b.time || ''}`; return x < y ? -1 : x > y ? 1 : 0; }
     case 'ctime': case 'mtime': return a < b ? -1 : a > b ? 1 : 0;
     case 'cby': case 'mby': return DM.WHO.indexOf(a) - DM.WHO.indexOf(b);
     case 'rel': return a.length - b.length;
@@ -191,7 +192,7 @@ const COMMON_AGG = ['count', 'values', 'unique', 'empty', 'filled', 'emptyPct', 
 function AGG_KINDS(col) {
   if (!col) return [];
   if (col.type === 'number' || col.type === 'no') return [...COMMON_AGG, 'sum', 'avg', 'median', 'min', 'max', 'range'];
-  if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') return [...COMMON_AGG, 'earliest', 'latest', 'range'];
+  if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime' || col.type === 'mdate') return [...COMMON_AGG, 'earliest', 'latest', 'range'];
   if (col.type === 'check') return ['count', 'checked', 'unchecked', 'checkedPct', 'uncheckedPct'];
   return COMMON_AGG;
 }
@@ -214,7 +215,7 @@ function aggregate(col, values, kind) {
     case 'uncheckedPct': return pct(all.filter((v) => v !== true).length, all.length);
     default: break;
   }
-  if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') {
+  if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime' || col.type === 'mdate') {
     const spans = filled.map((v) => spanOf(col, v)).filter(Boolean);
     if (!spans.length) return null;
     const first = spans.reduce((m, s) => (s.start < m ? s.start : m), spans[0].start);

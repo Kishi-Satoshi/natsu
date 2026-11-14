@@ -4898,7 +4898,7 @@
   // ---- dbModel の写し（0.16.0 DV-1。src/dbModel.js の TYPES から cellValue まで。字は同じで、行の頭に4つの空白を足した。
   // 画面は部品を読めないので写す。セルの見せる文字（fmtCell）・列の種類の表（COLS）を表の画面が使う。test/stage160.app.test.js が字と答えを照らす）
   const dbModelView = (() => {
-    const TYPES = Object.freeze(['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no']);
+    const TYPES = Object.freeze(['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no', 'mdate', 'msum']);
     const OPT_COLORS = Object.freeze(['default', 'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red']);
     const NUM_FMTS = Object.freeze(['plain', 'comma', 'percent', 'yen', 'dollar']);
     const WHO = Object.freeze(['me', 'claude', 'system']);            // 作成者・最終更新者の値（並べ替えもこの順: 決めたこと 11）
@@ -5092,6 +5092,9 @@
       cby: kind('作成者', null),
       mby: kind('最終更新者', null),
       no: kind('ID', null, { keys: ['prefix'], check: (c) => c.prefix === undefined || (typeof c.prefix === 'string' && PREFIX_RE.test(c.prefix)) }),
+      // 0.17.0 MG-1（計画 docs/plans/2026-11-13-170.md の決めたこと 50・SQ1）: 「議事録」データベースの議事録から読む列（行の欄 mdate・msum から読む。auto: 足せない）
+      mdate: kind('日付', null, { auto: true }),   // 会議の日付と始めた時刻（{ start, time }。並べ替えと絞り込みは日付の列と同じ）
+      msum: kind('要約', null, { auto: true }),    // 要約の最初の要点（一覧の preview。検索の欄 fold には入れない）
     });
     const defOf = (col) => (isObj(col) && typeof col.type === 'string' && Object.hasOwn(COLS, col.type) ? COLS[col.type] : null);
 
@@ -5143,7 +5146,7 @@
     }
     // 新しい列 → { id: c<数>, name, type, …既定 }（名前が空なら種類の名前・重なれば「名前 2」「名前 3」…。題名の列は足せない）
     function newCol(type, name, cols) {
-      if (typeof type !== 'string' || !Object.hasOwn(COLS, type) || type === 'title') throw fail('col-type');
+      if (typeof type !== 'string' || !Object.hasOwn(COLS, type) || type === 'title' || COLS[type].auto) throw fail('col-type');
       if (!missing(name) && typeof name !== 'string') throw fail('col-name');
       const list = Array.isArray(cols) ? cols.filter(isObj) : [];
       const base = (name || '').trim() || COLS[type].label;
@@ -5335,12 +5338,12 @@
       if (col.type === 'title') return typeof v === 'string' && v !== '' ? v : SHOW.untitled;
       if (isBlank(v)) return '';
       switch (col.type) {
-        case 'text': case 'url': case 'email': case 'phone': return typeof v === 'string' ? v : '';
+        case 'text': case 'url': case 'email': case 'phone': case 'msum': return typeof v === 'string' ? v : '';
         case 'number': return Number.isFinite(v) ? (SHOW_NUMBER[col.fmt] || SHOW_NUMBER.plain)(v) : '';
         case 'select': case 'status': return optFold(col, v);
         case 'multi': return Array.isArray(v) ? v.map((id) => optFold(col, id)).filter(Boolean).join(SHOW.join) : '';
         case 'person': return Array.isArray(v) ? v.join(SHOW.join) : '';
-        case 'date': return isObj(v) && typeof v.start === 'string' ? showDate(v) : '';
+        case 'date': case 'mdate': return isObj(v) && typeof v.start === 'string' ? showDate(v) : '';
         case 'check': return v === true ? SHOW.check : '';
         case 'ctime': case 'mtime': return showStamp(v);
         case 'cby': case 'mby': return has(SHOW.who, v) ? SHOW.who[v] : '';
@@ -5372,6 +5375,8 @@
         case 'cby': return isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null;
         case 'mby': return isObj(row.by) && WHO.includes(row.by.u) ? row.by.u : (isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null);   // 書き換えていなければ作成者
         case 'no': return Number.isFinite(row.no) ? row.no : null;
+        case 'mdate': return isObj(row.mdate) && typeof row.mdate.start === 'string' ? row.mdate : null;   // 0.17.0 MG-1: 議事録のページから読んだ欄
+        case 'msum': return typeof row.msum === 'string' && row.msum !== '' ? row.msum : null;
         default: return has(row.cells, col.id) && !missing(row.cells[col.id]) ? row.cells[col.id] : null;
       }
     }
@@ -5436,6 +5441,7 @@
       multi: ['anyOf', 'allOf', 'empty'],
       date: DATE_OPS, ctime: DATE_OPS, mtime: DATE_OPS,
       check: ['yes', 'no'],
+      mdate: DATE_OPS, msum: TEXT_OPS,   // 0.17.0 MG-1: 議事録から読む列（日付と同じ・テキストと同じ）
       rel: ['contains', 'empty'],
     });
     const NO_VALUE = ['empty', 'notEmpty', 'today', 'yes', 'no'];
@@ -5479,7 +5485,7 @@
       if (c.cmp === 'empty') return col.type === 'check' ? v !== true : empty;
       if (c.cmp === 'notEmpty') return !empty;
       switch (col.type) {
-        case 'title': case 'text': case 'person': case 'url': case 'email': case 'phone': {
+        case 'title': case 'text': case 'person': case 'url': case 'email': case 'phone': case 'msum': {
           const s = foldedText(col, row, v, memo); const w = searchFold(c.value);
           if (c.cmp === 'contains') return s.includes(w);
           if (c.cmp === 'notContains') return !s.includes(w);
@@ -5545,7 +5551,7 @@
           for (let i = 0; i < Math.min(x.length, y.length); i += 1) if (x[i] !== y[i]) return x[i] - y[i];
           return x.length - y.length;
         }
-        case 'date': { const x = `${a.start} ${a.time || ''}`; const y = `${b.start} ${b.time || ''}`; return x < y ? -1 : x > y ? 1 : 0; }
+        case 'date': case 'mdate': { const x = `${a.start} ${a.time || ''}`; const y = `${b.start} ${b.time || ''}`; return x < y ? -1 : x > y ? 1 : 0; }
         case 'ctime': case 'mtime': return a < b ? -1 : a > b ? 1 : 0;
         case 'cby': case 'mby': return DM.WHO.indexOf(a) - DM.WHO.indexOf(b);
         case 'rel': return a.length - b.length;
@@ -5567,7 +5573,7 @@
     function AGG_KINDS(col) {
       if (!col) return [];
       if (col.type === 'number' || col.type === 'no') return [...COMMON_AGG, 'sum', 'avg', 'median', 'min', 'max', 'range'];
-      if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') return [...COMMON_AGG, 'earliest', 'latest', 'range'];
+      if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime' || col.type === 'mdate') return [...COMMON_AGG, 'earliest', 'latest', 'range'];
       if (col.type === 'check') return ['count', 'checked', 'unchecked', 'checkedPct', 'uncheckedPct'];
       return COMMON_AGG;
     }
@@ -5590,7 +5596,7 @@
         case 'uncheckedPct': return pct(all.filter((v) => v !== true).length, all.length);
         default: break;
       }
-      if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime') {
+      if (col.type === 'date' || col.type === 'ctime' || col.type === 'mtime' || col.type === 'mdate') {
         const spans = filled.map((v) => spanOf(col, v)).filter(Boolean);
         if (!spans.length) return null;
         const first = spans.reduce((m, s) => (s.start < m ? s.start : m), spans[0].start);

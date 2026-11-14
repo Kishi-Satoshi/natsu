@@ -12,7 +12,7 @@
 // 投げる誤りは code 'bad-args'（DB の命令の断りと同じ名前）。
 
 // ================================================================ 表
-const TYPES = Object.freeze(['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no']);
+const TYPES = Object.freeze(['title', 'text', 'number', 'select', 'multi', 'status', 'date', 'person', 'check', 'url', 'email', 'phone', 'rel', 'ctime', 'mtime', 'cby', 'mby', 'no', 'mdate', 'msum']);
 const OPT_COLORS = Object.freeze(['default', 'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red']);
 const NUM_FMTS = Object.freeze(['plain', 'comma', 'percent', 'yen', 'dollar']);
 const WHO = Object.freeze(['me', 'claude', 'system']);            // 作成者・最終更新者の値（並べ替えもこの順: 決めたこと 11）
@@ -206,6 +206,9 @@ const COLS = Object.freeze({
   cby: kind('作成者', null),
   mby: kind('最終更新者', null),
   no: kind('ID', null, { keys: ['prefix'], check: (c) => c.prefix === undefined || (typeof c.prefix === 'string' && PREFIX_RE.test(c.prefix)) }),
+  // 0.17.0 MG-1（計画 docs/plans/2026-11-13-170.md の決めたこと 50・SQ1）: 「議事録」データベースの議事録から読む列（行の欄 mdate・msum から読む。auto: 足せない）
+  mdate: kind('日付', null, { auto: true }),   // 会議の日付と始めた時刻（{ start, time }。並べ替えと絞り込みは日付の列と同じ）
+  msum: kind('要約', null, { auto: true }),    // 要約の最初の要点（一覧の preview。検索の欄 fold には入れない）
 });
 const defOf = (col) => (isObj(col) && typeof col.type === 'string' && Object.hasOwn(COLS, col.type) ? COLS[col.type] : null);
 
@@ -257,7 +260,7 @@ function addOpt(col, name, color = 'default') {
 }
 // 新しい列 → { id: c<数>, name, type, …既定 }（名前が空なら種類の名前・重なれば「名前 2」「名前 3」…。題名の列は足せない）
 function newCol(type, name, cols) {
-  if (typeof type !== 'string' || !Object.hasOwn(COLS, type) || type === 'title') throw fail('col-type');
+  if (typeof type !== 'string' || !Object.hasOwn(COLS, type) || type === 'title' || COLS[type].auto) throw fail('col-type');
   if (!missing(name) && typeof name !== 'string') throw fail('col-name');
   const list = Array.isArray(cols) ? cols.filter(isObj) : [];
   const base = (name || '').trim() || COLS[type].label;
@@ -449,12 +452,12 @@ function fmtCell(col, v, opts) {
   if (col.type === 'title') return typeof v === 'string' && v !== '' ? v : SHOW.untitled;
   if (isBlank(v)) return '';
   switch (col.type) {
-    case 'text': case 'url': case 'email': case 'phone': return typeof v === 'string' ? v : '';
+    case 'text': case 'url': case 'email': case 'phone': case 'msum': return typeof v === 'string' ? v : '';
     case 'number': return Number.isFinite(v) ? (SHOW_NUMBER[col.fmt] || SHOW_NUMBER.plain)(v) : '';
     case 'select': case 'status': return optFold(col, v);
     case 'multi': return Array.isArray(v) ? v.map((id) => optFold(col, id)).filter(Boolean).join(SHOW.join) : '';
     case 'person': return Array.isArray(v) ? v.join(SHOW.join) : '';
-    case 'date': return isObj(v) && typeof v.start === 'string' ? showDate(v) : '';
+    case 'date': case 'mdate': return isObj(v) && typeof v.start === 'string' ? showDate(v) : '';
     case 'check': return v === true ? SHOW.check : '';
     case 'ctime': case 'mtime': return showStamp(v);
     case 'cby': case 'mby': return has(SHOW.who, v) ? SHOW.who[v] : '';
@@ -486,6 +489,8 @@ function cellValue(row, col) {
     case 'cby': return isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null;
     case 'mby': return isObj(row.by) && WHO.includes(row.by.u) ? row.by.u : (isObj(row.by) && WHO.includes(row.by.c) ? row.by.c : null);   // 書き換えていなければ作成者
     case 'no': return Number.isFinite(row.no) ? row.no : null;
+    case 'mdate': return isObj(row.mdate) && typeof row.mdate.start === 'string' ? row.mdate : null;   // 0.17.0 MG-1: 議事録のページから読んだ欄
+    case 'msum': return typeof row.msum === 'string' && row.msum !== '' ? row.msum : null;
     default: return has(row.cells, col.id) && !missing(row.cells[col.id]) ? row.cells[col.id] : null;
   }
 }
