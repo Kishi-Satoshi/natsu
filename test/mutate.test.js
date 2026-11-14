@@ -1680,7 +1680,7 @@ const IDS_170 = [
   // 0.17.0 MG-1 で作った行（表の行の順に）
   'mg-rows-pages', 'mg-rows-trash', 'mg-col-readonly', 'mg-sum-preview', 'mg-creator-me', 'mg-put-keep-cells', 'mg-rel-find',
   // 0.17.0 MG-2 で作った行（表の行の順に。mg-mcp-same は MG-3 の行を前倒しした: R40）
-  'mg-gather-one-tx', 'mg-gather-snapshot', 'mg-gather-once', 'mg-gather-keep-body', 'mg-gather-skip-bad', 'mg-keep-nested', 'mg-page-not-row', 'mg-sweep',
+  'mg-gather-one-tx', 'mg-gather-snapshot', 'mg-gather-once', 'mg-gather-keep-body', 'mg-gather-skip-bad', 'mg-keep-nested', 'mg-page-not-row', 'mg-sweep', 'mg-sweep-close', 'mg-sweep-wait',
   'mg-finalize-place', 'mg-live-out', 'mg-role-one', 'mg-mcp-same',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
@@ -1697,7 +1697,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
-  assert.strictEqual(rows.length, 142, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 25・sw- 12・mg- 25・tk- 11・rt- 8・lc- 5。点検 1 の rv58 の直しで iv- 1・pd- 8 を足した）が読めない');
+  assert.strictEqual(rows.length, 144, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 25・sw- 12・mg- 27・tk- 11・rt- 8・lc- 5。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2 を足した）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');

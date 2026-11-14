@@ -155,7 +155,9 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     // 0.14.0 EB-2（決めたこと 6・R59・R75）: 何か変えた命令（と、その送り直し）の答えだけに changed（画面の元に戻すの1歩）
     reply(port, id, r.changed || r.dupChanged ? { ok: true, result: r.result, changed: true } : { ok: true, result: r.result });
     if (r.changed) broadcast({ event: 'changed', pageIds: r.changed.pageIds, actor: r.changed.actor });
+    if (role === 'main' && SWEEP_AFTER.includes(data.cmd) && r.changed) sweepMinutes();   // 0.17.0 MG-2（決めたこと 48）: 締め・復旧の後の見回り
   }
+  const SWEEP_AFTER = Object.freeze(['meeting.finalize', 'meeting.recover']);
 
   const idOf = (data) => (isObj(data) && typeof data.id === 'number' && Number.isFinite(data.id) ? data.id : null);
 
@@ -241,6 +243,21 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     } catch (e) {
       log(`DB: 議事録をまとめられない（${codeOf(e)}）`);
       return { failed: true };
+    }
+  }
+
+  // 0.17.0 MG-2（決めたこと 48）: 締め・復旧の後の見回り。最初の移し替えが済んでいて（meta の minutes.gathered がある）、最上位に締めた議事録が残って
+  // いれば（0.16.0 に戻して録音した会議など）、締めとは別の命令（minutes.gather。1つのトランザクション・actor system）で「議事録」に入れて全部の口に知らせる。
+  // 最初の移し替えの前（控えが取れずに待っている間）は動かさない（確かめ済みの控えの前に今までの議事録を動かさない: 決めたこと 47）
+  function sweepMinutes() {
+    try {
+      if (getMeta('minutes.gathered') === undefined || !C.minutesState(db).pending) return;
+      const g = core.call(db, { role: 'main', cmd: 'minutes.gather', args: {}, tx: `m:minutes-${crypto.randomUUID()}` }, { now, labels, log });
+      if (!g.ok) { log(`DB: 議事録を見回れない（${g.code}）`); return; }
+      log(`DB: 議事録 移した ${g.result.moved}・残した ${g.result.skipped}${g.result.created ? '・データベースを作った' : ''}`);
+      if (g.changed) broadcast({ event: 'changed', pageIds: g.changed.pageIds, actor: g.changed.actor });
+    } catch (e) {
+      log(`DB: 議事録を見回れない（${codeOf(e)}）`);
     }
   }
 

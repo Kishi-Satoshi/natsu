@@ -452,3 +452,40 @@ test('MG-2・F194: 0.16.0 に戻して録音した最上位の議事録と、JSO
     for (const id of ['pq7', 'pdj01', ...d.ids]) assert.strictEqual(peek.db.prepare('select parent_id from blocks where id = ?').get(id).parent_id, M, id);
   } finally { peek.db.close(); d.done(); }
 });
+
+test('MG-2・F194（決めたこと 48）: 締め・復旧の後の見回り。最初の移し替えの後は、締めの命令の後に最上位に残った議事録を別の命令（actor system）で「議事録」に入れる。最初の移し替えの前（控えが取れずに待っている間）は動かさない', { timeout: 60000 }, async () => {
+  const d = tmpData({ pages: 0 });
+  d.close();
+  addOld(d, 'pq0', 0);
+  let s = boot(d, { runCheck: async () => 'unavailable' });   // 最初の移し替えを待っている間
+  try {
+    await s.ready();
+    addOld(d, 'pq1', 1);
+    const main = s.port('main');
+    const page = { title: titleAt('2026-11-14T06:00:00.000Z'), date: '2026-11-14', createdAt: '2026-11-14T06:00:00.000Z', blocks: [] };
+    assert.strictEqual((await main.ask({ id: 2, cmd: 'meeting.finalize', args: { pageId: 'pf1', page, segments: [] }, tx: 'm:mg2-fin-0001' })).ok, true);
+    await new Promise((res) => setTimeout(res, 50));
+  } finally { await s.stop(); }
+  let peek = core.open({ sqlite, file: d.file });
+  try {
+    const M = minutesDbs(peek.db)[0];
+    assert.deepStrictEqual(['pq0', 'pq1', 'pf1'].map((id) => peek.db.prepare('select parent_id from blocks where id = ?').get(id).parent_id), [null, null, M], '控えの前に今までの議事録を動かした');
+  } finally { peek.db.close(); }
+  s = boot(d, { runCheck: async () => 'ok' });   // 最初の移し替え（pq0・pq1）
+  try {
+    await s.ready();
+    addOld(d, 'pq2', 2);   // 0.16.0 で録音した最上位の議事録（起動の後に足された）
+    const main = s.port('main');
+    const seen = []; main.onEvent((e) => seen.push(e));
+    const page = { title: titleAt('2026-11-14T07:00:00.000Z'), date: '2026-11-14', createdAt: '2026-11-14T07:00:00.000Z', blocks: [] };
+    assert.strictEqual((await main.ask({ id: 3, cmd: 'meeting.finalize', args: { pageId: 'pf2', page, segments: [] }, tx: 'm:mg2-fin-0002' })).ok, true);
+    await waitFor(() => seen.some((e) => e.pageIds && e.pageIds.includes('pq2')), '見回りの知らせ');
+  } finally { await s.stop(); }
+  peek = core.open({ sqlite, file: d.file });
+  try {
+    const M = minutesDbs(peek.db)[0];
+    assert.deepStrictEqual(['pq0', 'pq1', 'pq2', 'pf1', 'pf2'].map((id) => peek.db.prepare('select parent_id from blocks where id = ?').get(id).parent_id), [M, M, M, M, M]);
+    const log = peek.db.prepare("select actor, action from oplog where instr(ops, 'pq2') > 0 and action = 'minutes.gather'").all().map((r) => [r.actor, r.action]);
+    assert.deepStrictEqual(log, [['system', 'minutes.gather']], '締めと別の命令（actor system）で入れていない');
+  } finally { peek.db.close(); d.done(); }
+});
