@@ -259,6 +259,8 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 // 持ち主が見比べ（違いのある 105 枚・新しい 11 枚）に「この見た目でよい（おすすめ）」（2026-11-10）と言ったので、CI run 42752361720（ba0be5a）・artifact 13733319867 の
 // .after.png（116 枚）をバイトのまま基準にし、取り直し待ちを空に戻した
 // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.16.0 で足した画面（NEW_160）は 0.15.1 の画面に数えない
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
+const RETAKE_170 = SH.SCREENS.filter((s) => s.page === 'app').map((s) => s.name);
 const ADDED_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name)).map((s) => s.name);
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
 // 一時フォルダ（日本語と 𠮷 の名前。RF1 と同じ形）。テストの終わりに消す
@@ -826,7 +828,10 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   // 0.16.0 DV-1 で意図して変えた: 取り直し待ちは 0.16.0 の表の画面（ファイルの頭の NEW_160・RETAKEN_160）とちょうど同じで、どれも計画の「取り直す画面（RETAKE）」の表にある。
   // 足した画面（NEW_160）はまだ基準が無い
   // 0.16.0 で意図して変えた（版を 0.16.0 に上げる commit。Task G の後半: R130）: 取り直し待ちを空に戻した（ファイルの頭の注）。0.16.0 の画面（ADDED_160）は 24 枚で、どれも計画の表にあり、基準がある
-  assert.deepStrictEqual([...SH.RETAKE], []);
+  // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）で意図して変えた: 取り直し待ちは RETAKE_170（既定のアイコンが変わるアプリの画面の
+  // 全部。録音バーと会議の知らせのパネルは入れない）。基準にするのは Task G の前の1回
+  assert.deepStrictEqual([...SH.RETAKE], RETAKE_170);
+  assert.ok([...SH.RETAKE].every((n) => SH.SCREENS.find((x) => x.name === n).page === 'app'), '録音バーかパネルの画面が取り直し待ちにある');
   assert.strictEqual(ADDED_160.length, 24);
   const plan160 = read('docs/plans/2026-11-04-160.md');
   const table160 = plan160.slice(plan160.indexOf('## 取り直す画面（RETAKE）'), plan160.indexOf('\n## ', plan160.indexOf('## 取り直す画面（RETAKE）') + 5));
@@ -1295,7 +1300,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は ccdf035e…）
   // 0.17.0 IG-2: ページのアイコンの純粋な部品の写し（pageIconView。src/pageIcons.js の写し）を <script> の中だけに足した（まだ使わないので見た目は変わらない）。
   // 値を今の app.html に合わせた（前の値は 2544b6df…）
-  assert.strictEqual(sha, '79b18c84483760b751b97ad049b3dcf2f11645e35a93a0a999e7b1cda7df7fd7',
+  // 0.17.0 IV-1: ページのアイコンを描く部品（iconEl。SVG の線の絵・currentColor）と、アイコンが出る所の全部（タブの .ti・パンくず・サイドバー・ライブラリ・
+  // 検索・ゴミ箱・移動先・新しいページ・子ページの行・インラインの表の頭・リストの行・リレーションのセル）。変わる画面はアプリの画面の全部（RETAKE_170）。
+  // 値を今の app.html に合わせた（前の値は 79b18c84…）
+  assert.strictEqual(sha, '8fcd6cd1c8b9aa0eaa43edab170edac824525c7f31460dc5b02c2022ddb747bb',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1571,7 +1579,8 @@ test('ND-5・0.15.1 Task G: 撮る画面の一覧に音声入力の画面が無�
   for (const n of rows.flatMap(namesIn).filter((x) => !gone.includes(x))) assert.ok(ADDED_151.includes(n), `表の ${n} が 0.15.1 の画面に無い`);
   // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.16.0 で足した画面（NEW_160）は数えない。取り直し待ちは 0.16.0 の画面だけ（NEW_160・RETAKEN_160）
   assert.deepStrictEqual(ADDED_151, SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name)).map((s) => s.name), '0.15.1 の画面がサイドバーの出る app の画面の全部でない');
-  assert.deepStrictEqual([...SH.RETAKE].filter((n) => !NEW_160.includes(n) && !RETAKEN_160.includes(n)), [], '0.15.1 の取り直し待ちが残っている');
+  // 0.17.0 IV-1 で意図して変えた: 0.17.0 の取り直し待ち（RETAKE_170: アプリの画面の全部）は数えない
+  assert.deepStrictEqual([...SH.RETAKE].filter((n) => !NEW_160.includes(n) && !RETAKEN_160.includes(n) && !RETAKE_170.includes(n)), [], '0.15.1 の取り直し待ちが残っている');
   for (const n of ADDED_151) assert.ok(names.includes(n) && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n}: 撮る画面に無いか、基準が無い`);
   for (const n of GONE_SHOTS_151) assert.ok(!fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `消した ${n} の基準が残っている`);
 });
@@ -1689,8 +1698,9 @@ test('R128・近道の表のデータベースの行の画面: settings-shortcut
   assert.ok(require('../src/shortcuts').SHORTCUTS.some((r) => r.where === where), '前提: 近道の表にデータベースの見出しが無い');
   assert.ok(s.act.includes("document.getElementById('tabBtnSettings').click()") && s.act.includes(`th.textContent === '${where}'`) && s.act.includes("scrollIntoView({ block: 'start' })"), '設定を開いてデータベースの見出しまで捲らない');
   // 0.16.0 で意図して変えた（版を 0.16.0 に上げる commit。Task G の後半: R130）: 取り直し待ちを空に戻した。足した画面（ADDED_160 の 24 枚の1つ）で、基準がある
-  assert.ok(!SH.RETAKE.has('settings-shortcuts-db-light') && NEW_160.includes('settings-shortcuts-db-light') && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-shortcuts-db-light.png')));
-  assert.strictEqual(SH.RETAKE.size, 0);
+  // 0.17.0 IV-1 で意図して変えた: アプリの画面の全部が 0.17.0 の取り直し待ち（RETAKE_170）
+  assert.ok(RETAKE_170.includes('settings-shortcuts-db-light') && NEW_160.includes('settings-shortcuts-db-light') && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-shortcuts-db-light.png')));
+  assert.strictEqual(SH.RETAKE.size, RETAKE_170.length);
   assert.strictEqual(ADDED_160.length, 24);
   // db-subitems-light: 見本の答えは r1 と r3 の子を並べる（開いた形）ので、r3 の ▸ も押して ▾ にする（取り直しの画面で、閉じた ▸ の下に子が写っていた）
   const sub = SH.SCREENS.find((x) => x.name === 'db-subitems-light');

@@ -5,6 +5,11 @@
  * 列・選択肢・行の名前は作った物で、実在の人名・社名は使わない。時計は偽物（決まった時刻）。
  */
 'use strict';
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して変えた: ページのアイコンは字でなく描いた絵（.pgi の data-icon。
+// 既定は ic:<名前>）。頭にアイコンのある行は「値 字」で見る（意図「議事録・白紙・データベースで違う印」と「行の頭のアイコンと題名」は同じ）
+const ico = (el) => { if (!el) return null; const g = el.classList && el.classList.contains('pgi') ? el : el.querySelector('.pgi'); return g ? g.getAttribute('data-icon') : null; };
+const lead = (el) => `${ico(el)} ${el.textContent}`;
+const MIC = 'ic:mic'; const DOC = 'ic:certification_with_seal'; const TBL = 'ic:table_chart';
 // DS-1 直し（2026-11-07 の点検 rv38 の F6）: 「今日」と作成日時の日はその PC の時刻で見る。UTC の CI でも取り違えが見えるよう、このテストの中だけ
 // 東京の時刻にし、偽の今を朝 8 時（UTC ではまだ前の日）に置く
 process.env.TZ = 'Asia/Tokyo';
@@ -655,12 +660,15 @@ test('DX-1（前提 P6・決めたこと 42・45）: 🗃️ は辞書の「物�
   const W = require('../src/winstate');
   assert.strictEqual(D.isPageIcon('🗃️'), true, '🗃️ が辞書に無い');
   assert.strictEqual(D.EMOJI.find((x) => x.e === '🗃️').c, 'thing');
-  assert.strictEqual(D.DEFAULT_ICON.database, '🗃️');
-  assert.strictEqual(D.pageIconOf({ kind: 'database' }), '🗃️', 'データベースの既定が 🗃️ でない');
-  assert.strictEqual(D.pageIconOf({ kind: 'database', icon: '🚀' }), '🚀');
-  for (const icon of ['', 'x', '📄📄']) assert.strictEqual(D.pageIconOf({ kind: 'database', icon }), '🗃️', String(icon));
-  assert.strictEqual(D.pageIconOf({ kind: 'blank' }), '📄');
-  assert.strictEqual(D.pageIconOf({}), '🎙️');
+  // 0.17.0 IV-1（R7）で意図して変えた: 既定のアイコンと pageIconOf は src/pageIcons.js へ移し、データベースの既定は表のアイコン（ic:table_chart）。🗃️ は今も選べる
+  const PI = require('../src/pageIcons');
+  assert.strictEqual(PI.DEFAULT_ICON.database, TBL);
+  assert.strictEqual(PI.pageIconOf({ kind: 'database' }), TBL, 'データベースの既定が表のアイコンでない');
+  assert.strictEqual(PI.pageIconOf({ kind: 'database', icon: '🚀' }), '🚀');
+  assert.strictEqual(PI.pageIconOf({ kind: 'database', icon: '🗃️' }), '🗃️');
+  for (const icon of ['', 'x', '📄📄']) assert.strictEqual(PI.pageIconOf({ kind: 'database', icon }), TBL, String(icon));
+  assert.strictEqual(PI.pageIconOf({ kind: 'blank' }), DOC);
+  assert.strictEqual(PI.pageIconOf({}), MIC);
   // タブの鍵（決めたこと 45）: 行の ID（r＋36 進）も覚える。形の悪い鍵は今どおり落とす
   assert.strictEqual(W.tabKeyOk('page:rmz3k1abcd'), true, '行のタブの鍵を落とす');
   for (const k of ['page:r', 'page:R1', 'page:x1', 'page:r../x', 'page:rA1', 'page:b1', `page:r${'a'.repeat(41)}`]) assert.strictEqual(W.tabKeyOk(k), false, k);

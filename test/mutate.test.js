@@ -1663,6 +1663,9 @@ const IDS_170 = [
   // 0.17.0 IG-2 で作った行（表の行の順に）
   'ig-id-shape', 'ig-id-known', 'ig-id-own', 'ig-ui-hidden', 'ig-emoji-keep', 'ig-default-meeting', 'ig-default-blank', 'ig-default-db', 'ig-default-row', 'ig-bad-keep',
   'ig-find-yomi', 'ig-find-en', 'ig-find-kind', 'ig-recent-icon', 'ig-setIcon-icon', 'ig-mcp-none',
+  // 0.17.0 IV-1 で作った行（表の行の順に）
+  'iv-svg-ns', 'iv-fill-current', 'iv-aria-hidden', 'iv-size', 'iv-clone', 'iv-tab-el', 'iv-live-crumb', 'iv-inline-head', 'iv-list-row', 'iv-rel-chip',
+  'iv-newpop', 'iv-crumb-more', 'iv-trash', 'iv-kids', 'iv-subrow',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
 function planRows170() {

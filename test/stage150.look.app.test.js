@@ -19,6 +19,11 @@ const HTML = fs.readFileSync(APP, 'utf8');
 const T = { timeout: 15000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 const $ = (l, id) => l.document.getElementById(id);
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して変えた: ページのアイコンは字でなく描いた絵（.pgi の data-icon。
+// 既定は ic:<名前>）。頭にアイコンのある行は「値 字」で見る（意図「議事録・白紙・データベースで違う印」と「行の頭のアイコンと題名」は同じ）
+const ico = (el) => { if (!el) return null; const g = el.classList && el.classList.contains('pgi') ? el : el.querySelector('.pgi'); return g ? g.getAttribute('data-icon') : null; };
+const lead = (el) => `${ico(el)} ${el.textContent}`;
+const MIC = 'ic:mic'; const DOC = 'ic:certification_with_seal'; const TBL = 'ic:table_chart';
 
 // 見本: 最上位の議事録 pa2（アイコン 📊）・その中の白紙のページ k1（アイコン 🚀・本文に子 g1 の行）・白紙のページ g1（アイコン無し）・議事録 pa1
 const AT = (d) => `2026-10-${d}.000Z`;
@@ -69,7 +74,9 @@ test('PL-3: 画面の写し（app.html の emojiView・lookView）は src/emojiD
     if (ret === 'emojiView') {
       assert.deepStrictEqual(v.EMOJI.map((x) => [x.e, x.n, x.y, x.c]), D.EMOJI.map((x) => [x.e, x.n, x.y, x.c]));
       for (const q of ['しょるい', 'ショルイ', 'tしゃつ', 'ね', '']) assert.deepStrictEqual(v.findEmoji(q), D.findEmoji(q), q);
-      for (const e of [{ icon: '🚀' }, { kind: 'blank' }, {}, { icon: 'x', kind: 'blank' }]) assert.strictEqual(v.pageIconOf(e), D.pageIconOf(e));
+      // 0.17.0 IV-1（R7）で意図して変えた: 既定のアイコンと pageIconOf は pageIcons へ移した（写しの照らしは test/stage170.icons.lib.test.js の pageIconView）
+      assert.strictEqual(v.pageIconOf, undefined);
+      for (const e of ['🚀', 'x', 'ic:mic', '']) assert.strictEqual(v.isPageIcon(e), D.isPageIcon(e));
     } else {
       for (const x of [{ wide: true, font: 'serif' }, { small: true }, {}, { font: 'x' }]) assert.deepStrictEqual(v.lookClasses(x), LK.lookClasses(x));
     }
@@ -83,7 +90,7 @@ test('PL-3: #pIcon は button（aria-label）・押すと #iconPop・よみで�
   const btn = $(l, 'pIcon');
   assert.strictEqual(String(btn.tagName).toLowerCase(), 'button');
   assert.strictEqual(btn.getAttribute('aria-label'), 'アイコンを変える');
-  assert.strictEqual(btn.textContent, '📄', '白紙のページの既定のアイコンでない');
+  assert.strictEqual(ico(btn), DOC, '白紙のページの既定のアイコンでない');
   assert.strictEqual(btn.getAttribute('aria-disabled'), null);
   btn.focus();
   btn.dispatchEvent({ type: 'click' }); await l.drain();
@@ -138,7 +145,7 @@ test('PL-3: #pIcon は button（aria-label）・押すと #iconPop・よみで�
   btn.dispatchEvent({ type: 'click' }); await l.drain();
   $(l, 'iconClear').dispatchEvent({ type: 'click' }); await l.drain(); await l.drain();
   assert.deepStrictEqual(l.called('pageSetIcon').pop().args, ['g1', '']);
-  assert.strictEqual(btn.textContent, '📄', '［外す］で既定のアイコンに戻らない');
+  assert.strictEqual(ico(btn), DOC, '［外す］で既定のアイコンに戻らない');
   // Esc で閉じてフォーカスを #pIcon へ（付けない）
   const n0 = l.called('pageSetIcon').length;
   btn.dispatchEvent({ type: 'click' }); await l.drain();
@@ -214,28 +221,30 @@ test('PL-3: アイコンがサイドバーの行・ページのタブ・パン�
   for (const id of ['k1', 'pa3']) { rowOf(l, id).dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain(); }
   $(l, 'tabbar').querySelectorAll('.tabitem').find((t) => t.dataset.key === 'page:k1').dispatchEvent({ type: 'click' }); await l.drain();
   // サイドバーの行（子のある行は ▸ の下の .pe・無い行は .pi）
-  const rowIcon = (id) => { const r = rowOf(l, id); const pe = r.querySelector('.pe'); return (pe || r.querySelector('.pi')).textContent; };
-  assert.deepStrictEqual(['pa2', 'k1', 'g1', 'pa1', 'pa3', 'pa4'].map(rowIcon), ['📊', '🚀', '📄', '🎙️', '🎙️', '🌸'], 'サイドバーの行のアイコン');
+  const rowIcon = (id) => { const r = rowOf(l, id); const pe = r.querySelector('.pe'); return ico(pe || r.querySelector('.pi')); };
+  assert.deepStrictEqual(['pa2', 'k1', 'g1', 'pa1', 'pa3', 'pa4'].map(rowIcon), ['📊', '🚀', DOC, MIC, MIC, '🌸'], 'サイドバーの行のアイコン');
   // ページのタブ（data-icon を CSS の ::before が描く。録音中と音声入力のタブには付けない）
-  const tabIcon = (id) => $(l, 'tabbar').querySelectorAll('.tabitem').find((t) => t.dataset.key === `page:${id}`).querySelector('.tt').getAttribute('data-icon');
-  assert.deepStrictEqual(['pa2', 'k1', 'pa3'].map(tabIcon), ['📊', '🚀', '🎙️'], 'ページのタブのアイコン');
+  // 0.17.0 IV-1（決めたこと 20）で意図して変えた: タブの頭のアイコンは .tt の前の .ti の要素（CSS の attr でなく）
+  const tabIcon = (id) => ico($(l, 'tabbar').querySelectorAll('.tabitem').find((t) => t.dataset.key === `page:${id}`).querySelector('.ti'));
+  assert.deepStrictEqual(['pa2', 'k1', 'pa3'].map(tabIcon), ['📊', '🚀', MIC], 'ページのタブのアイコン');
   const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
-  assert.strictEqual(S.declsFor(rules, '.tabitem[data-key^="page:"] .tt::before', { at: '' }).content, "attr(data-icon) '\\00a0'");
+  assert.strictEqual(S.declsFor(rules, '.tabitem[data-key^="page:"] .tt::before', { at: '' }).content, undefined);
+  assert.strictEqual(S.declsFor(rules, '.tabitem .ti', { at: '' }).flex, 'none');
   // パンくず（祖先の段と今のページ）・ページの頭
   assert.deepStrictEqual($(l, 'crumb').querySelectorAll('.csi').map((e) => e.textContent), ['📊'], 'パンくずの祖先の段のアイコン');
   assert.strictEqual($(l, 'crumb').querySelector('.ci').textContent, '🚀', 'パンくずの今のページのアイコン');
   assert.strictEqual($(l, 'pIcon').textContent, '🚀', 'ページの頭のアイコン');
   // 白紙のページの本文の子ページの行（g1 はアイコン無し → 📄）
   const sub = $(l, 'pNote').querySelectorAll('.blk').find((e) => e._b && e._b.type === 'subpage');
-  assert.ok(sub && sub._txt.textContent.startsWith('📄 '), '子ページの行のアイコン');
+  assert.ok(sub && ico(sub._txt) === DOC, '子ページの行のアイコン');
   // 議事録の子ページの一覧（pa2 の子 k1）
   await open(l, 'pa2');
   $(l, 'paneBtnNote').dispatchEvent({ type: 'click' }); await l.drain();
-  assert.deepStrictEqual($(l, 'pKids').querySelectorAll('.kidrow').map((e) => e.textContent.split(' ')[0]), ['🚀'], '議事録の子ページの一覧のアイコン');
+  assert.deepStrictEqual($(l, 'pKids').querySelectorAll('.kidrow').map(ico), ['🚀'], '議事録の子ページの一覧のアイコン');
   // 検索の結果の頭
   $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
-  const pal = new Map($(l, 'palList').querySelectorAll('.pitem').map((e) => [e.dataset.pid, e.querySelector('.pi').textContent]));
-  assert.deepStrictEqual(['pa2', 'k1', 'g1', 'pa1', 'pa3', 'pa4'].map((id) => pal.get(id)), ['📊', '🚀', '📄', '🎙️', '🎙️', '🌸'], '検索の結果の頭のアイコン');
+  const pal = new Map($(l, 'palList').querySelectorAll('.pitem').map((e) => [e.dataset.pid, ico(e.querySelector('.pi'))]));
+  assert.deepStrictEqual(['pa2', 'k1', 'g1', 'pa1', 'pa3', 'pa4'].map((id) => pal.get(id)), ['📊', '🚀', DOC, MIC, MIC, '🌸'], '検索の結果の頭のアイコン');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 

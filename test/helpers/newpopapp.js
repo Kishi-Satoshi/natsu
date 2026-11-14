@@ -61,6 +61,7 @@ app.whenReady().then(async () => {
     out.created = created;
     out.shown = await js("!document.getElementById('newPop').hidden");
     out.items = JSON.parse(await js("JSON.stringify([...document.querySelectorAll('#newList .mitem')].map((b) => b.textContent))"));
+    out.icons = JSON.parse(await js("JSON.stringify([...document.querySelectorAll('#newList .mitem')].map((b) => (b.querySelector('.pgi') || { getAttribute: () => null }).getAttribute('data-icon')))"));   // 0.17.0 IV-1
     out.focusIn = await js("document.getElementById('newList').contains(document.activeElement)");
   } catch (e) { out.error = step + ': ' + String(e && e.message || e); }
   finish(0);

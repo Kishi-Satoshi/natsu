@@ -29,8 +29,10 @@ test('PL-1・BQ9 (a): 辞書の形（約 500・どれも書記素 1 つの RGI �
     assert.ok(/^[ぁ-ゖー]+$/.test(x.y), `よみがひらがなだけでない（外来語の長音の「ー」のほか）: ${x.e} ${x.y}`);
   }
   for (const c of D.CATS) assert.ok(D.EMOJI.filter((x) => x.c === c.key).length >= 40, `分類 ${c.label} の絵文字が少ない`);
-  assert.deepStrictEqual(D.DEFAULT_ICON, { meeting: '🎙️', blank: '📄', database: '🗃️' });   // 0.16.0 DX-1（前提 P6）で意図して変えた: データベースの既定 🗃️ を足した
-  for (const e of Object.values(D.DEFAULT_ICON)) assert.ok(seen.has(e), `既定のアイコン ${e} が辞書に無い`);
+  // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・R7）で意図して変えた: 既定のアイコンは src/pageIcons.js（ic:<名前>）へ移した。
+  // 前の既定の 🎙️・📄・🗃️ は今も辞書にあり、選べる（前に選んだページはその絵文字のまま: 決めたこと 5）
+  assert.strictEqual(D.DEFAULT_ICON, undefined);
+  for (const e of ['🎙️', '📄', '🗃️']) assert.ok(seen.has(e), `前の既定のアイコン ${e} が辞書に無い`);
   assert.ok(Object.isFrozen(D.EMOJI) && Object.isFrozen(D.EMOJI[0]) && Object.isFrozen(D.CATS), '辞書を書き換えられる');
 });
 
@@ -58,16 +60,21 @@ test('PL-1: findEmoji の表（名前・よみ。カタカナはひらがなに�
   for (const e of D.findEmoji('い')) assert.ok(D.isPageIcon(e), e);
 });
 
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・R7）で意図して変えた: pageIconOf は src/pageIcons.js へ移し、既定は ic:<名前>
+//（議事録はマイク・白紙のページは書類）。意図「icon が辞書の絵文字ならそれ・辞書に無い値と空は既定」は残す
 test('PL-1: pageIconOf（icon が辞書の絵文字ならそれ・無ければ議事録 🎙️・白紙のページ 📄・辞書に無い値と空は既定）', () => {
-  assert.strictEqual(D.pageIconOf({ icon: '🚀', kind: 'blank' }), '🚀');
-  assert.strictEqual(D.pageIconOf({ icon: '🚀' }), '🚀');
-  assert.strictEqual(D.pageIconOf({}), '🎙️');
-  assert.strictEqual(D.pageIconOf({ kind: 'blank' }), '📄');
-  assert.strictEqual(D.pageIconOf({ kind: 'blank', icon: '' }), '📄', '外した（空の）アイコンが既定に戻らない');
-  assert.strictEqual(D.pageIconOf({ icon: '' }), '🎙️');
-  for (const icon of ['‮長い文', '📄📄', 'x', 7]) assert.strictEqual(D.pageIconOf({ kind: 'blank', icon }), '📄', String(icon));
-  assert.strictEqual(D.pageIconOf(null), '🎙️');
-  assert.strictEqual(D.pageIconOf(undefined), '🎙️');
+  const P = require('../src/pageIcons');
+  const MIC = 'ic:mic'; const DOC = 'ic:certification_with_seal';
+  assert.strictEqual(D.pageIconOf, undefined);
+  assert.strictEqual(P.pageIconOf({ icon: '🚀', kind: 'blank' }), '🚀');
+  assert.strictEqual(P.pageIconOf({ icon: '🚀' }), '🚀');
+  assert.strictEqual(P.pageIconOf({}), MIC);
+  assert.strictEqual(P.pageIconOf({ kind: 'blank' }), DOC);
+  assert.strictEqual(P.pageIconOf({ kind: 'blank', icon: '' }), DOC, '外した（空の）アイコンが既定に戻らない');
+  assert.strictEqual(P.pageIconOf({ icon: '' }), MIC);
+  for (const icon of ['‮長い文', '📄📄', 'x', 7]) assert.strictEqual(P.pageIconOf({ kind: 'blank', icon }), DOC, String(icon));
+  assert.strictEqual(P.pageIconOf(null), MIC);
+  assert.strictEqual(P.pageIconOf(undefined), MIC);
 });
 
 // ---------------------------------------------------------------- 見た目

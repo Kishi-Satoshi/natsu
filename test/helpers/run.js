@@ -103,6 +103,7 @@ async function load(htmlPath, opt = {}) {
       return el;
     },
     createElement(tag) { const e = new Element(String(tag).toLowerCase()); if (tag === 'option') { e.value = ''; } return e; },
+    createElementNS(ns, tag) { const e = new Element(String(tag)); e.namespaceURI = String(ns); return e; },   // 0.17.0 IV-1（F185）: SVG のアイコン
     createTextNode: (s) => textNode(s),
     createDocumentFragment: () => new Element('#fragment'),
     querySelector: (s) => root.querySelector(s),

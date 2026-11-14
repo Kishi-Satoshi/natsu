@@ -112,7 +112,7 @@ const OPEN_NEW = `(async () => {
 const OPEN_SIDE_DB = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
   const row = document.querySelector('#plist .pitem[data-pid="pd1"]');
-  if (!row || row.querySelector('.pi').textContent !== '🗃️' || row.querySelector('.padd')) throw new Error('サイドバーのデータベースの行の形が違う');
+  if (!row || row.querySelector('.pi').getAttribute('data-icon') !== 'ic:table_chart' || row.querySelector('.padd')) throw new Error('サイドバーのデータベースの行の形が違う');   // 0.17.0 IV-1: 表のアイコン
   if (document.querySelector('#plist .pitem[data-pid="rx1"]')) throw new Error('データベースの行がサイドバーに出る');
   row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
   await new Promise((r) => setTimeout(r, 100));
@@ -223,8 +223,8 @@ const OPEN_DB_ROW = OPEN_DB_AT(`const errs = [];
 const OPEN_DB_REL = OPEN_DB_AT(`const errs = [];
   window.addEventListener('error', (e) => errs.push(String(e.message)));
   window.addEventListener('unhandledrejection', (e) => errs.push(String((e.reason && e.reason.message) || e.reason)));
-  const chips = [...cell(1, 'c7').querySelectorAll('.dbrel')].map((x) => x.textContent);
-  if (chips.join('/') !== '📄 南の印刷所/📄 東の運送') throw new Error('リレーションのセルの並びが違う: ' + chips.join('/'));
+  const chips = [...cell(1, 'c7').querySelectorAll('.dbrel')].map((x) => \`\${(x.querySelector('.pgi') || { getAttribute: () => '' }).getAttribute('data-icon')} \${x.textContent}\`);   // 0.17.0 IV-1: 頭は書類のアイコンの絵
+  if (chips.join('/') !== 'ic:certification_with_seal 南の印刷所/ic:certification_with_seal 東の運送') throw new Error('リレーションのセルの並びが違う: ' + chips.join('/'));
   if (cell(1, 'c7').scrollHeight > cell(1, 'c7').clientHeight + 2) throw new Error('リレーションのセルが折り返している');
   const r = cell(1, 'c7').getBoundingClientRect();
   cell(1, 'c7').dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.right - 4, clientY: r.top + 4 }));
@@ -819,7 +819,11 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // リスト・絞り込みの窓・グループ・ビューのタブ・行のページ・リレーション・サブアイテム・サイドバーのデータベース・ゴミ箱の行・本文の表・リンクドビュー・近道の表のデータベースの行。
 // 違いのある画面 6 枚: 設定の近道の表と［一般］の3枚・Ctrl+Shift+N の新しいページ・行の［···］のメニュー）に「OK」（2026-11-13）と答えたので、
 // CI run 43448034019（54ba556）の artifact 14048528391 の .after.png（24 枚）をバイトのまま基準にし、空に戻した（基準は 221 枚）
-const RETAKE = new Set([]);
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが絵文字から線のアイコン（ic:mic・ic:certification_with_seal・
+// ic:table_chart）になり、サイドバー・タブ・パンくず・ページの頭のどれかが写るアプリの画面は全部変わる見込み（設定の窓の画面も後ろにサイドバーが写る）。
+// 録音バーと会議の知らせのパネルの画面は変わらない（overlay.html は触らない）。基準にするのは Task G の前の1回（IQ12 の答えの手順。持ち主が目で見るのは新しい画面と選びの窓だけ）
+const RETAKE_170_APP = SCREENS.filter((s) => s.page === 'app').map((s) => s.name);
+const RETAKE = new Set([...RETAKE_170_APP]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

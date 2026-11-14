@@ -28,6 +28,11 @@ const PRE = fs.readFileSync(path.join(ROOT, 'src', 'preload.js'), 'utf8');
 const T = { timeout: 60000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 const $ = (l, id) => l.document.getElementById(id);
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して変えた: ページのアイコンは字でなく描いた絵（.pgi の data-icon。
+// 既定は ic:<名前>）。頭にアイコンのある行は「値 字」で見る（意図「議事録・白紙・データベースで違う印」と「行の頭のアイコンと題名」は同じ）
+const ico = (el) => { if (!el) return null; const g = el.classList && el.classList.contains('pgi') ? el : el.querySelector('.pgi'); return g ? g.getAttribute('data-icon') : null; };
+const lead = (el) => `${ico(el)} ${el.textContent}`;
+const MIC = 'ic:mic'; const DOC = 'ic:certification_with_seal'; const TBL = 'ic:table_chart';
 let clock = Date.parse('2026-11-08T01:00:00.000Z');
 const ctx = { now: () => new Date(clock), labels: {} };
 let txn = 0;
@@ -1434,7 +1439,7 @@ test('DV-3: リストの形（アイコン 題名・右端の値）・リスト�
     assert.ok(grid(l).classList.contains('dblist'));
     assert.ok(box(l).querySelector('.dbrowh') === null, 'リストに列の見出しがある');   // DOM を比べの答えに出さない（赤のとき大きな木を文字にしない: R28）
     const r0 = dataRows(l)[0];
-    assert.strictEqual(r0.querySelector('.dbicon').textContent, '📄');
+    assert.strictEqual(ico(r0.querySelector('.dbicon')), DOC);
     assert.deepStrictEqual(r0.querySelectorAll('.dbcell').map((c) => c.textContent), ['見積もり', '100']);
     assert.ok(box(l).querySelector('.dbfoot').hidden, 'リストに下の集計が出る');
     await clickEl(l, box(l).querySelector('.dbadd'), 200);
@@ -2072,7 +2077,7 @@ const props = (l) => $(l, 'pProps').querySelectorAll('.dbprop');
 const propOf = (l, name) => props(l).find((p) => p.querySelector('.k').textContent === name);
 const propV = (l, name) => propOf(l, name).querySelector('.dbpropv');
 const crumbUps = (l) => $(l, 'crumb').querySelectorAll('.cseg').map((b) => b.querySelector('.cst').textContent);
-const crumbNow = (l) => [$(l, 'crumb').querySelector('.ci').textContent, $(l, 'crumb').querySelector('.ct').textContent];
+const crumbNow = (l) => [ico($(l, 'crumb').querySelector('.ci')), $(l, 'crumb').querySelector('.ct').textContent];
 const tabKeys = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => t.getAttribute('data-key'));
 const tabOnKey = (l) => ($(l, 'tabbar').querySelector('.tabitem.active') || { getAttribute: () => '' }).getAttribute('data-key');
 const backToDb = async (l) => { await clickEl(l, $(l, 'crumb').querySelector('.cseg'), 200); };
@@ -2096,10 +2101,10 @@ test('DV-4: 題名の［開く］で今のタブに行のページ（Ctrl+クリ
     assert.strictEqual(box(l).hidden, true, '行のページに表が出る');
     assert.ok($(l, 'pageWrap').classList.contains('blank') && !$(l, 'pageWrap').classList.contains('db'), '3つのタブを隠す印が無い');
     assert.strictEqual($(l, 'pTypeRow').style.display, 'none', '会議の種類の行が出る');
-    assert.deepStrictEqual([$(l, 'pIcon').textContent, $(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['📄', '見積もり', '無題のページ']);
+    assert.deepStrictEqual([ico($(l, 'pIcon')), $(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], [DOC, '見積もり', '無題のページ']);
     assert.deepStrictEqual([...$(l, 'pActs').children].map((x) => x.id), ['pMore', 'pMenu'], '［要約を生成］が出る');
     assert.deepStrictEqual(crumbUps(l), ['案件']);
-    assert.deepStrictEqual(crumbNow(l), ['📄', '見積もり']);
+    assert.deepStrictEqual(crumbNow(l), [DOC, '見積もり']);
     // パンくずのデータベースの段で戻る
     await backToDb(l);
     assert.deepStrictEqual([box(l).hidden, tabOnKey(l), tabKeys(l).length], [false, `page:${l.id}`, n]);
@@ -2110,9 +2115,9 @@ test('DV-4: 題名の［開く］で今のタブに行のページ（Ctrl+クリ
     assert.strictEqual($(l, 'pTitle').textContent, '発注');
     // 無題の行はリンクから開いても「無題のページ」（タブも）
     l.fire('onOpenLink', { id: l.r3, anchor: '' }); await l.drain(200);
-    assert.deepStrictEqual(crumbNow(l), ['📄', '無題のページ']);
+    assert.deepStrictEqual(crumbNow(l), [DOC, '無題のページ']);
     assert.strictEqual($(l, 'tabbar').querySelector('.tabitem.active .tt').textContent, '無題のページ');
-    assert.strictEqual($(l, 'tabbar').querySelector('.tabitem.active .tt').getAttribute('data-icon'), '📄');
+    assert.strictEqual(ico($(l, 'tabbar').querySelector('.tabitem.active .ti')), DOC);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -2195,7 +2200,7 @@ test('DV-4・vw-row-props: 行のページの列の値の並び（データベ�
     $(l, 'pTitle').dispatchEvent({ type: 'blur' }); await l.drain(100);
     assert.deepStrictEqual(l.called('pageSetTitle').map((c) => c.args), [[r0, '見積もりの改訂']]);
     assert.strictEqual(cellsIn(l, r0).title, '見積もりの改訂');
-    assert.deepStrictEqual(crumbNow(l), ['📄', '見積もりの改訂']);
+    assert.deepStrictEqual(crumbNow(l), [DOC, '見積もりの改訂']);
     await backToDb(l);
     assert.strictEqual(cellOf(l, r0, 'title').textContent, '見積もりの改訂', '表の題名が変わらない');
     assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -2407,8 +2412,8 @@ test('R97: 行の本文の /ページ で行の中に白紙のページを作っ
     assert.ok(kid, '行の本文に 📄 の行が無い');
     assert.strictEqual(tabOnKey(l), `page:${kid}`, '作った子ページを開かない');
     assert.ok(l.document.activeElement === $(l, 'pTitle'), '作った子ページの題名にフォーカスが無い');
-    assert.deepStrictEqual([crumbUps(l), crumbNow(l)], [['案件', '見積もり'], ['📄', '無題のページ']], 'パンくずが「… / データベース / 行 / 子」でない');
-    assert.deepStrictEqual($(l, 'crumb').querySelectorAll('.cseg').map((x) => x.querySelector('.csi').textContent).slice(1), ['📄'], '行の段のアイコンが 📄 でない');
+    assert.deepStrictEqual([crumbUps(l), crumbNow(l)], [['案件', '見積もり'], [DOC, '無題のページ']], 'パンくずが「… / データベース / 行 / 子」でない');
+    assert.deepStrictEqual($(l, 'crumb').querySelectorAll('.cseg').map((x) => ico(x.querySelector('.csi'))).slice(1), [DOC], '行の段のアイコンが 📄 でない');
     const side = () => [...$(l, 'plist').children].map((e) => e.dataset && e.dataset.pid);
     assert.ok(side().includes(l.id) && !side().includes(kid), '行の中の子ページがサイドバーに出る（データベースが出ない）');
     // 子の中の孫もサイドバーに出ず、パンくずは行から
@@ -2427,7 +2432,7 @@ test('R97: 行の本文の /ページ で行の中に白紙のページを作っ
     // 行の本文の 📄 の行から子を開く・パンくずの行の段から行へ
     const sub = $(l, 'pNote').querySelectorAll('.blk.subpage').find((e) => e._b && e._b.page === kid);
     assert.ok(sub && !sub.classList.contains('gone'), '行の本文の 📄 の行が灰色');
-    assert.strictEqual(sub.querySelector('.txt').textContent, '📄 下見のメモ');
+    assert.strictEqual(lead(sub.querySelector('.txt')), `${DOC} 下見のメモ`);
     await clickEl(l, sub.querySelector('.txt'), 200);
     assert.strictEqual(tabOnKey(l), `page:${kid}`, '📄 の行から子を開かない');
     await clickEl(l, $(l, 'crumb').querySelectorAll('.cseg')[1], 200);
@@ -2462,7 +2467,8 @@ const relDb = (o = {}) => openDb({ ...o, before: (call, s) => {
   if (rc) call('rel.link', { db: s.id, id: s.rows[0], col: rc, ids: [b1, b2] });
   return { d2, b1, b2, b3, rc };
 } });
-const chips = (l, rowId, col) => cellOf(l, rowId, col).querySelectorAll('.dbrel').map((x) => x.textContent);
+const chips = (l, rowId, col) => cellOf(l, rowId, col).querySelectorAll('.dbrel').map(lead);
+const optText = (b) => (ico(b) ? lead(b) : b.textContent);   // 0.17.0 IV-1: 行の選びは頭にアイコン・［新しい行を作ってつなぐ］は字だけ
 const pickOpts = (l) => (picker(l) ? picker(l).querySelectorAll('.dbopt') : []);
 
 test('DR-1: 右端の［＋］の［リレーション］で「つなぐデータベース」の窓（相手のデータベースにも列を作るのチェック・データベースの名前の並び）→ colAdd の1回（target・both）', T, async () => {
@@ -2490,7 +2496,7 @@ test('DR-1: リレーションのセルは「📄 題名」の並び（押すと
   const l = await relDb();
   try {
     const [r0] = l.rows;
-    assert.deepStrictEqual(chips(l, r0, l.rc), ['📄 取引先 甲', '📄 取引先 乙']);
+    assert.deepStrictEqual(chips(l, r0, l.rc), [`${DOC} 取引先 甲`, `${DOC} 取引先 乙`]);
     assert.strictEqual(cellOf(l, r0, l.rc).getAttribute('aria-readonly'), null, 'リレーションのセルが書けない印');
     const n = tabKeys(l).length;
     await clickEl(l, cellOf(l, r0, l.rc).querySelectorAll('.dbrel')[0], 200);
@@ -2498,7 +2504,7 @@ test('DR-1: リレーションのセルは「📄 題名」の並び（押すと
     assert.ok(picker(l) === null, '押して選びの窓が開いた');
     l.call('rows.trash', { db: l.d2, ids: [l.b2] });
     l.fire('onPageOpen', l.id); await l.drain(200);
-    assert.deepStrictEqual(chips(l, r0, l.rc), ['📄 取引先 甲'], 'ゴミ箱の行がセルに出る');
+    assert.deepStrictEqual(chips(l, r0, l.rc), [`${DOC} 取引先 甲`], 'ゴミ箱の行がセルに出る');
     assert.deepStrictEqual(cellsIn(l, r0).cells[l.rc], [l.b1, l.b2], '値が消えた');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
@@ -2511,15 +2517,15 @@ test('DR-1: 選びの窓（「行を探す」・ひらがなとカタカナを�
     await clickEl(l, cellOf(l, r1, l.rc), 200);
     const q = picker(l) && picker(l).querySelector('input');
     assert.ok(q && q.getAttribute('aria-label') === '行を探す' && q.getAttribute('placeholder') === '行を探す', '「行を探す」の欄が無い');
-    assert.deepStrictEqual(pickOpts(l).map((b) => [b.textContent, b.getAttribute('aria-selected')]), [
-      ['📄 取引先 甲', 'false'], ['📄 取引先 乙', 'false'], ['📄 カイギシツ', 'false'], ['新しい行を作ってつなぐ', 'false']]);
+    assert.deepStrictEqual(pickOpts(l).map((b) => [optText(b), b.getAttribute('aria-selected')]), [
+      [`${DOC} 取引先 甲`, 'false'], [`${DOC} 取引先 乙`, 'false'], [`${DOC} カイギシツ`, 'false'], ['新しい行を作ってつなぐ', 'false']]);
     await clickEl(l, pickOpts(l)[0], 200);
     assert.deepStrictEqual(l.called('relLink').map((c) => c.args), [[l.id, r1, l.rc, [l.b1]]]);
     assert.strictEqual(pickOpts(l)[0].getAttribute('aria-selected'), 'true', '選んだ印が付かない');
     await clickEl(l, pickOpts(l)[0], 200);
     assert.deepStrictEqual(l.called('relUnlink').map((c) => c.args), [[l.id, r1, l.rc, [l.b1]]]);
     q.value = 'かいぎ'; q.dispatchEvent({ type: 'input' }); await l.drain(100);
-    assert.deepStrictEqual(pickOpts(l).map((b) => b.textContent), ['📄 カイギシツ', '新しい行を作ってつなぐ']);
+    assert.deepStrictEqual(pickOpts(l).map(optText), [`${DOC} カイギシツ`, '新しい行を作ってつなぐ']);
     q.value = '新しい取引先'; q.dispatchEvent({ type: 'input' }); await l.drain(100);
     await clickEl(l, pickOpts(l).find((b) => b.textContent === '新しい行を作ってつなぐ'), 300);
     assert.deepStrictEqual(l.called('relLink').map((c) => c.args).slice(-1), [[l.id, r1, l.rc, [], '新しい取引先']]);
@@ -2528,11 +2534,11 @@ test('DR-1: 選びの窓（「行を探す」・ひらがなとカタカナを�
     assert.strictEqual(l.call('page.get', { id: made[0] }).page.title, '新しい取引先');
     await press(l, picker(l).querySelector('input'), { key: 'Escape' });
     assert.ok(picker(l) === null && active(l) === cellOf(l, r1, l.rc), 'Esc で閉じてセルへ戻らない');
-    assert.deepStrictEqual(chips(l, r1, l.rc), ['📄 新しい取引先']);
+    assert.deepStrictEqual(chips(l, r1, l.rc), [`${DOC} 新しい取引先`]);
     // 行のページの列の値（📄 の並び・押すと同じ窓）
     await clickEl(l, openBtn(l, l.rows[0]), 200);
     const pv = $(l, 'pProps').querySelectorAll('.dbpropv').find((v) => v.dataset.col === l.rc);
-    assert.deepStrictEqual(pv.querySelectorAll('.dbrel').map((x) => x.textContent), ['📄 取引先 甲', '📄 取引先 乙']);
+    assert.deepStrictEqual(pv.querySelectorAll('.dbrel').map(lead), [`${DOC} 取引先 甲`, `${DOC} 取引先 乙`]);
     await clickEl(l, pv, 200);
     const pp = $(l, 'pProps').querySelector('.dbpick');
     assert.ok(pp && pp.querySelector('input').getAttribute('aria-label') === '行を探す', '行のページで選びの窓が出ない');
@@ -2597,7 +2603,7 @@ test('DR-1: サブアイテム（データベースの「···」の［サブ�
     assert.deepStrictEqual(views(l).slice(-1)[0].slice(5), [[r0]], 'db.view に開いた行を渡さない');
     // 輪: 親の親アイテムに子を入れる → 一言
     await clickEl(l, cellOf(l, r0, sub.parent), 200);
-    await clickEl(l, pickOpts(l).find((b) => b.textContent === '📄 子の行'), 300);
+    await clickEl(l, pickOpts(l).find((b) => optText(b) === `${DOC} 子の行`), 300);
     assert.strictEqual($(l, 'toast').textContent, 'その行の中へは入れられません');
     await press(l, picker(l).querySelector('input'), { key: 'Escape' });
     // 絞り込みに当たった子の親は灰色
@@ -2636,7 +2642,7 @@ test('DX-1・決めたこと 42: サイドバーのデータベースは 🗃️
     l.fire('onPagesUpdated'); await l.drain(120);
     const d = sideOf(l, l.id);
     assert.ok(d, 'データベースがサイドバーに無い');
-    assert.strictEqual(d.querySelector('.pi').textContent, '🗃️', 'データベースのアイコンが 🗃️ でない');
+    assert.strictEqual(ico(d.querySelector('.pi')), TBL, 'データベースのアイコンが表のアイコンでない');
     assert.strictEqual(d.querySelector('.t').textContent, '無題のデータベース');
     assert.ok(!d.classList.contains('kids') && d.getAttribute('aria-expanded') === null, 'データベースに ▸ がある');
     assert.ok(d.querySelector('.padd') === null, 'データベースの行に［＋］（中にページを作る）がある');
@@ -2673,7 +2679,7 @@ test('DX-1・決めたこと 43: Ctrl+Shift+N の「新しいページ」の3つ
   try {
     await press(l, l.document.body, CSN);
     const items = () => $(l, 'newList').querySelectorAll('.mitem');
-    assert.deepStrictEqual(items().map((b) => b.textContent), ['📄 白紙のページ', '🎙️ 議事録（録音の前のページ）', '🗃️ データベース']);
+    assert.deepStrictEqual(items().map(lead), [`${DOC} 白紙のページ`, `${MIC} 議事録（録音の前のページ）`, `${TBL} データベース`]);
     await clickEl(l, items()[2], 200);
     assert.deepStrictEqual(l.called('dbCreate').map((c) => c.args), [[]], '［データベース］が最上位の dbCreate() でない');
     assert.strictEqual($(l, 'newPop').hidden, true);
@@ -2682,7 +2688,7 @@ test('DX-1・決めたこと 43: Ctrl+Shift+N の「新しいページ」の3つ
     assert.strictEqual(tabOnKey(l), `page:${made}`, '作ったデータベースを開かない');
     assert.ok(l.document.activeElement === $(l, 'pTitle'), '題名にフォーカスが無い');
     assert.strictEqual($(l, 'pTitle').getAttribute('data-ph'), '無題のデータベース');
-    assert.strictEqual(sideOf(l, made).querySelector('.pi').textContent, '🗃️');
+    assert.strictEqual(ico(sideOf(l, made).querySelector('.pi')), TBL);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -2743,9 +2749,9 @@ test('DX-1・決めたこと 45: 起動のときに戻した行のページの�
     const tabs = $(l, 'tabbar').querySelectorAll('.tabitem');
     const t = tabs.find((x) => x.getAttribute('data-key') === `page:${l.rows[1]}`);
     assert.ok(t, '行のタブが戻らない');
-    assert.deepStrictEqual([t.querySelector('.tt').getAttribute('data-icon'), t.querySelector('.tt').textContent], ['📄', '発注'], '行のタブが行の題名と 📄 でない');
+    assert.deepStrictEqual([ico(t.querySelector('.ti')), t.querySelector('.tt').textContent], [DOC, '発注'], '行のタブが行の題名と 📄 でない');
     const dt = tabs.find((x) => x.getAttribute('data-key') === `page:${l.id}`);
-    assert.deepStrictEqual([dt.querySelector('.tt').getAttribute('data-icon'), dt.querySelector('.tt').textContent], ['🗃️', '無題のデータベース'], 'データベースのタブが 🗃️ と「無題のデータベース」でない');
+    assert.deepStrictEqual([ico(dt.querySelector('.ti')), dt.querySelector('.tt').textContent], [TBL, '無題のデータベース'], 'データベースのタブが 🗃️ と「無題のデータベース」でない');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -2762,12 +2768,13 @@ test('DX-2・決めたこと 46: 検索の窓に行の当たりが「📄 題名
     await palType(l, 'メモ');
     const date = l.call('pages.list', { q: 'メモ 0' }).find((e) => e.id === l.rows[0]).date;
     assert.match(date, /^\d{4}-\d{2}-\d{2}$/);
-    const got = palItems(l).map((e) => [e.dataset.pid, e.querySelector('.pi').textContent, e.querySelector('.t').textContent, e.querySelector('.m').textContent, (e.querySelector('.snip') || {}).textContent]);
-    assert.deepStrictEqual(got, [[l.rows[0], '📄', '見積もり', `場所: 🗃️ 案件 ・ ${date}`, 'メモ 0'], [l.rows[1], '📄', '発注', `場所: 🗃️ 案件 ・ ${date}`, 'メモ 1']], 'ゴミ箱の行が出るか、行の当たりの形が違う');
+    // 0.17.0 IV-1（画面の文）で意図して変えた: 「場所: 」の後の 🗃️ はデータベースのアイコンの絵（字は「場所: <データベース名> ・ 」）
+    const got = palItems(l).map((e) => [e.dataset.pid, ico(e.querySelector('.pi')), e.querySelector('.t').textContent, ico(e.querySelector('.m')), e.querySelector('.m').textContent, (e.querySelector('.snip') || {}).textContent]);
+    assert.deepStrictEqual(got, [[l.rows[0], DOC, '見積もり', TBL, `場所: 案件 ・ ${date}`, 'メモ 0'], [l.rows[1], DOC, '発注', TBL, `場所: 案件 ・ ${date}`, 'メモ 1']], 'ゴミ箱の行が出るか、行の当たりの形が違う');
     // データベースのページそのものは題名で当たり、2行目は日付だけ（長さ・要約なしを出さない）
     await palType(l, '案件');
     const dbDate = l.call('pages.list', {}).find((e) => e.id === l.id).date;
-    assert.deepStrictEqual(palItems(l).map((e) => [e.dataset.pid, e.querySelector('.pi').textContent, e.querySelector('.m').textContent]), [[l.id, '🗃️', dbDate]], 'データベースの2行目が日付だけでない');
+    assert.deepStrictEqual(palItems(l).map((e) => [e.dataset.pid, ico(e.querySelector('.pi')), e.querySelector('.m').textContent]), [[l.id, TBL, dbDate]], 'データベースの2行目が日付だけでない');
     await palType(l, 'メモ');
     await clickEl(l, palItems(l)[1], 200);
     assert.strictEqual(tabOnKey(l), `page:${l.rows[1]}`, '行のページを開かない');
@@ -2840,7 +2847,7 @@ test('DL-1 (2)・F141: インラインの表の頭は 🗃️・題名の欄（�
     l.fire('onPageOpen', l.P); await l.drain(300);
     const [h1, h2] = inlineOf(l);
     const t1 = h1.querySelector('.dbtitle');
-    assert.deepStrictEqual([h1.querySelector('.dbicon').textContent, t1.value, t1.getAttribute('placeholder'), t1.getAttribute('aria-label')], ['🗃️', 'いちの表', '無題のデータベース', 'データベースの題名']);
+    assert.deepStrictEqual([ico(h1.querySelector('.dbicon')), t1.value, t1.getAttribute('placeholder'), t1.getAttribute('aria-label')], [TBL, 'いちの表', '無題のデータベース', 'データベースの題名']);
     assert.strictEqual(h2.querySelector('.dbtitle').value, '', '無題の題名の欄が空でない');
     const ex = h1.querySelector('.dbexpand');
     assert.strictEqual(ex.title, 'ページで開く');
@@ -3570,7 +3577,7 @@ test('R122・rv55 軽い 3: 本文の2つの表（1つ目の列が2つ目のデ�
   try {
     l.fire('onPageOpen', l.P); await l.drain(300);
     const relCell = () => hostOf(l, l.r1).querySelectorAll('.dbrow').find((r) => r.dataset.id === l.x1).querySelectorAll('.dbcell').find((c) => c.dataset.col === l.rc);
-    assert.deepStrictEqual(relCell().querySelectorAll('.dbrel').map((x) => x.textContent), ['📄 にの行'], '前提: リレーションのセル');
+    assert.deepStrictEqual(relCell().querySelectorAll('.dbrel').map(lead), [`${DOC} にの行`], '前提: リレーションのセル');
     const c2 = hostOf(l, l.r2).querySelectorAll('.dbrow').find((r) => r.dataset.id === l.x2).querySelectorAll('.dbcell').find((c) => c.dataset.col === 'title');
     await clickEl(l, c2, 120);
     const ed = hostOf(l, l.r2).querySelector('.dbedit');
@@ -3578,7 +3585,7 @@ test('R122・rv55 軽い 3: 本文の2つの表（1つ目の列が2つ目のデ�
     ed.value = 'にの行かえ';
     ed.onblur(); await l.drain(300);   // 最後の行の Enter は次の行を足すので、離れて書く
     assert.deepStrictEqual(rowTitles(hostOf(l, l.r2)), ['にの行かえ'], '前提: 2つ目の表の題名が替わる');
-    assert.deepStrictEqual(relCell().querySelectorAll('.dbrel').map((x) => x.textContent), ['📄 にの行かえ'], 'つないだデータベースの表のリレーションのセルが古いまま');
+    assert.deepStrictEqual(relCell().querySelectorAll('.dbrel').map(lead), [`${DOC} にの行かえ`], 'つないだデータベースの表のリレーションのセルが古いまま');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

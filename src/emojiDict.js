@@ -4,7 +4,8 @@
 // 字の並びは Unicode の公開の絵文字の一覧（RGI の形。絵文字の形の印 U+FE0F を含む）で確かめ、Windows の Segoe UI Emoji で描ける版（Emoji 11.0 まで）の
 // 1つの書記素だけ（肌の色・ZWJ のつなぎ・旗は入れない）。ページの attrs.icon にはここにある絵文字だけを入れる（題名と同じ所に出る文字なので、
 // 辞書に無い文字・向きの制御・長い文でサイドバー・タブ・パンくずの形を崩させない: RF77 の考え）。
-// 画面（app.html）は findEmoji・pageIconOf を写して使う（PL-3）。DB は isPageIcon で照らす（PL-2）。
+// 画面（app.html）は findEmoji を写して使う（PL-3）。DB は isPageIcon で照らす（PL-2）。
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の R7）: 既定のアイコン（DEFAULT_ICON）と pageIconOf は src/pageIcons.js へ移した（既定は ic:<名前>）。
 
 // 分類（選びの窓の見出しの並び）
 const CATS = Object.freeze([
@@ -552,9 +553,6 @@ const EMOJI = Object.freeze(Object.entries(TABLE).flatMap(([c, text]) => text.tr
 })));
 const BY_E = new Set(EMOJI.map((x) => x.e));
 
-// 既定のアイコン（決めたこと 36。icon が無ければ議事録は 🎙️・白紙のページは 📄。0.16.0 DX-1（前提 P6）: データベースは 🗃️）
-const DEFAULT_ICON = Object.freeze({ meeting: '🎙️', blank: '📄', database: '🗃️' });
-
 // 辞書の絵文字（ちょうどその1つ）か。書記素が1つでないもの・文・辞書に無い絵文字は偽
 function isPageIcon(v) {
   return typeof v === 'string' && v !== '' && BY_E.has(v);
@@ -579,11 +577,4 @@ function findEmoji(q) {
   return [...head, ...part];
 }
 
-// 一覧の1行（か、ページ）のアイコン: icon が辞書の絵文字ならそれ、無ければ（'' も辞書に無い値も）kind の既定（決めたこと 36・38）
-function pageIconOf(entry) {
-  if (entry && isPageIcon(entry.icon)) return entry.icon;
-  if (entry && entry.kind === 'database') return DEFAULT_ICON.database;
-  return entry && entry.kind === 'blank' ? DEFAULT_ICON.blank : DEFAULT_ICON.meeting;
-}
-
-module.exports = { CATS, EMOJI, DEFAULT_ICON, isPageIcon, findEmoji, pageIconOf, fold };
+module.exports = { CATS, EMOJI, isPageIcon, findEmoji, fold };

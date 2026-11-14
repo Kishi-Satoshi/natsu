@@ -52,7 +52,9 @@ test('PH-5・BQ7 (a)・F117（決めたこと 28）: アプリのメニューを
     assert.deepStrictEqual([o.windows, o.created], [1, 1], `Ctrl+Shift+N で新しい窓が開いた: ${JSON.stringify(o)}`);
     assert.strictEqual(o.shown, true, `Ctrl+Shift+N で「新しいページ」が出ない: ${JSON.stringify(o)}`);
     // 0.16.0 DX-1（決めたこと 43）で意図して変えた: 3つ目に［🗃️ データベース］
-    assert.deepStrictEqual(o.items, ['📄 白紙のページ', '🎙️ 議事録（録音の前のページ）', '🗃️ データベース'], JSON.stringify(o));
+    // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・画面の文）で意図して変えた: 項目の字は頭の絵文字を外した名前（前にアイコンの絵）
+    assert.deepStrictEqual(o.items, ['白紙のページ', '議事録（録音の前のページ）', 'データベース'], JSON.stringify(o));
+    assert.deepStrictEqual(o.icons, ['ic:certification_with_seal', 'ic:mic', 'ic:table_chart'], JSON.stringify(o));
     assert.strictEqual(o.focusIn, true, `「新しいページ」の項目にフォーカスが無い: ${JSON.stringify(o)}`);
     assert.strictEqual(code, 0);
   } finally {

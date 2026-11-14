@@ -10,6 +10,11 @@ const path = require('node:path');
 const { load } = require('./helpers/simrun.js');
 const { parseHTML } = require('./helpers/simdom');
 const S = require('./helpers/simcss');
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して変えた: ページのアイコンは字でなく描いた絵（.pgi の data-icon。
+// 既定は ic:<名前>）。頭にアイコンのある行は「値 字」で見る（意図「議事録・白紙・データベースで違う印」と「行の頭のアイコンと題名」は同じ）
+const ico = (el) => { if (!el) return null; const g = el.classList && el.classList.contains('pgi') ? el : el.querySelector('.pgi'); return g ? g.getAttribute('data-icon') : null; };
+const lead = (el) => `${ico(el)} ${el.textContent}`;
+const MIC = 'ic:mic'; const DOC = 'ic:certification_with_seal'; const TBL = 'ic:table_chart';
 
 const APP = path.join(__dirname, '..', 'src', 'renderer', 'app.html');
 const html = fs.readFileSync(APP, 'utf8');
@@ -28,19 +33,19 @@ const openPage = async (id = 'pa1') => {
   await l.drain();
   return l;
 };
-const crumb = (l) => [l.byId.get('crumb').querySelector('.ci').textContent, l.byId.get('crumb').querySelector('.ct').textContent];
+const crumb = (l) => [ico(l.byId.get('crumb').querySelector('.ci')) || '', l.byId.get('crumb').querySelector('.ct').textContent];
 
 test('1b2 P-1・G6: 操作（#pActs）は上の帯（.pagebar）にあり、ページを開いているページのタブのときだけ出る。パンくずは選んでいるタブを追う', async () => {
   const l = await openPage('pa1');
   const acts = l.byId.get('pActs');
   assert.ok(acts.closest('.pagebar') && !acts.closest('#pageWrap'), '操作がページの中にある');
   assert.strictEqual(acts.hidden, false);
-  assert.deepStrictEqual(crumb(l), ['🎙️', titleAt('2026-10-16T01:00:00.000Z')]);
+  assert.deepStrictEqual(crumb(l), [MIC, titleAt('2026-10-16T01:00:00.000Z')]);
   // 0.9.0 U-1（SP1・SP2・D24）で意図して変えた: 設定はタブでなくページの上のポップアップ。パンくずはページのまま、後ろ（.col）は inert で
   //［削除］は押せない（見えていないページを消さない）。閉じると戻る
   l.byId.get('tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(acts.closest('.col').inert, true, '設定のポップアップの後ろで［削除］が押せる（見えていないページを消す）');
-  assert.deepStrictEqual(crumb(l), ['🎙️', titleAt('2026-10-16T01:00:00.000Z')]);
+  assert.deepStrictEqual(crumb(l), [MIC, titleAt('2026-10-16T01:00:00.000Z')]);
   l.key({ key: 'Escape' }); await l.drain();
   assert.ok(!acts.closest('.col').inert && acts.hidden === false);
   assert.strictEqual(S.declsFor(rules, '.pacts[hidden]', { at: '' }).display, 'none', '本物の画面で hidden が .pacts の display に負ける');
@@ -111,7 +116,7 @@ test('1b2 P-2: 要約・メモ・文字起こしは会議のブロック（線�
 
 test('1b2 P-2: ページのアイコンは 🎙️。何も開いていないときはアイコンと丸いタブを出さない（nopage）', async () => {
   const l = await openPage('pa1');
-  assert.strictEqual(l.byId.get('pIcon').textContent, '🎙️');
+  assert.strictEqual(ico(l.byId.get('pIcon')), MIC);
   assert.ok(!l.byId.get('pageWrap').classList.contains('nopage'));
   l.root.querySelector('.tabitem .tx').dispatchEvent({ type: 'click' }); await l.drain();   // ただ1つのタブを × で閉じる
   assert.ok(l.byId.get('pageWrap').classList.contains('nopage'));

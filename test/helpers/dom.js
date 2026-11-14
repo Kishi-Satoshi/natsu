@@ -55,6 +55,15 @@ class El {
   removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); c.parent = null; return c; }
   remove() { if (this.parent) this.parent.removeChild(this); }
   replaceChildren(...cs) { this.children = []; for (const c of cs) this.appendChild(c); }
+  // 0.17.0 IV-1（F185）: 写し（deep なら子も。名前空間・属性・文字も）
+  cloneNode(deep) {
+    const c = new El(this.tag, this.doc);
+    if (this.namespaceURI) c.namespaceURI = this.namespaceURI;
+    for (const [k, v] of Object.entries(this.attrs)) c.setAttribute(k, v);
+    c._text = this._text;
+    if (deep) for (const x of this.children) c.appendChild(x.cloneNode(true));
+    return c;
+  }
   addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); this.doc._wired.push({ id: this.id, tag: this.tag, type: t }); }
   removeEventListener(t, fn) { const a = this._listeners[t] || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); }
   dispatchEvent() { return true; }
@@ -151,6 +160,7 @@ class Doc {
     return e;
   }
   createElement(t) { return new El(t, this); }
+  createElementNS(ns, t) { const e = new El(t, this); e.namespaceURI = String(ns); return e; }   // 0.17.0 IV-1（F185）: SVG のアイコン
   createTextNode(t) { const e = new El('#text', this); e._text = String(t); return e; }
   createDocumentFragment() { const e = new El('#fragment', this); e._frag = true; return e; }
   querySelector(s) { return this.documentElement.querySelector(s); }

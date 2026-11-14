@@ -88,12 +88,17 @@ const PAGE = (id) => ({ page: { id, title: LIST.find((p) => p.id === id).title, 
 const TYPES = [{ key: 'general', label: '一般・その他' }, { key: 'standup', label: '定例・進捗報告' }];
 const boot = async (o = {}) => { const l = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: (q) => (q ? LIST.filter((p) => p.title.includes(q)) : LIST), pageGet: PAGE, meetingTypes: () => TYPES, ...o } }); await l.drain(); return l; };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して変えた: ページのアイコンは字でなく描いた絵（.pgi の data-icon。
+// 既定は ic:<名前>）。頭にアイコンのある行は「値 字」で見る（意図「議事録・白紙・データベースで違う印」と「行の頭のアイコンと題名」は同じ）
+const ico = (el) => { if (!el) return null; const g = el.classList && el.classList.contains('pgi') ? el : el.querySelector('.pgi'); return g ? g.getAttribute('data-icon') : null; };
+const lead = (el) => `${ico(el)} ${el.textContent}`;
+const MIC = 'ic:mic'; const DOC = 'ic:certification_with_seal'; const TBL = 'ic:table_chart';
 
 test('1b2 L-2・G5: サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・要約タイプは行の title（要約なしが先）', async () => {
   const l = await boot();
   const rows = l.byId.get('plist').querySelectorAll('.pitem');
-  assert.deepStrictEqual(rows.map((r) => [r.querySelector('.pi').textContent, r.querySelector('.t').textContent]),
-    [['🎙️', titleAt('2026-10-16T01:00:00.000Z')], ['🎙️', '設計の打ち合わせ（見本）']]);
+  assert.deepStrictEqual(rows.map((r) => [ico(r.querySelector('.pi')), r.querySelector('.t').textContent]),
+    [[MIC, titleAt('2026-10-16T01:00:00.000Z')], [MIC, '設計の打ち合わせ（見本）']]);
   assert.ok(rows.every((r) => !r.querySelector('.m') && !r.querySelector('.snip') && !r.querySelector('.tbadge')), '2行目が残っている');
   assert.match(rows[0].getAttribute('title'), /^2026-10-16 ・ 30分0秒 ・ 定例・進捗報告$/);
   assert.match(rows[1].getAttribute('title'), /^2026-10-15 ・ 15分0秒 ・ 要約なし$/);

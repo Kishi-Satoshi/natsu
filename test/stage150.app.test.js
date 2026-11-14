@@ -21,6 +21,11 @@ const HTML = fs.readFileSync(APP, 'utf8');
 const T = { timeout: 15000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
 const $ = (l, id) => l.document.getElementById(id);
+// 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して変えた: ページのアイコンは字でなく描いた絵（.pgi の data-icon。
+// 既定は ic:<名前>）。頭にアイコンのある行は「値 字」で見る（意図「議事録・白紙・データベースで違う印」と「行の頭のアイコンと題名」は同じ）
+const ico = (el) => { if (!el) return null; const g = el.classList && el.classList.contains('pgi') ? el : el.querySelector('.pgi'); return g ? g.getAttribute('data-icon') : null; };
+const lead = (el) => `${ico(el)} ${el.textContent}`;
+const MIC = 'ic:mic'; const DOC = 'ic:certification_with_seal'; const TBL = 'ic:table_chart';
 
 // ---------------------------------------------------------------- 見本の木（DB の pages.list と同じ並び: 作った新しい順。子は親より後に作った）
 // 最上位 pa3・pa2・pa1（新しい順）。pa2 の中に k1・k2（並びの鍵の順）、k1 の中に g1（3 段）
@@ -99,11 +104,11 @@ test('PH-3: 子の無い最上位の行は今と同じ形（▸ の場所が無�
   const l = await boot();
   const flat = rowOf(l, 'pa3');
   // PH-3 直し（R28 (5)）: 比べの値に偽の DOM の要素を入れない（外れたときに要素を書き出して答えが返らない: stage131.nest.app の注）
-  assert.deepStrictEqual([flat.className, flat.querySelector('.pi').textContent, flat.querySelector('.tw') === null, flat.style.paddingLeft, flat.getAttribute('aria-expanded')],
-    ['pitem', '🎙️', true, undefined, null], '子の無い行の形が変わった');
+  assert.deepStrictEqual([flat.className, ico(flat.querySelector('.pi')), flat.querySelector('.tw') === null, flat.style.paddingLeft, flat.getAttribute('aria-expanded')],
+    ['pitem', MIC, true, undefined, null], '子の無い行の形が変わった');
   const kid = rowOf(l, 'pa2');
   assert.ok(kid.classList.contains('kids'));
-  assert.deepStrictEqual([kid.querySelector('.pe').textContent, kid.querySelector('.tw').textContent, kid.getAttribute('aria-expanded')], ['🎙️', '▸', 'false']);
+  assert.deepStrictEqual([ico(kid.querySelector('.pe')), kid.querySelector('.tw').textContent, kid.getAttribute('aria-expanded')], [MIC, '▸', 'false']);
   // 見た目（CSS）: ▸ はふだん隠れ、乗せる・フォーカスで出て、絵文字の場所に重なる（場所を空けない）
   const rules = S.parse(parseHTML(HTML).root.querySelectorAll('style').map((s) => s._raw).join('\n'));
   const at = (sel) => S.declsFor(rules, sel, { at: '' });
@@ -499,7 +504,7 @@ test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・
     assert.deepStrictEqual([...$(l, 'pActs').children].map((b) => b.id), ['pMore', 'pMenu'], '白紙のページに［要約を生成］が出る');
     // 0.15.0 PL-3（決めたこと 40）で意図して変えた: ［移動先…］と［削除］の間に見た目の項目（［全幅］［小さい文字］［書体 ▸］）
     assert.deepStrictEqual(menuLabels(l), ['コピー', 'リンクを写す', '移動先…', '全幅', '小さい文字', '書体 ▸', '削除']);
-    assert.strictEqual($(l, 'pIcon').textContent, '📄');
+    assert.strictEqual(ico($(l, 'pIcon')), DOC);
     assert.deepStrictEqual([$(l, 'pTitle').textContent, $(l, 'pTitle').getAttribute('data-ph')], ['', '無題のページ']);
     assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id), ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'], '本文の行が無いか、書いた順でない');
     assert.strictEqual($(l, 'pNote').classList.contains('active'), true);
@@ -509,7 +514,7 @@ test('PH-4・BQ2 (a)・F116: 白紙のページの形（会議の種類の行・
     await l.drain();
     assert.ok(!$(l, 'pageWrap').classList.contains('blank'));
     assert.strictEqual($(l, 'pTypeRow').style.display, '');
-    assert.strictEqual($(l, 'pIcon').textContent, '🎙️');
+    assert.strictEqual(ico($(l, 'pIcon')), MIC);
     assert.ok(menuLabels(l).includes('要約を再生成'), '議事録の「···」から［要約を再生成］が消えた');
     assert.strictEqual($(l, 'pTitle').getAttribute('data-ph'), null);
     assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -635,9 +640,9 @@ test('PH-4・F116: 無題の白紙のページはサイドバー・タブ・検�
   const l = await openDb({ blanks: [BLANK('pb1', '', BODY())], open: 'pb1' });
   try {
     assert.strictEqual(rowOf(l, 'pb1').querySelector('.t').textContent, '無題のページ');
-    assert.strictEqual(rowOf(l, 'pb1').querySelector('.pi').textContent, '📄', '白紙のページの行のアイコン');
+    assert.strictEqual(ico(rowOf(l, 'pb1').querySelector('.pi')), DOC, '白紙のページの行のアイコン');
     assert.strictEqual($(l, 'tabbar').querySelector('.tabitem .tt').textContent, '無題のページ');
-    assert.strictEqual($(l, 'crumb').querySelector('.ci').textContent, '📄');
+    assert.strictEqual(ico($(l, 'crumb').querySelector('.ci')), DOC);
     assert.deepStrictEqual(l.call('pages.list', { q: '無題のページ' }).map((p) => p.id), ['pb1'], '検索で「無題のページ」が当たらない');
     l.call('page.setTitle', { id: 'pa1', title: '' }, 'main');
     assert.strictEqual(l.call('pages.list', { q: '' }).find((p) => p.id === 'pa1').title, '(無題の議事録)');
@@ -718,7 +723,7 @@ test('PR-2・F123: 白紙のページの本文に「アイコン 題名」の行
   const l = await rowsDb();
   try {
     const { k1, k2 } = l.made;
-    assert.deepStrictEqual(subEls(l).map((e) => e._txt.textContent), ['📄 週の予定', '📄 見積もり']);
+    assert.deepStrictEqual(subEls(l).map((e) => lead(e._txt)), [`${DOC} 週の予定`, `${DOC} 見積もり`]);
     assert.deepStrictEqual(noteRows(l).map((e) => e.dataset.id).indexOf(rowIdOf(l, k1)), 1, 'q1 のすぐ下に無い');
     const t1 = subEl(l, k1)._txt;
     assert.deepStrictEqual([t1.contentEditable, t1.tabIndex, t1.getAttribute('role'), t1.title], ['false', 0, 'link', '開く（Ctrl+クリックで新しいタブ）']);
@@ -726,7 +731,7 @@ test('PR-2・F123: 白紙のページの本文に「アイコン 題名」の行
     l.call('page.setTitle', { id: k1, title: '週の予定（改）' });   // 利用者が付け直した題名（D77）
     l.fire('onPagesUpdated');
     await l.drain();
-    assert.strictEqual(subEl(l, k1)._txt.textContent, '📄 週の予定（改）', '題名を変えても行が古い題名のまま');
+    assert.strictEqual(lead(subEl(l, k1)._txt), `${DOC} 週の予定（改）`, '題名を変えても行が古い題名のまま');
     assert.strictEqual(l.page('pb1').blocks.find((b) => b.page === k1).text, '');
     // 文を直さない（打っても保存の命令を送らない）
     const n0 = l.called('blockUpdate').length;
@@ -919,7 +924,7 @@ test('PR-2・HR16・決めたこと 55: 今の子でないページを指す行�
     const kids = $(l, 'bodyKids');
     assert.ok(kids && !kids.hidden, '行の無い子の一覧が無い');
     assert.strictEqual(kids.querySelector('.kidshead').textContent, 'このページの中のページ');
-    assert.deepStrictEqual(kids.querySelectorAll('.kidrow').map((e) => e.textContent), ['📄 行の無い子']);
+    assert.deepStrictEqual(kids.querySelectorAll('.kidrow').map(lead), [`${DOC} 行の無い子`]);
     kids.querySelectorAll('.kidrow')[0].dispatchEvent({ type: 'click' });
     await l.drain();
     assert.strictEqual(l.called('pageGet').slice(-1)[0].args[0], k3, '一覧の子を押しても開かない');
@@ -1053,7 +1058,7 @@ test('PR-2 直し・R40（決めたこと 43・53）: 子ページの行の上�
       const ev = l.key(k, t1);
       await l.drain();
       assert.strictEqual(ev.defaultPrevented, true, `${JSON.stringify(k)} の既定の動きを止めない`);
-      assert.deepStrictEqual([subEl(l, k1)._txt.textContent, subEl(l, k1)._txt.children.length], ['📄 週の予定', 0], `${JSON.stringify(k)} で題名の描き方が変わった`);
+      assert.deepStrictEqual([lead(subEl(l, k1)._txt), subEl(l, k1)._txt.querySelectorAll('.pgi').length, subEl(l, k1)._txt.children.length], [`${DOC} 週の予定`, 1, 1], `${JSON.stringify(k)} で題名の描き方が変わった`);
     }
     await new Promise((r) => setTimeout(r, 700)); await l.drain();   // 打つ手の止まりの保存（TYPE_PAUSE_MS）も来ない
     assert.deepStrictEqual(sent(), n0, '子ページの行の上のキーで書く命令を送った');
@@ -1195,7 +1200,7 @@ test('PR-2 直し・R44（決めたこと 55）: 「このページの中のペ�
     l.fire('onPageOpen', 'pa1'); await l.drain();
     l.fire('onPageOpen', 'pb1'); await l.drain();
     const kidRows = () => $(l, 'bodyKids').querySelectorAll('.kidrow');
-    assert.deepStrictEqual(kidRows().map((e) => e.textContent), ['📄 行の無い子', '📄 もう一つの子']);
+    assert.deepStrictEqual(kidRows().map(lead), [`${DOC} 行の無い子`, `${DOC} もう一つの子`]);
     const kr = kidRows()[0];
     assert.strictEqual(kr.draggable, true, '行の無い子を引っ張れない');
     assert.strictEqual(kr.title, '開く（Ctrl+クリックで新しいタブ）・引っ張るか Ctrl+Shift+↑ で本文に置く');
@@ -1217,7 +1222,7 @@ test('PR-2 直し・R44（決めたこと 55）: 「このページの中のペ�
     assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k3, 'pb1', undefined, { afterId: 'q2' }]], 'pageMove の1回で置かない');
     assert.deepStrictEqual(l.page('pb1').blocks.filter((b) => b.type === 'subpage').map((b) => b.page), [k1, k3, k2], 'q2 の下に置かない');
     assert.ok(subEl(l, k3) && !subEl(l, k3).classList.contains('gone'), '置いた行が本文に無い');
-    assert.deepStrictEqual(kidRows().map((e) => e.textContent), ['📄 もう一つの子'], '置いた子が一覧に残る');
+    assert.deepStrictEqual(kidRows().map(lead), [`${DOC} もう一つの子`], '置いた子が一覧に残る');
     assert.strictEqual(box.querySelectorAll('.dropmark, .dropmark-after').length, 0, '落とす印が残る');
     assert.strictEqual(listNow(l).find((p) => p.id === k3).parentId, 'pb1');
     // 素の文字（ページの印の無い引っ張り）は行の無い子を置かない（行の無い子の引っ張りの終わりが届かず、覚えた引っ張りが残っていても: R28 (1) と同じ）
@@ -1408,14 +1413,14 @@ test('PR-2 直し 3・R48 (2): 本文が 2,000 行の白紙のページで行の
   try {
     const { k } = l.made;
     const kr = $(l, 'bodyKids').querySelectorAll('.kidrow')[0];
-    assert.strictEqual(kr.textContent, '📄 行の無い子');
+    assert.strictEqual(lead(kr), `${DOC} 行の無い子`);
     kr.focus();
     l.key({ key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true, shiftKey: true }, kr);
     await l.drain(); await l.drain();
     assert.deepStrictEqual(l.called('pageMove').map((c) => c.args), [[k, 'pf1', undefined, { afterId: `fz${N - 1}` }]]);
     assert.strictEqual(toastText(l), '本文が 2,000 行に達しているので、ページの行を置けません。');
     assert.strictEqual(l.page('pf1').blocks.length, N, '本文が変わった');
-    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map((e) => e.textContent), ['📄 行の無い子'], '一覧から消えた');
+    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map(lead), [`${DOC} 行の無い子`], '一覧から消えた');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -1446,7 +1451,7 @@ test('PR-2 直し 3・R48 (3): 「このページの中のページ」の行を�
     assert.strictEqual(subEl(l, k3).dataset.parent, tg);
     assert.strictEqual(subEl(l, k3).dataset.depth, '1');
     assert.ok(l.document.activeElement === subEl(l, k3)._txt, '置いた行へフォーカスしない');
-    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map((e) => e.textContent), ['📄 もう一つの子']);
+    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map(lead), [`${DOC} もう一つの子`]);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -1654,7 +1659,7 @@ test('PH-5・H3: パンくずが根から今まで（祖先の段はアイコン
   const l = await boot();
   l.fire('onPageOpen', 'g1'); await l.drain();
   assert.deepStrictEqual(crumbOf(l), [['up', TT('pa2')], ['up', TT('k1')], ['now', TT('g1')]], 'パンくずが根から今までの段でない');
-  assert.deepStrictEqual(['pa2', 'k1'].map((id) => crumbBtn(l, 'up', id).querySelector('.csi').textContent), ['🎙️', '📄']);
+  assert.deepStrictEqual(['pa2', 'k1'].map((id) => ico(crumbBtn(l, 'up', id).querySelector('.csi'))), [MIC, DOC]);
   assert.strictEqual($(l, 'crumb').querySelectorAll('.csep').length, 2, '段の間の「/」が無い');
   const n0 = l.called('pageGet').length;
   crumbBtn(l, 'up', 'pa2').dispatchEvent({ type: 'click' });
@@ -1673,7 +1678,7 @@ test('PH-5・H3: パンくずが根から今まで（祖先の段はアイコン
   await d.drain();
   const menuOf = () => d.document.querySelector('.treemenu');
   assert.ok(menuOf(), '「…」を押しても隠れた段の一覧が出ない');
-  assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map((b) => b.textContent), ['d1', 'd2', 'd3'].map((id) => `🎙️ ${TT(id, deep)}`), '隠れた段の一覧が根に近い順の d1〜d3 でない');
+  assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map(lead), ['d1', 'd2', 'd3'].map((id) => `${MIC} ${TT(id, deep)}`), '隠れた段の一覧が根に近い順の d1〜d3 でない');
   assert.ok(d.document.activeElement === menuOf().querySelectorAll('.mitem')[0], '一覧の1つ目にフォーカスが無い');
   assert.strictEqual(crumbBtn(d, 'more').getAttribute('aria-expanded'), 'true');
   d.key({ key: 'Escape' }, menuOf());
@@ -1705,7 +1710,7 @@ test('PH-5・BQ3（決めたこと 27）: 議事録の［AI 要約］の欄の�
   const box = $(l, 'pKids');
   assert.strictEqual(box.hidden, false, '子のある議事録に子ページの一覧が出ない');
   assert.strictEqual(box.querySelector('.kidshead').textContent, 'このページの中のページ');
-  assert.deepStrictEqual(box.querySelectorAll('.kidrow').map((r) => [r.textContent, r.title]), ['k1', 'k2'].map((id) => [`📄 ${TT(id)}`, '開く（Ctrl+クリックで新しいタブ）']), 'サイドバーと同じ順（並びの鍵の順）でない');
+  assert.deepStrictEqual(box.querySelectorAll('.kidrow').map((r) => [lead(r), r.title]), ['k1', 'k2'].map((id) => [`${DOC} ${TT(id)}`, '開く（Ctrl+クリックで新しいタブ）']), 'サイドバーと同じ順（並びの鍵の順）でない');
   // 子ページの一覧は［コピー］に入らない（子の無い同じ議事録の［コピー］と1文字も同じ）
   const [l0, noKids] = await copied(LIST().filter((p) => !['k1', 'k2', 'g1'].includes(p.id)));
   assert.strictEqual(withKids.length, 1);
@@ -1955,7 +1960,7 @@ test('PH-5・BQ7 (a)・F117: Ctrl+Shift+N で「新しいページ」（#newPop�
   assert.strictEqual(pop.hidden, false, 'Ctrl+Shift+N で開かない');
   assert.strictEqual($(l, 'newPopHead').textContent, '新しいページ');
   // 0.16.0 DX-1（決めたこと 43・計画の「意図して変えるテスト」）で意図して変えた: 3つ目に［🗃️ データベース］
-  assert.deepStrictEqual(items().map((b) => [b.textContent, b.getAttribute('aria-disabled')]), [['📄 白紙のページ', null], ['🎙️ 議事録（録音の前のページ）', null], ['🗃️ データベース', null]]);
+  assert.deepStrictEqual(items().map((b) => [lead(b), b.getAttribute('aria-disabled')]), [[`${DOC} 白紙のページ`, null], [`${MIC} 議事録（録音の前のページ）`, null], [`${TBL} データベース`, null]]);
   assert.ok(l.document.activeElement === items()[0], '1つ目にフォーカスが無い');
   l.key({ key: 'ArrowDown' }, $(l, 'newList'));
   assert.ok(l.document.activeElement === items()[1], '↓ で次の項目へ移らない');
@@ -1976,7 +1981,7 @@ test('PH-5・BQ7 (a)・F117: Ctrl+Shift+N で「新しいページ」（#newPop�
   rec = true;
   l.fire('onMeetingUpdate', { active: true, finalizing: false, segments: [], memo: '', paused: false, pauses: [], pausedMs: 0, stt: null }); await l.drain();
   l.key(CN); await l.drain();
-  assert.deepStrictEqual([items()[1].getAttribute('aria-disabled'), items()[1].classList.contains('off'), items()[1].textContent], ['true', true, '🎙️ 議事録（録音の前のページ）録音中です'], '録音中に［議事録］が灰色でない');
+  assert.deepStrictEqual([items()[1].getAttribute('aria-disabled'), items()[1].classList.contains('off'), lead(items()[1])], ['true', true, `${MIC} 議事録（録音の前のページ）録音中です`], '録音中に［議事録］が灰色でない');
   items()[1].dispatchEvent({ type: 'click' }); await l.drain();
   assert.strictEqual(l.called('meetingPrepare').length, 1, '録音中に［議事録］が押せる');
   assert.strictEqual(pop.hidden, false, '灰色の項目を押して閉じた');
@@ -2336,7 +2341,7 @@ test('PH-6・BQ6 (a)・F121（決めたこと 31・32）: ゴミ箱が空なら�
     assert.strictEqual($(l, 'trashNote').textContent, 'ゴミ箱のページは、戻すまで一覧と検索と Claude には出ません');
     assert.deepStrictEqual(trashRows(l).map((e) => e.dataset.pid), ['pa1', 'pb1'], '頭の行だけを消した新しい順に出さない');
     const pb = trashRows(l)[1];
-    assert.strictEqual(pb.querySelector('.tpt').textContent, '📄 計画');
+    assert.strictEqual(lead(pb.querySelector('.tpt')), `${DOC} 計画`);
     assert.match(pb.querySelector('.tpm').textContent, /^\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}・中のページ 2$/, '消した日時と「中のページ n」が無い');
     assert.match(trashRows(l)[0].querySelector('.tpm').textContent, /^\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}$/, '子の無いページに「中のページ」が出る');
     assert.deepStrictEqual(trashRows(l).map((e) => e.querySelector('button').textContent), ['戻す', '戻す']);
@@ -2389,7 +2394,7 @@ test('PH-6・R51・R38（PR-2 直し 4 からの申し送り）: 本文が 2,000
     trashRows(l)[0].querySelector('button').dispatchEvent({ type: 'click' }); await l.drain(); await l.drain();
     assert.strictEqual(l.call('pages.list', { q: '' }).find((p) => p.id === k).parentId, 'pf1', 'ページが戻らない');
     assert.strictEqual(seen.filter((x) => x === '本文が 2,000 行に達しているので、ページの行は本文の最後の一覧に置きました。').length, 1, '満杯の本文の子を戻して知らせを1回出さない');
-    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map((e) => e.textContent), ['📄 大きな本文の子'], '開いている満杯の本文を開き直さない（行の無い子の一覧に出ない）');
+    assert.deepStrictEqual($(l, 'bodyKids').querySelectorAll('.kidrow').map(lead), [`${DOC} 大きな本文の子`], '開いている満杯の本文を開き直さない（行の無い子の一覧に出ない）');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
   // 開いている小さな白紙のページの子（本文に行がある）を消して戻す → 行が元の所に戻り、描き直す（R38）
@@ -2673,7 +2678,7 @@ test('PH-8 直し（rv31・R66）: ［戻す］の読み上げの名前は、改
     await treeMenuDo(l, 'pb1', '削除');
     $(l, 'tabBtnTrash').dispatchEvent({ type: 'click' }); await l.drain();
     const row = trashRows(l).find((e) => e.dataset.pid === 'pb1');
-    assert.strictEqual(row.querySelector('.tpt').textContent, '📄 二行の 題名');
+    assert.strictEqual(lead(row.querySelector('.tpt')), `${DOC} 二行の 題名`);
     assert.strictEqual(row.querySelector('button').getAttribute('aria-label'), '『二行の 題名』を戻す');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }

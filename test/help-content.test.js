@@ -774,7 +774,8 @@ test('PH-8: 直した記事の ［…］ はアプリにある文字だけで、
   for (const w of ['ページの中のページ', 'ゴミ箱']) assert.ok(find.description.includes(w), `find の説明に「${w}」が無い`);
   // 新しく書いた画面の言葉（アプリの文字にあることは上で見る）
   const pt = read(fileOf('find/page-tree'));
-  for (const w of ['［📄 白紙のページ］', '［🎙️ 議事録（録音の前のページ）］', '［移動先…］', '［いちばん上へ］', '［中にページを作る］', '［新しいタブで開く］', '［＋］', '/ページ', '[[Ctrl+Shift+N]]', '[[Ctrl+Shift+U]]', '[[Shift+F10]]', 'このページの中のページ', '無題のページ']) {
+  // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の画面の文「新しいページ」の項目: 頭の絵文字を外した）で意図して変えた（R11）
+  for (const w of ['［白紙のページ］', '［議事録（録音の前のページ）］', '［移動先…］', '［いちばん上へ］', '［中にページを作る］', '［新しいタブで開く］', '［＋］', '/ページ', '[[Ctrl+Shift+N]]', '[[Ctrl+Shift+U]]', '[[Shift+F10]]', 'このページの中のページ', '無題のページ']) {
     assert.ok(pt.includes(w), `find/page-tree に ${w} が無い`);
   }
   for (const w of ['［ゴミ箱］', '［戻す］']) assert.ok(read(fileOf('find/delete-and-backups')).includes(w), `find/delete-and-backups に ${w} が無い`);
@@ -1155,11 +1156,12 @@ test('DH-1: 直した記事の ［…］ はアプリにある文字だけで、
   assert.ok(read('src/mainlib.js').includes("'find/page-tree', 'find/database', 'find/page-look'"), 'HELP_ARTICLES に find/database が無い');
   const db = read(fileOf('find/database'));
   for (const id of ['create', 'table', 'views', 'sort-filter', 'columns', 'gone', 'relation', 'subitems', 'inline', 'row', 'keys', 'limits']) assert.ok(db.includes(`{#${id}}`), `find/database に {#${id}} の節が無い`);
-  for (const w of ['［🗃️ データベース］', '［中にデータベースを作る］', '/データベース', '/リンクドビュー', '［＋ 新しい行］', '［列の値を変える ▸］', '［並べ替えを足す］', '［条件を足す］', '［空のグループを隠す］', '［消した列］', '［完全に消す］', '［新しい行を作ってつなぐ］', '［サブアイテム］', '［サブアイテムを足す］', '［ページの行に変える］', '［インラインにする］', '［新しい表から始める］', '[[Alt+→]]', '[[Space]]']) {
+  // 0.17.0 IV-1（画面の文「新しいページ」の項目: 頭の絵文字を外した）で意図して変えた（R11）
+  for (const w of ['［データベース］', '［中にデータベースを作る］', '/データベース', '/リンクドビュー', '［＋ 新しい行］', '［列の値を変える ▸］', '［並べ替えを足す］', '［条件を足す］', '［空のグループを隠す］', '［消した列］', '［完全に消す］', '［新しい行を作ってつなぐ］', '［サブアイテム］', '［サブアイテムを足す］', '［ページの行に変える］', '［インラインにする］', '［新しい表から始める］', '[[Alt+→]]', '[[Space]]']) {
     assert.ok(db.includes(w), `find/database に ${w} が無い`);
   }
   // 直した記事に新しい働き
-  assert.ok(read(fileOf('find/page-tree')).includes('［中にデータベースを作る］') && read(fileOf('find/page-tree')).includes('［🗃️ データベース］'), 'find/page-tree にデータベースを作る道が無い');
+  assert.ok(read(fileOf('find/page-tree')).includes('［中にデータベースを作る］') && read(fileOf('find/page-tree')).includes('［データベース］'), 'find/page-tree にデータベースを作る道が無い');
   assert.ok(read(fileOf('find/page-tree')).includes('データベースの中へページを入れることはできません'), 'find/page-tree にデータベースの中へ入れないことが無い');
   assert.ok(read(fileOf('find/page-tree')).includes('サイドバーと本文の間'), 'find/page-tree にサイドバーと本文の間の引っ張りが無い');
   assert.ok(read(fileOf('start/overview')).includes('](find/database.md)'), 'start/overview から find/database へのリンクが無い');
@@ -1211,7 +1213,8 @@ const DH1_QUOTES = [
   ['find/database', '1回に貼れるのは 2,000 個の値までです。', [['src/renderer/app.html', 'q', '1回に貼れるのは 2,000 個の値までです。']]],
   ['find/database', '1つのページに置けるデータベースの表は 10 までです。', [['src/renderer/app.html', 'q', '1つのページに置けるデータベースの表は 10 までです。']]],
   ['find/database', '新しいページ', [['src/renderer/app.html', 'h', 'newPopHead', '新しいページ']]],
-  ['find/search', '場所: 🗃️ データベース名 ・ ', [['src/renderer/app.html', 't', "場所: 🗃️ ${oneLine(p.dbTitle) || '無題のデータベース'} ・ ${s1.textContent}"]]],
+  // 0.17.0 IV-1（画面の文「場所: 」の後の 🗃️ をデータベースのアイコンの絵に）で意図して変えた: 字は「場所: 」とデータベース名の2つの文字列で作る
+  ['find/search', '場所: データベース名 ・ ', [['src/renderer/app.html', 'q', '場所: '], ['src/renderer/app.html', 't', "${oneLine(p.dbTitle) || '無題のデータベース'} ・ ${s1.textContent}"]]],
   ['find/delete-and-backups', 'このデータベースと行 … 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）', [['src/renderer/app.html', 't', 'このデータベースと行 ${n} 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）']]],
   ['find/delete-and-backups', '行 題名（データベース名）', [['src/renderer/app.html', 't', "行 ${name}（${oneLine(h.dbTitle) || '無題のデータベース'}）"]]],
   ['find/delete-and-backups', 'ほかの行 …', [['src/renderer/app.html', 't', '・ほかの行 ${n}']]],

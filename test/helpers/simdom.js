@@ -259,7 +259,15 @@ class Element {
   }
   getContext() { return canvas2d(this); }
   add(opt) { this.appendChild(opt); }          // select.add()
-  cloneNode() { const c = new Element(this.tagName); Object.assign(c.attributes, this.attributes); return c; }
+  // 0.17.0 IV-1（F185）: deep なら子も写す（名前空間・属性・data-*・文字も）。浅い写しは今までどおり属性だけ
+  cloneNode(deep) {
+    const c = new Element(this.tagName);
+    if (this.namespaceURI) c.namespaceURI = this.namespaceURI;
+    for (const [k, v] of Object.entries(this.attributes)) c.setAttribute(k, v);
+    if (this.tagName === '#text') c._text = this._text;
+    if (deep) for (const n of this.childNodes) c.appendChild(n.cloneNode(true));
+    return c;
+  }
   get scrollTop() { return this._st || 0; } set scrollTop(v) { this._st = v; }
   get scrollHeight() { return 0; }
   get offsetHeight() { return 0; } get clientHeight() { return 0; }

@@ -78,7 +78,13 @@
   .tabitem:hover { background: var(--hover); color: var(--text); }
   .tabitem.active { background: var(--bg); color: var(--text); font-weight: 500; }
   /* タブの頭のアイコンは CSS で足す（textContent は変えない）。記録中のタブは今の「● 記録中」の文のまま */
-  .tabitem[data-key^="page:"] .tt::before { content: attr(data-icon) '\00a0'; }   /* 0.15.0 PL-3（決めたこと 38）: ページのアイコン（data-icon。前は 🎙️ の決まった字） */
+  /* 0.17.0 IV-1（決めたこと 7・19・20）: ページのアイコン（.pgi）。ic: の値は SVG の線の絵で、塗りは currentColor（その所の文字の色）。絵文字は今の大きさのまま。
+     タブの頭のアイコンは .tt の前の .ti の要素（前は CSS の ::before が data-icon を attr で描いていた: attr は文字しか描けない） */
+  .pgi { display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
+  .pgi svg { display: block; flex: none; }
+  .tabitem .ti { flex: none; margin-right: 4px; }
+  .mitem > .pgi { margin-right: 6px; }
+  .pgi.lead { margin-right: 0.3em; }
   .tabitem .tx { background: none; border: none; color: var(--muted); font: inherit; font-weight: 400; line-height: 1;
     padding: 2px 4px; border-radius: 4px; cursor: pointer; flex: none; }
   .tabitem .tx:hover { background: var(--hover); color: var(--text); }
@@ -2637,8 +2643,8 @@
   const hasTab = (k) => openTabs.some((t) => t.key === k);
   // 0.15.0 PL-3: ページのタブのアイコン（一覧の行か開いているページ。無ければ既定）
   function tabIcon(id) {
-    if (rowPages.has(id)) return pageEmoji({ kind: 'row', db: rowPages.get(id) });   // 0.16.0 DV-4: 行のページは 📄
-    return pageEmoji(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null));
+    if (rowPages.has(id)) return pageIconValue({ kind: 'row', db: rowPages.get(id) });   // 0.16.0 DV-4: 行のページは書類（0.17.0 IV-1）
+    return pageIconValue(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null));
   }
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || (rowPages.has(k.slice(5)) ? blankUntitled() : '議事録');   // 0.16.0 DV-4: 無題の行は「無題のページ」
@@ -2669,7 +2675,6 @@
       el.setAttribute('aria-selected', key === activeTab ? 'true' : 'false');
       el.tabIndex = key === reach ? 0 : -1;   // 選んでいるタブだけ Tab で届く（ほかは ←／→）
       const t = document.createElement('span'); t.className = 'tt'; t.textContent = tabLabel(key);
-      if (isPageKey(key)) t.setAttribute('data-icon', tabIcon(key.slice(5)));   // 0.15.0 PL-3（決めたこと 38）: ページのタブの頭のアイコン（CSS の ::before が attr で描く）
       el.title = tabLabel(key);
       const x = document.createElement('button');
       x.type = 'button'; x.className = 'tx'; x.textContent = '×'; x.tabIndex = key === reach ? 0 : -1;   // 選んでいるタブの × だけ Tab で届く
@@ -2683,6 +2688,7 @@
         const t = $('tabbar').querySelector('.tabitem.active') || $('tabbar').querySelector('.tabitem');
         if (t) t.focus();
       };
+      if (isPageKey(key)) { const ti = iconEl(tabIcon(key.slice(5)), ICON_ROW); ti.classList.add('ti'); el.append(ti); }   // 0.17.0 IV-1（決めたこと 20）: タブの頭のアイコンの要素
       el.append(t);
       if (!(key === 'live' && mtWasActive)) el.append(x);   // 記録中のタブは会議の間は閉じない（戻る道が無くなる）
       el.onclick = () => activateTab(key, { fromBar: true });
@@ -2730,12 +2736,12 @@
     let icon = '', title = '';
     if (isPageKey(k)) {
       const id = k.slice(5);
-      icon = pageEmoji(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null));   // 0.15.0 PH-4: 白紙のページは 📄
+      icon = pageIconValue(pages.find((p) => p && p.id === id) || (curPage && curId === id ? curPage : null));   // 0.15.0 PH-4・0.17.0 IV-1: 白紙のページは書類
       title = tabTitles.get(id) || (curPage && curId === id && typeof curPage.title === 'string' ? curPage.title : '') || (rowPages.has(id) ? blankUntitled() : '議事録');   // 0.16.0 DV-4
-    } else if (k === 'live') { icon = '🎙️'; title = readyNow() ? '新しい議事録' : '記録中の会議'; }
+    } else if (k === 'live') { icon = pageIconView.DEFAULT_ICON.meeting; title = readyNow() ? '新しい議事録' : '記録中の会議'; }   // 0.17.0 IV-1（決めたこと 21）: 議事録の既定
     const c = $('crumb');
     renderCrumbPath(isPageKey(k) ? k.slice(5) : '');   // 0.15.0 PH-5（決めたこと 26・H3）: 根から親までの段
-    c.querySelector('.ci').textContent = icon;
+    c.querySelector('.ci').replaceChildren(...(icon ? [iconEl(icon, ICON_ROW)] : []));   // 0.17.0 IV-1: 無いとき（設定など）は空（.ci:empty で隠れる）
     c.querySelector('.ct').textContent = title;
     c.title = title;
     const on = isPageKey(k) && Boolean(curPage) && k.slice(5) === curId;
@@ -2772,8 +2778,8 @@
       if (!up) break;
       mids.unshift(up.id); q = up;
     }
-    names.set(r.db, [pageEmoji(crumbPage(r.db)), oneLine(r.dbTitle) || dbUntitled()]);
-    names.set(r.row, [pageEmoji({ kind: 'row', db: r.db }), oneLine(r.title) || blankUntitled()]);
+    names.set(r.db, [pageIconValue(crumbPage(r.db)), oneLine(r.dbTitle) || dbUntitled()]);
+    names.set(r.row, [pageIconValue({ kind: 'row', db: r.db }), oneLine(r.title) || blankUntitled()]);
     const dbUps = crumbPage(r.db) ? [...crumbUpsOf(r.db, names, depth + 1), r.db] : [];
     return [...dbUps, r.row, ...mids];
   }
@@ -2791,7 +2797,7 @@
     // DV-4: データベースの段の題名は列とビューの答え（db.get）の題名（無題は「無題のデータベース」。一覧の1行の無題の名前は議事録の名前のため）
     const hostInfo = !host ? null : rpSt && rpSt.id === host && rpSt.info ? rpSt.info : dbPageSt() && dbPageSt().id === host && dbPageSt().info ? dbPageSt().info : null;
     const name = (a) => (a === host && hostInfo ? oneLine(hostInfo.title) || dbUntitled() : names.has(a) ? names.get(a)[1] : oneLine(crumbPage(a).title));
-    const icon = (a) => (names.has(a) ? names.get(a)[0] : pageEmoji(crumbPage(a)));
+    const icon = (a) => (names.has(a) ? names.get(a)[0] : pageIconValue(crumbPage(a)));
     crumbNames = new Map([...shown, ...hide].filter(Boolean).map((a) => [a, [icon(a), name(a)]]));   // 「…」の一覧も同じ名前
     const seg = (a) => (a ? [a, icon(a), name(a)] : '');
     const sig = JSON.stringify([shown.map(seg), hide.map(seg)]);
@@ -2808,7 +2814,7 @@
       b.type = 'button';
       if (a) {
         b.className = 'cseg'; b.dataset.crumb = 'up'; b.dataset.pid = a; b.title = name(a);
-        const ic = document.createElement('span'); ic.className = 'csi'; ic.textContent = icon(a);
+        const ic = iconEl(icon(a), ICON_ROW); ic.classList.add('csi');
         const t = document.createElement('span'); t.className = 'cst'; t.textContent = name(a);
         b.append(ic, t);
         b.onclick = () => openPageTab(a);
@@ -2837,7 +2843,7 @@
     crumbMore = { box, btn };
     for (const a of ids) {
       const nm = crumbNames.get(a);   // 0.16.0 R97: 段と同じアイコンと名前（行の段は一覧に無い）
-      if (nm) menuItem(box, `${nm[0]} ${nm[1]}`, () => { closeCrumbMore(); openPageTab(a); });
+      if (nm) menuItem(box, nm[1], () => { closeCrumbMore(); openPageTab(a); }, { icon: nm[0] });   // 0.17.0 IV-1（決めたこと 20）: 頭のアイコンは要素
     }
     box.onkeydown = (ev) => {
       if (imeEnter(ev)) return;
@@ -3710,7 +3716,7 @@
     return { SECTION_DEFAULT, SORTS, SHOW_STEPS, normSections, sectionRows, relTime, stampText, kanaFold, libraryRows, oneLineTitle };
   })();
   // ---- sideSection の写しはここまで
-  // ---- emojiDict の写し（0.15.0 PL-3。src/emojiDict.js の CATS から pageIconOf まで。字は同じで、行の頭に4つの空白を足した。
+  // ---- emojiDict の写し（0.15.0 PL-3。src/emojiDict.js の CATS から findEmoji まで（0.17.0 IV-1: 既定のアイコンと pageIconOf は pageIcons へ移した: R7）。字は同じで、行の頭に4つの空白を足した。
   // 画面は部品を読めないので写す。test/stage150.look.app.test.js が字と答えを照らす。辞書の名前とよみは NaTsu が書いたもの: R68）
   const emojiView = (() => {
     const CATS = Object.freeze([
@@ -4258,9 +4264,6 @@
     })));
     const BY_E = new Set(EMOJI.map((x) => x.e));
 
-    // 既定のアイコン（決めたこと 36。icon が無ければ議事録は 🎙️・白紙のページは 📄。0.16.0 DX-1（前提 P6）: データベースは 🗃️）
-    const DEFAULT_ICON = Object.freeze({ meeting: '🎙️', blank: '📄', database: '🗃️' });
-
     // 辞書の絵文字（ちょうどその1つ）か。書記素が1つでないもの・文・辞書に無い絵文字は偽
     function isPageIcon(v) {
       return typeof v === 'string' && v !== '' && BY_E.has(v);
@@ -4284,14 +4287,7 @@
       }
       return [...head, ...part];
     }
-
-    // 一覧の1行（か、ページ）のアイコン: icon が辞書の絵文字ならそれ、無ければ（'' も辞書に無い値も）kind の既定（決めたこと 36・38）
-    function pageIconOf(entry) {
-      if (entry && isPageIcon(entry.icon)) return entry.icon;
-      if (entry && entry.kind === 'database') return DEFAULT_ICON.database;
-      return entry && entry.kind === 'blank' ? DEFAULT_ICON.blank : DEFAULT_ICON.meeting;
-    }
-    return { CATS, EMOJI, DEFAULT_ICON, isPageIcon, findEmoji, pageIconOf, fold };
+    return { CATS, EMOJI, isPageIcon, findEmoji, fold };
   })();
   // ---- emojiDict の写しはここまで
   // ---- pageIcons の写し（0.17.0 IG-2。src/pageIcons.js の ICON_CATS から iconNameOf まで。字は同じで、行の頭に4つの空白を足した。
@@ -6056,12 +6052,12 @@
       } else if (r.hasKids) {
         // 子のある行は、乗せる・フォーカスでアイコンの所が ▸（開いていれば ▾）になり、押すと開け閉め（決めたこと 18。子の無い行は今と同じ形）
         ic = document.createElement('span'); ic.className = 'pi';
-        const pe = document.createElement('span'); pe.className = 'pe'; pe.textContent = pageEmoji(p);
+        const pe = iconEl(pageIconValue(p), ICON_ROW); pe.classList.add('pe');
         const tw = document.createElement('span'); tw.className = 'tw'; tw.setAttribute('aria-hidden', 'true'); tw.textContent = r.open ? '▾' : '▸';
         ic.append(pe, tw);
         ic.title = r.open ? '閉じる' : '開く';
         ic.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); toggleTreeRow(p.id); };
-      } else { ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p); }   // 0.15.0 PH-4: 白紙のページは 📄
+      } else { ic = iconEl(pageIconValue(p), ICON_ROW); ic.classList.add('pi'); }   // 0.15.0 PH-4・0.17.0 IV-1: 白紙のページは書類
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.title;
       el.append(ic, t);
       if (!listSel.on) {
@@ -6355,7 +6351,7 @@
         tw.textContent = r.open ? '▾' : '▸'; tw.title = r.open ? '閉じる' : '開く';
         tw.onclick = (ev) => { stopEv(ev); toggleLibRow(r.id); };
       }
-      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p);
+      const ic = iconEl(pageIconValue(p), ICON_ROW); ic.classList.add('pi');
       const tx = document.createElement('div'); tx.className = 'lib-tx';
       const tt = document.createElement('span'); tt.className = 't';
       tt.textContent = p.title;
@@ -6532,7 +6528,7 @@
       const p = crumbPage(id);
       const r = document.createElement('div');
       r.className = 'kidrow'; r.tabIndex = 0; r.setAttribute('role', 'link'); r.title = SUB_OPEN_TITLE; r.dataset.pid = id;
-      r.textContent = `${pageEmoji(p)} ${oneLine(p.title)}`;
+      r.replaceChildren(iconLead(pageIconValue(p)), oneLine(p.title));   // 0.17.0 IV-1（決めたこと 20）: アイコンの要素＋題名
       r.onclick = (ev) => openPageTab(id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
       r.onkeydown = (ev) => {
         if (imeEnter(ev)) return;
@@ -6604,7 +6600,7 @@
       el.setAttribute('aria-selected', i === m.at ? 'true' : 'false');
       if (r.id) {
         el.dataset.pid = r.id;
-        const mi = document.createElement('span'); mi.className = 'mvi'; mi.textContent = pageEmoji(crumbPage(r.id));
+        const mi = iconEl(pageIconValue(crumbPage(r.id)), ICON_ROW); mi.classList.add('mvi');
         const mt = document.createElement('span'); mt.className = 'mvt'; mt.textContent = r.title;
         el.append(mi, mt);
         if (r.place) { const pl = document.createElement('span'); pl.className = 'mvp'; pl.textContent = r.place; el.append(pl); }
@@ -6657,10 +6653,10 @@
   // PH-5 直し 2（R56 M-3）: 選んだ後のフォーカス。白紙のページは作ったページの題名（createPageIn）・作れなければ開く前の所（無ければ見出しの［＋］）、
   // 議事録は［＋ 新しい議事録］（サイドバーから開いたときと同じ: F83）
   const NEW_ITEMS = Object.freeze([
-    Object.freeze({ key: 'blank', label: '📄 白紙のページ', busy: () => false, run: async (from) => { if (!(await createPageIn())) focusVisible(from, $('newPageBtn')); } }),
-    Object.freeze({ key: 'meeting', label: '🎙️ 議事録（録音の前のページ）', busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: async () => { await openReady(); focusVisible($('mtToggleBtn')); } }),
+    Object.freeze({ key: 'blank', label: '白紙のページ', icon: pageIconView.DEFAULT_ICON.blank, busy: () => false, run: async (from) => { if (!(await createPageIn())) focusVisible(from, $('newPageBtn')); } }),
+    Object.freeze({ key: 'meeting', label: '議事録（録音の前のページ）', icon: pageIconView.DEFAULT_ICON.meeting, busy: () => Boolean(mtSt && (mtSt.active || mtSt.finalizing)), run: async () => { await openReady(); focusVisible($('mtToggleBtn')); } }),
     // 0.16.0 DX-1（決めたこと 43）: 最上位にデータベースを作って開き、題名にフォーカス（作れなければ開く前の所）
-    Object.freeze({ key: 'database', label: '🗃️ データベース', busy: () => false, run: async (from) => { if (!(await createPageIn(undefined, undefined, true))) focusVisible(from, $('newPageBtn')); } }),
+    Object.freeze({ key: 'database', label: 'データベース', icon: pageIconView.DEFAULT_ICON.database, busy: () => false, run: async (from) => { if (!(await createPageIn(undefined, undefined, true))) focusVisible(from, $('newPageBtn')); } }),
   ]);
   // PH-5 直し 4（R62 M-2）: 窓の中の mousedown の既定を止めてフォーカスを残すか。左のボタンだけ（中クリックの自動の捲りを止めない）で、
   // keep（探す欄・捲る候補の箱そのもの（捲り棒）・後ろの全面）を押したときは止めない
@@ -6701,7 +6697,7 @@
     list.textContent = '';
     for (const it of NEW_ITEMS) {
       const off = it.busy() ? NEW_BUSY : '';
-      const b = menuItem(list, it.label, () => { const from = newPopFrom; closeNewPop(false); it.run(from); }, { key: it.key, off });
+      const b = menuItem(list, it.label, () => { const from = newPopFrom; closeNewPop(false); it.run(from); }, { key: it.key, off, icon: it.icon });   // 0.17.0 IV-1（決めたこと 20）: 名前の前にアイコンの要素
       if (off) { const n = document.createElement('span'); n.className = 'npnote'; n.textContent = off; b.append(n); }
     }
     const items = menuItems(list);
@@ -7004,7 +7000,7 @@
     for (const p of hits) {
       const el = document.createElement('div');
       el.className = 'pitem' + (p.id === curId ? ' sel' : '');
-      const ic = document.createElement('span'); ic.className = 'pi'; ic.textContent = pageEmoji(p);   // 0.15.0 PL-3（決めたこと 33・38）: ページのアイコン
+      const ic = iconEl(pageIconValue(p), ICON_ROW); ic.classList.add('pi');   // 0.15.0 PL-3（決めたこと 33・38）: ページのアイコン
       const pb = document.createElement('div'); pb.className = 'pb';
       const t = document.createElement('div'); t.className = 't'; t.textContent = isRowPage(p) ? oneLine(p.title) || blankUntitled() : p.title;   // 0.16.0 DX-2: 無題の行は「無題のページ」
       const m = document.createElement('div'); m.className = 'm';
@@ -7015,7 +7011,8 @@
       const place = searchPlace(p.id);
       if (place) s1.textContent = `場所: ${place} ・ ${s1.textContent}`;
       // 0.16.0 DX-2（決めたこと 46）: データベースの行は「場所: 🗃️ データベース名 ・ 」（無題は「無題のデータベース」）
-      else if (isRowPage(p)) s1.textContent = `場所: 🗃️ ${oneLine(p.dbTitle) || '無題のデータベース'} ・ ${s1.textContent}`;
+      // 0.17.0 IV-1（決めたこと 20・画面の文）: 「場所: 」の後の 🗃️ をデータベースのアイコンの絵に（字は「場所: <データベース名> ・ 」のまま）
+      else if (isRowPage(p)) s1.replaceChildren('場所: ', iconLead(pageIconValue(crumbPage(p.db) || { kind: 'database' })), `${oneLine(p.dbTitle) || '無題のデータベース'} ・ ${s1.textContent}`);
       m.appendChild(s1);
       pb.append(t, m);
       if (p.snippet) {
@@ -7229,8 +7226,47 @@
   // 本文を白紙のページの部品で書くページ（白紙のページとデータベースの行）
   function isBodyPage(p) { return isBlankPage(p) || isRowPage(p); }
   // 0.15.0 PL-3（決めたこと 36・38）: どこのアイコンも一覧の1行（かページ）の icon と kind から pageIconOf の1つで決める（辞書に無い値・無い値は既定）
-  // 0.16.0 DV-4（R92）: データベースの行のページは 📄（アイコンは選べない）
-  function pageEmoji(p) { return emojiView.pageIconOf(isRowPage(p) ? { kind: 'blank' } : p); }
+  // 0.16.0 DV-4（R92）: データベースの行のページは書類（アイコンは選べない）
+  // 0.17.0 IV-1（決めたこと 3・4・19）: 値は ic:<名前> か絵文字（pageIconView.pageIconOf）。描くのは iconEl の1つ
+  function pageIconValue(p) { return pageIconView.pageIconOf(isRowPage(p) ? { kind: 'row' } : p); }
+  // 0.17.0 IV-1（決めたこと 7・19・F181・F186）: アイコンの値を描く1つの部品 → <span class="pgi" data-icon="値" aria-hidden="true">。ic: の値は SVG の名前空間で
+  // <svg>（viewBox は表の値・塗りは currentColor・大きさは size・focusable="false"）と <path> を組む。同じ名前と大きさの <svg> は1回だけ組み、2回目からは
+  // cloneNode(true) で写す（2,000 行のサイドバーで組み直さない）。id を持つ要素は作らない。絵文字（と表に無い値）は textContent。innerHTML は使わない
+  const ICON_ROW = 16;    // 行・タブ・パンくず・検索・窓の中（デジタル庁の手引きの 8 の倍数）
+  const ICON_HEAD = 64;   // ページの頭（今の絵文字の 64px と同じ枠）
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const iconSvgs = new Map();   // '<名前>/<大きさ>' → 組んだ <svg>（写しの元。画面には置かない）
+  function iconEl(value, size = ICON_ROW) {
+    const v = typeof value === 'string' ? value : '';
+    const el = document.createElement('span');
+    el.className = 'pgi';
+    el.setAttribute('data-icon', v);
+    el.setAttribute('aria-hidden', 'true');
+    const x = pageIconView.isIconId(v) ? pageIconPaths.icons[v.slice(3)] : null;
+    if (!x) { el.textContent = v; return el; }
+    const key = `${v.slice(3)}/${size}`;
+    let svg = iconSvgs.get(key);
+    if (!svg) {
+      svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('viewBox', x.vb);
+      svg.setAttribute('width', String(size));
+      svg.setAttribute('height', String(size));
+      svg.setAttribute('fill', 'currentColor');
+      svg.setAttribute('focusable', 'false');
+      svg.setAttribute('aria-hidden', 'true');
+      for (const [d, evenodd] of x.p) {
+        const path = document.createElementNS(SVG_NS, 'path');
+        path.setAttribute('d', d);
+        if (evenodd) path.setAttribute('fill-rule', 'evenodd');
+        svg.appendChild(path);
+      }
+      iconSvgs.set(key, svg);
+    }
+    el.appendChild(svg.cloneNode(true));
+    return el;
+  }
+  // 文の頭のアイコン（後ろに少し空ける。前は「絵文字 + 空白 + 文」の1つの字だった所: 決めたこと 20）
+  function iconLead(value) { const el = iconEl(value, ICON_ROW); el.classList.add('lead'); return el; }
   function blankUntitled() { return '無題のページ'; }   // 無題の白紙のページの名前と題名の欄の手引き（議事録の「(無題の議事録)」は変えない）
   // 0.10.0 LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵。src/mainlib.js の summaryLock の写し（repo が同じ表を両方に当てる）。
   // 上から順に見て、最初に当たった行の符号（鍵なしは ''）。making は画面の［要約を生成］の最中と、main が知らせる自動の要約の最中
@@ -7367,7 +7403,7 @@
     // 0.16.0 DV-1（決めたこと 1・50）: データベースのページは頭（アイコンと題名）と表だけ（会議の種類の行・プロパティ・3つのタブ・［要約を生成］を出さない）
     const dbp = isDbPage(curPage);
     $('pageWrap').classList.toggle('db', dbp);
-    $('pIcon').textContent = pageEmoji(curPage);
+    $('pIcon').replaceChildren(iconEl(pageIconValue(curPage), ICON_HEAD));   // 0.17.0 IV-1: ページの頭のアイコン（64）
     applyLook(curPage);   // 0.15.0 PL-3（決めたこと 41）: ページを替えたら前のページの見た目を外す
     syncIconBtn();
     if (blank) $('pTitle').setAttribute('data-ph', blankUntitled()); else if (dbp) $('pTitle').setAttribute('data-ph', dbUntitled()); else $('pTitle').removeAttribute('data-ph');
@@ -7566,7 +7602,8 @@
       const t = document.createElement('div'); t.className = 'tpt';
       const isRow = isRowPage(h);   // 0.16.0 DX-2（決めたこと 44）: 行のまとまり（頭の行）
       const name = oneLine(h.title) || (isBlankPage(h) || isRow ? blankUntitled() : '(無題の議事録)');
-      t.textContent = isRow ? `行 ${name}（${oneLine(h.dbTitle) || '無題のデータベース'}）` : `${pageEmoji(h)} ${name}`;
+      if (isRow) t.textContent = `行 ${name}（${oneLine(h.dbTitle) || '無題のデータベース'}）`;
+      else t.replaceChildren(iconLead(pageIconValue(h)), name);   // 0.17.0 IV-1（決めたこと 20）: アイコンの要素＋名前
       const m = document.createElement('div'); m.className = 'tpm';
       const n = Number(h.count) || 0;
       m.textContent = `${trashTime(h.trashedAt)}${n > 0 ? (isRow ? `・ほかの行 ${n}` : `・中のページ ${n}`) : ''}`;
@@ -7717,7 +7754,7 @@
     if (e) { iconRecent = [e, ...iconRecent.filter((x) => x !== e)].slice(0, ICON_RECENT_MAX); saveUi({ emojiRecent: iconRecent }); }
     if (curId === id && curPage) {
       if (typeof r.icon === 'string' && r.icon) curPage.icon = r.icon; else delete curPage.icon;
-      $('pIcon').textContent = pageEmoji(curPage);
+      $('pIcon').replaceChildren(iconEl(pageIconValue(curPage), ICON_HEAD));
     }
     await refreshList();   // renderList がタブも描き直す（タブの頭のアイコン）
   }
@@ -11337,7 +11374,8 @@
     wrap.className = 'dbhost';
     const head = document.createElement('div');
     head.className = 'dbhead';
-    const ic = document.createElement('span'); ic.className = 'dbicon'; ic.setAttribute('aria-hidden', 'true'); ic.textContent = '🗃️';
+    // 0.17.0 IV-1（決めたこと 21・IR6）: 頭はそのデータベースのアイコン（選んでいなければ表のアイコン。前は決め打ちの 🗃️）
+    const ic = iconEl(pageIconValue(crumbPage(db) || { kind: 'database' }), ICON_ROW); ic.classList.add('dbicon');
     const title = document.createElement('input');
     title.type = 'text'; title.className = 'dbtitle';
     title.setAttribute('placeholder', dbUntitled()); title.setAttribute('aria-label', DB_TITLE_LABEL);
@@ -11668,7 +11706,7 @@
     ck.setAttribute('aria-label', dbRowName(row));
     ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = dbAllOn(st); };
     lead.append(grip, ck);
-    if (list) { const ic = document.createElement('span'); ic.className = 'dbicon'; ic.setAttribute('aria-hidden', 'true'); ic.textContent = '📄'; lead.appendChild(ic); }
+    if (list) { const ic = iconEl(pageIconValue({ kind: 'row' }), ICON_ROW); ic.classList.add('dbicon'); lead.appendChild(ic); }   // 0.17.0 IV-1（決めたこと 21）: 行のページの既定（書類）
     el.appendChild(lead);
     for (const c of cols) {
       const cell = document.createElement('div');
@@ -12393,7 +12431,9 @@
   const DB_SUB_ADD = 'サブアイテムを足す';
   const DB_SUB_LOOP = 'その行の中へは入れられません';
   const dbRelCol = (col) => Boolean(col && col.type === 'rel' && !col.gone);
-  const dbRelName = (r) => `${r && typeof r.icon === 'string' && r.icon ? r.icon : '📄'} ${oneLine(r && r.title) || blankUntitled()}`;
+  // 0.17.0 IV-1（決めたこと 21）: 相手の行の名前（字だけ）と、頭のアイコンの値（行のページの既定: 書類。前は決め打ちの 📄）
+  const dbRelName = (r) => oneLine(r && r.title) || blankUntitled();
+  const dbRelIcon = (r) => (r && pageIconView.isPageIconValue(r.icon) ? r.icon : pageIconValue({ kind: 'row' }));
   // サブアイテムの列（親アイテム・サブアイテム）か
   const dbSubCol = (info, colId) => Boolean(info && info.sub && (info.sub.parent === colId || info.sub.kids === colId));
   // セルの「📄 題名」の並び（rel: 相手の行の ID → { title, icon? }。無い行は出さない）。押すと相手の行を開く（Ctrl+クリックで新しいタブ）
@@ -12402,7 +12442,7 @@
       const r = rel && Object.hasOwn(rel, id) ? rel[id] : null;
       if (!r) continue;
       const a = document.createElement('span');
-      a.className = 'dbrel'; a.textContent = dbRelName(r);
+      a.className = 'dbrel'; a.replaceChildren(iconLead(dbRelIcon(r)), dbRelName(r));
       a.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbEditEnd(false); openPageTab(id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) }); };
       host.appendChild(a);
     }
@@ -12447,6 +12487,7 @@
       list.textContent = '';
       for (const r of found) {
         mk('dbopt', dbRelName(r), val.includes(r.id), () => pick(r.id));
+        list.lastChild.prepend(iconLead(dbRelIcon(r)));   // 0.17.0 IV-1: 選びの窓の行も頭にアイコンの要素
         // 0.16.0 DL-1 (3)（決めたこと 35・R104 (3)・MQ1）: 行の Ctrl+Enter はその行のページを今のタブに開く（つなぐ・外すはしない。窓は閉じ、セルは変わらない）
         const b = list.lastChild; const k0 = b.onkeydown;
         b.onkeydown = (ev) => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && !imeEnter(ev)) { ev.preventDefault(); ev.stopPropagation(); close('stay'); openPageTab(r.id); return; } k0(ev); };   // rv53 軽い 3（R120）: 開いた所の閉じ方で（行のページの窓も）
@@ -15063,6 +15104,7 @@
   function menuItem(list, label, run, o = {}) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.textContent = label;
+    if (o.icon) b.prepend(iconEl(o.icon, ICON_ROW));   // 0.17.0 IV-1（決めたこと 20）: 頭のアイコンの要素（読み上げの名前は字だけ: aria-hidden）
     b.tabIndex = -1;
     if (o.key) b.dataset.key = o.key;
     if (o.sub) b.setAttribute('aria-haspopup', 'menu');
@@ -15286,7 +15328,8 @@
   function paintSubRow(el) {
     const txt = el._txt; const p = subPageOf(el._b);
     el.classList.toggle('gone', !p);
-    txt.textContent = p ? `${pageEmoji(p)} ${oneLine(p.title)}` : SUB_GONE;
+    if (p) txt.replaceChildren(iconLead(pageIconValue(p)), oneLine(p.title));   // 0.17.0 IV-1（決めたこと 20）: アイコンの要素＋題名
+    else txt.textContent = SUB_GONE;
     txt.title = p ? SUB_OPEN_TITLE : '';
     if (p) txt.removeAttribute('aria-disabled'); else txt.setAttribute('aria-disabled', 'true');
   }
@@ -15422,7 +15465,7 @@
       const p = pages.find((x) => x && x.id === id);
       const r = document.createElement('div');
       r.className = 'kidrow'; r.tabIndex = 0; r.setAttribute('role', 'link'); r.title = SUB_KID_TITLE;
-      r.textContent = `${pageEmoji(p)} ${oneLine(p.title)}`;
+      r.replaceChildren(iconLead(pageIconValue(p)), oneLine(p.title));   // 0.17.0 IV-1（決めたこと 20）: アイコンの要素＋題名
       r.onclick = (ev) => openPageTab(id, { newTab: Boolean(ev && (ev.ctrlKey || ev.metaKey)) });
       r.onkeydown = (ev) => {
         if (imeEnter(ev)) return;

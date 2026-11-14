@@ -127,6 +127,8 @@ async function load(htmlPath, opt = {}) {
       return null;
     },
     createElement(tag) { const e = new Element(String(tag).toLowerCase()); log.created.push(e); return e; },
+    // 0.17.0 IV-1（F185）: 名前空間を持つ要素（SVG のアイコン）。名前は大小をそのまま（svg・path）。作った数は log.createdNS で数える（F186: 2回目からは写す）
+    createElementNS(ns, tag) { const e = new Element(String(tag)); e.namespaceURI = String(ns); (log.createdNS = log.createdNS || []).push(e); return e; },
     createTextNode: (s) => textNode(s),
     createDocumentFragment: () => new Element('#fragment'),
     querySelector: (s) => root.querySelector(s),
