@@ -1,0 +1,47 @@
+NaTsu のページのアイコンの出典
+
+ページのアイコンの一部は、デジタル庁の『イラストレーション・アイコン素材』（https://www.digital.go.jp/policies/servicedesign/designsystem/Illustration_Icons ）を元に、NaTsu が色を文字の色に合わせ、使わない切り抜きの指定を外し、日本語の名前を付けて使っています。デジタル庁がこのアプリを作ったり、確かめたりしたものではありません。
+
+ほかのアイコンは、Google の Material Symbols（https://github.com/google/material-design-icons 。Apache License 2.0）を元に、NaTsu が色を文字の色に合わせて使っています。
+
+[デジタル庁]
+イラストレーション・アイコン素材: https://www.digital.go.jp/policies/servicedesign/designsystem/Illustration_Icons
+利用規約: https://www.digital.go.jp/policies/servicedesign/designsystem/Illustration_Icons/terms_of_use
+元の絵: designsystem-assets.zip の icon/svg/<名前>_line.svg
+アイコン:
+certification_with_seal, application, documents, fillable_card, invoice,
+work, laws, stamp, certification, e_application, seal_certificate,
+privacy_protection, me, family, specialist, child, mother_and_child,
+fast_track, history, money, bank_account, income, expenditure, tax, pension,
+attention, complete, help, information, notification, public_offering,
+health, authentication, password, transactions, personal_computer,
+smartphone, printer, inbox, code_reader, mailing, house, itinerary,
+municipality, arrival, departure, luggage, immunization, medicine, add,
+arrow_up, arrow_down, arrow_left, arrow_right, copy, download, menu,
+new_window, search, update
+
+[Material Symbols]
+リポジトリ: https://github.com/google/material-design-icons （commit 10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7）
+元の絵: symbols/web/<名前>/materialsymbolsoutlined/<名前>_wght300_24px.svg（Outlined・線の太さ 300）
+ライセンス: Apache License 2.0（全文はこのフォルダの Apache-2.0.txt）
+アイコン:
+draft, article, note_stack, sticky_note_2, edit_note, checklist, task_alt,
+assignment, inventory_2, table_chart, database, view_kanban,
+format_list_bulleted, summarize, menu_book, book, bookmark, label, sell,
+push_pin, attach_file, link, translate, dashboard, category, widgets,
+extension, work_history, home_work, quiz, feedback, mic, record_voice_over,
+groups, group, diversity_3, handshake, forum, chat, co_present, school,
+support_agent, badge, waving_hand, psychology, calendar_month, event,
+event_repeat, today, date_range, schedule, alarm, timer, hourglass_empty,
+bar_chart, pie_chart, trending_up, monitoring, analytics, query_stats,
+insights, science, payments, receipt_long, shopping_cart, storefront,
+account_balance, savings, credit_card, calculate, star, thumb_up, verified,
+new_releases, emoji_events, celebration, campaign, flag_circle, target,
+lightbulb, tips_and_updates, auto_awesome, rocket_launch, bolt, key,
+laptop_windows, call, videocam, headphones, photo_camera, send, inbox_text,
+image, movie, music_note, code, terminal, bug_report, build, construction,
+design_services, palette, brush, apartment, corporate_fare, meeting_room,
+location_on, map, public, language, directions_car, train, directions_bus,
+directions_walk, restaurant, coffee, local_hospital, eco, park,
+local_florist, pets, sunny, cloud, water_drop, recycling, sports_soccer,
+fitness_center, settings, delete, library_books

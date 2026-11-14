@@ -1291,7 +1291,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 4593307e…）
   // 0.16.0 直し（R129。rv57）: データベースのメニュー・窓・選びの窓の幅を中身の幅に（CSS）・置いた所と高さの上限を付けた後に測り直す・開いた側のまま置き直す・
   // ［列の値を変える ▸］と行のページの選びの窓も置く・長い名前の項目の「…」と吹き出し。変わる画面はデータベースの画面（NEW_160・RETAKE）。値を今の app.html に合わせた（前の値は 1b2a32c7…）
-  assert.strictEqual(sha, 'ccdf035eb265894f77664e2db63bfd19a0ee85e5114ed3d5ec4f9f6fa9f8a2b8',
+  // 0.17.0 IG-1: ページのアイコンの絵の表の写し（pageIconPaths。tools/page-icons.js が書く）を <script> の中だけに足した（まだ使わないので見た目は変わらない）。
+  // 値を今の app.html に合わせた（前の値は ccdf035e…）
+  assert.strictEqual(sha, '2544b6df1edb1b2a450010caa4d222d1f8757f680339f792c0cbcaa4fa8f9022',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

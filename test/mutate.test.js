@@ -1654,3 +1654,39 @@ test('G3・0.15.1: GONE_151 の変異は一覧にも、どの版の IDS にも�
   assert.deepStrictEqual([...inTable].sort(), [...GONE_151].sort(), 'GONE_151 が計画の「前の版の変異の片付け」の表とちょうど同じでない');
   assert.strictEqual(GONE_151.length, 70);
 });
+// 0.17.0（計画 docs/plans/2026-11-13-170.md の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc- の表）: アイコンの表と照らし（ig-）・アイコンの画面（iv-）・
+// ページをデータベースにする（pd-）・サイドバーのビューの行（sw-）・議事録をデータベースに（mg-）・タスク（tk-）・行のテンプレート（rt-）・データベースのロック（lc-）。
+// タスクを作るたびに、作ったタスクの行を表の行の順で足す（R1: 作っている間は「表の行の順に並んだ一部」。全部がそろったら表とちょうど同じかを見る）
+const IDS_170 = [
+  // 0.17.0 IG-1 で作った行（表の行の順に）
+  'ig-tool-clip', 'ig-tool-color', 'ig-tool-evenodd', 'ig-tool-viewbox', 'ig-tool-unknown', 'ig-tool-regen', 'ig-tool-sha', 'ig-dg-first', 'ig-notice-list',
+];
+const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
+function planRows170() {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-13-170.md'), 'utf8');
+  const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異の表」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  return [...table.matchAll(/^\| ((?:ig|iv|pd|sw|mg|tk|rt|lc)-[A-Za-z0-9-]*) \|/gm)].map((m) => m[1]);   // ig-setIcon-icon は大文字を含む
+}
+test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc- の行の順に並んだ一部（R1）。その頭の変異は IDS_170 にある。どれも決まったテストのファイルを持ち、why が 0.17.0 で始まる', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_170.filter((id) => !byId.has(id)), [], 'IDS_170 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
+  const rows = planRows170();
+  assert.strictEqual(rows.length, 133, '計画の 0.17.0 の表（ig- 25・iv- 30・pd- 17・sw- 12・mg- 25・tk- 11・rt- 8・lc- 5）が読めない');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
+  assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');
+  // 前の版の頭の照らしに当たらない・前の版の IDS に 0.17.0 の頭が無い
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/, /^(nd|ps|lb|gv)-/, /^(mt|qm|v|v5)-/, /^i-/, /^rv-/]) {
+    assert.deepStrictEqual(IDS_170.filter((id) => re.test(id)), [], `${re} に当たる 0.17.0 の id`);
+  }
+  for (const ids of [IDS_132, IDS_140, IDS_150, IDS_151, IDS_160]) assert.deepStrictEqual(ids.filter((id) => PREFIX_170.test(id)), [], '前の版の IDS に 0.17.0 の頭');
+  for (const id of IDS_170) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.17.0 '), `${id}: why`);
+  }
+});
