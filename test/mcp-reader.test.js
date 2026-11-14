@@ -27,7 +27,7 @@ test('MR3: 道具の呼び出しの前後で natsu.db のバイトが同じ（SH
   const m = mcpDb({ only: ['plain1', 'plain2'] });
   try {
     const before = sha(m.file);
-    const r = reader.withReader({ sqlite, dataDir: m.dataDir }, (db) => commands.listPages(db).map((e) => commands.readPage(db, e.id).title));
+    const r = reader.withReader({ sqlite, dataDir: m.dataDir }, (db) => commands.listPages(db).filter((e) => e.kind !== 'database').map((e) => commands.readPage(db, e.id).title));   // （0.17.0 MG-2 で意図して変えた: 計画 docs/plans/2026-11-13-170.md の R40。締めと起動が「議事録」データベースを作るので、会議を数える所はデータベースのページを除く）
     assert.deepStrictEqual(r, { ok: true, value: [TITLES.plain2, TITLES.plain1] });
     assert.strictEqual(sha(m.file), before);
   } finally { m.done(); }

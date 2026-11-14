@@ -28,7 +28,7 @@ test('ST6: 会議 — begin の写しは一覧に出ない・segment は (page_i
     assert.deepStrictEqual([f1.ok, f1.dup], [true, undefined], 'app の同じ tx を main の送り直しとみなした');
     const f2 = fin('meeting:1760000000000');
     assert.deepStrictEqual([f2.dup, f2.result.id], [true, 'pm1'], '送り直しの答えにページが無い');
-    assert.deepStrictEqual(call(db, 'pages.list', {}).result.map((p) => p.id).sort(), ['pa0', 'pm1']);
+    assert.deepStrictEqual(call(db, 'pages.list', {}).result.filter((p) => p.kind !== 'database').map((p) => p.id).sort(), ['pa0', 'pm1']);   // （0.17.0 MG-2 で意図して変えた: 計画 docs/plans/2026-11-13-170.md の R40。締めと起動が「議事録」データベースを作るので、会議を数える所はデータベースのページを除く）
     assert.strictEqual(db.prepare("select count(*) c from segments where page_id='pm1'").get().c, 1);
     // 締めの後に送り直しの begin・segment が届いても、写しに戻さない
     call(db, 'meeting.begin', { pageId: 'pm1', startedAt: 1760000000000, localOnly: false });

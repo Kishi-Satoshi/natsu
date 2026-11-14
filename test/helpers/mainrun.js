@@ -2400,7 +2400,9 @@ process.on('exit', () => {
     }
   };
   const dbView = {
-    listPages: () => peekDb((h) => h.listPages(), []),
+    // 0.17.0 MG-2（計画 docs/plans/2026-11-13-170.md の決めたこと 47）: 起動のたびに「議事録」データベースができる（初めての起動で作る）。場面の議事録の読みは
+    // 今の JSON の store.listPages と同じ会議と白紙のページの一覧なので、データベースのページは数えない（場面はデータベースを作らない）
+    listPages: () => peekDb((h) => h.listPages().filter((p) => p.kind !== 'database'), []),
     getPage: (id) => peekDb((h) => h.getPage(id), null),
     getTranscript: (id) => peekDb((h) => h.getTranscript(id), []),
     rawPage: (id) => peekDb((h) => h.rawPage(id), null),   // 0.11.0 Q-3: DB の行の attrs（DB が作る欄 qualityView が書かれていないか）

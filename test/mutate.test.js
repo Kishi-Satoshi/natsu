@@ -1679,6 +1679,9 @@ const IDS_170 = [
   'sw-mark', 'sw-focus-gone',
   // 0.17.0 MG-1 で作った行（表の行の順に）
   'mg-rows-pages', 'mg-rows-trash', 'mg-col-readonly', 'mg-sum-preview', 'mg-creator-me', 'mg-put-keep-cells', 'mg-rel-find',
+  // 0.17.0 MG-2 で作った行（表の行の順に。mg-mcp-same は MG-3 の行を前倒しした: R40）
+  'mg-gather-one-tx', 'mg-gather-snapshot', 'mg-gather-once', 'mg-gather-keep-body', 'mg-gather-skip-bad', 'mg-keep-nested', 'mg-page-not-row', 'mg-sweep',
+  'mg-finalize-place', 'mg-live-out', 'mg-role-one', 'mg-mcp-same',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
 function planRows170() {

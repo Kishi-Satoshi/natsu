@@ -169,3 +169,286 @@ test('MG-1（決めたこと 58）: 0.16.0 の dbView・dbModel（0a6a375 を写
   // 列そのもの（attrs.cols）は 0.16.0 の照らしで消えない（知らない種類の列は照らしに通らないだけで、並びの中に残る）
   assert.deepStrictEqual(MIN_COLS.filter((c) => !M160.colOk(c)).map((c) => c.id), ['c1', 'c4']);
 });
+
+// ---------------------------------------------------------------- MG-2（決めたこと 45〜49・58・59・F193〜F195・F203）: 移し替えと見回りと録音の置き場
+const fs = require('node:fs');
+const sqlite = require('node:sqlite');
+const { MessageChannel } = require('node:worker_threads');
+const { samplePage, tmpData, electronShape } = require('./helpers/dbtmp');
+const { startServer } = require('../src/db/server');
+const { applyOps } = require('../src/db/ops');
+const PT160 = require(path.join(__dirname, 'fixtures', 'v160', 'pageTree.js'));
+// 0.16.0 までに締めた議事録（移す前の形: 最上位・親なし）。種は putPageRows（oplog を書かない: 0.16.0 の DB にもともとある行）
+function oldMeeting(t, id, i) {
+  const at = new Date(Date.parse('2026-10-01T01:00:00.000Z') + i * 3600000 * 7).toISOString();
+  const { page, segments } = samplePage(id);
+  page.title = titleAt(at); page.createdAt = at; page.updatedAt = at; page.date = at.slice(0, 10);
+  for (const b of page.blocks) b.id = `${id}${b.id}`;
+  t.seed(page, segments.map((s) => ({ ...s, id: `${id}${s.id}` })));
+  return id;
+}
+const gather = (db, args = { first: true }) => call(db, 'minutes.gather', args, 'main');
+const listOf = (db) => ok(call(db, 'pages.list', {}), 'pages.list').result;
+const minutesDbs = (db) => db.prepare("select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, 'minutes') > 0").all()
+  .filter((r) => { try { return JSON.parse(r.attrs).role === 'minutes'; } catch (_) { return false; } }).map((r) => r.id);
+const metaOf = (db, key) => { const r = db.prepare('select value from meta where key = ?').get(key); return r ? r.value : undefined; };
+const pageCols = (db, id) => { const r = db.prepare('select * from blocks where id = ?').get(id); const { rid, parent_id: _p, ord: _o, rev: _r, ...rest } = r; return rest; };   // eslint-disable-line no-unused-vars
+const bodyOf = (db, id) => ({
+  blocks: db.prepare('select * from blocks where page_id = ? and id <> ? order by id').all(id, id).map((r) => ({ ...r, rid: undefined })),
+  segs: db.prepare('select * from segments where page_id = ? order by n').all(id).map((r) => ({ ...r })),
+});
+
+test('MG-2・F193: 移し替え（最上位の締めた議事録 300 だけが「議事録」データベースの子になり、並びの鍵は日時の順・ほかの欄は1字も同じ・oplog の1行（actor system）・meta に数。ページの中の議事録・ゴミ箱・録音中の写し・白紙のページ・データベースはそのまま）', { timeout: 120000 }, () => withDb((db, t) => {
+  const ids = []; for (let i = 0; i < 300; i += 1) ids.push(oldMeeting(t, `pq${String(i).padStart(3, '0')}`, (i * 37) % 300));
+  const blank = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  const nested = oldMeeting(t, 'pn1', 400); under(db, nested, blank, 'a5');
+  const gone = oldMeeting(t, 'pg1', 401); ok(call(db, 'page.delete', { id: gone }), 'page.delete');
+  call(db, 'meeting.begin', { pageId: 'pl1', startedAt: Date.parse('2026-11-14T00:00:00.000Z'), localOnly: false }, 'main');
+  const otherDb = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const before = new Map([...ids, nested, gone, blank, otherDb, 'pl1'].map((id) => [id, { cols: pageCols(db, id), body: bodyOf(db, id), place: { ...db.prepare('select parent_id, ord from blocks where id = ?').get(id) } }]));
+  const seq0 = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
+  const r = ok(gather(db), 'minutes.gather');
+  assert.deepStrictEqual({ ...r.result, db: undefined }, { moved: 300, skipped: 0, created: true, db: undefined });
+  const dbs = minutesDbs(db);
+  assert.strictEqual(dbs.length, 1, '「議事録」データベースが1つでない');
+  const M = dbs[0];
+  assert.strictEqual(r.result.db, M);
+  const m = attrsOf(db, M);
+  assert.deepStrictEqual([db.prepare('select text, parent_id from blocks where id = ?').get(M).text, db.prepare('select parent_id from blocks where id = ?').get(M).parent_id, m.kind, m.role, m.locked],
+    ['議事録', null, 'database', 'minutes', true], '「議事録」データベースの形');
+  assert.deepStrictEqual(m.cols.map((c) => [c.name, c.type]), [['名前', 'title'], ['日付', 'mdate'], ['作成者', 'cby'], ['参加者', 'person'], ['要約', 'msum']], '列（決めたこと 50）');
+  assert.deepStrictEqual(m.views.map((v) => [v.name, v.layout, v.sort]), [['すべて', 'table', [{ col: m.cols[1].id, dir: 'desc' }]]], 'ビュー（決めたこと 51）');
+  // 移したのは最上位の議事録だけ。並びの鍵は日時の順。ほかの欄（本文・発言・要約・メモ・出典・会議の状態・作った日時と直した日時）は1字も同じ
+  const kids = db.prepare("select id, ord from blocks where parent_id = ? and type = 'page'").all(M);
+  assert.deepStrictEqual(kids.map((k) => k.id).sort(), [...ids].sort());
+  const byTime = [...ids].sort((a, b) => { const x = attrsOf(db, a); const y = attrsOf(db, b); return `${x.date} ${db.prepare('select created_at from blocks where id = ?').get(a).created_at}` < `${y.date} ${db.prepare('select created_at from blocks where id = ?').get(b).created_at}` ? -1 : 1; });
+  assert.deepStrictEqual([...kids].sort((a, b) => (a.ord < b.ord ? -1 : 1)).map((k) => k.id), byTime, '並びの鍵が日時の順でない');
+  for (const [id, w] of before) {
+    assert.deepStrictEqual(pageCols(db, id), w.cols, `${id} の欄が変わった`);
+    assert.deepStrictEqual(bodyOf(db, id), w.body, `${id} の本文・発言が変わった`);
+    if (!ids.includes(id)) assert.deepStrictEqual({ ...db.prepare('select parent_id, ord from blocks where id = ?').get(id) }, w.place, `${id} を動かした`);
+  }
+  // oplog の1行（actor system・action minutes.gather）が、前の値つきの move を全部持つ
+  const logs = db.prepare('select actor, action, ops from oplog where seq > ?').all(seq0);
+  assert.deepStrictEqual(logs.map((x) => [x.actor, x.action]), [['system', 'minutes.gather']]);
+  const moves = JSON.parse(logs[0].ops).filter((o) => o.op === 'move');
+  assert.deepStrictEqual(moves.map((o) => o.id).sort(), [...ids].sort());
+  assert.ok(moves.every((o) => o.parent === M && o.oldParent === null && typeof o.old === 'string'), '前の値の無い move');
+  // meta: 「議事録」データベースの ID と、移した数と日時
+  assert.strictEqual(metaOf(db, 'minutes.db'), M);
+  assert.deepStrictEqual(JSON.parse(metaOf(db, 'minutes.gathered')), { n: 300, at: new Date(clock).toISOString() });
+  // F194: 0.16.0 の木（0a6a375 の pageTree を写した見本）では、移した議事録が全部「議事録」データベースの下の子として並ぶ（行の型にしない）
+  const tree = PT160.pageTree(listOf(db));
+  assert.deepStrictEqual([...(tree.kids.get(M) || [])].sort(), [...ids].sort(), '0.16.0 の木で「議事録」の下に並ばない');
+  assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'row' and parent_id = ?").get(M).c, 0, '議事録を行の型にした');
+}));
+
+test('MG-2・F193: 途中で投げると何も変わらない（meta も書かない）・照らせないページ（壊れた attrs）はそこに残して数え、ほかは移す・二度目は移さない（数は 0・meta はそのまま）', T, () => withDb((db, t) => {
+  const ids = [0, 1, 2, 3].map((i) => oldMeeting(t, `pq${i}`, i));
+  db.exec(`create temp trigger natsu_test_boom before update of parent_id on blocks when new.id = '${ids[2]}' begin select raise(abort, 'boom'); end;`);
+  const snap = [db.prepare('select id, parent_id, ord, rev, attrs from blocks order by id').all().map((r) => ({ ...r })), db.prepare('select count(*) c from oplog').get().c];
+  assert.strictEqual(gather(db).code, 'internal');
+  assert.deepStrictEqual([db.prepare('select id, parent_id, ord, rev, attrs from blocks order by id').all().map((r) => ({ ...r })), db.prepare('select count(*) c from oplog').get().c], snap, '途中で投げたのに書いた');
+  assert.deepStrictEqual([metaOf(db, 'minutes.db'), metaOf(db, 'minutes.gathered')], [undefined, undefined]);
+  db.exec('drop trigger natsu_test_boom');
+  // 照らせないページ（attrs が JSON でない）
+  db.prepare("update blocks set attrs = '{壊れた' where id = ?").run(ids[3]);
+  const r = ok(gather(db), 'minutes.gather');
+  assert.deepStrictEqual([r.result.moved, r.result.skipped, r.result.created], [3, 1, true]);
+  const M = minutesDbs(db)[0];
+  assert.deepStrictEqual(ids.map((id) => db.prepare('select parent_id from blocks where id = ?').get(id).parent_id), [M, M, M, null]);
+  const gathered = metaOf(db, 'minutes.gathered');
+  assert.deepStrictEqual(JSON.parse(gathered).n, 3);
+  // 二度目（見回り）: 移すものが無ければ 0・新しいデータベースを作らない・meta の数はそのまま
+  const again = ok(gather(db, {}), 'minutes.gather');
+  assert.deepStrictEqual([again.result.moved, again.result.created], [0, false]);
+  assert.deepStrictEqual(minutesDbs(db), [M]);
+  assert.strictEqual(metaOf(db, 'minutes.gathered'), gathered);
+}));
+
+test('MG-2・F203: 「議事録」の題名を変えても、見回りで新しいデータベースを作らない（役の印で探す）。meta が別のページを指していれば印を正にして meta を直す。ゴミ箱に入れた後は新しく作る', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pq1', 1);
+  ok(gather(db), 'minutes.gather');
+  const M = minutesDbs(db)[0];
+  ok(call(db, 'page.setTitle', { id: M, title: '会議の記録' }), 'page.setTitle');   // データベースの題名（D77 の外）
+  const other = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  db.prepare("insert into meta(key, value) values ('minutes.db', ?) on conflict(key) do update set value = excluded.value").run(other);
+  oldMeeting(t, 'pq2', 2);
+  const r = ok(gather(db, {}), 'minutes.gather');
+  assert.deepStrictEqual([r.result.moved, r.result.created, r.result.db], [1, false, M]);
+  assert.deepStrictEqual(minutesDbs(db), [M], '題名を変えたら新しいデータベースを作った');
+  assert.strictEqual(metaOf(db, 'minutes.db'), M, 'meta を印に合わせない');
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pq2').parent_id, M);
+  // ゴミ箱に入れた「議事録」は無いのと同じ（次の見回り・締めで新しく作る: 決めたこと 49）
+  ok(call(db, 'page.delete', { id: M }), 'page.delete');
+  oldMeeting(t, 'pq3', 3);
+  const r2 = ok(gather(db, {}), 'minutes.gather');
+  assert.strictEqual(r2.result.created, true);
+  assert.notStrictEqual(r2.result.db, M);
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pq3').parent_id, r2.result.db);
+}));
+
+test('MG-2・F195: 締め・復旧した新しい議事録の親は「議事録」データベース（無ければ同じ命令の中で作る）・録音中の写しは親なしで一覧の外・白紙のページの中の議事録の締め直しは親が変わらない・page.put は親と cells を消さない', T, () => withDb((db) => {
+  // 「議事録」が無いときの締め: 同じ命令の中で作って、その子にする（oplog の1行）
+  call(db, 'meeting.begin', { pageId: 'pl1', startedAt: Date.parse('2026-11-14T00:00:00.000Z'), localOnly: false }, 'main');
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pl1').parent_id, null, '録音中の写しに親がある');
+  assert.deepStrictEqual(minutesDbs(db), [], '録音中に「議事録」を作った');
+  const f = ok(call(db, 'meeting.finalize', { pageId: 'pl1', page: { title: titleAt('2026-11-14T00:00:00.000Z'), date: '2026-11-14', createdAt: '2026-11-14T00:00:00.000Z', blocks: [] }, segments: [] }, 'main'), 'meeting.finalize');
+  const M = minutesDbs(db)[0];
+  assert.ok(M, '締めで「議事録」を作らない');
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pl1').parent_id, M, '締めた議事録が最上位');
+  assert.strictEqual(db.prepare('select count(*) c from oplog where tx = ?').get(f.tx).c, 1);
+  assert.strictEqual(metaOf(db, 'minutes.db'), M);
+  // 2つ目の録音: 写しは親なし・「議事録」の表に出ない。締めると同じ「議事録」の子（作り直さない）。並びの鍵は後ろ
+  call(db, 'meeting.begin', { pageId: 'pl2', startedAt: Date.parse('2026-11-14T02:00:00.000Z'), localOnly: false }, 'main');
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pl2').parent_id, null);
+  assert.deepStrictEqual(viewOf(db, M).rows.map((x) => x.id), ['pl1'], '録音中の写しが表に出た');
+  meeting(db, 'pl2', { at: '2026-11-14T02:00:00.000Z', date: '2026-11-14' });
+  assert.deepStrictEqual(minutesDbs(db), [M]);
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pl2').parent_id, M);
+  const ord = (id) => db.prepare('select ord from blocks where id = ?').get(id).ord;
+  assert.ok(ord('pl1') < ord('pl2'), '新しい議事録の並びの鍵が後ろでない');
+  // 復旧（下書きから作る）も「議事録」の子
+  ok(call(db, 'meeting.recover', { pageId: 'pr1', page: { title: titleAt('2026-11-14T03:00:00.000Z'), date: '2026-11-14', createdAt: '2026-11-14T03:00:00.000Z', blocks: [] }, segments: [] }, 'main'), 'meeting.recover');
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pr1').parent_id, M, '復旧した議事録が最上位');
+  // 白紙のページの中の議事録（TQ1 で移さなかった物）の締め直しは親が変わらない（P9）
+  const blank = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  under(db, 'pl2', blank, 'b7');
+  meeting(db, 'pl2', { at: '2026-11-14T02:00:00.000Z', date: '2026-11-14', bullet: '締め直し' });
+  assert.deepStrictEqual({ ...db.prepare('select parent_id, ord from blocks where id = ?').get('pl2') }, { parent_id: blank, ord: 'b7' }, '締め直しで親が変わった');
+  // 要約の書き戻し（page.put）は親・並びの鍵・cells を消さない
+  ok(call(db, 'row.setCell', { db: M, id: 'pl1', col: attrsOf(db, M).cols[3].id, value: ['メンバー甲'] }), 'row.setCell');
+  const p = ok(call(db, 'page.get', { id: 'pl1' }, 'main'), 'page.get').result.page;
+  ok(call(db, 'page.put', { page: { ...p, cells: undefined, blocks: [{ id: 'pl1x', type: 'bullet', text: '書き戻し' }] }, baseRev: p.rev }, 'main'), 'page.put');
+  assert.deepStrictEqual([db.prepare('select parent_id from blocks where id = ?').get('pl1').parent_id, attrsOf(db, 'pl1').cells], [M, { [attrsOf(db, M).cols[3].id]: ['メンバー甲'] }]);
+}));
+
+test('MG-2: T4b（控えに後の oplog（移し替え・見回り・締め）を前へ当て直すと今の表と同じ）', T, async () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    for (let i = 0; i < 5; i += 1) oldMeeting(t, `pq${i}`, i);
+    const to = path.join(t.dir, 'copy-mg2.db');
+    await sqlite.backup(db, to);
+    const copy = new sqlite.DatabaseSync(to);
+    try {
+      const k = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
+      ok(gather(db), 'minutes.gather');
+      oldMeeting(t, 'pq9', 9);   // 0.16.0 に戻して作った最上位の議事録（種は oplog を書かないので、控えにも同じ行を足す）
+      const seed = db.prepare('select * from blocks where page_id = ?').all('pq9');
+      const segs = db.prepare('select * from segments where page_id = ?').all('pq9');
+      for (const r of seed) copy.prepare(`insert into blocks(${Object.keys(r).join(', ')}) values (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r));
+      for (const r of segs) copy.prepare(`insert into segments(${Object.keys(r).join(', ')}) values (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r));
+      ok(gather(db, {}), '見回り');
+      meeting(db, 'pz1', { at: '2026-11-14T05:00:00.000Z', date: '2026-11-14' });
+      const rows = db.prepare('select ops from oplog where seq > ? order by seq').all(k).map((r) => JSON.parse(r.ops));
+      for (const o of rows) applyOps(copy, o, 'forward');
+      const dump = (c) => [c.prepare('select id, type, page_id, parent_id, ord, text, attrs, rev, created_at, updated_at, trashed_at from blocks order by id').all().map((r) => ({ ...r })),
+        c.prepare('select page_id, id, n, text from segments order by page_id, n').all().map((r) => ({ ...r }))];
+      assert.deepStrictEqual(dump(copy), dump(db));
+    } finally { copy.close(); }
+  } finally { t.done(); }
+});
+
+// ---- 起動の順（src/db/server.js）: JSON の取り込み → 確かめ済みの控え → 移し替え（初めて）か見回り
+async function waitFor(pred, what, ms = 15000) {
+  const t0 = Date.now();
+  while (!pred()) {
+    if (Date.now() - t0 > ms) throw new Error(`待ちきれない: ${what}`);
+    await new Promise((res) => setTimeout(res, 10));
+  }
+}
+function boot(d, opts = {}) {
+  const fromServer = [];
+  const parent = electronShape.parent((x) => fromServer.push(x));
+  startServer({ parentPort: parent, sqlite, ...opts });
+  parent.emit({ type: 'init', dataDir: d.dataDir, labels: {}, network: false });
+  const clients = [];
+  const port = (role) => {
+    const ch = new MessageChannel();
+    parent.emit({ type: 'port', role }, [electronShape.port(ch.port1)]);
+    const c = electronShape.client(ch.port2);
+    clients.push(c);
+    return c;
+  };
+  const ready = () => waitFor(() => fromServer.some((x) => x.type === 'ready'), 'ready');
+  const stop = async () => {
+    parent.emit({ type: 'close' });
+    await waitFor(() => fromServer.some((x) => x.type === 'closed'), 'closed');
+    for (const c of clients.splice(0)) c.close();
+  };
+  const logs = () => fromServer.filter((x) => x.type === 'log').map((x) => x.line);
+  return { port, ready, stop, logs };
+}
+const backups = (d, kind) => { try { return fs.readdirSync(path.join(d.dataDir, 'backup')).filter((x) => x.endsWith(`-${kind}.db.gz`)); } catch (_) { return []; } };
+// 0.16.0 までの最上位の議事録を、閉じた DB に足す（0.16.0 に戻して録音した会議・移す前の形）
+function addOld(d, id, i) {
+  const c = core.open({ sqlite, file: d.file });
+  try { const t = { seed: (page, segs) => require('../src/db/commands').putPageRows(c.db, page, segs) }; oldMeeting(t, id, i); } finally { c.db.close(); }
+}
+const status = async (s) => (await s.port('main').ask({ id: 1, cmd: 'db.status', args: {} })).result;
+
+test('MG-2・F193: 起動のとき、確かめ済みの控え（upgrade）を取ってから移す。控えが取れない（偽の失敗）と移さず meta も書かず、次の起動で移す。三度目の起動では控えを取らず移さない', { timeout: 60000 }, async () => {
+  const d = tmpData({ pages: 0 });
+  d.close();
+  for (let i = 0; i < 3; i += 1) addOld(d, `pq${i}`, i);
+  let s = boot(d, { runCheck: async () => 'unavailable' });
+  try {
+    await s.ready();
+    const st = await status(s);
+    assert.deepStrictEqual(st.startup.minutes, { failed: true }, '控えが取れないのに移した');
+    assert.deepStrictEqual(backups(d, 'upgrade'), []);
+  } finally { await s.stop(); }
+  let peek = core.open({ sqlite, file: d.file });
+  try {
+    assert.deepStrictEqual([minutesDbs(peek.db), metaOf(peek.db, 'minutes.gathered')], [[], undefined], '控えが取れないのに書いた');
+    assert.strictEqual(peek.db.prepare("select count(*) c from blocks where type = 'page' and parent_id is null").get().c, 3);
+  } finally { peek.db.close(); }
+  s = boot(d, { runCheck: async () => 'ok' });
+  try {
+    await s.ready();
+    const st = await status(s);
+    assert.deepStrictEqual([st.startup.minutes.first, st.startup.minutes.moved, st.startup.minutes.created], [true, 3, true]);
+    assert.strictEqual(backups(d, 'upgrade').length, 1, '移す前の控えが無い');
+    assert.ok(s.logs().some((x) => x === 'DB: 議事録 移した 3・残した 0・データベースを作った'), s.logs().join('\n'));
+    assert.ok(s.logs().every((x) => !x.includes('議事録 ') || !/\d{4}\/\d{2}\/\d{2}/.test(x)), '記録に題名を書いた');
+  } finally { await s.stop(); }
+  s = boot(d, { runCheck: async () => 'ok' });
+  try {
+    await s.ready();
+    const st = await status(s);
+    assert.deepStrictEqual([st.startup.minutes.first, st.startup.minutes.moved, st.startup.minutes.created], [false, 0, false]);
+    assert.strictEqual(backups(d, 'upgrade').length, 1, '二度目の起動でまた控えを取った');
+  } finally { await s.stop(); }
+  peek = core.open({ sqlite, file: d.file });
+  try {
+    assert.strictEqual(JSON.parse(metaOf(peek.db, 'minutes.gathered')).n, 3, '二度目の起動で移した数を書き替えた');
+    assert.strictEqual(minutesDbs(peek.db).length, 1);
+  } finally { peek.db.close(); d.done(); }
+});
+
+test('MG-2・F194: 0.16.0 に戻して録音した最上位の議事録と、JSON の取り込み（ST10）で戻った議事録を、次の起動の見回りで「議事録」に入れる', { timeout: 60000 }, async () => {
+  const d = tmpData({ pages: 2, withJson: true });
+  d.close();
+  let s = boot(d, { runCheck: async () => 'ok' });
+  try { await s.ready(); assert.strictEqual((await status(s)).startup.minutes.moved, 2); } finally { await s.stop(); }
+  addOld(d, 'pq7', 7);
+  // 古い版が JSON に書いた新しい議事録（起動の取り込みで足される）
+  const J = require('../src/jsonfile');
+  const { page, segments } = samplePage('pdj01');
+  for (const b of page.blocks) b.id = `pdj01${b.id}`;
+  J.writeJsonFile(path.join(d.dataDir, 'pages', 'pdj01.json'), page);
+  J.writeJsonFile(path.join(d.dataDir, 'transcripts', 'pdj01.json'), { id: 'pdj01', segments });
+  s = boot(d, { runCheck: async () => 'ok' });
+  try {
+    await s.ready();
+    const st = await status(s);
+    assert.strictEqual(st.startup.reimport.added, 1, '前提: 取り込みで足されない');
+    assert.deepStrictEqual([st.startup.minutes.first, st.startup.minutes.moved], [false, 2]);
+  } finally { await s.stop(); }
+  const peek = core.open({ sqlite, file: d.file });
+  try {
+    const M = minutesDbs(peek.db)[0];
+    for (const id of ['pq7', 'pdj01', ...d.ids]) assert.strictEqual(peek.db.prepare('select parent_id from blocks where id = ?').get(id).parent_id, M, id);
+  } finally { peek.db.close(); d.done(); }
+});

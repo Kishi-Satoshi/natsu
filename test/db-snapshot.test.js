@@ -61,7 +61,7 @@ test('RF11: 壊れた natsu.db は消さずに退け、確かめ済みの最新�
     assert.ok(fs.existsSync(path.join(d.dataDir, r.brokenAs)), '壊れたファイルを消した');
     assert.deepStrictEqual(fs.readFileSync(path.join(d.dataDir, r.brokenAs)), bad, '退けたファイルの中身が変わった');
     const db = new sqlite.DatabaseSync(f, { readOnly: true });
-    assert.strictEqual(db.prepare("select count(*) c from blocks where type='page'").get().c, 2); db.close();
+    assert.strictEqual(db.prepare("select count(*) c from blocks where type='page' and json_extract(attrs, '$.kind') is null").get().c, 2); db.close();   // （0.17.0 MG-2 で意図して変えた: 計画 docs/plans/2026-11-13-170.md の R40。締めと起動が「議事録」データベースを作るので、会議を数える所はデータベースのページを除く）
     assert.ok(!fs.existsSync(path.join(d.dataDir, 'natsu.db.lock')), 'lock を消し忘れた');
   } finally { d.done(); }
 });

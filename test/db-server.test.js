@@ -132,7 +132,7 @@ test('F8: 一度移した後に natsu.db が無くなっても、JSON から移�
     // 戻した後の取り込みは、移した後の指紋のままなので何も足さない（同じ議事録が2つにならない）
     const main = s.port('main');
     const list = await main.ask({ id: 1, cmd: 'pages.list', args: {} });
-    assert.deepStrictEqual(list.result.map((p) => p.id).sort(), d.ids);
+    assert.deepStrictEqual(list.result.filter((p) => p.kind !== 'database').map((p) => p.id).sort(), d.ids);   // （0.17.0 MG-2 で意図して変えた: 計画 docs/plans/2026-11-13-170.md の R40。締めと起動が「議事録」データベースを作るので、会議を数える所はデータベースのページを除く）
     const st = await main.ask({ id: 2, cmd: 'db.status', args: {} });
     assert.strictEqual(st.result.startup.restored.from, '2026-10-18T03:00:00.000Z', '知らせ D6 の時刻が無い');
     assert.ok(fs.existsSync(d.file + '.broken-2026-10-19T00-00-00-000Z'), '退けてあったものを消した');
@@ -436,7 +436,7 @@ test('F8: 0 バイトの natsu.db は、控えか退けたものがあれば空�
     const main = s.port('main');
     const st = await main.ask({ id: 1, cmd: 'db.status', args: {} });
     assert.deepStrictEqual(st.result.startup.restored, { from: '2026-10-18T03:00:00.000Z', why: 'missing' }, '0 バイトの DB を空の DB として使った');
-    assert.deepStrictEqual((await main.ask({ id: 2, cmd: 'pages.list', args: {} })).result.map((p) => p.id).sort(), d.ids);
+    assert.deepStrictEqual((await main.ask({ id: 2, cmd: 'pages.list', args: {} })).result.filter((p) => p.kind !== 'database').map((p) => p.id).sort(), d.ids);   // （0.17.0 MG-2 で意図して変えた: 計画 docs/plans/2026-11-13-170.md の R40。締めと起動が「議事録」データベースを作るので、会議を数える所はデータベースのページを除く）
     const kept = fs.readdirSync(d.dataDir).filter((n) => /^natsu\.db\.broken-[0-9T-]+Z(-\d+)?$/.test(n));
     assert.deepStrictEqual(kept.map((n) => fs.statSync(path.join(d.dataDir, n)).size), [0], '0 バイトのファイルを退けて残していない');
   } finally { if (s) await s.stop(); d.done(); }

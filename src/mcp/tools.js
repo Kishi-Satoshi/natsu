@@ -268,9 +268,17 @@ function placesOf(rows) {
   };
 }
 
+// 0.17.0 MG-2（計画 docs/plans/2026-11-13-170.md の決めたこと 57・F197）: Claude の一覧・探す範囲・場所には「議事録」データベース（役の印 attrs.role
+// 'minutes'）そのものを出さず、その子の議事録は最上位と同じに扱う（場所を付けない）。答えは移す前と1字も同じ。「議事録」データベースは ID を渡せば読める（get_meeting）
+function shownOf(rows) {
+  const mins = new Set(rows.filter((r) => r.attrs.role === 'minutes' && r.attrs.kind === 'database').map((r) => r.id));
+  if (!mins.size) return rows;
+  return rows.filter((r) => !mins.has(r.id)).map((r) => (mins.has(r.parentId) ? { ...r, parentId: null } : r));
+}
+
 // ---------------------------------------------------------------- 道具の本体（db は読み取りだけの接続）
 function listMeetings(db, args, { now }) {
-  const listed = commands.listedRows(db);
+  const listed = shownOf(commands.listedRows(db));
   const places = placesOf(listed);
   const rows = filterRows(listed, { from: args.from, to: args.to, dates: args.dates, types: args.meeting_types });
   const limit = args.limit || LIMITS.list[0];
@@ -296,7 +304,7 @@ function listMeetings(db, args, { now }) {
 // search_passages（決めたこと 70〜74）。1on1・採用面接・事前面談は meeting_types にその鍵があるか meeting_ids で頼んだときだけ探す
 function searchPassages(db, args, { now, ctx }) {
   const terms = P.termsOf(args.query);
-  const scopeRows = filterRows(commands.listedRows(db), { from: args.from, to: args.to, dates: args.dates, types: args.meeting_types, ids: args.meeting_ids });
+  const scopeRows = filterRows(shownOf(commands.listedRows(db)), { from: args.from, to: args.to, dates: args.dates, types: args.meeting_types, ids: args.meeting_ids });
   const asked = new Set(args.meeting_types || []);
   const isSkipped = (r) => !args.meeting_ids && meetingType.PERSONAL_TYPES.includes(r.attrs.meetingType) && !asked.has(r.attrs.meetingType);
   const rows = scopeRows.filter((r) => !isSkipped(r));
@@ -367,9 +375,10 @@ const dumpOf = (db, page, now) => (F.isDb(page) ? commands.dbDump(db, page.id, D
 
 // get_meeting（決めたこと 114）。一覧に出す行に無い ID（無い・ゴミ箱・録音中の写し）は not-found
 function getMeeting(db, args, { now }) {
-  const row = commands.listedRows(db).find((r) => r.id === args.id);
+  const all = commands.listedRows(db);
+  const row = all.find((r) => r.id === args.id);
   if (!row) return { error: 'not-found' };
-  const places = placesOf(commands.listedRows(db));   // 0.15.0 PH-7: 場所と子ページの行の題名（一覧に出る行だけ）
+  const places = placesOf(shownOf(all));   // 0.15.0 PH-7: 場所と子ページの行の題名（一覧に出る行だけ。0.17.0 MG-2: 「議事録」の子に場所を付けない）
   const page = commands.readPage(db, args.id);
   if (!page) return { error: 'not-found' };
   const segments = commands.readSegments(db, args.id);
@@ -380,12 +389,13 @@ function getMeeting(db, args, { now }) {
 
 // get_meetings（決めたこと 76）。ids は渡された順、日付で指したときは日付の古い順・createdAt の古い順。cursor は {ID} か {ID}:s58
 function getMeetings(db, args, { now }) {
-  const rows = commands.listedRows(db);
+  const all = commands.listedRows(db);
+  const rows = shownOf(all);   // 0.17.0 MG-2: 日付で指したときに「議事録」データベースそのものを出さない・場所を付けない（ID で指せば読める）
   const places = placesOf(rows);
   let order;
   let missing = [];
   if (args.ids) {
-    const listed = new Set(rows.map((r) => r.id));
+    const listed = new Set(all.map((r) => r.id));
     const seen = new Set();
     order = [];
     for (const id of args.ids) {
@@ -514,7 +524,7 @@ function expandPassage(db, args, { now }) {
 
 // list_action_items（今の画面のアクションタブと同じ ToDo。担当は完全一致・並びは R.byDue）
 function listActionItems(db, args, { now }) {
-  const rows = filterRows(commands.listedRows(db), { from: args.from, to: args.to });
+  const rows = filterRows(shownOf(commands.listedRows(db)), { from: args.from, to: args.to });
   const view = commands.actionView(db, { assignee: args.assignee || '' }, rows);
   const all = view.actions;
   const limit = args.limit || LIMITS.actions[0];

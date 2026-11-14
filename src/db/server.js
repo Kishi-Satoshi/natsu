@@ -52,7 +52,9 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const core = require('./core');
+const C = require('./commands');
 const M = require('./migrate');
 const S = require('./snapshot');
 const V = require('./validate');
@@ -80,7 +82,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   let lastSelfTest = noSelfTest();
   const ports = new Map();   // 口 → 役
   const pending = [];        // 用意の前に届いた頼み [口, 頼み]
-  const startup = { migrated: null, restored: null, reimport: null };
+  const startup = { migrated: null, restored: null, reimport: null, minutes: null };
   let life = Promise.resolve();   // init・migrate・close を1つずつ
   let snapChain = Promise.resolve();   // 控えを1つずつ
 
@@ -214,6 +216,34 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     }
   }
 
+  // 0.17.0 MG-2（計画 docs/plans/2026-11-13-170.md の決めたこと 47・48・F193）: 取り込みの後に、議事録を「議事録」データベースへ。
+  // 初めて（meta の minutes.gathered が無い）は、移す議事録があれば確かめ済みの控え（upgrade）を取ってから minutes.gather（first）。控えが取れなければ
+  // 移さず（meta も書かない）、次の起動でやり直す。2回目からは控えを取らずに、移す議事録があるときだけ見回り（minutes.gather）。初めてでも移す物が無く
+  // 「議事録」がもうある（締めが作った）ときは、命令を送らずに meta の minutes.gathered（数 0）だけを書く（空の oplog の行を積まない）。記録には数だけ（題名は書かない）
+  // → { first, moved, skipped, created, db } | { failed: true }（db.status の startup.minutes。最初の起動の知らせの材料: MG-4）
+  async function gatherMinutes() {
+    try {
+      const first = getMeta('minutes.gathered') === undefined;
+      const st = C.minutesState(db);
+      if (!st.pending && (!first || st.hasDb)) {
+        if (first) setMeta('minutes.gathered', JSON.stringify({ n: 0, at: now().toISOString() }));
+        return { first, moved: 0, skipped: 0, created: false, db: null };
+      }
+      if (first && st.pending) {
+        const snap = await takeSnapshot('upgrade');
+        if (!snap.ok) { log(`DB: 議事録をまとめる前の控えを取れない（${snap.check}）。次の起動でやり直す`); return { failed: true }; }
+      }
+      const r = core.call(db, { role: 'main', cmd: 'minutes.gather', args: first ? { first: true } : {}, tx: `m:minutes-${crypto.randomUUID()}` }, { now, labels, log });
+      if (!r.ok) { log(`DB: 議事録をまとめられない（${r.code}）`); return { failed: true }; }
+      const g = r.result;
+      if (first || g.moved || g.skipped) log(`DB: 議事録 移した ${g.moved}・残した ${g.skipped}${g.created ? '・データベースを作った' : ''}`);
+      return { first, ...g };
+    } catch (e) {
+      log(`DB: 議事録をまとめられない（${codeOf(e)}）`);
+      return { failed: true };
+    }
+  }
+
   async function recover(why) {
     closeDb();
     const r = await S.recover({ sqlite, dataDir, now, runCheck, fs, log, reimport: false, ...waitOpt });
@@ -300,6 +330,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
       if (!(await useOpened(o, true))) return;
     }
     if (opened.state === 'ok') startup.reimport = runReimport();
+    if (opened.state === 'ok') startup.minutes = await gatherMinutes();
     phase = 'ready';
     post({ type: 'ready', ...stateOf() });
     drain();

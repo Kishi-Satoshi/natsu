@@ -98,6 +98,11 @@ const HOT_QUERIES = Object.freeze({
   dbRowCount: "select count(*) as c from blocks where type = 'row' and parent_id = ? and trashed_at is null",
   // 0.17.0 MG-1（決めたこと 46）: 「議事録」データベースの子のページ（議事録。ゴミ箱と録音中の写しは dbRowsOf が外す。一覧の1行の鍵を作る欄も読む）
   minutesKids: "select rid, id, ord, text, attrs, rev, created_at, updated_at, trashed_at from blocks where type = 'page' and parent_id = ?",
+  // 0.17.0 MG-2（決めたこと 47・48）: 最上位の生きているページ（移す議事録を探す。attrs は JS で照らす: 壊れた attrs のページで問い合わせを止めない）と、
+  // 役の印のある「議事録」データベースの候補（同じ理由で字だけで絞って JS で照らす）・その子の並びの鍵の末尾
+  topPages: "select id, ord, attrs, created_at from blocks where type = 'page' and parent_id is null and trashed_at is null",
+  minutesDbs: "select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, '\"minutes\"') > 0 order by created_at, id",
+  kidLastOrd: "select max(ord) as m from blocks where parent_id = ? and type in ('page', 'row')",
   // 0.16.0 DX-2（決めたこと 44）: ゴミ箱の行（［ゴミ箱］の窓のまとまり）と、1つのまとまり（同じデータベース・同じ時刻）の行
   trashedRows: "select id, parent_id, ord, text, trashed_at from blocks where type = 'row' and trashed_at is not null",
   trashedRowsAt: "select id, trashed_at from blocks where type = 'row' and parent_id = ? and trashed_at = ? order by ord, id",
@@ -617,18 +622,23 @@ function meetingSegment(db, { pageId, seg }, ctx) {
 
 // 締め・復旧のページを書く。前の行がゴミ箱の録音中の写し（app の page.delete で入る）なら、ゴミ箱から出す
 // （締めた議事録・下書きから戻した議事録をゴミ箱に置かない）。当てるのは1回だけ
-function putMeetingPage(db, page, segments, was) {
+// 0.17.0 MG-2（決めたこと 49）: place（ctx）なら、書いた後に最上位になる新しい議事録を「議事録」データベースの子にする操作も足し、全部を1回で当てる → { ops, made }
+function putMeetingPage(db, page, segments, was, place = null) {
   if (was) keepStoredCells(was.page, page);   // 0.17.0 MG-1（P9）: 締め直しは「議事録」の列の値を消さない
   const ops = diffPage(was ? was.page : null, page, { ords: was ? was.ords : undefined });
   ops.push(...diffSegments(was ? readSegments(db, page.id) : [], segments, page.id));
   if (was && was.trashedAt !== null && isLive(was.page)) ops.push({ op: 'restore', id: page.id, at: page.updatedAt, old: was.trashedAt });
+  const placed = place ? placeOps(db, page.id, place, ops) : { ops: [], made: null };
+  ops.push(...placed.ops);
   applyOps(db, ops);
-  return ops;
+  return { ops, made: placed.made };
 }
 
 function meetingFinalize(db, { pageId, page, segments }, ctx) {
-  const ops = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: false }), segments, loadPage(db, pageId, { trashed: true }));
-  return { ops, pageIds: [pageId], result: readPage(db, pageId) };
+  const was = loadPage(db, pageId, { trashed: true });
+  // 0.17.0 MG-2（決めたこと 49）: 新しい議事録（行が無い・録音中の写し）は「議事録」データベースへ。締め直し（締めた議事録）は置き場を変えない
+  const { ops, made } = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: false }), segments, was, !was || isLive(was.page) ? ctx : null);
+  return { ops, pageIds: made ? [pageId, made] : [pageId], result: readPage(db, pageId) };
 }
 
 function meetingRecover(db, { pageId, page, segments }, ctx) {
@@ -636,8 +646,8 @@ function meetingRecover(db, { pageId, page, segments }, ctx) {
   if (!l && isPurged(db, pageId)) return { ops: [], pageIds: [], result: { page: null, already: true } };
   if (!l || isLive(l.page)) {
     // 行が無い・録音中の写し（ゴミ箱に入っていても）: 下書きの中身で作る・上書きする（下書きが正本）
-    const ops = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: true }), segments, l);
-    return { ops, pageIds: [pageId], result: { page: readPage(db, pageId), already: false } };
+    const { ops, made } = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: true }), segments, l, ctx);   // 0.17.0 MG-2: 下書きから作った議事録も「議事録」へ
+    return { ops, pageIds: made ? [pageId, made] : [pageId], result: { page: readPage(db, pageId), already: false } };
   }
   // 締め済み（F11）: ページは変えず、下書きにあって DB に無い発言だけ後ろに足す
   const olds = readSegments(db, pageId);
@@ -647,6 +657,86 @@ function meetingRecover(db, { pageId, page, segments }, ctx) {
   applyOps(db, ops);
   return { ops, pageIds: ops.length ? [pageId] : [], result: { page: readPage(db, pageId), already: true } };
 }
+
+// ---------------------------------------------------------------- 0.17.0 MG-2（計画 docs/plans/2026-11-13-170.md の決めたこと 45〜49・58・59・F193〜F195・F203）
+// 議事録を「議事録」データベースへ。議事録はページのまま（type page）で、親（parent_id）と並びの鍵（ord）だけを前の値つきの move で替える（決めたこと 46）。
+// 「議事録」データベースは役の印 attrs.role 'minutes' の1つ（題名では探さない。meta の minutes.db は写しで、食い違えば印を正にして直す: F203）
+const MINUTES_TITLE = '議事録';   // 画面の文（「議事録」データベースの題名）
+const MINUTES_VIEW = 'すべて';    // 画面の文（ビューの名前）
+const minutesCols = () => [{ ...TITLE_COL }, { id: 'c1', name: '日付', type: 'mdate' }, { id: 'c2', name: '作成者', type: 'cby' }, { id: 'c3', name: '参加者', type: 'person' }, { id: 'c4', name: '要約', type: 'msum' }];
+const putMetaRow = (db, key, value) => db.prepare('insert into meta(key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(key, value);
+const parseOr = (s) => { try { const v = JSON.parse(s || '{}'); return isObj(v) ? v : null; } catch (_) { return null; } };
+// 生きている「議事録」データベース（印のあるデータベース。meta の minutes.db が指す物を先に、無ければ作った順の最初）→ dbOf の形 | null
+function minutesDbOf(db) {
+  const ids = db.prepare(HOT_QUERIES.minutesDbs).all().filter((r) => { const a = parseOr(r.attrs); return Boolean(a) && a.role === 'minutes' && isDbPage(a); }).map((r) => r.id);
+  const m = db.prepare("select value from meta where key = 'minutes.db'").get();
+  const id = m && ids.includes(m.value) ? m.value : ids[0];
+  return id ? dbOf(db, id) : null;
+}
+// 新しい「議事録」データベース（プライベートの最上位・ロックした形: 決めたこと 45・50・51・76）→ add の操作
+// ID は p＋時刻の36進＋決まった5字（同じ時刻の行がもうあれば今どおりの乱数: newPageId）。決まった時刻で回す道具（tools/make-db-fixture.js）の答えを2回同じにする
+const MINUTES_TAIL = 0x2d7b0e5;   // 36 進で 5 字（末尾の字）
+function newMinutesDb(db, ctx) {
+  let first = true;
+  const id = newPageId(db, ctx.now, () => (first ? ((first = false), MINUTES_TAIL) : randU32()));
+  const at = ctx.now();
+  const cols = minutesCols();
+  const page = { id, title: MINUTES_TITLE, kind: 'database', role: 'minutes', locked: true, date: localDate(at), memo: '', blocks: [], cols,
+    views: [{ ...DV.defaultView('v1', 'table', cols, MINUTES_VIEW), sort: [{ col: 'c1', dir: 'desc' }] }], nextNo: 1, createdAt: at.toISOString(), updatedAt: at.toISOString() };
+  return { op: 'add', id, row: { ...pageRow(page, { ord: PT.TOP_ORD }), parent_id: null } };
+}
+// 「議事録」データベース（無ければ make のときだけ作る操作を返す。当てるのは呼び手が、ほかの操作と一緒に1回だけ: T4b の rev の上がり方）
+// → { id, ops（作る add | []）, made（作った ID | null） } | null。meta の minutes.db を印に合わせる（同じトランザクション）
+function minutesDbFor(db, ctx, make) {
+  const d = minutesDbOf(db);
+  if (d) { putMetaRow(db, 'minutes.db', d.id); return { id: d.id, ops: [], made: null }; }
+  if (!make) return null;
+  const op = newMinutesDb(db, ctx);
+  putMetaRow(db, 'minutes.db', op.id);
+  return { id: op.id, ops: [op], made: op.id };
+}
+// 議事録たち（[{ id, ord }]）を「議事録」の子の末尾へ、渡した順に（並びの鍵は前から順に大きい）→ move の操作（当てない）
+function movesUnder(db, m, list) {
+  let last = m.made ? null : (db.prepare(HOT_QUERIES.kidLastOrd).get(m.id) || {}).m || null;
+  return list.map((p) => { last = appendKey(last); return { op: 'move', id: p.id, ord: last, old: p.ord, parent: m.id, oldParent: null }; });
+}
+// 締め・復旧で書く議事録（書いた後に最上位になるときだけ）を「議事録」データベースの子にする操作（無ければ同じ命令の中で作る: 決めたこと 49）。
+// ops は締め・復旧の書く操作（まだ当てていない）。前の行が無ければその add の行から親と並びの鍵を読む → { ops, made }
+function placeOps(db, id, ctx, ops) {
+  const r = db.prepare('select parent_id, ord from blocks where id = ?').get(id);
+  const add = ops.find((o) => o.op === 'add' && o.id === id);
+  const at = r ? { parent: r.parent_id ?? null, ord: r.ord } : add ? { parent: add.row.parent_id ?? null, ord: add.row.ord } : null;
+  if (!at || at.parent !== null) return { ops: [], made: null };
+  const m = minutesDbFor(db, ctx, true);
+  return { ops: [...m.ops, ...movesUnder(db, m, [{ id, ord: at.ord }])], made: m.made };
+}
+// minutes.gather（役 main・actor system・1つのトランザクション＝oplog の1行）: 最上位の締めた議事録（録音中の写し・ゴミ箱・白紙のページ・データベースを除く）を、
+// 会議の日付と始めた時刻の順に「議事録」データベースの子の末尾へ。壊れた attrs のページはそこに残して数える（skipped）。first（0.17.0 の最初の移し替え: 控えの後）は
+// 「議事録」が無ければ作り、meta に minutes.gathered（数と時刻）を書く。見回り（first 無し）は移すものがあるときだけ作る（消した「議事録」を起動のたびに作らない）
+// → { moved, skipped, created, db }
+function minutesGather(db, a, ctx) {
+  const top = [];
+  let skipped = 0;
+  for (const r of db.prepare(HOT_QUERIES.topPages).all()) {
+    const attrs = parseOr(r.attrs);
+    if (!attrs) { skipped += 1; continue; }
+    if (isMeetingRaw(attrs)) top.push({ id: r.id, ord: r.ord, key: `${typeof attrs.date === 'string' ? attrs.date : ''}\u0000${r.created_at || ''}\u0000${r.id}` });
+  }
+  const m = minutesDbFor(db, ctx, a.first === true || top.length > 0);
+  if (!m) return { ops: [], pageIds: [], result: { moved: 0, skipped, created: false, db: null } };
+  top.sort((x, y) => cmpStr(x.key, y.key));
+  const moves = movesUnder(db, m, top);
+  const ops = [...m.ops, ...moves];
+  applyOps(db, ops);
+  if (a.first === true) putMetaRow(db, 'minutes.gathered', JSON.stringify({ n: moves.length, at: ctx.now().toISOString() }));
+  return { ops, pageIds: ops.length ? [m.id, ...moves.map((o) => o.id)] : [], result: { moved: moves.length, skipped, created: Boolean(m.made), db: m.id } };
+}
+// 起動のとき（DB のプロセス）: 移す議事録があるか（移す前の控えを取るか・見回りの命令を送るかを決める。壊れた attrs のページは数えない）と、
+// 「議事録」データベースがもうあるか（初めての起動で、移す物も作る物も無ければ命令を送らない: 空の oplog の行を積まない）
+const minutesState = (db) => ({
+  pending: db.prepare(HOT_QUERIES.topPages).all().some((r) => { const a = parseOr(r.attrs); return Boolean(a) && isMeetingRaw(a); }),
+  hasDb: Boolean(minutesDbOf(db)),
+});
 
 // 送り直しの答え: 書いた操作に、ページの行を足したか会議の印を書き換えた操作があれば「作った・上書きした」（already: false）
 function recoverDup(db, a, row) {
@@ -3153,6 +3243,8 @@ const DEFS = {
     run: meetingFinalize, dupResult: (db, a) => readPage(db, a.pageId) },
   'meeting.recover': { roles: ['main'], write: true, args: { pageId: 'id', page: 'page', segments: 'segments' },
     run: meetingRecover, dupResult: recoverDup },
+  // 0.17.0 MG-2（決めたこと 47・48）: 議事録を「議事録」データベースへ移す（最初の起動の控えの後は first・起動のたびの見回りは first 無し。DB のプロセスが呼ぶ）
+  'minutes.gather': { roles: ['main'], write: true, args: { first: 'bool?' }, run: minutesGather, pageOf: () => null },
   'meeting.discard': { roles: ['main'], write: true, args: { pageId: 'id' },
     run: meetingDiscard, after: 'checkpoint' },
   'meeting.settle': { roles: ['main'], write: true, args: { keep: 'ids' },
@@ -3226,4 +3318,4 @@ const DEFS = {
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
 
-module.exports = { newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump };
+module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump };
