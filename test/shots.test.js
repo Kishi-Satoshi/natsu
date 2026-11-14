@@ -1316,7 +1316,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 PD-1: pageTree の写しに isEmptyBlank を足した（<script> の中だけ。まだ使わないので見た目は変わらない）。値を今の app.html に合わせた（前の値は 8fcd6cd1…）
   // 0.17.0 PD-2: 空の白紙のページのいちばん下の灰色の文と［データベース］（#emptyDb・その CSS・押す・キー・Ctrl+Z で戻す・表へのフォーカス）。変わる画面は足した
   // page-blank-empty-light・page-blank-empty-dark（NEW_170・RETAKE）。空の白紙のページを開くほかの画面があっても、アプリの画面はどれも RETAKE_170 にある。値を今の app.html に合わせた（前の値は f402b450…）
-  assert.strictEqual(sha, '168375fd26ddc1a34314bbb625e930ddd4066206eebd82d4c44d0ba8bdd8081f',
+  // 0.17.0 SV-1: pageTree の写しに withViewRows を足した（<script> の中だけ。まだ使わないので見た目は変わらない）。値を今の app.html に合わせた（前の値は 168375fd…）
+  assert.strictEqual(sha, '001daeb28413efe7bc70ab60bb0673410b3ec4f9d907fa47c407253ec9c1c4ad',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

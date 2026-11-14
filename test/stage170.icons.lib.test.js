@@ -280,3 +280,48 @@ test('IG-2（P4）: 画面の写し（app.html の pageIconView）は src/pageIc
   }
   for (const e of [{ icon: 'ic:star' }, { kind: 'blank' }, {}, { kind: 'database' }, { kind: 'row', db: 'p1' }, { icon: 'x', kind: 'blank' }]) assert.strictEqual(v.pageIconOf(e), P.pageIconOf(e));
 });
+
+// ---------------------------------------------------------------- SV-1
+test('SV-1・F190: withViewRows の表（開いたデータベースの下だけにビューの行・段・キーの形 <db>/<view>・閉じていれば無い・インラインのデータベースも同じ・ページの行の並びと段は今と同じ）。画面の写しも同じ答え', () => {
+  const PT = require('../src/pageTree');
+  const AT = (d) => `2026-11-${d}T00:00:00.000Z`;
+  // 最上位: 白紙のページ b1（子にインラインのデータベース d2 と白紙のページ k1）・データベース d1・議事録 m1
+  const rows = [
+    { id: 'm1', parentId: null, ord: 'i', createdAt: AT('10') },
+    { id: 'd1', parentId: null, ord: 'i', createdAt: AT('11') },
+    { id: 'b1', parentId: null, ord: 'i', createdAt: AT('12') },
+    { id: 'd2', parentId: 'b1', ord: 'a', createdAt: AT('13') },
+    { id: 'k1', parentId: 'b1', ord: 'b', createdAt: AT('14') },
+  ];
+  const VIEWS = { d1: [{ id: 'v1', name: '表', type: 'table' }, { id: 'v3', name: '一覧', type: 'list' }], d2: [{ id: 'v2', name: '進み', type: 'table' }] };
+  const viewsOf = (id) => (Object.hasOwn(VIEWS, id) ? VIEWS[id] : null);
+  const tree = PT.pageTree(rows);
+  const base = (open) => PT.visibleRows(tree, open);
+  const pick = (rs) => rs.map((r) => (r.view ? `${'  '.repeat(r.depth)}• ${r.key} ${r.name} ${r.type}` : `${'  '.repeat(r.depth)}${r.id}${r.hasKids ? (r.open ? ' ▾' : ' ▸') : ''}`));
+  const cases = [
+    [new Set(), ['b1 ▸', 'd1 ▸', 'm1']],
+    [new Set(['d1']), ['b1 ▸', 'd1 ▾', '  • d1/v1 表 table', '  • d1/v3 一覧 list', 'm1']],
+    [new Set(['b1']), ['b1 ▾', '  d2 ▸', '  k1', 'd1 ▸', 'm1']],
+    [new Set(['b1', 'd2', 'd1']), ['b1 ▾', '  d2 ▾', '    • d2/v2 進み table', '  k1', 'd1 ▾', '  • d1/v1 表 table', '  • d1/v3 一覧 list', 'm1']],
+    [new Set(['d2']), ['b1 ▸', 'd1 ▸', 'm1']],   // 閉じた親の下のデータベースは開いていても出ない
+  ];
+  for (const [open, want] of cases) {
+    const got = PT.withViewRows(base(open), open, viewsOf);
+    assert.deepStrictEqual(pick(got), want, [...open].join(','));
+    // ページの行の並びと段は今と同じ（開け閉めの印だけがデータベースの行で変わる）
+    assert.deepStrictEqual(got.filter((r) => !r.view).map((r) => [r.id, r.depth]), base(open).map((r) => [r.id, r.depth]));
+    for (const r of got.filter((x) => x.view)) {
+      assert.deepStrictEqual(Object.keys(r).sort(), ['db', 'depth', 'key', 'name', 'type', 'view', 'viewId']);
+      assert.strictEqual(r.key, `${r.db}/${r.viewId}`);
+    }
+  }
+  // ビューが無い（空・読めない）データベースは子の無い行のまま
+  const none = PT.withViewRows(base(new Set(['d1'])), new Set(['d1']), (id) => (id === 'd1' ? [] : null));
+  assert.deepStrictEqual(pick(none), ['b1 ▸', 'd1', 'm1']);
+  assert.deepStrictEqual(PT.withViewRows([], new Set(), viewsOf), []);
+  // 画面の写し（app.html の pageTreeView）も同じ答え
+  const HTML = read('src/renderer/app.html');
+  const seg = HTML.slice(HTML.indexOf('  // ---- pageTree の写し'), HTML.indexOf('  // ---- pageTree の写しはここまで'));
+  const app = new Function(`${seg}\nreturn pageTreeView;`)();   // eslint-disable-line no-new-func
+  for (const [open] of cases) assert.deepStrictEqual(app.withViewRows(app.visibleRows(app.pageTree(rows), open), open, viewsOf), PT.withViewRows(base(open), open, viewsOf));
+});

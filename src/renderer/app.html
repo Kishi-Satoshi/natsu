@@ -3395,6 +3395,22 @@
       return out;
     }
 
+    // 0.17.0 SV-1（決めたこと 37）: 木の行（visibleRows の形）に、開いているデータベースの行のすぐ下のビューの行を足す（open は開いている ID の Set・
+    // viewsOf(id) はデータベースのビュー [{ id, name, type }]（データベースでなければ null）。ページの行の並びと段はそのまま）。
+    // データベースの行はビューが1つ以上あれば hasKids で、開け閉めは open（データベースの ID）。ビューの行は { key: '<データベースの ID>/<ビューの ID>', view: true, db, viewId, name, type, depth }
+    function withViewRows(rows, open, viewsOf) {
+      const isOpen = (id) => Boolean(open && typeof open.has === 'function' && open.has(id));
+      const out = [];
+      for (const r of Array.isArray(rows) ? rows : []) {
+        const vs = typeof viewsOf === 'function' ? viewsOf(r.id) : null;
+        if (!Array.isArray(vs) || !vs.length) { out.push(r); continue; }
+        const opened = isOpen(r.id);
+        out.push({ ...r, hasKids: true, open: opened });
+        if (opened) for (const v of vs) out.push({ key: `${r.id}/${v.id}`, view: true, db: r.id, viewId: v.id, name: v.name, type: v.type, depth: r.depth + 1 });
+      }
+      return out;
+    }
+
     // 鍵として使えるか（keys.js の形: 36 進の数字で、末尾が '0' でない）
     const keyOk = (k) => typeof k === 'string' && /^[0-9a-z]*[1-9a-z]$/.test(k);
     const ordIn = (ords, id) => {
@@ -3506,7 +3522,7 @@
       if (String(page.memo ?? '') !== '') return false;
       return !(Array.isArray(page.memoDoc) && page.memoDoc.some((b) => !isBareParagraph(b)));
     }
-    return { pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, pageDropSpot, placeText, isEmptyBlank };
+    return { pageTree, descendants, canMoveUnder, crumbsOf, visibleRows, pageDropSpot, placeText, isEmptyBlank, withViewRows };
   })();
   // ---- pageTree の写しはここまで
   // ---- sideSection の写し（0.15.1 PS-2。src/sideSection.js の SECTION_DEFAULT から oneLineTitle まで。字は同じで、行の頭に4つの空白を足した。

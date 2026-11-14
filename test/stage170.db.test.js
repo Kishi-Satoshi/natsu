@@ -314,3 +314,104 @@ test('PD-1: T4b（控えに後の oplog（page.toDb・edit.revert・やり直し
     } finally { copy.close(); }
   } finally { t.done(); }
 });
+
+// ---------------------------------------------------------------- SV-1
+const viewsIn = (db, id) => { const e = listOf(db).find((p) => p.id === id); return e ? e.views : null; };
+const dbMake = (db, title) => { tick(); const d = ok(call(db, 'db.create', {}), 'db.create').result.id; ok(call(db, 'page.setTitle', { id: d, title }), 'page.setTitle'); return d; };   // データベースの題名（D77 の外）
+
+test('SV-1・F191: pages.list のデータベースの行に views（並び・名前・種類）・ほかの行は1字も同じ・ビューを足す／名前を変える／消す／並べ替える／種類を変えた後の一覧に効く・ゴミ箱のデータベースは今どおり出ない', T, () => withDb((db, t) => {
+  const d = dbMake(db, '案件');
+  const P = blankWith(db, { icon: '' });
+  // 白紙のページに迷い込んだ views の欄（命令では作れない形）があっても、データベースでない行には views を付けない
+  t.seed({ id: 'pstray', title: '', kind: 'blank', date: '2026-11-14', memo: '', blocks: [], views: [{ id: 'v1', name: '迷子', layout: 'table' }], createdAt: '2026-11-14T00:00:00.000Z', updatedAt: '2026-11-14T00:00:00.000Z' }, []);
+  const others = () => listOf(db).filter((p) => p.id !== d).map((p) => structuredClone(p));
+  const before = others();
+  for (const p of before) assert.ok(!Object.hasOwn(p, 'views'), `${p.id}: データベースでない行に views`);
+  assert.deepStrictEqual(viewsIn(db, d), [{ id: 'v1', name: '表', type: 'table' }]);
+  // 足す・名前を変える・種類を変える・並べ替える・消す
+  tick(); const v2 = ok(call(db, 'view.add', { db: d, layout: 'list', name: '一覧' }), 'view.add').result.view.id;
+  assert.deepStrictEqual(viewsIn(db, d), [{ id: 'v1', name: '表', type: 'table' }, { id: v2, name: '一覧', type: 'list' }], '足したビューが一覧に無い');
+  tick(); ok(call(db, 'view.update', { db: d, viewId: 'v1', patch: { name: '全部' } }), 'view.update');
+  assert.deepStrictEqual(viewsIn(db, d).map((v) => v.name), ['全部', '一覧'], '名前を変えても一覧が古い');
+  tick(); ok(call(db, 'view.update', { db: d, viewId: v2, patch: { layout: 'table' } }), 'view.update');
+  assert.deepStrictEqual(viewsIn(db, d).map((v) => v.type), ['table', 'table'], '種類を変えても一覧が古い');
+  tick(); ok(call(db, 'view.move', { db: d, viewId: 'v1', after: v2 }), 'view.move');
+  assert.deepStrictEqual(viewsIn(db, d).map((v) => v.id), [v2, 'v1'], '並べ替えても一覧が古い');
+  tick(); ok(call(db, 'view.remove', { db: d, viewId: v2 }), 'view.remove');
+  assert.deepStrictEqual(viewsIn(db, d), [{ id: 'v1', name: '全部', type: 'table' }], '消しても一覧が古い');
+  // リンクドビュー（白紙のページの本文の行のビュー）は、データベースのビューの行に入れない
+  tick(); const lb = ok(call(db, 'block.insertDbView', { pageId: P, afterId: '', db: d }), 'block.insertDbView').result.blockId;
+  tick(); ok(call(db, 'view.add', { db: d, layout: 'list', name: 'つないだ側', linked: lb }), 'view.add linked');
+  assert.deepStrictEqual(viewsIn(db, d).map((v) => v.name), ['全部'], 'リンクドビューのビューがデータベースの行に入った');
+  // ほかの行は1字も同じ（データベースのビューを変えても）
+  const P2 = others().find((p) => p.id === P);
+  assert.deepStrictEqual(others().filter((p) => p.id !== P), before.filter((p) => p.id !== P), 'ほかの行が変わった');
+  assert.ok(!Object.hasOwn(P2, 'views'));
+  // ゴミ箱のデータベースは出ない・戻せば views ごと戻る
+  tick(); ok(call(db, 'page.delete', { id: d }), 'page.delete');
+  assert.strictEqual(viewsIn(db, d), null, 'ゴミ箱のデータベースが一覧に出た');
+  tick(); ok(call(db, 'page.restore', { id: d }), 'page.restore');
+  assert.deepStrictEqual(viewsIn(db, d), [{ id: 'v1', name: '全部', type: 'table' }]);
+  // 20 まで・名前は1行（壊れた項目は飛ばす）
+  const many = Array.from({ length: 23 }, (_, i) => ({ id: `v${i + 1}`, name: i === 0 ? '上\n下' : `ビュー${i + 1}`, layout: i % 2 ? 'list' : 'table' }));
+  db.prepare('update blocks set attrs = json_set(attrs, \'$.views\', json(?)) where id = ?').run(JSON.stringify([{ name: 'ID が無い' }, ...many]), d);
+  const vs = viewsIn(db, d);
+  assert.strictEqual(vs.length, 20);
+  assert.deepStrictEqual(vs[0], { id: 'v1', name: '上 下', type: 'table' });
+  assert.deepStrictEqual(vs[19], { id: 'v20', name: 'ビュー20', type: 'list' });
+}));
+
+test('SV-1・F191: MCP の一覧と答えにビューの名前を出さない（ビューを足しても答えは1字も同じ）', T, () => {
+  const m = mcpDb({ only: ['plain1'] });
+  try {
+    const d = m.call('app', 'db.create', {}).id;
+    m.call('app', 'page.setTitle', { id: d, title: '案件' });   // データベースの題名（D77 の外）
+    const NOW = () => new Date('2026-11-14T03:00:00.000Z');
+    const ask = () => { const c = (name, args = {}) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text; return [c('list_meetings'), c('get_meeting', { id: d })]; };
+    m.close();
+    const before = ask();
+    m.call('app', 'view.add', { db: d, layout: 'list', name: '見せない名前' });
+    m.close();
+    const after = ask();
+    for (const x of after) assert.ok(!x.includes('見せない名前'), x);
+    assert.deepStrictEqual(after, before);
+  } finally { m.done(); }
+});
+
+test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース。どれもビュー 20）が、同じ大きさの欄の白紙のページの一覧の 1.1 倍以内で、白紙のページには views を付けない', { timeout: 120000 }, () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const made = ok(call(db, 'db.create', {}), 'db.create').result;
+    const fresh = made.page;
+    const views = Array.from({ length: 20 }, (_, i) => ({ ...fresh.views[0], id: `v${i + 1}`, name: `ビュー${i + 1}` }));
+    const dbAttrs = JSON.stringify({ kind: 'database', cols: fresh.cols, views, nextNo: 1, date: '2026-11-01' });
+    const memo = 'メモ'.repeat(200);
+    db.exec('BEGIN');
+    const ins = db.prepare("insert into blocks(id,type,page_id,parent_id,ord,text,rich,attrs,fold,rev,created_at,updated_at,trashed_at) values (?,?,?,?,?,?,null,?,'',1,?,?,null)");
+    const pid = (i) => `ps${String(i).padStart(5, '0')}`;
+    for (let i = 0; i < 2000; i++) {
+      const isDb = i % 20 === 0;
+      ins.run(pid(i), 'page', pid(i), null, 'i', `題${i}`, isDb ? dbAttrs : JSON.stringify({ memo, date: '2026-11-01', meeting: { phase: 'done' } }),
+        new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(), '');
+    }
+    db.exec('COMMIT');
+    const dbIds = Array.from({ length: 100 }, (_, k) => pid(k * 20));
+    const setKind = (kind) => { db.exec('BEGIN'); for (const id of dbIds) db.prepare('update blocks set attrs = json_set(attrs, \'$.kind\', ?) where id = ?').run(kind, id); db.exec('COMMIT'); };
+    const timed = () => { const t0 = process.hrtime.bigint(); const r = call(db, 'pages.list', {}); return [Number(process.hrtime.bigint() - t0) / 1e6, r.result]; };
+    // 交互に計る（同じ大きさの欄で、種類だけが違う: データベース ↔ 白紙のページ）。どちらも覚えた一覧の後で。はじめの 3 組は捨てる（JIT が温まる前）。
+    // 比べるのは 25 組のいちばん速い回どうし（その版の本当の重さ。ほかのテストのファイルと同じ時に走る揺れはいちばん速い回に入りにくい）。揺れの分の 2 ミリ秒は見逃す
+    const asDb = []; const asBlank = [];
+    for (let k = 0; k < 28; k++) {
+      setKind('database'); timed();
+      const [a, la] = timed();
+      assert.strictEqual(la.filter((p) => Array.isArray(p.views) && p.views.length === 20).length, 100, '前提: データベースの行に views が無い');
+      setKind('blank'); timed();
+      const [b, lb] = timed();
+      assert.deepStrictEqual(lb.filter((p) => Object.hasOwn(p, 'views') && p.id !== made.id).map((p) => p.id), [], 'データベースでない行に views を付けた');
+      if (k >= 3) { asDb.push(a); asBlank.push(b); }
+    }
+    const best = (xs) => Math.min(...xs);
+    assert.ok(best(asDb) <= best(asBlank) * 1.1 + 2, `データベースの一覧 ${best(asDb).toFixed(1)}ms が白紙のページの一覧 ${best(asBlank).toFixed(1)}ms の 1.1 倍を超えた`);
+  } finally { t.done(); }
+});

@@ -299,13 +299,21 @@ function listedRows(db) {
   });
 }
 
+// 0.17.0 SV-1（決めたこと 36）: データベースのページのビュー → 一覧の1行の views（ビューの並びのまま・20 まで・名前は1行）。読むのはもう読んだ attrs の views だけ
+const VIEW_ROWS_MAX = 20;
+const oneLine = (s) => String(s ?? '').replace(/[\u0000-\u001f\u2028\u2029]+/g, ' ').trim();
+const viewRowsOf = (views) => (Array.isArray(views) ? views : []).filter((v) => isObj(v) && typeof v.id === 'string' && v.id)
+  .slice(0, VIEW_ROWS_MAX).map((v) => ({ id: v.id, name: oneLine(v.name), type: v.layout === 'list' ? 'list' : 'table' }));
 // 0.15.0 PH-2（決めたこと 17・F118）: 一覧の1行の木の欄。覚えた1行（LIST_CACHE）の外で、読んだページの行から添える
 // （親と並びの鍵は覚えた1行の鍵に入れない。白紙のページは kind、アイコンはあるときだけ）
 function withTree(e, row) {
   e.parentId = row.parentId ?? null;
   e.ord = row.ord;
   if (row.attrs && row.attrs.kind === 'blank') e.kind = 'blank';
-  if (row.attrs && row.attrs.kind === 'database') e.kind = 'database';   // 0.16.0 DR-1: リレーションの列のつなぐ先を選ぶ窓（DX-1 のサイドバーの 🗃️ も）
+  if (row.attrs && row.attrs.kind === 'database') {
+    e.kind = 'database';   // 0.16.0 DR-1: リレーションの列のつなぐ先を選ぶ窓（DX-1 のサイドバーの 🗃️ も）
+    e.views = viewRowsOf(row.attrs.views);   // 0.17.0 SV-1（決めたこと 36）: サイドバーのビューの行（データベースの行だけ）
+  }
   if (row.attrs && typeof row.attrs.icon === 'string' && row.attrs.icon) e.icon = row.attrs.icon;
   if (row.inRow) e.inRow = { ...row.inRow };   // 0.16.0 R97: データベースの行の中のページ（一番近い行・その題名・データベース・その題名）
   return e;
