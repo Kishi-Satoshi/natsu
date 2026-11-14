@@ -330,6 +330,7 @@
   .treemenu .msep { height: 0; margin: 4px 6px; border-top: 1px solid var(--line); }
   .treemenu .mfoot { padding: 4px 10px 2px; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .pitem .padd:hover { background: var(--tint); color: var(--text); }
+  .side .pitem.pview .pdot { flex: none; width: 16px; text-align: center; color: var(--muted); font-size: 12px; }   /* 0.17.0 SV-2: ビューの行の頭の小さな点 */
   .pitem .ptw { flex: none; width: 12px; margin: 0 -4px 0 -2px; text-align: center; color: var(--text-2); font-size: 12px; cursor: pointer; }   /* PH-3 直し（R28 (3)）: 選ぶ形の ▸ */
   .pitem.dragging { opacity: .5; }
   .pitem.dropin { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -5972,11 +5973,23 @@
   // 見えている行（閉じた行の子は出さない: F115）。0.15.1 PS-2（決めたこと 23）: 並べ替え（手動・最終更新）と表示の数（いちばん上の段だけ数える）を当てる
   const treeView = () => sideSectionView.sectionRows(treeNow(), treeOpen, privSt);   // 0.15.1 PS-2 直し（R42）: 描くときは行と出していない数を1回で
   const treeRows = () => treeView().rows;
-  const treeRowEl = (id) => [...$('plist').children].find((e) => e.dataset && e.dataset.pid === id) || null;
+  // 0.17.0 SV-2（決めたこと 37〜42）: サイドバーの木だけは、開いたデータベースの下にビューの行（ライブラリ・選ぶ並び・引っ張りの落とす所は treeRows のページの行だけ）。
+  // 行の鍵はページの行がページの ID、ビューの行が '<データベースの ID>/<ビューの ID>'（ページの ID に / は無い）
+  let viewsFor = null; let viewsMap = new Map();
+  function viewsOfTree(id) {
+    if (viewsFor !== pages) { viewsMap = new Map(pages.filter((p) => isDbPage(p) && !p.inRow && Array.isArray(p.views) && p.views.length).map((p) => [p.id, p.views])); viewsFor = pages; }
+    return viewsMap.has(id) ? viewsMap.get(id) : null;
+  }
+  const sideRowsOf = (rows) => pageTreeView.withViewRows(rows, treeOpen, viewsOfTree);
+  const sideRows = () => sideRowsOf(treeRows());
+  const rowKey = (r) => (r.view ? r.key : r.id);
+  const isTreeEl = (e) => Boolean(e && e.dataset && (e.dataset.pid || e.dataset.vkey));
+  const treeRowEl = (id) => [...$('plist').children].find((e) => e.dataset && (e.dataset.pid === id || e.dataset.vkey === id)) || null;
   // PH-3 直し（R28 (2)）: 覚えるのは今子のある行だけで、新しく開いた順の新しい 500 個（Set は足した順なので後ろが新しい。前は先の 500 個で、501 個目から覚えなかった）
   function saveTree() {
     const kids = treeNow().kids;
-    saveUi({ tree: { open: [...treeOpen].filter((id) => kids.has(id)).slice(-TREE_OPEN_MAX) } });
+    // 0.17.0 SV-2（決めたこと 38）: ビューのあるデータベースの行も（覚えるのはデータベースの ID。ビューの行の鍵は入れない）
+    saveUi({ tree: { open: [...treeOpen].filter((id) => kids.has(id) || viewsOfTree(id) !== null).slice(-TREE_OPEN_MAX) } });
   }
   // 開け閉めを替えて覚える（替えたら真）
   // PR-2 直し（R39）: 開いている行をもう一度開く（行の［＋］で子を作った後）ときも、新しい側に入れ直して覚える（子が無くて覚え書きから外れていた行も）。
@@ -6011,28 +6024,33 @@
     const el = treeRowEl(id);
     if (!el) return;
     treeFocus = id;
-    for (const e of $('plist').children) if (e.dataset && e.dataset.pid) e.tabIndex = e === el ? 0 : -1;
+    for (const e of $('plist').children) if (isTreeEl(e)) e.tabIndex = e === el ? 0 : -1;
     el.focus();
   }
   // 木のキー（決めたこと 20）: ↑↓ で見えている行を移る・→ で開く（開いていれば最初の子）・← で閉じる（閉じていれば親）・Home／End・
   // Enter（と Space）で今のタブ・Ctrl+Enter で新しいタブ・Shift+F10 とメニューのキーで行のメニュー。変換確定の Enter は先に抜ける
+  // 0.17.0 SV-2（決めたこと 40）: ビューの行も ↑↓・Home・End で通る。ビューの行の ← はデータベースの行へ・→ と Shift+F10 は何もしない・Enter と Space はそのビューで開く
   function treeKey(ev, id) {
     if (imeEnter(ev)) return;
-    const rows = treeRows();
-    const i = rows.findIndex((r) => r.id === id);
+    const rows = sideRows();
+    const i = rows.findIndex((r) => rowKey(r) === id);
     if (i < 0) return;
     const r = rows[i];
     const k = ev.key;
     const stop = () => { if (typeof ev.preventDefault === 'function') ev.preventDefault(); };
-    if (k === 'ArrowDown') { stop(); if (i + 1 < rows.length) focusTreeRow(rows[i + 1].id); }
-    else if (k === 'ArrowUp') { stop(); if (i > 0) focusTreeRow(rows[i - 1].id); }
-    else if (k === 'Home') { stop(); focusTreeRow(rows[0].id); }
-    else if (k === 'End') { stop(); focusTreeRow(rows[rows.length - 1].id); }
-    else if (k === 'ArrowRight') {
+    if (k === 'ArrowDown') { stop(); if (i + 1 < rows.length) focusTreeRow(rowKey(rows[i + 1])); }
+    else if (k === 'ArrowUp') { stop(); if (i > 0) focusTreeRow(rowKey(rows[i - 1])); }
+    else if (k === 'Home') { stop(); focusTreeRow(rowKey(rows[0])); }
+    else if (k === 'End') { stop(); focusTreeRow(rowKey(rows[rows.length - 1])); }
+    else if (r.view) {
+      if (k === 'ArrowLeft') { stop(); focusTreeRow(r.db); }
+      else if (k === 'Enter' || k === ' ') { stop(); if (!listSel.on) openViewRow(r.db, r.viewId, { ctrlKey: k === 'Enter' && Boolean(ev.ctrlKey || ev.metaKey) }); }
+      else if (k === 'ArrowRight' || k === 'ContextMenu' || (k === 'F10' && ev.shiftKey)) stop();
+    } else if (k === 'ArrowRight') {
       stop();
       if (!r.hasKids) return;
       if (!r.open) { toggleTreeRow(id, true); return; }
-      focusTreeRow(rows[i + 1].id);   // 開いていれば最初の子
+      focusTreeRow(rowKey(rows[i + 1]));   // 開いていれば最初の子（データベースは最初のビューの行）
     } else if (k === 'ArrowLeft') {
       stop();
       if (r.hasKids && r.open) { toggleTreeRow(id, false); return; }
@@ -6044,11 +6062,50 @@
       openPageTab(id, { newTab: k === 'Enter' && Boolean(ev.ctrlKey || ev.metaKey) });
     } else if (k === 'ContextMenu' || (k === 'F10' && ev.shiftKey)) { stop(); openTreeMenu(id); }
   }
+  // 0.17.0 SV-2（決めたこと 39〜41）: ビューの行（段の字下げ・頭の小さな点（•。読み上げには出さない）・ビューの名前）。押す・Enter・Space でそのビューで開く
+  // （Ctrl・中のボタンは新しいタブ）。引っ張れず落とす先にもならない・メニューは無い・選ぶ形ではチェックを出さず押しても何もしない
+  function viewRowEl(r, reach) {
+    const el = document.createElement('div');
+    el.className = 'pitem pview';
+    el.dataset.vkey = r.key;
+    const dot = document.createElement('span'); dot.className = 'pdot'; dot.setAttribute('aria-hidden', 'true'); dot.textContent = '•';
+    const t = document.createElement('span'); t.className = 't'; t.textContent = r.name;
+    el.append(dot, t);
+    asOption(el, false, (ev) => { if (!listSel.on) openViewRow(r.db, r.viewId, ev); });
+    el.setAttribute('role', 'treeitem');
+    el.setAttribute('aria-level', String(r.depth + 1));
+    el.tabIndex = r.key === reach ? 0 : -1;
+    el.style.paddingLeft = `${8 + TREE_INDENT * Math.min(r.depth, TREE_INDENT_MAX)}px`;
+    el.onkeydown = (ev) => treeKey(ev, r.key);
+    el.oncontextmenu = (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); };
+    el.draggable = false;
+    return el;
+  }
+  // 開いているタブがそのデータベースでそのビューなら、そのビューの行に選んでいる印（ページの行と同じ地の色）
+  function paintViewMarks() {
+    const st = dbPageSt();
+    const at = curId && activeTab === `page:${curId}` && st && st.id === curId && st.info ? `${curId}/${st.viewId}` : '';
+    for (const e of $('plist').children) {
+      if (!e.dataset || !e.dataset.vkey) continue;
+      const on = e.dataset.vkey === at;
+      e.classList.toggle('sel', on);
+      e.setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+  }
+  // そのビューでデータベースを開く（今のタブ。開いていればビューだけを替える: dbLinkWant と同じ道）。ev の Ctrl・中のボタンは新しいタブ
+  async function openViewRow(dbId, viewId, ev) {
+    const newTab = Boolean(ev) && Boolean(ev.ctrlKey || ev.metaKey || ev.button === 1);
+    const st = dbPageSt();
+    if (!newTab && curId === dbId && activeTab === `page:${dbId}` && st && st.id === dbId && st.info && dbUse(st)) { dbLinkView(dbId, viewId); return; }
+    dbLinkWant = { id: dbId, viewId };
+    await openPageTab(dbId, { newTab });
+    if (dbLinkWant && dbLinkWant.id === dbId) { dbLinkWant = null; if (curId === dbId) dbLinkView(dbId, viewId); }
+  }
   function renderList() {
     const box = $('plist');
     // 描き直してもフォーカスを同じ行に戻す（決めたこと 20。閉じて隠れたら一番近い見えている祖先へ）
     const fa = document.activeElement;
-    const hadFocus = fa && fa.parentNode === box && fa.dataset && fa.dataset.pid ? fa.dataset.pid : '';
+    const hadFocus = fa && fa.parentNode === box && isTreeEl(fa) ? fa.dataset.pid || fa.dataset.vkey : '';
     if (renameEd && renameEd.where !== 'library' && renameEd.input) { renameEd.value = renameEd.input.value; renameEd.hadFocus = document.activeElement === renameEd.input; renameEd.remount = true; }   // 0.15.1 PS-3
     box.textContent = '';
     const view = pages.length ? treeView() : { rows: [], hidden: 0 };
@@ -6064,11 +6121,14 @@
     for (const p of pages) if (p && p.id && typeof p.title === 'string') tabTitles.set(p.id, p.title);
     renderTabs();   // タブの名前は題名を追う
     const byId = new Map(pages.filter((p) => p && typeof p.id === 'string').map((p) => [p.id, p]));
-    const rows = view.rows;
-    const ids = rows.map((r) => r.id);
-    const want = shownFor(hadFocus, ids);
+    const rows = sideRowsOf(view.rows);   // 0.17.0 SV-2: 開いたデータベースの下にビューの行
+    const ids = rows.map(rowKey);
+    // 0.17.0 SV-2（決めたこと 43）: フォーカスしていたビューの行が消えたら（ビューを消した・データベースを閉じた）、そのデータベースの行へ
+    const viewGone = (k) => (k.includes('/') && !ids.includes(k) ? k.slice(0, k.indexOf('/')) : k);
+    const want = shownFor(viewGone(hadFocus), ids);
     const reach = want || (ids.includes(curId) ? curId : '') || shownFor(treeFocus, ids) || ids[0];   // Tab で届くのは1つの行（決めたこと 20）
     for (const r of rows) {
+      if (r.view) { box.appendChild(viewRowEl(r, reach)); continue; }
       const p = byId.get(r.id);
       const el = document.createElement('div');
       el.className = 'pitem' + (p.id === curId ? ' sel' : '') + (r.hasKids ? ' kids' : '');
@@ -6129,6 +6189,7 @@
       box.appendChild(el);
     }
     if (want) { const el = treeRowEl(want); if (el) { treeFocus = want; el.focus(); } }
+    paintViewMarks();
     if (renameEd && renameEd.where !== 'library') mountRename();   // 0.15.1 PS-3: 描き直しても名前を変えている欄を同じ行に戻す（打った字もそのまま）
     if (activeTab === 'library') renderLibrary();   // 0.15.1 PS-4: ライブラリも今の一覧で
     paintBodyPages();   // 0.15.0 PR-2（決めたこと 56）: 一覧を読み直したら、白紙のページの本文の子ページの行の題名とアイコンも今の値に
@@ -11492,6 +11553,7 @@
     if (key === 'page') dbLinkWant = null;   // 0.16.0 DL-1 (2): 本文の表はビューのリンクを使わない
     st.viewId = st.info ? (st.info.views.some((v) => v.id === want) ? want : st.info.views[0].id) : '';
     dbPaint(st);
+    if (key === 'page') paintViewMarks();   // 0.17.0 SV-2（決めたこと 39）: サイドバーの開いているビューの行の印
     await dbLoad(false, st);
     // 0.17.0 PD-2（決めたこと 30）: ［データベース］で変えたページは、開き直した表（最初の行の題名のセル。行が無ければ表）にフォーカス
     if (key === 'page' && dbFocusWant === id && dbUse(st)) { dbFocusWant = ''; if (st.shown > 0) await dbSelectAt(0, 'title'); else dbSelect(null); }
@@ -11842,6 +11904,7 @@
     dbPanelClose();   // 0.16.0 DV-3: 設定の窓は今のビューのもの
     st.viewId = viewId; st.sig = ''; st.shown = -1; st.rows.clear(); st.heights.clear(); st.sel = null; st.groups = null; dbLinesOf(st);
     dbPaint();
+    if (st.key === 'page') paintViewMarks();   // 0.17.0 SV-2（決めたこと 39）: サイドバーの開いているビューの行の印
     const sc = dbScroller(st); if (sc) sc.scrollTop = 0;
     dbLoad(false);
   }
@@ -13007,7 +13070,15 @@
   async function dbViewSave(patch, viewId) {
     const st = dbSt;
     if (st.editing) await dbEditEnd(true);   // 書いているセルは決めてから（表の形が替わる）
-    return dbWrite(() => window.koeApp.viewUpdate(st.id, viewId || st.viewId, patch, ...dbLinkedArg(st)));   // 0.16.0 DL-1 (2b)（R105）: リンクドビューはその行のビュー
+    // 0.16.0 DL-1 (2b)（R105）: リンクドビューはその行のビュー。0.17.0 SV-2: 名前と種類はサイドバーのビューの行に出るので一覧も読み直す
+    const names = Object.hasOwn(patch, 'name') || Object.hasOwn(patch, 'layout');
+    return dbViewWrite(() => window.koeApp.viewUpdate(st.id, viewId || st.viewId, patch, ...dbLinkedArg(st)), st, names);
+  }
+  // 0.17.0 SV-2（決めたこと 43）: ビューを足す・名前を変える・消す・並べ替える・種類を変えた後は、一覧を読み直す（サイドバーのビューの行。リンクドビューのビューは出ないので読まない）
+  async function dbViewWrite(send, st, names = true) {
+    const r = await dbWrite(send, undefined, st);
+    if (r && names && st && !st.linked) await refreshList();
+    return r;
   }
   // ---- タブ（決めたこと 16・V-T02〜V-T04）
   function dbPaintTabs(st) {
@@ -13156,7 +13227,7 @@
     const i = views.findIndex((v) => v.id === b.dataset.view);
     const after = dbRightHalf(ev, b) ? b.dataset.view : (i > 0 ? views[i - 1].id : '');
     if (after === id) return;
-    await dbWrite(() => window.koeApp.viewMove(st.id, id, after, ...dbLinkedArg(st)));
+    await dbViewWrite(() => window.koeApp.viewMove(st.id, id, after, ...dbLinkedArg(st)), st);
   }
   // タブのメニュー（V-T04: 名前を変える・複製・リンクを写す・削除。最後の1つは消せない）
   function dbTabMenu(viewId, anchor) {
@@ -13177,7 +13248,7 @@
   async function dbViewCopy(viewId) {
     const st = dbSt;
     dbMenuClose();
-    const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { from: viewId, ...(st.linked ? { linked: st.linked } : {}) }));
+    const r = await dbViewWrite(() => window.koeApp.viewAdd(st.id, { from: viewId, ...(st.linked ? { linked: st.linked } : {}) }), st);
     if (r && r.view && dbUse(st)) dbPickView(r.view.id);
   }
   // ビューへのリンク（ページの［リンクを写す］と同じ https の形に、ビューの印 &a=v:<ビューの ID>。開くとそのタブを選ぶ: 決めたこと 16・R75）
@@ -13198,7 +13269,7 @@
     if (!v || st.info.views.length <= 1) return;
     if (!window.confirm(DB_VIEW_DEL_ASK(oneLine(v.name)))) return;
     if (viewId === st.viewId) dbPickView(st.info.views.find((x) => x.id !== viewId).id);
-    await dbWrite(() => window.koeApp.viewRemove(st.id, viewId, ...dbLinkedArg(st)));
+    await dbViewWrite(() => window.koeApp.viewRemove(st.id, viewId, ...dbLinkedArg(st)), st);
   }
   // ［＋］: 名前の欄と［表］［リスト］（押すとそのビューを足して選ぶ。名前の欄の Enter は表。名前が空なら「表」「リスト」: V-T02）
   function dbViewAddMenu(anchor) {
@@ -13210,7 +13281,7 @@
     const go = async (layout) => {
       const name = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
       dbMenuClose();
-      const r = await dbWrite(() => window.koeApp.viewAdd(st.id, { layout, ...(name ? { name } : {}), ...(st.linked ? { linked: st.linked } : {}) }));
+      const r = await dbViewWrite(() => window.koeApp.viewAdd(st.id, { layout, ...(name ? { name } : {}), ...(st.linked ? { linked: st.linked } : {}) }), st);
       if (r && r.view && dbUse(st)) dbPickView(r.view.id);
     };
     const m = dbMenuAt(anchor, [{ head: DB_VIEW_ADD }, { label: '表', fn: () => go('table') }, { label: 'リスト', fn: () => go('list') }], 'dbcolmenu');

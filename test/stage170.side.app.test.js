@@ -1,5 +1,6 @@
 /* stage170.side.app.test.js — 0.17.0（計画 docs/plans/2026-11-13-170.md）の第2部の画面
  *  PD-2（決めたこと 30・33・35・RQ1・F189）: 空の白紙のページのいちばん下の［データベース］（押すとそのページがデータベースになる・Ctrl+Z で戻る）
+ *  SV-2（決めたこと 38〜43・F190・F191）: サイドバーで開いたデータベースの下のビューの行（頭の•と名前。押すとそのビューで開く）
  * 最小 DOM（helpers/simrun.js）の上で app.html の <script> を本当に走らせ、DB の命令は一時の DB に本当に通す（helpers/realapp.js）。
  * 題名は作った物（白紙のページ・データベースの題名で、会議の題名でない: D77 の外）。
  */
@@ -132,6 +133,192 @@ test('PD-2: Ctrl+Z（表の中）で白紙のページに戻ると、本文の�
     l.key({ key: 'z', code: 'KeyZ', ctrlKey: true }, g2); await l.drain(200);
     assert.strictEqual($(l, 'toast').textContent, '行のあるデータベースは白紙のページに戻せません。');
     assert.ok($(l, 'pageWrap').classList.contains('db'), '行のあるデータベースを戻した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- SV-2
+const views = (l) => $(l, 'plist').querySelectorAll('.pview');
+const viewNamed = (l, name) => views(l).find((e) => e.querySelector('.t').textContent === name);
+const treeSaves = (l) => l.called('uiSave').map((c) => c.args[0]).filter((x) => x && x.tree).map((x) => x.tree.open);
+const tabOn = (l) => $(l, 'pDb').querySelectorAll('.dbtab').find((b) => b.getAttribute('aria-selected') === 'true');
+const twist = async (l, id) => { sideRow(l, id).querySelector('.pi').dispatchEvent({ type: 'click', stopPropagation() {} }); await l.drain(80); };
+const sideKeys = (l) => [...$(l, 'plist').children].map((e) => e.dataset.vkey || e.dataset.pid);
+// データベース「案件」（ビュー: 表・週の見通し（リスト））・白紙のページ「計画」とその中のインラインのデータベース（ビュー: 表）・議事録
+// （サイドバーの並びは新しい順: 案件・計画）
+function seedViews(call) {
+  const P = call('page.create', {}).id;
+  call('page.setTitle', { id: P, title: '計画' });   // 白紙のページの題名（D77 の外）
+  const d2 = call('db.create', { parentId: P }).id;
+  const d = call('db.create', {}).id;
+  call('page.setTitle', { id: d, title: '案件' });   // データベースの題名（D77 の外）
+  const v2 = call('view.add', { db: d, layout: 'list', name: '週の見通し' }).view.id;
+  return { d, v2, P, d2 };
+}
+
+test('SV-2・F190: データベースの行に ▸（乗せる・フォーカスで）・押すと開け閉めし tree.open にデータベースの ID だけ・ビューの行は role="treeitem"・aria-level・頭の小さな点（•。読み上げには出さない）と名前（textContent）', T, async () => {
+  let M = null;
+  const l = await realApp({ before: (call) => (M = seedViews(call)), returns: { uiState: () => ({ tree: { open: [`${M.d}/v1`] } }) } });   // 前の版の覚え書きに紛れたビューの鍵
+  try {
+    const { d, v2, P, d2 } = l.made;
+    assert.deepStrictEqual(views(l), [], '閉じているのにビューの行がある');
+    const row = sideRow(l, d);
+    assert.ok(row.classList.contains('kids') && row.querySelector('.tw'), 'データベースの行に ▸ が無い');
+    assert.deepStrictEqual([row.querySelector('.tw').textContent, row.querySelector('.pi').title, row.getAttribute('aria-expanded')], ['▸', '開く', 'false']);
+    await twist(l, d);
+    assert.deepStrictEqual(sideKeys(l).slice(sideKeys(l).indexOf(d), sideKeys(l).indexOf(d) + 3), [d, `${d}/v1`, `${d}/${v2}`], 'データベースの行のすぐ下にビューの行が無い');
+    assert.deepStrictEqual([sideRow(l, d).getAttribute('aria-expanded'), sideRow(l, d).querySelector('.pi').title], ['true', '閉じる']);
+    const vs = views(l);
+    assert.deepStrictEqual(vs.map((e) => [e.getAttribute('role'), e.getAttribute('aria-level'), e.querySelector('.pdot').textContent, e.querySelector('.pdot').getAttribute('aria-hidden'), e.querySelector('.t').textContent]),
+      [['treeitem', '2', '•', 'true', '表'], ['treeitem', '2', '•', 'true', '週の見通し']]);
+    assert.deepStrictEqual(vs.map((e) => [e.querySelectorAll('.pmore').length, e.querySelectorAll('.padd').length, e.querySelectorAll('.pi').length]), [[0, 0, 0], [0, 0, 0]], 'ビューの行にメニュー・［＋］・アイコンがある');
+    assert.deepStrictEqual(treeSaves(l).at(-1), [d], 'tree.open にデータベースの ID だけでない');
+    // 閉じる・もう一度開く
+    await twist(l, d);
+    assert.deepStrictEqual(views(l), []);
+    assert.deepStrictEqual(treeSaves(l).at(-1), []);
+    await twist(l, d);
+    // インラインのデータベース（白紙のページの子の木）も同じ。段は1つ深い
+    await twist(l, P); await twist(l, d2);
+    const inl = views(l).filter((e) => e.dataset.vkey.startsWith(`${d2}/`));
+    assert.deepStrictEqual(inl.map((e) => [e.getAttribute('aria-level'), e.querySelector('.t').textContent]), [['3', '表']]);
+    for (const open of treeSaves(l)) assert.deepStrictEqual(open.filter((k) => k.includes('/')), [], 'tree.open にビューの行の鍵が入った');
+    assert.deepStrictEqual(new Set(treeSaves(l).at(-1)), new Set([d, P, d2]));
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('SV-2・F191: 押す・Enter・Space でそのビューで開く（開いていればビューだけ替える）・Ctrl+クリックと Ctrl+Enter は新しいタブ・開いているビューの行に選んでいる印・ビューを消すとその行が消え、フォーカスはデータベースの行へ', T, async () => {
+  const l = await realApp({ before: (call) => seedViews(call), returns: { uiState: () => ({}) } });
+  try {
+    const { d, v2 } = l.made;
+    await twist(l, d);
+    const tabKeys = () => l.document.querySelectorAll('.tabitem').map((e) => e.dataset.key);
+    const activeKey = () => l.document.querySelector('.tabitem.active').dataset.key;
+    const marks = () => views(l).map((e) => [e.classList.contains('sel'), e.getAttribute('aria-selected')]);
+    // Ctrl+Enter・Ctrl+クリックは新しいタブ（今のタブの白紙のページは残る）
+    await open(l, l.made.P);
+    const n0 = tabKeys().length;
+    l.key({ key: 'Enter', ctrlKey: true }, viewNamed(l, '週の見通し')); await l.drain(200);
+    assert.strictEqual(tabKeys().length, n0 + 1, 'Ctrl+Enter で新しいタブにならない');
+    assert.ok(tabKeys().includes(`page:${l.made.P}`) && activeKey() === `page:${d}`);
+    assert.strictEqual(tabOn(l).textContent, '週の見通し', 'そのビューで開かない');
+    assert.deepStrictEqual(marks(), [[false, 'false'], [true, 'true']], '開いているビューの行に印が無い');
+    await open(l, l.made.P);
+    assert.deepStrictEqual(marks(), [[false, 'false'], [false, 'false']], 'ほかのページなのに印がある');
+    viewNamed(l, '表').dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain(200);
+    assert.ok(tabKeys().includes(`page:${l.made.P}`) && activeKey() === `page:${d}`, 'Ctrl+クリックで新しいタブにならない');
+    assert.strictEqual(tabOn(l).textContent, '表');
+    // 開いていれば、押す・Enter・Space でビューだけ替える（ページを読み直さない）。表のタブで替えても印が付いてくる
+    const gets = l.called('pageGet').length;
+    viewNamed(l, '週の見通し').dispatchEvent({ type: 'click' }); await l.drain(200);
+    assert.strictEqual(tabOn(l).textContent, '週の見通し');
+    assert.deepStrictEqual(marks().map((x) => x[0]), [false, true], '印が替わらない');
+    l.key({ key: 'Enter' }, viewNamed(l, '表')); await l.drain(200);
+    assert.strictEqual(tabOn(l).textContent, '表');
+    $(l, 'pDb').querySelectorAll('.dbtab').find((b) => b.textContent === '週の見通し').dispatchEvent({ type: 'click' }); await l.drain(200);
+    assert.deepStrictEqual(marks().map((x) => x[0]), [false, true], '表のタブで替えたビューに印が付かない');
+    l.key({ key: ' ' }, viewNamed(l, '表')); await l.drain(200);
+    assert.strictEqual(tabOn(l).textContent, '表');
+    assert.strictEqual(l.called('pageGet').length, gets, '開いているのにページを開き直した');
+    // 開いていなければ、押すとそのビューで開く（最初のビューでなく）
+    await open(l, l.made.P);
+    viewNamed(l, '週の見通し').dispatchEvent({ type: 'click' }); await l.drain(200);
+    assert.strictEqual(activeKey(), `page:${d}`, 'データベースを開かない');
+    assert.strictEqual(tabOn(l).textContent, '週の見通し', '押したビューで開かない');
+    // 表のタブのメニューで名前を変える・足すと、ビューの行も今の名前（一覧を読み直す）
+    tabOn(l).dispatchEvent({ type: 'click' }); await l.drain(60);
+    l.document.querySelectorAll('.mitem').find((b) => b.textContent === '名前を変える').dispatchEvent({ type: 'click' }); await l.drain(60);
+    const inp = l.document.querySelector('.dbmenuinput');
+    inp.value = '今週の見通し';
+    l.key({ key: 'Enter' }, inp); await l.drain(200);
+    assert.deepStrictEqual(views(l).map((e) => e.querySelector('.t').textContent), ['表', '今週の見通し'], '名前を変えてもビューの行が古い');
+    // ビューを消すと行が消え、フォーカスしていたらデータベースの行へ（ほかの所で消して、一覧の知らせが来た）
+    viewNamed(l, '今週の見通し').focus();
+    l.call('view.remove', { db: d, viewId: v2 });
+    l.fire('onPagesUpdated'); await l.drain(200);
+    assert.deepStrictEqual(views(l).map((e) => e.querySelector('.t').textContent), ['表'], '消したビューの行が残る');
+    assert.ok(l.document.activeElement === sideRow(l, d), '消したビューの行のフォーカスがデータベースの行へ移らない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('SV-2・F190: ↑↓・Home・End がビューの行も通る・← でデータベースの行へ・→ と Shift+F10 は何もしない・引っ張れない・落とす先にならない・選ぶ形でチェックが出ない・ライブラリ・検索・ゴミ箱・［移動先…］に出ない', T, async () => {
+  const l = await realApp({ before: (call) => seedViews(call), returns: { uiState: () => ({}) } });
+  try {
+    const { d, v2, P } = l.made;
+    await twist(l, d);
+    const keys = sideKeys(l);
+    const at = keys.indexOf(d);
+    const focused = () => { const a = l.document.activeElement; return a && a.dataset ? a.dataset.vkey || a.dataset.pid : ''; };
+    sideRow(l, d).focus();
+    l.key({ key: 'ArrowDown' }, sideRow(l, d)); await l.drain();
+    assert.strictEqual(focused(), `${d}/v1`, '↓ でビューの行へ行かない');
+    l.key({ key: 'ArrowDown' }, l.document.activeElement); await l.drain();
+    assert.strictEqual(focused(), `${d}/${v2}`);
+    l.key({ key: 'ArrowDown' }, l.document.activeElement); await l.drain();
+    assert.strictEqual(focused(), keys[at + 3], '↓ で次のページの行へ行かない');
+    l.key({ key: 'ArrowUp' }, l.document.activeElement); await l.drain();
+    assert.strictEqual(focused(), `${d}/${v2}`, '↑ でビューの行へ戻らない');
+    // → と Shift+F10 は何もしない（開け閉めも覚え書きも変えない）・← でデータベースの行へ
+    const saves0 = treeSaves(l).length;
+    const keys0 = sideKeys(l);
+    for (const ev of [{ key: 'ArrowRight' }, { key: 'F10', shiftKey: true }, { key: 'ContextMenu' }]) { l.key(ev, l.document.activeElement); await l.drain(); }
+    assert.strictEqual(focused(), `${d}/${v2}`, '→ でフォーカスが動いた');
+    assert.deepStrictEqual([sideKeys(l), treeSaves(l).length], [keys0, saves0], '→ で開け閉めした');
+    assert.ok(!l.document.querySelector('.treemenu'), 'Shift+F10 でメニューが出た');
+    l.key({ key: 'ArrowLeft' }, l.document.activeElement); await l.drain();
+    assert.strictEqual(focused(), d, '← でデータベースの行へ行かない');
+    // Home・End（いちばん下がビューの行）
+    l.key({ key: 'End' }, sideRow(l, d)); await l.drain();
+    const last = sideKeys(l).at(-1);
+    assert.strictEqual(focused(), last);
+    l.key({ key: 'Home' }, l.document.activeElement); await l.drain();
+    assert.strictEqual(focused(), sideKeys(l)[0]);
+    // 引っ張れない・落とす先にならない（ページの行を引っ張ってビューの行に落としても動かさない）
+    const vr = viewNamed(l, '週の見通し');
+    assert.strictEqual(vr.draggable, false, 'ビューの行を引っ張れる');
+    const dt = { types: ['application/x-natsu-page'], setData() {}, effectAllowed: '' };
+    sideRow(l, P).dispatchEvent({ type: 'dragstart', dataTransfer: dt });
+    let stopped = false;
+    vr.dispatchEvent({ type: 'dragover', dataTransfer: dt, clientY: 15, preventDefault() { stopped = true; } });
+    assert.ok(!stopped && !vr.classList.contains('dropin') && !vr.classList.contains('dropbefore') && !vr.classList.contains('dropafter'), 'ビューの行が落とす先になった');
+    vr.dispatchEvent({ type: 'drop', dataTransfer: dt, clientY: 15, preventDefault() {} }); await l.drain(80);
+    assert.deepStrictEqual(l.called('pageMove'), [], 'ビューの行に落として動かした');
+    // 選ぶ形: ビューの行にチェックが出ず、押しても選ばない（ページも開かない）
+    $(l, 'listSelect').dispatchEvent({ type: 'click' }); await l.drain();
+    assert.ok(sideRow(l, P).querySelector('.pchk'), '前提: 選ぶ形にならない');
+    assert.deepStrictEqual(views(l).map((e) => e.querySelectorAll('.pchk').length), [0, 0], '選ぶ形でビューの行にチェックが出た');
+    const gets = l.called('pageGet').length;
+    viewNamed(l, '表').dispatchEvent({ type: 'click' }); await l.drain(80);
+    assert.strictEqual($(l, 'selCount').textContent, '', 'ビューの行を押して選んだ');
+    sideRow(l, P).dispatchEvent({ type: 'click' }); await l.drain();
+    assert.strictEqual($(l, 'selCount').textContent, '1 件を選んでいます', '前提: ページの行を選べない');
+    viewNamed(l, '週の見通し').dispatchEvent({ type: 'click', shiftKey: true }); await l.drain(80);
+    assert.strictEqual($(l, 'selCount').textContent, '1 件を選んでいます', 'Shift でビューの行を押して選んだ');
+    const lastPage = sideKeys(l).filter((k) => !k.includes('/')).find((k) => k !== P);   // ビューの行を挟んだ向こうのページの行
+    sideRow(l, lastPage).dispatchEvent({ type: 'click', shiftKey: true }); await l.drain();
+    const span = sideKeys(l).filter((k) => !k.includes('/'));
+    const want = Math.abs(span.indexOf(lastPage) - span.indexOf(P)) + 1;
+    assert.ok(Math.abs(sideKeys(l).indexOf(lastPage) - sideKeys(l).indexOf(P)) + 1 > want, '前提: 範囲にビューの行が無い');
+    assert.strictEqual($(l, 'selCount').textContent, `${want} 件を選んでいます`, 'Shift の範囲にビューの行を数えた');
+    assert.strictEqual(l.called('pageGet').length, gets, '選ぶ形でビューの行を押して開いた');
+    $(l, 'selCancel').dispatchEvent({ type: 'click' }); await l.drain();
+    // ライブラリ・検索・移動先・ゴミ箱にビューの名前が出ない
+    $(l, 'privLib').dispatchEvent({ type: 'click' }); await l.drain(80);
+    assert.ok($(l, 'libRows').children.length > 0 && !$(l, 'libRows').textContent.includes('週の見通し'), 'ライブラリにビューの行が出た');
+    $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain(80);
+    assert.ok($(l, 'palList').querySelectorAll('.pitem').some((e) => e.dataset.pid === d) && !$(l, 'palList').textContent.includes('週の見通し'), '検索にビューの行が出た');
+    l.key({ key: 'Escape' }); await l.drain();
+    await open(l, P);
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain();
+    $(l, 'pMenu').querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' }); await l.drain();
+    assert.ok($(l, 'moveList').children.length > 0 && !$(l, 'moveList').textContent.includes('週の見通し'), '移動先にビューの行が出た');
+    l.key({ key: 'Escape' }, $(l, 'moveSearch')); await l.drain();
+    l.call('page.delete', { id: d });
+    l.fire('onPagesUpdated'); await l.drain(200);
+    $(l, 'tabBtnTrash').dispatchEvent({ type: 'click' }); await l.drain(80);
+    assert.ok($(l, 'trashList').textContent.includes('案件') && !$(l, 'trashList').textContent.includes('週の見通し'), 'ゴミ箱にビューの行が出た');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

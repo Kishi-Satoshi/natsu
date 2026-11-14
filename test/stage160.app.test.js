@@ -2630,7 +2630,7 @@ const openTreeMenuOf = async (l, id) => { sideOf(l, id).dispatchEvent({ type: 'c
 const CSN = { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true };
 const newDbId = (l, not) => l.call('pages.list', {}).map((e) => e.id).find((x) => x !== l.id && !not.includes(x) && l.call('db.get', { id: x }));
 
-test('DX-1・決めたこと 42: サイドバーのデータベースは 🗃️ の行で、▸ と［＋］が無い。データベースの行（kind: row）が一覧に混じっても出さない。ページをデータベースの真ん中へ落としても印が出ず中へ入らない（前後へは落とせる）。［移動先…］の候補にデータベースが無い', T, async () => {
+test('DX-1・決めたこと 42: サイドバーのデータベースは 🗃️ の行で、［＋］が無い（0.17.0 SV-2 で意図して変えた: ▸ はビューの行の開け閉め）。データベースの行（kind: row）が一覧に混じっても出さない。ページをデータベースの真ん中へ落としても印が出ず中へ入らない（前後へは落とせる）。［移動先…］の候補にデータベースが無い', T, async () => {
   let me = null;
   const DB_ROW = (d) => ({ id: 'rfake01', title: '見積もり', kind: 'row', db: d, parentId: d, date: '2026-11-08', createdAt: '2026-11-08T00:00:00.000Z' });   // データベースの行の題名（D77 の会議の題名でない）
   const l = await openDb({
@@ -2644,7 +2644,8 @@ test('DX-1・決めたこと 42: サイドバーのデータベースは 🗃️
     assert.ok(d, 'データベースがサイドバーに無い');
     assert.strictEqual(ico(d.querySelector('.pi')), TBL, 'データベースのアイコンが表のアイコンでない');
     assert.strictEqual(d.querySelector('.t').textContent, '無題のデータベース');
-    assert.ok(!d.classList.contains('kids') && d.getAttribute('aria-expanded') === null, 'データベースに ▸ がある');
+    // 0.17.0 SV-2（計画 docs/plans/2026-11-13-170.md の決めたこと 38）で意図して変えた: ビューのあるデータベースの行は ▸ で開け閉めする（下にビューの行。閉じて始まる）
+    assert.ok(d.classList.contains('kids') && d.getAttribute('aria-expanded') === 'false', 'データベースに ▸ が無い');
     assert.ok(d.querySelector('.padd') === null, 'データベースの行に［＋］（中にページを作る）がある');
     // R125（rv56 重要）: 行に乗せると出る［···］（行のメニュー）は、データベースの行にもある（0.15.1 の PS-3。無いのは ▸ と［＋］だけ）
     assert.ok(d.querySelector('.pmore'), 'データベースの行に［···］（行のメニュー）が無い');

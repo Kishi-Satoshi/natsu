@@ -262,7 +262,8 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
 const RETAKE_170 = SH.SCREENS.filter((s) => s.page === 'app').map((s) => s.name);
 // 0.17.0 PD-2 で足した2枚（空の白紙のページの［データベース］。まだ基準が無い）
-const NEW_170 = ['page-blank-empty-light', 'page-blank-empty-dark'];
+const NEW_170 = ['page-blank-empty-light', 'page-blank-empty-dark',
+  'sidebar-db-views-light', 'sidebar-db-views-dark'];   // 0.17.0 SV-2 で足した2枚（サイドバーのビューの行。まだ基準が無い）
 // 0.17.0 PD-2 で意図して直した: 0.17.0 で足した画面（NEW_170）も 0.15.1 の画面に数えない
 const ADDED_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name) && !NEW_170.includes(s.name)).map((s) => s.name);
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
@@ -322,7 +323,7 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
     // 0.16.0 DV-1 で意図して変えた: データベースの表の明暗と拡大 200% の3枚を足した（取り直し待ち・まだ基準が無い）。DV-2 で列のメニュー・選択肢の選び・暦の3枚を足した。
     // DV-3〜DX-2・R128 で足した画面も（版を 0.16.0 に上げる commit で基準にした）
     NEW_160,
-    // 0.17.0 PD-2 で意図して変えた: 空の白紙のページの明暗の2枚を足した（取り直し待ち・まだ基準が無い）
+    // 0.17.0 PD-2 で意図して変えた: 空の白紙のページの明暗の2枚を足した（取り直し待ち・まだ基準が無い）。SV-2 でサイドバーのビューの行の明暗の2枚を足した
     NEW_170));
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.page === 'overlay').map((s) => s.name), PS.screenNames());
   // 0.9.3 M-7 で意図して変えた: 会議の検出のパネル（page nudge）の5枚を録音バーのあと（いちばん後ろ）に足した
@@ -1317,7 +1318,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 PD-2: 空の白紙のページのいちばん下の灰色の文と［データベース］（#emptyDb・その CSS・押す・キー・Ctrl+Z で戻す・表へのフォーカス）。変わる画面は足した
   // page-blank-empty-light・page-blank-empty-dark（NEW_170・RETAKE）。空の白紙のページを開くほかの画面があっても、アプリの画面はどれも RETAKE_170 にある。値を今の app.html に合わせた（前の値は f402b450…）
   // 0.17.0 SV-1: pageTree の写しに withViewRows を足した（<script> の中だけ。まだ使わないので見た目は変わらない）。値を今の app.html に合わせた（前の値は 168375fd…）
-  assert.strictEqual(sha, '001daeb28413efe7bc70ab60bb0673410b3ec4f9d907fa47c407253ec9c1c4ad',
+  // 0.17.0 SV-2: サイドバーの木で開いたデータベースの下のビューの行（.pview・頭の•・押す・キー・印・ビューの命令の後の一覧の読み直し）と、データベースの行の ▸。変わる画面は
+  // 足した sidebar-db-views-light・sidebar-db-views-dark（NEW_170・RETAKE）と、ビューのあるデータベースの行が出る画面（アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 001daeb2…）
+  assert.strictEqual(sha, '1e02b4b45f69f857159ab47d09347fe4d4e8a4e406e20656e3c8b6c283db2825',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

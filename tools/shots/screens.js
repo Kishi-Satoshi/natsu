@@ -109,6 +109,23 @@ const OPEN_NEW = `(async () => {
 })()`;
 // 0.16.0 DX-1: サイドバーのデータベース（🗃️・▸ と［＋］が無い。一覧に混じった行は出さない）の行のメニュー（中に作る2つが無い）を開く。
 // 本物の Chromium で、データベースの行のアイコンと、行が出ていないことを確かめる（違えば投げて「撮れない」）
+// 0.17.0 SV-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: サイドバーのデータベースの行の ▸ を押して、下に出たビューの行（•と名前）の1つ目を押す
+// （そのビューでデータベースを開き、その行に選んでいる印）
+const OPEN_SIDE_VIEWS = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  await w(300);
+  const row = document.querySelector('#plist .pitem[data-pid="pd1"]');
+  if (!row || !row.classList.contains('kids')) throw new Error('サイドバーのデータベースの行に ▸ が無い');
+  row.querySelector('.pi').click();
+  await w(150);
+  const vs = [...document.querySelectorAll('#plist .pview')];
+  if (vs.length !== 3) throw new Error('ビューの行が3つでない');
+  vs[0].click();
+  await w(500);
+  const on = document.querySelector('#plist .pview.sel');
+  if (!on || on.textContent !== '•表') throw new Error('開いたビューの行に印が無い');
+  return 1;
+})()`;
 const OPEN_SIDE_DB = `(async () => {
   await new Promise((r) => setTimeout(r, 300));
   const row = document.querySelector('#plist .pitem[data-pid="pd1"]');
@@ -683,6 +700,9 @@ const SCREENS = [
   // 0.17.0 PD-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」。アプリの画面のいちばん後ろに足す）: 空の白紙のページ（本文の手引きと、いちばん下の灰色の文と［データベース］）
   { name: 'page-blank-empty-light', page: 'app', theme: 'light', get answers() { return blankEmptyAnswers(); }, act: OPEN_PAGE },
   { name: 'page-blank-empty-dark', page: 'app', theme: 'dark', get answers() { return blankEmptyAnswers(); }, act: OPEN_PAGE },
+  // 0.17.0 SV-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: サイドバーで開いたデータベースの下のビューの行（3つ。開いたビュー「表」の行に印）
+  { name: 'sidebar-db-views-light', page: 'app', theme: 'light', get answers() { return sideViewsAnswers(); }, act: OPEN_SIDE_VIEWS },
+  { name: 'sidebar-db-views-dark', page: 'app', theme: 'dark', get answers() { return sideViewsAnswers(); }, act: OPEN_SIDE_VIEWS },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -1071,6 +1091,16 @@ function blankAnswers() {
   ] };
   const row = { id: 'pb1', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
   return { 'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
+}
+
+/** 0.17.0 SV-2: データベースのページ（dbAnswers）にビューを3つ（表・一覧・担当別）。一覧の行にもその3つ（pages.list の views） */
+function sideViewsAnswers() {
+  const a = dbAnswers();
+  const g = a['koeApp.dbGet'];
+  const v1 = g.views[0];
+  const views = [v1, { ...v1, id: 'v2', name: '一覧', layout: 'list' }, { ...v1, id: 'v3', name: '担当別' }];
+  const list = a['koeApp.pagesSearch'].map((p) => (p.id === 'pd1' ? { ...p, views: views.map((v) => ({ id: v.id, name: v.name, type: v.layout })) } : p));
+  return { ...a, 'koeApp.pagesSearch': list, 'koeApp.dbGet': { ...g, views } };
 }
 
 /** 0.17.0 PD-2: 一覧のいちばん上の、本文が空の白紙のページ pe1（題名だけ） */
