@@ -486,23 +486,29 @@ test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース
     };
     const timed = () => { const t0 = process.hrtime.bigint(); const r = call(db, 'pages.list', {}); return [Number(process.hrtime.bigint() - t0) / 1e6, r.result]; };
     const stray = (list) => list.filter((p) => Object.hasOwn(p, 'views') && p.kind !== 'database').map((p) => p.id);
-    // 交互に計る。どちらも覚えた一覧の後で。はじめの 3 組は捨てる（JIT が温まる前）。比べるのは 25 組のいちばん速い回どうし（その版の本当の重さ。
-    // ほかのテストのファイルと同じ時に走る揺れはいちばん速い回に入りにくい）。揺れの分の 2 ミリ秒は見逃す。R26 直し: 前はデータベース ↔ 白紙のページの種類を
-    // 替えて比べていて、データベースの一覧の前からの重さ（行の中のページの見分け）まで数えていた（CI run 43585807076 で 37.6ms と 32.3ms）
-    const read = []; const plain = [];
-    for (let k = 0; k < 28; k++) {
+    // 2つを続けて計った組を 28 組（どちらも覚えた一覧の後で。はじめの 3 組は捨てる: JIT が温まる前）。組ごとに先に計る方を替える（時間とともに機械の混み方が
+    // 変わっても、どちらかに寄らない）。比べるのは組ごとの差（読む − 読まない × 1.1）の真ん中の値で、揺れの分の 2 ミリ秒は見逃す。R26 直し: 前はデータベース ↔
+    // 白紙のページの種類を替えて比べていて、データベースの一覧の前からの重さまで数えていた（CI run 43585807076）。R41 直し: 前は2つのいちばん速い回どうしを
+    // 比べていて、別の時に計った回どうしなので、ほかのテストのファイルと同時に走る機械の混み方が計る間に変わると外れた（CI run 43647892596 の mutate-3 の
+    // 元のままの確かめで 38.2ms と 32.7ms。手元で同じ形を3回計ると、いちばん速い回の差は 1 ミリ秒の中）
+    const diffs = []; const read = []; const plain = [];
+    const one = (want) => {
+      if (want === 'plain') swap('views', 'vx');
       timed();
-      const [a, la] = timed();
-      assert.strictEqual(la.filter((p) => Array.isArray(p.views) && p.views.length === 20).length, 100, '前提: データベースの行に views が無い');
-      assert.deepStrictEqual(stray(la), [], 'データベースでない行に views を付けた');
-      swap('views', 'vx'); timed();
-      const [b, lb] = timed();
-      assert.deepStrictEqual(lb.filter((p) => Array.isArray(p.views) && p.views.length), lb.filter((p) => p.id === made.id && p.views.length), '前提: ビューの欄の名前を替えても views がある');
-      assert.deepStrictEqual(stray(lb), [], 'データベースでない行に views を付けた');
-      swap('vx', 'views');
-      if (k >= 3) { read.push(a); plain.push(b); }
+      const [ms, list] = timed();
+      if (want === 'plain') {
+        assert.deepStrictEqual(list.filter((p) => Array.isArray(p.views) && p.views.length), list.filter((p) => p.id === made.id && p.views.length), '前提: ビューの欄の名前を替えても views がある');
+        swap('vx', 'views');
+      } else assert.strictEqual(list.filter((p) => Array.isArray(p.views) && p.views.length === 20).length, 100, '前提: データベースの行に views が無い');
+      assert.deepStrictEqual(stray(list), [], 'データベースでない行に views を付けた');
+      return ms;
+    };
+    for (let k = 0; k < 28; k++) {
+      let a; let b;
+      if (k % 2 === 0) { a = one('read'); b = one('plain'); } else { b = one('plain'); a = one('read'); }
+      if (k >= 3) { read.push(a); plain.push(b); diffs.push(a - b * 1.1); }
     }
-    const best = (xs) => Math.min(...xs);
-    assert.ok(best(read) <= best(plain) * 1.1 + 2, `ビューを読む一覧 ${best(read).toFixed(1)}ms が読まない一覧 ${best(plain).toFixed(1)}ms の 1.1 倍を超えた`);
+    const mid = (xs) => [...xs].sort((x, y) => x - y)[xs.length >> 1];
+    assert.ok(mid(diffs) <= 2, `ビューを読む一覧が読まない一覧の 1.1 倍を超えた（組ごとの差の真ん中 ${mid(diffs).toFixed(1)}ms・真ん中の回 ${mid(read).toFixed(1)}ms と ${mid(plain).toFixed(1)}ms）`);
   } finally { t.done(); }
 });

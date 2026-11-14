@@ -105,7 +105,7 @@ test('RF18: 別のプロセスが natsu.db を読み取り専用で開いたま�
     // 戻した natsu.db は控えの時点。退けたほうに控えの後の直しが残っている（何も失っていない）
     const restored = new sqlite.DatabaseSync(f, { readOnly: true });
     try {
-      assert.strictEqual(restored.prepare('select count(*) c from blocks where type = \'page\'').get().c, 2);
+      assert.strictEqual(restored.prepare('select count(*) c from blocks where type = \'page\' and json_extract(attrs, \'$.kind\') is null').get().c, 2);   // （0.17.0 MG-2 で意図して変えた: 計画 docs/plans/2026-11-13-170.md の R40。締めが「議事録」データベースを作るので、会議のページだけを数える）
       assert.notStrictEqual(restored.prepare('select text from blocks where id = ?').get(d.ids[0]).text, '控えの後に直した題');
     } finally { restored.close(); }
     const broken = new sqlite.DatabaseSync(path.join(d.dataDir, r.brokenAs), { readOnly: true });
