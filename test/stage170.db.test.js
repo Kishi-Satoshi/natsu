@@ -378,7 +378,7 @@ test('SV-1・F191: MCP の一覧と答えにビューの名前を出さない（
   } finally { m.done(); }
 });
 
-test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース。どれもビュー 20）が、同じ大きさの欄の白紙のページの一覧の 1.1 倍以内で、白紙のページには views を付けない', { timeout: 120000 }, () => {
+test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース。どれもビュー 20）が、ビューを読まない同じ一覧（同じ大きさの欄）の 1.1 倍以内で、データベースでない行には views を付けない', { timeout: 120000 }, () => {
   const t = tmpDb();
   try {
     const { db } = t.open();
@@ -392,26 +392,37 @@ test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース
     const pid = (i) => `ps${String(i).padStart(5, '0')}`;
     for (let i = 0; i < 2000; i++) {
       const isDb = i % 20 === 0;
-      ins.run(pid(i), 'page', pid(i), null, 'i', `題${i}`, isDb ? dbAttrs : JSON.stringify({ memo, date: '2026-11-01', meeting: { phase: 'done' } }),
+      // 議事録の 100 に、迷い込んだ views の欄（データベースでない行に views を付けないかを見る）
+      ins.run(pid(i), 'page', pid(i), null, 'i', `題${i}`, isDb ? dbAttrs : JSON.stringify({ memo, date: '2026-11-01', meeting: { phase: 'done' }, ...(i % 20 === 1 ? { views } : {}) }),
         new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(), '');
     }
     db.exec('COMMIT');
     const dbIds = Array.from({ length: 100 }, (_, k) => pid(k * 20));
-    const setKind = (kind) => { db.exec('BEGIN'); for (const id of dbIds) db.prepare('update blocks set attrs = json_set(attrs, \'$.kind\', ?) where id = ?').run(kind, id); db.exec('COMMIT'); };
+    // データベースのビューの欄の名前を替える（views ↔ vx。欄の大きさも中身も同じで、ビューを読むかだけが違う）
+    const swap = (from, to) => {
+      db.exec('BEGIN');
+      for (const id of dbIds) db.prepare(`update blocks set attrs = json_remove(json_set(attrs, '$.${to}', json_extract(attrs, '$.${from}')), '$.${from}') where id = ?`).run(id);
+      db.exec('COMMIT');
+    };
     const timed = () => { const t0 = process.hrtime.bigint(); const r = call(db, 'pages.list', {}); return [Number(process.hrtime.bigint() - t0) / 1e6, r.result]; };
-    // 交互に計る（同じ大きさの欄で、種類だけが違う: データベース ↔ 白紙のページ）。どちらも覚えた一覧の後で。はじめの 3 組は捨てる（JIT が温まる前）。
-    // 比べるのは 25 組のいちばん速い回どうし（その版の本当の重さ。ほかのテストのファイルと同じ時に走る揺れはいちばん速い回に入りにくい）。揺れの分の 2 ミリ秒は見逃す
-    const asDb = []; const asBlank = [];
+    const stray = (list) => list.filter((p) => Object.hasOwn(p, 'views') && p.kind !== 'database').map((p) => p.id);
+    // 交互に計る。どちらも覚えた一覧の後で。はじめの 3 組は捨てる（JIT が温まる前）。比べるのは 25 組のいちばん速い回どうし（その版の本当の重さ。
+    // ほかのテストのファイルと同じ時に走る揺れはいちばん速い回に入りにくい）。揺れの分の 2 ミリ秒は見逃す。R26 直し: 前はデータベース ↔ 白紙のページの種類を
+    // 替えて比べていて、データベースの一覧の前からの重さ（行の中のページの見分け）まで数えていた（CI run 43585807076 で 37.6ms と 32.3ms）
+    const read = []; const plain = [];
     for (let k = 0; k < 28; k++) {
-      setKind('database'); timed();
+      timed();
       const [a, la] = timed();
       assert.strictEqual(la.filter((p) => Array.isArray(p.views) && p.views.length === 20).length, 100, '前提: データベースの行に views が無い');
-      setKind('blank'); timed();
+      assert.deepStrictEqual(stray(la), [], 'データベースでない行に views を付けた');
+      swap('views', 'vx'); timed();
       const [b, lb] = timed();
-      assert.deepStrictEqual(lb.filter((p) => Object.hasOwn(p, 'views') && p.id !== made.id).map((p) => p.id), [], 'データベースでない行に views を付けた');
-      if (k >= 3) { asDb.push(a); asBlank.push(b); }
+      assert.deepStrictEqual(lb.filter((p) => Array.isArray(p.views) && p.views.length), lb.filter((p) => p.id === made.id && p.views.length), '前提: ビューの欄の名前を替えても views がある');
+      assert.deepStrictEqual(stray(lb), [], 'データベースでない行に views を付けた');
+      swap('vx', 'views');
+      if (k >= 3) { read.push(a); plain.push(b); }
     }
     const best = (xs) => Math.min(...xs);
-    assert.ok(best(asDb) <= best(asBlank) * 1.1 + 2, `データベースの一覧 ${best(asDb).toFixed(1)}ms が白紙のページの一覧 ${best(asBlank).toFixed(1)}ms の 1.1 倍を超えた`);
+    assert.ok(best(read) <= best(plain) * 1.1 + 2, `ビューを読む一覧 ${best(read).toFixed(1)}ms が読まない一覧 ${best(plain).toFixed(1)}ms の 1.1 倍を超えた`);
   } finally { t.done(); }
 });
