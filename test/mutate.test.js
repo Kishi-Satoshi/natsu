@@ -1660,6 +1660,9 @@ test('G3・0.15.1: GONE_151 の変異は一覧にも、どの版の IDS にも�
 const IDS_170 = [
   // 0.17.0 IG-1 で作った行（表の行の順に）
   'ig-tool-clip', 'ig-tool-color', 'ig-tool-evenodd', 'ig-tool-viewbox', 'ig-tool-unknown', 'ig-tool-regen', 'ig-tool-sha', 'ig-dg-first', 'ig-notice-list',
+  // 0.17.0 IG-2 で作った行（表の行の順に）
+  'ig-id-shape', 'ig-id-known', 'ig-id-own', 'ig-ui-hidden', 'ig-emoji-keep', 'ig-default-meeting', 'ig-default-blank', 'ig-default-db', 'ig-default-row', 'ig-bad-keep',
+  'ig-find-yomi', 'ig-find-en', 'ig-find-kind', 'ig-recent-icon', 'ig-setIcon-icon', 'ig-mcp-none',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
 function planRows170() {

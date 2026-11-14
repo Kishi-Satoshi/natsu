@@ -1293,7 +1293,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // ［列の値を変える ▸］と行のページの選びの窓も置く・長い名前の項目の「…」と吹き出し。変わる画面はデータベースの画面（NEW_160・RETAKE）。値を今の app.html に合わせた（前の値は 1b2a32c7…）
   // 0.17.0 IG-1: ページのアイコンの絵の表の写し（pageIconPaths。tools/page-icons.js が書く）を <script> の中だけに足した（まだ使わないので見た目は変わらない）。
   // 値を今の app.html に合わせた（前の値は ccdf035e…）
-  assert.strictEqual(sha, '2544b6df1edb1b2a450010caa4d222d1f8757f680339f792c0cbcaa4fa8f9022',
+  // 0.17.0 IG-2: ページのアイコンの純粋な部品の写し（pageIconView。src/pageIcons.js の写し）を <script> の中だけに足した（まだ使わないので見た目は変わらない）。
+  // 値を今の app.html に合わせた（前の値は 2544b6df…）
+  assert.strictEqual(sha, '79b18c84483760b751b97ad049b3dcf2f11645e35a93a0a999e7b1cda7df7fd7',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

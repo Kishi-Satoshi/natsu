@@ -168,3 +168,115 @@ test('IG-1・F184: 出典（配る物の src/licenses/page-icons.txt に、デ�
   }
 });
 
+// ---------------------------------------------------------------- IG-2
+test('IG-2・F179: isIconId・isPageIconValue の表（ic:mic は真。形の悪い名前・表に無い名前・持ち物の名前・41 字・向きの制御の字・飾りだけの絵・別の頭は偽。辞書の絵文字は今どおり真）', () => {
+  const P = require('../src/pageIcons.js');
+  for (const v of ['ic:mic', 'ic:certification_with_seal', 'ic:search', 'ic:lightbulb']) {
+    assert.strictEqual(P.isIconId(v), true, v);
+    assert.strictEqual(P.isPageIconValue(v), true, v);
+  }
+  for (const v of ['ic:', 'ic:MIC', 'ic:mic ', ' ic:mic', 'ic:mic\n', 'ic:__proto__', 'ic:constructor', 'ic:hasOwnProperty', 'ic:toString', `ic:${'a'.repeat(41)}`, 'ic:‮mic', 'ic:mi‮c',
+    'ic:notaname', 'dg:mic', 'ms:mic', 'mic', 'IC:mic', '', null, undefined, 5, ['ic:mic'], { toString: () => 'ic:mic' }]) {
+    assert.strictEqual(P.isIconId(v), false, String(JSON.stringify(v)));
+    assert.strictEqual(P.isPageIconValue(v), false, String(JSON.stringify(v)));
+  }
+  // 画面の飾りだけの絵（ui）は表にあるが、ページのアイコンにできない
+  for (const v of ['ic:settings', 'ic:delete', 'ic:library_books']) {
+    assert.strictEqual(P.isIconId(v), true, v);
+    assert.strictEqual(P.isPageIconValue(v), false, `${v}: 飾りの絵がページのアイコンに通る`);
+  }
+  // 今の絵文字（辞書の絵文字ちょうど1つ）は今どおり通る
+  const D = require('../src/emojiDict.js');
+  for (const e of ['🚀', '🎙️', '📄', '🗃️', D.EMOJI[0].e, D.EMOJI.at(-1).e]) assert.strictEqual(P.isPageIconValue(e), true, e);
+  for (const e of ['🦕', '📄📄', '👍🏻', 'a']) assert.strictEqual(P.isPageIconValue(e), false, e);
+});
+
+test('IG-2・F180: pageIconOf の表（議事録はマイク・白紙は書類・データベースは表・行のページは書類。選んだ ic: と絵文字はそのまま・表に無い ic: と形の悪い値は既定で、値は書き替えない）', () => {
+  const P = require('../src/pageIcons.js');
+  assert.deepStrictEqual({ ...P.DEFAULT_ICON }, { meeting: 'ic:mic', blank: 'ic:certification_with_seal', database: 'ic:table_chart' });
+  assert.ok(Object.isFrozen(P.DEFAULT_ICON));
+  for (const v of Object.values(P.DEFAULT_ICON)) assert.strictEqual(P.isPageIconValue(v), true, `${v}: 既定が表に無い`);
+  const cases = [
+    [{}, 'ic:mic'], [{ kind: undefined }, 'ic:mic'], [{ kind: 'blank' }, 'ic:certification_with_seal'], [{ kind: 'database' }, 'ic:table_chart'],
+    [{ kind: 'row', db: 'pdb1' }, 'ic:certification_with_seal'], [{ kind: 'row', db: 'pdb1', icon: '🚀' }, 'ic:certification_with_seal'],
+    [{ icon: 'ic:star' }, 'ic:star'], [{ kind: 'blank', icon: 'ic:star' }, 'ic:star'], [{ kind: 'database', icon: 'ic:mic' }, 'ic:mic'], [{ kind: 'blank', icon: '🚀' }, '🚀'], [{ icon: '🎙️' }, '🎙️'],
+    [{ icon: 'ic:notaname' }, 'ic:mic'], [{ kind: 'blank', icon: 'ic:notaname' }, 'ic:certification_with_seal'], [{ kind: 'database', icon: 'ic:__proto__' }, 'ic:table_chart'],
+    [{ kind: 'blank', icon: 'ic:settings' }, 'ic:certification_with_seal'], [{ kind: 'blank', icon: 'x' }, 'ic:certification_with_seal'], [{ icon: '' }, 'ic:mic'], [{ icon: 5 }, 'ic:mic'],
+    [null, 'ic:mic'], [undefined, 'ic:mic'],
+  ];
+  for (const [e, want] of cases) {
+    const before = JSON.stringify(e);
+    assert.strictEqual(P.pageIconOf(e), want, before);
+    assert.strictEqual(JSON.stringify(e), before, '値を書き替えた');
+  }
+});
+
+test('IG-2: findIcons の表（よみ・カタカナ・漢字・半角カナで書類が先・英語の元の名前・前方一致が先・飾りだけの絵と絵文字は出ない・空の語は空・語を文法として読まない）', () => {
+  const P = require('../src/pageIcons.js');
+  for (const q of ['しょるい', 'ショルイ', '書類', 'ｼｮﾙｲ', ' しょ るい ']) {
+    const hits = P.findIcons(q);
+    assert.strictEqual(hits[0], 'ic:certification_with_seal', q);
+    assert.ok(hits.includes('ic:application'), `${q}: 中の一致（ちぇっくしたしょるい）が無い`);
+    assert.ok(hits.indexOf('ic:certification_with_seal') < hits.indexOf('ic:application'), `${q}: 前方一致が先でない`);
+  }
+  assert.deepStrictEqual(P.findIcons('mic'), ['ic:mic']);
+  assert.deepStrictEqual(P.findIcons('Mic'), ['ic:mic']);
+  assert.deepStrictEqual(P.findIcons('まいく'), ['ic:mic']);
+  assert.strictEqual(P.findIcons('table')[0], 'ic:table_chart', '英語の名前（_ は空白）');
+  assert.ok(P.findIcons('table chart').includes('ic:table_chart'));
+  for (const q of ['settings', 'library', 'delete']) assert.deepStrictEqual(P.findIcons(q).filter((v) => ['ic:settings', 'ic:library_books', 'ic:delete'].includes(v)), [], `${q}: 飾りの絵が出た`);
+  assert.deepStrictEqual(P.findIcons('settings'), []);
+  for (const q of ['', '   ', null, undefined]) assert.deepStrictEqual(P.findIcons(q), [], String(q));
+  for (const q of ['.*', '(', '[a-z]', '\\', 'しょるい|まいく']) assert.doesNotThrow(() => P.findIcons(q), q);
+  assert.deepStrictEqual(P.findIcons('.*'), []);
+  for (const q of ['ろけっと', 'ほし', 'しょるい']) assert.ok(P.findIcons(q).every((v) => /^ic:[a-z0-9_]+$/.test(v)), `${q}: 絵文字が混じった`);
+  // 名前（ボタンの aria-label と title）
+  assert.strictEqual(P.iconNameOf('ic:mic'), 'マイク');
+  assert.strictEqual(P.iconNameOf('ic:certification_with_seal'), '書類');
+  assert.strictEqual(P.iconNameOf('🚀'), require('../src/emojiDict.js').EMOJI.find((x) => x.e === '🚀').n);
+  for (const v of ['ic:notaname', 'x', '', null]) assert.strictEqual(P.iconNameOf(v), '', String(v));
+});
+
+test('IG-2・F183: 最近使ったもの（emojiRecent に ic: と絵文字が混じって残る・形の悪い値と重なりと飾りだけの絵は落ちる・25 個目は落ちる・0.16.0 の照らしで読むと ic: だけが落ちて絵文字は残る）', () => {
+  const W = require('../src/winstate.js');
+  const D1 = [{ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
+  const raw = { v: 1, zoom: 1.25, emojiRecent: ['ic:mic', '📄', 'ic:mic', 'ic:notaname', 'ic:settings', 'ic:__proto__', '🎙️', 'x', 5, 'ic:star'] };
+  const r = W.normalize(raw, D1);
+  assert.deepStrictEqual(r.state.emojiRecent, ['ic:mic', '📄', '🎙️', 'ic:star']);
+  assert.deepStrictEqual(r.repaired, ['emojiRecent']);
+  assert.strictEqual(r.state.zoom, 1.25, 'ほかの項目を落とした');
+  const ok = W.normalize({ v: 1, emojiRecent: ['ic:mic', '🚀', 'ic:star'] }, D1);
+  assert.deepStrictEqual([ok.state.emojiRecent, ok.repaired], [['ic:mic', '🚀', 'ic:star'], []]);
+  const P = require('../src/pageIcons.js');
+  const many = P.ICON_LIST.filter((x) => !x.ui).slice(0, 25).map((x) => `ic:${x.id}`);
+  assert.deepStrictEqual(W.normalize({ v: 1, emojiRecent: many }, D1).state.emojiRecent, many.slice(0, 24));
+  // 画面から来た値も同じ照らし
+  assert.deepStrictEqual(W.applyUi(W.defaults(), { emojiRecent: ['ic:mic', 'ic:bad', '🚀'] }).emojiRecent, ['ic:mic', '🚀']);
+  // 0.16.0 の照らし（0a6a375 の src/winstate.js の normEmojiRecent を写した見本: 辞書の絵文字だけ）で読むと、ic: だけが落ち、絵文字は残る（RF17・決めたこと 11）
+  const D = require('../src/emojiDict.js');
+  const norm160 = (list) => { if (!Array.isArray(list)) return []; const out = []; for (const e of list) { if (!D.isPageIcon(e) || out.includes(e)) continue; out.push(e); } return out.slice(0, 24); };
+  assert.deepStrictEqual(norm160(r.state.emojiRecent), ['📄', '🎙️']);
+});
+
+test('IG-2（P4）: 画面の写し（app.html の pageIconView）は src/pageIcons.js と字も答えも同じ', () => {
+  const P = require('../src/pageIcons.js');
+  const D = require('../src/emojiDict.js');
+  const HTML = read('src/renderer/app.html');
+  const at = HTML.indexOf('  // ---- pageIcons の写し');
+  const end = HTML.indexOf('  // ---- pageIcons の写しはここまで');
+  assert.ok(at > 0 && end > at, 'app.html に pageIcons の写しが無い');
+  const seg = HTML.slice(at, end);
+  const SRC = read('src/pageIcons.js');
+  const body = SRC.slice(SRC.indexOf('const ICON_CATS'), SRC.indexOf('\nmodule.exports')).replace(/\s+$/, '');
+  assert.ok(seg.includes(body.split('\n').map((x) => (x ? `    ${x}` : x)).join('\n')), 'app.html の pageIcons の写しの字が src/pageIcons.js と違う');
+  const v = new Function('emojiView', `${seg}\nreturn pageIconView;`)(D);   // eslint-disable-line no-new-func
+  assert.deepStrictEqual(v.ICON_LIST.map((x) => [x.id, x.src, x.cat, x.n, x.y, x.en, Boolean(x.ui)]), P.ICON_LIST.map((x) => [x.id, x.src, x.cat, x.n, x.y, x.en, Boolean(x.ui)]));
+  assert.deepStrictEqual({ ...v.DEFAULT_ICON }, { ...P.DEFAULT_ICON });
+  for (const q of ['しょるい', 'ｼｮﾙｲ', 'mic', 'table chart', '']) assert.deepStrictEqual(v.findIcons(q), P.findIcons(q), q);
+  for (const x of ['ic:mic', 'ic:settings', 'ic:__proto__', '🚀', 'x']) {
+    assert.strictEqual(v.isIconId(x), P.isIconId(x), x);
+    assert.strictEqual(v.isPageIconValue(x), P.isPageIconValue(x), x);
+    assert.strictEqual(v.iconNameOf(x), P.iconNameOf(x), x);
+  }
+  for (const e of [{ icon: 'ic:star' }, { kind: 'blank' }, {}, { kind: 'database' }, { kind: 'row', db: 'p1' }, { icon: 'x', kind: 'blank' }]) assert.strictEqual(v.pageIconOf(e), P.pageIconOf(e));
+});

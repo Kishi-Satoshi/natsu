@@ -30,7 +30,7 @@
 
 const path = require('path');
 const blockEdit = require('./blockEdit');   // 0.13.0 ED-5（EQ8 (b)）: / メニューの「最近使ったもの」の照らし（recentCheck）
-const emojiDict = require('./emojiDict');   // 0.15.0 PL-1: 最近使ったアイコンの照らし（isPageIcon）
+const pageIcons = require('./pageIcons');   // 0.15.0 PL-1: 最近使ったアイコンの照らし。0.17.0 IG-2（決めたこと 15）: 絵文字と ic: の値（isPageIconValue）
 const sideSection = require('./sideSection');   // 0.15.1 PS-1: サイドバーのセクションの畳み・並べ替え・表示の数の照らし（normSections）
 
 const DEFAULT_SIZE = { width: 1120, height: 780 };
@@ -172,11 +172,12 @@ function normTree(t) {
 }
 
 // 0.15.0 PL-1（決めたこと 37・F119）: 最近使ったアイコン。辞書に無い値・重なりは落とし、新しい（先の）24 個を残す（ほかの項目は残す）
+// 0.17.0 IG-2（決めたこと 15・F183）: 絵文字と ic: の値を混ぜたまま新しい順に残す（形の悪い値・表に無い名前・飾りだけの絵は1つずつ落とす）
 function normEmojiRecent(list) {
   if (!Array.isArray(list)) return [];
   const out = [];
   for (const e of list) {
-    if (!emojiDict.isPageIcon(e) || out.includes(e)) continue;
+    if (!pageIcons.isPageIconValue(e) || out.includes(e)) continue;
     out.push(e);
   }
   return out.slice(0, EMOJI_RECENT_MAX);

@@ -3,6 +3,10 @@
 // 値の形は 'ic:<名前>'（名前は元の絵のファイルの名前）。出どころ（デジタル庁か Material Symbols か）は値に入れず、この表に持つ。
 // 名前（n）とよみ（y）は NaTsu が書いたもの（持ち主が 2026-11-14 に IQ13 で承認した付録の表のまま）。絵（path）は tools/page-icons.js が
 // assets/page-icons/ の元の SVG から src/pageIconPaths.js に書く（手で直さない）。
+// 0.17.0 IG-2: 値の照らし（isIconId・isPageIconValue）・既定のアイコン（DEFAULT_ICON・pageIconOf）・名前とよみで探す（findIcons）・名前（iconNameOf）。
+// 画面は部品を読めないので、app.html に写す（pageIconView。test/stage170.icons.lib.test.js が字と答えを照らす。写しでは E が emojiView）
+
+const E = require('./emojiDict.js');
 
 // 選びの窓の分類（並びはこの順。10 個目の「矢印と操作」は IQ4 の答えで足した）
 const ICON_CATS = Object.freeze([
@@ -270,4 +274,60 @@ const ICON_LIST = Object.freeze((() => {
   return out;
 })());
 
-module.exports = { ICON_CATS, ICON_LIST };
+// 名前 → 表の行（持ち物の名前の無い凍った入れ物を Object.hasOwn で引く: ic:__proto__・ic:constructor を通さない。決めたこと 12）
+const BY_ID = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(ICON_LIST.map((x) => [x.id, x]))));
+const ICON_RE = /^ic:([a-z0-9_]{1,40})$/;
+const rowOf = (v) => {
+  const m = typeof v === 'string' ? ICON_RE.exec(v) : null;
+  return m && Object.hasOwn(BY_ID, m[1]) ? BY_ID[m[1]] : null;
+};
+
+// 'ic:' ＋ 名前（英小文字・数字・_ の 1〜40 字）で、表にある絵か（画面の飾りの絵も真）
+function isIconId(v) {
+  return rowOf(v) !== null;
+}
+
+// ページのアイコンにできる値か: 辞書の絵文字ちょうど1つ、か、表にある絵（画面の飾りだけの絵は除く）
+function isPageIconValue(v) {
+  if (E.isPageIcon(v)) return true;
+  const x = rowOf(v);
+  return x !== null && !x.ui;
+}
+
+// 既定のアイコン（決めたこと 3。IQ2: 議事録はマイク・白紙のページとデータベースの行のページは書類（デジタル庁）・データベースは表）
+const DEFAULT_ICON = Object.freeze({ meeting: 'ic:mic', blank: 'ic:certification_with_seal', database: 'ic:table_chart' });
+
+// 一覧の1行（か、ページ）のアイコンの値: データベースの行のページはいつも書類（アイコンは選べない: 0.16.0 の R92）。選んだ値がページのアイコンに
+// できる値ならそれ、無ければ（'' も、表に無い ic: も、形の悪い値も。値は書き替えない: 決めたこと 4・5）kind の既定
+function pageIconOf(entry) {
+  const e = entry && typeof entry === 'object' ? entry : {};
+  if (e.kind === 'row') return DEFAULT_ICON.blank;
+  if (isPageIconValue(e.icon)) return e.icon;
+  if (e.kind === 'database') return DEFAULT_ICON.database;
+  return e.kind === 'blank' ? DEFAULT_ICON.blank : DEFAULT_ICON.meeting;
+}
+
+// 名前（寄せた字）・よみ・元の英語の名前（_ を空白にした物を寄せた字）で探す → ['ic:<名前>']（前方一致が先・どちらも表の順。空の語は []。
+// 画面の飾りだけの絵と絵文字は混ぜない。語は正規表現や文法として扱わない: 決めたこと 14）
+const FOLDED = ICON_LIST.filter((x) => !x.ui).map((x) => ({ v: `ic:${x.id}`, keys: [E.fold(x.n), x.y, E.fold(x.en)] }));
+function findIcons(q) {
+  const k = E.fold(q);
+  if (!k) return [];
+  const head = [];
+  const part = [];
+  for (const x of FOLDED) {
+    if (x.keys.some((s) => s.startsWith(k))) head.push(x.v);
+    else if (x.keys.some((s) => s.includes(k))) part.push(x.v);
+  }
+  return [...head, ...part];
+}
+
+// 値の日本語の名前（ボタンの aria-label と title。決めたこと 18）。アイコンは表の名前・絵文字は辞書の名前・どちらでもなければ ''
+const EMOJI_NAME = new Map(E.EMOJI.map((x) => [x.e, x.n]));
+function iconNameOf(v) {
+  const x = rowOf(v);
+  if (x) return x.n;
+  return E.isPageIcon(v) ? EMOJI_NAME.get(v) : '';
+}
+
+module.exports = { ICON_CATS, ICON_LIST, DEFAULT_ICON, isIconId, isPageIconValue, pageIconOf, findIcons, iconNameOf };
