@@ -1123,6 +1123,11 @@
   .atag.due.over { background: var(--hover); color: var(--danger); }
   .atag.add { background: transparent; color: var(--muted); border: none; }
   .atag:hover { filter: brightness(.95); }
+  /* 0.17.0 TK-2（決めたこと 63）: ToDo の行の［タスクにする］［タスクを開く］（乗せる・フォーカスで出す） */
+  .totask { font-size: 12px; font-weight: 400; height: 20px; line-height: 18px; padding: 0 6px; border-radius: 4px; font-family: inherit; cursor: pointer; white-space: nowrap;
+    background: transparent; color: var(--muted); border: 1px solid var(--line); visibility: hidden; }
+  .totask:hover { background: var(--hover); }
+  .blk:hover .totask, .blk:focus-within .totask, .totask.has { visibility: visible; }
   .atag-edit { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
     width: 132px; border: 1px solid var(--accent); background: var(--bg); color: var(--text);
     font-family: inherit; }
@@ -3286,6 +3291,13 @@
     asOption(src, x.pageId === curId, (ev) => openResult(x.pageId, ev));
     body.appendChild(src);
     el.append(cb, body);
+    if (typeof x.task === 'string' && x.task) {   // 0.17.0 TK-3（決めたこと 64）: タスクにした ToDo の行に［タスクを開く］（アクション一覧は今のまま残す）
+      const tb = document.createElement('button');
+      tb.type = 'button'; tb.className = 'totask has';
+      tb.textContent = TASK_OPEN; tb.setAttribute('aria-label', `『${String(x.text || '')}』のタスクを開く`);
+      tb.onclick = () => { closePalette(); openTask(x.task); };
+      el.appendChild(tb);
+    }
     return el;
   }
 
@@ -11323,7 +11335,7 @@
     if (!s || typeof s.step !== 'string' || typeof s.pageId !== 'string') return;
     if (s.cmd === 'edit.revert') { if (reverting && reverting.pid === s.pageId) reverting.tx = s.step; return; }
     if (s.cmd === 'page.toDb') toDbSteps.add(s.step);   // 0.17.0 PD-2: データベースにした歩み（戻すと白紙のページ: 知らせと開き直し）
-    const key = s.cmd === 'page.setMemoDoc' ? memoKeyOf(s.pageId) : /^blocks?\./.test(String(s.cmd)) ? noteKey(s.pageId)
+    const key = s.cmd === 'page.setMemoDoc' ? memoKeyOf(s.pageId) : /^blocks?\./.test(String(s.cmd)) || s.cmd === 'todo.toTask' ? noteKey(s.pageId)   // 0.17.0 TK-2: ［タスクにする］は要約の欄・本文の歩み
       : DB_STEP_RE.test(String(s.cmd)) ? dbStepKey(s.pageId) : '';   // 0.16.0 DV-1（決めたこと 47）: 表の命令はデータベースの歩み
     if (!key) return;
     if (stepBox && (stepBox.key === null || stepBox.key === key) && !stepBox.lit) { stepBox.key = key; stepBox.steps.push(s.step); return; }
@@ -15871,6 +15883,7 @@
         due.onclick = () => editTag(due, b.dueRaw, '「来週金曜」「8/30」など（空欄で解除）', (v) =>
           window.koeApp.blockSetAction(curId, b.id, undefined, v));
         meta.append(who, due);
+        if (taskablePage()) meta.appendChild(taskBtn(b));   // 0.17.0 TK-2（決めたこと 63）
         tail.appendChild(meta);
       }
 
@@ -15893,6 +15906,46 @@
       el.appendChild(tail);
     },
   };
+  // ---------------- 0.17.0 TK-2（計画 docs/plans/2026-11-13-170.md の決めたこと 63・F199）: ToDo の行の［タスクにする］／［タスクを開く］
+  // 議事録の要約と白紙のページの本文の ToDo の行（メモの行・録音中のページ・データベースの行のページを除く）に、乗せる・フォーカスで出す。押す・Enter・Space で
+  // todo.toTask の1回（変換中の Enter は抜ける）→ 知らせと読み直し。印のある ToDo は［タスクを開く］（「タスク管理」の行のページを今のタブで）
+  const TASK_MAKE = 'タスクにする';
+  const TASK_OPEN = 'タスクを開く';
+  const TASK_DONE = 'タスクにしました（Ctrl+Z で戻せます）';
+  const taskablePage = () => Boolean(curPage) && !isRowPage(curPage) && !isDbPage(curPage) && !isLiveCopy(curPage);
+  let taskBusy = false;
+  function taskBtn(b) {
+    const t = String(b.text || '');
+    const has = typeof b.task === 'string' && b.task !== '';
+    const tb = document.createElement('button');
+    tb.type = 'button'; tb.className = 'totask' + (has ? ' has' : '');   // 担当と期限の札（.atag）とは別の物
+    tb.textContent = has ? TASK_OPEN : TASK_MAKE;
+    tb.setAttribute('aria-label', has ? `『${t}』のタスクを開く` : `『${t}』をタスクにする`);
+    const run = () => (has ? openTask(b.task) : makeTask(b));
+    tb.onclick = run;
+    tb.onkeydown = (ev) => {
+      if (imeEnter(ev)) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }
+      if (ev.key === 'Enter' || ev.key === ' ') { if (typeof ev.preventDefault === 'function') ev.preventDefault(); if (typeof ev.stopPropagation === 'function') ev.stopPropagation(); run(); }
+    };
+    return tb;
+  }
+  async function makeTask(b) {
+    if (taskBusy || !curPage) return;
+    const pid = curId;
+    taskBusy = true;
+    try {
+      try { await inFlight(window.koeApp.todoToTask(pid, b.id)); }
+      catch (e) { toast(`変更を保存できませんでした: ${String((e && (e.code || e.message)) || 'internal')}`); return; }
+      toast(TASK_DONE);
+      await refreshList();
+      if (curId === pid) await openPage(pid);
+    } finally { taskBusy = false; }
+  }
+  function openTask(rowId) {
+    const k = tasksIdNow();
+    if (k) rowPages.set(rowId, k);
+    return openPageTab(rowId, { newTab: false });
+  }
   // 0.14.0 MB-4: 行の欄の引っ張って落とす受け口（要約の欄とメモの欄で同じ。動かす・複製は欄の鍵の口へ）
   function wireDrop(box) {
     box.ondragover = (ev) => {

@@ -787,3 +787,65 @@ test('TK-1・F200: 「マイタスク」は担当に「自分」があり完了�
   assert.strictEqual(call(db, 'rel.link', { db: K, id: r1, col: a.cols[5].id, ids: [], title: '新しい会議' }).code, 'bad-args', '「議事録」にふつうの行を作った');   // 題名（D77 の外: 断る）
   ok(call(db, 'rel.link', { db: K, id: r1, col: a.cols[5].id, ids: ['pt0'] }), '議事録をつなげない');
 }));
+
+// ---------------------------------------------------------------- TK-2（決めたこと 63・F199）: ［タスクにする］（todo.toTask）
+function todoMeeting(db, id, todos) {
+  const at = '2026-11-12T01:00:00.000Z';
+  const page = { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [{ id: `${id}h`, type: 'heading', text: 'ToDo' }, ...todos.map((t, i) => ({ id: `${id}t${i}`, type: 'todo', text: t.text, checked: Boolean(t.checked), ...(t.assignee ? { assignee: t.assignee } : {}), ...(t.due ? { due: t.due, dueRaw: t.due, dueApprox: Boolean(t.approx) } : {}) }))] };
+  ok(call(db, 'meeting.finalize', { pageId: id, page, segments: [] }, 'main'), 'meeting.finalize');
+  return id;
+}
+const taskCells = (db, K, rowId) => { const cols = attrsOf(db, K).cols; const c = attrsOf(db, rowId).cells || {}; const by = (n) => c[cols.find((x) => x.name === n).id]; return { status: by('ステータス'), who: by('担当'), due: by('期限'), mins: by('議事録') }; };
+test('TK-2・F199: todo.toTask は「タスク管理」に行を1つ（題名・担当・期限は ToDo のまま・無ければ空・推し量った期限は入れない・済みなら完了）を作り、議事録のリレーションにその議事録、ToDo に印。二度押しても送り直しても1つ', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pz0', 0);
+  const K = ok(gather(db), 'minutes.gather').result.tasks;
+  todoMeeting(db, 'pw1', [{ text: '見積もりを出す', assignee: 'メンバー甲', due: '2026-11-20' }, { text: '資料を集める' }, { text: '先方に送る', checked: true, due: '2026-11-21', approx: true }]);
+  const r = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'todo.toTask');
+  const row = r.result.id;
+  assert.strictEqual(r.result.db, K);
+  assert.deepStrictEqual([db.prepare('select type, parent_id, text from blocks where id = ?').get(row).type, db.prepare('select parent_id from blocks where id = ?').get(row).parent_id, db.prepare('select text from blocks where id = ?').get(row).text], ['row', K, '見積もりを出す']);
+  assert.deepStrictEqual(taskCells(db, K, row), { status: 'o1', who: ['メンバー甲'], due: { start: '2026-11-20' }, mins: ['pw1'] });
+  assert.strictEqual(attrsOf(db, 'pw1t0').task, row, 'ToDo に印が無い');
+  assert.strictEqual(db.prepare('select count(*) c from oplog where tx = ?').get(r.tx).c, 1);
+  // 二度押す・送り直す: 1つのまま
+  const again = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'todo.toTask');
+  assert.strictEqual(again.result.id, row);
+  ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }, 'app', r.tx), '送り直し');
+  assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'row' and parent_id = ?").get(K).c, 1, '2つ作った');
+  // 担当も期限も無い ToDo は空・推し量った期限は入れない・済みの ToDo は完了
+  const r2 = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t1' }), 'todo.toTask').result.id;
+  assert.deepStrictEqual(taskCells(db, K, r2), { status: 'o1', who: undefined, due: undefined, mins: ['pw1'] });
+  const r3 = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t2' }), 'todo.toTask').result.id;
+  assert.deepStrictEqual(taskCells(db, K, r3), { status: 'o3', who: undefined, due: undefined, mins: ['pw1'] });
+  // 白紙のページの ToDo は議事録のリレーションが空
+  const P = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  const tb = ok(call(db, 'block.insert', { pageId: P, afterBlockId: '', type: 'todo' }), 'block.insert').result.blockId;
+  ok(call(db, 'block.update', { pageId: P, blockId: tb, patch: { text: '机を片付ける' } }), 'block.update');
+  const r4 = ok(call(db, 'todo.toTask', { pageId: P, blockId: tb }), 'todo.toTask').result.id;
+  assert.deepStrictEqual(taskCells(db, K, r4).mins, undefined);
+  // ToDo でない行・録音中の写しは断る
+  assert.strictEqual(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1h' }).code, 'bad-args');
+  call(db, 'meeting.begin', { pageId: 'pl9', startedAt: Date.parse('2026-11-14T00:00:00.000Z'), localOnly: false }, 'main');
+  assert.strictEqual(call(db, 'todo.toTask', { pageId: 'pl9', blockId: 'x1' }).code, 'bad-args');
+}));
+
+test('TK-2・F199: Ctrl+Z（edit.revert）で行（ゴミ箱へ）と ToDo の印が一緒に戻り、やり直しでまた付く。「タスク管理」を消した後は、同じ命令の中で作り直す', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pz0', 0);
+  const K = ok(gather(db), 'minutes.gather').result.tasks;
+  todoMeeting(db, 'pw1', [{ text: '見積もりを出す' }]);
+  const r = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'todo.toTask');
+  const row = r.result.id;
+  const back = ok(call(db, 'edit.revert', { pageId: 'pw1', steps: [r.tx] }), 'edit.revert');
+  assert.deepStrictEqual([Boolean(trashedAt(db, row)), attrsOf(db, 'pw1t0').task], [true, undefined], 'Ctrl+Z で行と印が一緒に戻らない');
+  ok(call(db, 'edit.revert', { pageId: 'pw1', steps: [back.tx] }), 'やり直し');
+  assert.deepStrictEqual([trashedAt(db, row), attrsOf(db, 'pw1t0').task], [null, row]);
+  // 「タスク管理」を消した後は作り直す（二度作らない: F203）
+  ok(call(db, 'page.delete', { id: K }), 'page.delete');
+  todoMeeting(db, 'pw2', [{ text: '次の段取り' }]);
+  const r2 = ok(call(db, 'todo.toTask', { pageId: 'pw2', blockId: 'pw2t0' }), 'todo.toTask');
+  assert.notStrictEqual(r2.result.db, K);
+  assert.strictEqual(tasksDbs(db).length, 1);
+  todoMeeting(db, 'pw3', [{ text: 'もう一つ' }]);
+  assert.strictEqual(ok(call(db, 'todo.toTask', { pageId: 'pw3', blockId: 'pw3t0' }), 'todo.toTask').result.db, r2.result.db);
+  assert.strictEqual(tasksDbs(db).length, 1, '「タスク管理」を2つ作った');
+}));

@@ -908,6 +908,12 @@ function editRevert(db, a, ctx) {
     if (rows.length !== 1) throw refuse('bad-args');
     return kindSwitchRevert(db, a, ctx, JSON.parse(rows[0].ops || '[]'));
   }
+  // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］の歩み（とそれを戻した歩み）は、その1つの歩みだけで戻す（要約の欄の歩みと混ぜない）
+  const tasked = rows.map((r) => JSON.parse(r.ops || '[]')).map((ops) => ops.some((o) => isObj(o) && o.op === 'set' && o.key === 'task'));
+  if (tasked.some(Boolean)) {
+    if (rows.length !== 1) throw refuse('bad-args');
+    return taskRevert(db, a, ctx, JSON.parse(rows[0].ops || '[]'));
+  }
   // 0.16.0 DS-3（決めたこと 47・48）: データベースのページの歩みは、表の操作だけを戻す（要約・メモの欄の決まりは通らない）
   if (dbOf(db, a.pageId)) return rows.length ? dbRevert(db, a, ctx, rows.flatMap((r) => JSON.parse(r.ops || '[]'))) : { ops: [], pageIds: [], result: null };
   // 0.14.0 MB-2（R76）: 1回に戻すのは1つの欄の歩みだけ（メモの歩みと要約の歩みを混ぜたら断る。列は欄ごと: BQ22 (a)）
@@ -2016,6 +2022,72 @@ function pageToDb(db, a, ctx) {
 // データベースから白紙のページへ戻すときは、行が1つでもあれば（ゴミ箱の行も）戻さない（行を見えなくしない）。種類・列・アイコンと本文の行が、その歩みの後の
 // 形のままでなければ（後で列を変えて、その歩みがまだ戻っていない・戻した後に本文を書いた）stale。ビューと次の番号は見た目と数なので見ない（前の値へ戻す）
 const KIND_SWITCH_SKIP = Object.freeze(['views', 'nextNo', 'updatedAt']);
+// ---------------------------------------------------------------- 0.17.0 TK-2（計画 docs/plans/2026-11-13-170.md の決めたこと 63・F199）: ［タスクにする］
+// todo.toTask { pageId, blockId }（役 app・1つのトランザクション）: 議事録の要約・白紙のページの本文の ToDo の行から「タスク管理」の行を1つ作り（題名 = ToDo の文・
+// 担当 = ToDo の担当（あれば）・期限 = ToDo の期限（あれば。推し量った期限 dueApprox は入れない）・議事録 = その議事録（白紙のページなら空）・ステータス = ToDo が
+// 済みなら完了のまとまり、でなければ未着手のまとまりの最初の選択肢）、ToDo の行に attrs.task = 行の ID を書く。印のある ToDo は今の行を返すだけ（二度作らない）。
+// 「タスク管理」が無ければ同じ命令の中で作る（決めたこと 60）。列は名前と種類で探す（利用者が消した列には入れない）→ { id, db }
+function colByName(d, name, type) { return d.cols.find((c) => !c.gone && c.name === name && c.type === type) || null; }
+function todoToTask(db, a, ctx) {
+  const l = loadPage(db, a.pageId);
+  if (!l || isLive(l.page) || isDbPage(l.page) || l.page.kind === 'row') throw refuse('bad-args');
+  if (summaryLockedPage(db, l.page)) throw refuse('locked');
+  const hit = BT.locate(l.page.blocks, a.blockId);
+  const b = hit ? hit.b : null;
+  if (!b || b.type !== 'todo' || !String(b.text || '').trim()) throw refuse('bad-args');
+  if (typeof b.task === 'string' && b.task) {
+    const r = db.prepare(HOT_QUERIES.dbRow).get(b.task);
+    if (r && r.type === 'row') return { ops: [], pageIds: [], result: { id: b.task, db: r.parent_id } };
+  }
+  const ops = [];
+  let d = tasksDbOf(db);
+  if (!d) {
+    const m = minutesDbFor(db, ctx, true);
+    ops.push(...m.ops, newTasksDb(db, ctx, m.id));
+    applyOps(db, ops);
+    d = tasksDbOf(db);
+  }
+  if (LIMITS.dbRows <= db.prepare(HOT_QUERIES.dbRowCount).get(d.id).c) throw refuse('too-big');   // 1つのデータベースの行の上限（決めたこと 7）
+  const cells = {};
+  const st = colByName(d, 'ステータス', 'status');
+  const grp = st && isObj(st.groups) ? st.groups[b.checked ? 'done' : 'todo'] : null;
+  if (Array.isArray(grp) && grp.length) cells[st.id] = grp[0];
+  const who = colByName(d, '担当', 'person');
+  if (who && typeof b.assignee === 'string' && b.assignee.trim()) cells[who.id] = [b.assignee.trim()];
+  const due = colByName(d, '期限', 'date');
+  if (due && typeof b.due === 'string' && DAY_RE.test(b.due) && b.dueApprox !== true) cells[due.id] = { start: b.due };
+  const rel = colByName(d, '議事録', 'rel');
+  const isMeeting = l.page.kind === undefined;
+  if (rel && isMeeting && isMinutesDb(dbOf(db, rel.db)) && db.prepare('select parent_id from blocks where id = ?').get(a.pageId).parent_id === rel.db) cells[rel.id] = [a.pageId];
+  const id = newRowId(db, ctx.now);
+  const no = Number.isSafeInteger(d.attrs.nextNo) && d.attrs.nextNo >= 1 ? d.attrs.nextNo : 1;
+  const by = whoOf(ctx);
+  const add = [{ op: 'add', id, row: rowBlock({ id, db: d.id, ord: rowOrd(db, d.id), title: oneLine(b.text).slice(0, DM.MAX.title), cells, by: { c: by, u: by }, no, at: ctx.now().toISOString() }) },
+    { op: 'set', id: d.id, key: 'nextNo', value: no + 1, old: d.attrs.nextNo },
+    { op: 'set', id: b.id, key: 'task', value: id, old: b.task }];
+  applyOps(db, add);
+  ops.push(...add);
+  return { ops, pageIds: [a.pageId, d.id, id], result: { id, db: d.id } };
+}
+// todo.toTask の歩み（とそれを戻した歩み）を戻す: ToDo の印を前の値へ、作った行はゴミ箱へ（戻した歩みのやり直しは行をゴミ箱から戻す）。「タスク管理」を作った分は戻さない。
+// ToDo の印か行が、その歩みの後の形のままでなければ stale（ほかの所で行を消した・印を変えた）
+function taskRevert(db, a, ctx, fwd) {
+  const mark = fwd.find((o) => isObj(o) && o.op === 'set' && o.key === 'task');
+  const blk = mark ? db.prepare('select page_id, attrs from blocks where id = ?').get(mark.id) : null;
+  if (!blk || blk.page_id !== a.pageId) throw refuse('stale');
+  const now = parseOr(blk.attrs);
+  if (!now || !isDeepStrictEqual(now.task, mark.value)) throw refuse('stale');
+  const rowId = typeof mark.value === 'string' ? mark.value : mark.old;
+  const r = typeof rowId === 'string' ? db.prepare(HOT_QUERIES.dbRow).get(rowId) : null;
+  if (!r || r.type !== 'row') throw refuse('stale');
+  const live = r.trashed_at === null || r.trashed_at === undefined;
+  const back = [{ op: 'set', id: mark.id, key: 'task', value: mark.old, old: mark.value }];
+  if (typeof mark.value === 'string') { if (!live) throw refuse('stale'); back.push({ op: 'trash', id: rowId, at: ctx.now().toISOString(), old: null }); }
+  else { if (live) throw refuse('stale'); back.push({ op: 'restore', id: rowId, at: ctx.now().toISOString(), old: r.trashed_at }); }
+  applyOps(db, back);
+  return { ops: back, pageIds: [a.pageId, r.parent_id, rowId], result: { page: readPage(db, a.pageId) } };
+}
+
 // 0.17.0 PD-1 直し（rv58 重要 3）: ほかの所からこのデータベースへの指し。データベースのリレーションの列（消した列も: col.restore で戻せるので）の相手か、
 // リンクドビューの行（attrs.db）の元か。あれば白紙のページへ戻さない（つなげない列・データベースでないページを指すビューを作らない）。
 // 点検 2（rv59 軽い 1・R45）: ゴミ箱のデータベースの列と、消した（ゴミ箱の）リンクドビューの行も数える（戻すと白紙のページを指す）。attrs は JS で照らす
@@ -3421,6 +3493,9 @@ const DEFS = {
       return page ? { page, blockId: o ? o.id : null } : null;
     } },
   'db.setTitle': { roles: ['app'], write: true, args: { db: 'id', title: 'title' }, pageOf: dbOfArgs, run: dbSetTitle, dupResult: (db, a) => readPage(db, a.db) },
+  // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（役 app・要約の欄の歩み: Ctrl+Z で行と印が一緒に戻る）
+  'todo.toTask': { roles: ['app'], write: true, args: { pageId: 'id', blockId: 'id' }, run: todoToTask,
+    dupResult: (db, a) => { const l = loadPage(db, a.pageId); const h = l ? BT.locate(l.page.blocks, a.blockId) : null; const r = h && h.b.task ? db.prepare(HOT_QUERIES.dbRow).get(h.b.task) : null; return r ? { id: r.id, db: r.parent_id } : null; } },
   // 0.17.0 LK-1（決めたこと 73・75）: データベースのロック（役 app・元に戻すの歩みにしない: UNDO_CMDS に入れない）
   'db.setLock': { roles: ['app'], write: true, args: { db: 'id', on: 'bool' }, pageOf: dbOfArgs, run: dbSetLock, dupResult: (db, a) => { const d = dbOf(db, a.db); return d ? { locked: d.attrs.locked === true } : null; } },
   // 0.16.0 DR-1（決めたこと 33〜38・R98）: リレーションの行を足す・外す・サブアイテムを入れる・外す（データベースの歩み）・つなぐ先の行を探す（読む）

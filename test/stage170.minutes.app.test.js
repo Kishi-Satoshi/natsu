@@ -252,3 +252,66 @@ test('TK-1・F200: サイドバーは「議事録」の下に「タスク管理�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- TK-2（決めたこと 63・F199）
+const todoRow = (l, id) => $(l, 'pNote').querySelectorAll('.blk').find((e) => e._b && e._b.id === id);
+const taskBtnOf = (l, id) => { const r = todoRow(l, id); return r ? r.querySelector('.totask') : null; };
+test('TK-2・F199: 議事録の ToDo の行に［タスクにする］（aria-label「『文』をタスクにする」）。押す・Enter で1回（変換中の Enter では押さない）・知らせ・［タスクを開く］でその行のページ。Ctrl+Z で行と印が一緒に戻る', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const at = '2026-11-12T01:00:00.000Z';
+    call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [{ id: 'pw1h', type: 'heading', text: 'ToDo' },
+      { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false, assignee: 'メンバー甲' }, { id: 'pw1t1', type: 'todo', text: '資料を集める', checked: false }] }, segments: [] }, 'main');
+    return { K: call('minutes.gather', { first: true }, 'main').tasks };
+  } });
+  try {
+    await open(l, 'pw1');
+    const b0 = taskBtnOf(l, 'pw1t0');
+    assert.ok(b0 && b0.textContent === 'タスクにする' && b0.getAttribute('aria-label') === '『見積もりを出す』をタスクにする', '［タスクにする］が無い');
+    l.key({ key: 'Enter', isComposing: true, keyCode: 229 }, b0); await l.drain(80);
+    assert.deepStrictEqual(l.called('todoToTask'), [], '変換中の Enter で押した');
+    l.key({ key: 'Enter' }, b0); await l.drain(300);
+    assert.deepStrictEqual(l.called('todoToTask').map((c) => c.args), [['pw1', 'pw1t0']]);
+    assert.strictEqual($(l, 'toast').textContent, 'タスクにしました（Ctrl+Z で戻せます）');
+    const rowId = l.call('page.get', { id: 'pw1' }).page.blocks.find((b) => b.id === 'pw1t0').task;
+    assert.ok(rowId, 'ToDo に印が無い');
+    const b1 = taskBtnOf(l, 'pw1t0');
+    assert.ok(b1 && b1.textContent === 'タスクを開く' && b1.getAttribute('aria-label') === '『見積もりを出す』のタスクを開く', '［タスクを開く］にならない');
+    // Ctrl+Z（要約の欄）で行と印が一緒に戻る
+    todoRow(l, 'pw1t1')._txt.focus();
+    l.key({ key: 'z', ctrlKey: true }, todoRow(l, 'pw1t1')._txt); await l.drain(400);
+    assert.strictEqual(l.call('page.get', { id: 'pw1' }).page.blocks.find((b) => b.id === 'pw1t0').task, undefined, 'Ctrl+Z で印が戻らない');
+    assert.ok(l.db.prepare('select trashed_at from blocks where id = ?').get(rowId).trashed_at, 'Ctrl+Z で行が戻らない');
+    // もう一度タスクにして、［タスクを開く］でその行のページ
+    await clickEl(l, taskBtnOf(l, 'pw1t0'), 300);
+    const row2 = l.call('page.get', { id: 'pw1' }).page.blocks.find((b) => b.id === 'pw1t0').task;
+    await clickEl(l, taskBtnOf(l, 'pw1t0'), 300);
+    assert.strictEqual(l.document.querySelector('.tabitem.active').dataset.key, `page:${row2}`, '［タスクを開く］でその行のページを開かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- TK-3（決めたこと 64・F201）
+test('TK-3・F201: 検索の窓の［アクション］には、タスクにしていない ToDo も今どおり出て、タスクにした ToDo の行には［タスクを開く］（押すとその行のページ）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const at = '2026-11-12T01:00:00.000Z';
+    call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [
+      { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false }, { id: 'pw1t1', type: 'todo', text: '資料を集める', checked: false }] }, segments: [] }, 'main');
+    call('minutes.gather', { first: true }, 'main');
+    return { row: call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }).id };
+  }, returns: { pagesActionView: (o) => l.call('pages.actionView', o || {}) } });
+  try {
+    $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+    $(l, 'fltActions').dispatchEvent({ type: 'click' }); await l.drain();
+    const rows = $(l, 'palList').querySelectorAll('.actrow');
+    const texts = rows.map((r) => r.querySelector('.body').firstChild.textContent).sort();
+    assert.deepStrictEqual(texts, ['見積もりを出す', '資料を集める'], 'タスクにしていない ToDo がアクション一覧から消えた');
+    const tasked = rows.find((r) => r.textContent.includes('見積もりを出す'));
+    const other = rows.find((r) => r.textContent.includes('資料を集める'));
+    assert.ok(!other.querySelector('.totask'), 'タスクにしていない ToDo に［タスクを開く］');
+    const b = tasked.querySelector('.totask');
+    assert.ok(b && b.textContent === 'タスクを開く' && b.getAttribute('aria-label') === '『見積もりを出す』のタスクを開く');
+    await clickEl(l, b, 300);
+    assert.strictEqual(l.document.querySelector('.tabitem.active').dataset.key, `page:${l.made.row}`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

@@ -19,6 +19,8 @@ const UNDO_CMDS = new Set([
   'block.insertDbView', 'db.setTitle',
   // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の決めたこと 33）: 空の白紙のページをデータベースにする（データベースの歩み。Ctrl+Z で白紙のページへ）
   'page.toDb',
+  // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（要約の欄・本文の歩み。Ctrl+Z で行と ToDo の印が一緒に戻る）
+  'todo.toTask',
 ]);
 const UNDO_MAX = 100;          // 1つの列の歩みの数（古いものから捨てる）
 const TYPE_PAUSE_MS = 2000;    // 打つ手がこれだけ止まったら保存する（1回の保存が1歩。決めたこと 8）

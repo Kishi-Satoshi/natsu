@@ -110,6 +110,7 @@ function actionRow(page, b) {
     text: b.text, assignee: b.assignee || '', due: b.due || '',
     dueRaw: b.dueRaw || '', dueApprox: Boolean(b.dueApprox),
     ...(page.kind === 'blank' ? { kind: 'blank' } : {}),   // 0.15.0 PH-7（HR19）: 白紙のページの ToDo の印（議事録の行は今と同じ欄）
+    ...(typeof b.task === 'string' && b.task ? { task: b.task } : {}),   // 0.17.0 TK-3（決めたこと 64）: タスクにした ToDo（画面の［アクション］の［タスクを開く］。MCP の答えには出さない）
   };
 }
 

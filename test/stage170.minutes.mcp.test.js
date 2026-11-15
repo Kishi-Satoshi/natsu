@@ -74,3 +74,17 @@ test('MG-3・F197: Claude が「議事録」データベースそのものを読
     assert.strictEqual(c('get_meeting', { id: kid }), after, '議事録の子ページの答えが移す前と違う');
   } finally { m.done(); }
 });
+
+test('TK-3・F201: MCP の「開いた ToDo」（list_action_items）は、タスクにした ToDo もしていない ToDo も今どおり出て、答えはタスクにする前と1字も同じ', { timeout: 60000 }, () => {
+  const m = mcpDb({ only: ['plain1', 'plain2', 'forge'] });
+  try {
+    const c = (name, args = {}) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text;
+    m.close();
+    const before = [c('list_action_items'), c('get_meeting', { id: m.ids.forge })];
+    const blockId = 'pf1t1';
+    m.call('main', 'minutes.gather', { first: true });
+    m.call('app', 'todo.toTask', { pageId: m.ids.forge, blockId });
+    m.close();
+    assert.deepStrictEqual([c('list_action_items'), c('get_meeting', { id: m.ids.forge })], before, 'タスクにすると Claude の答えが変わった');
+  } finally { m.done(); }
+});

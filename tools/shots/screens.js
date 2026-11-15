@@ -204,6 +204,16 @@ const OPEN_SIDE_MINUTES = `(async () => {
   await w(200);
   return 1;
 })()`;
+// 0.17.0 TK-2: ページを開いて［AI 要約］の欄。1つ目の ToDo は［タスクを開く］、2つ目の ToDo の［タスクにする］にフォーカス（乗せる・フォーカスで出る）
+const OPEN_TODO_TASK = `(async () => {
+  document.querySelector('#plist .pitem').click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.getElementById('paneBtnNote').click();
+  const bs = [...document.querySelectorAll('#pNote .totask')];
+  if (bs.length < 2 || bs[0].textContent !== 'タスクを開く' || bs[1].textContent !== 'タスクにする') throw new Error('［タスクにする］［タスクを開く］が無い');
+  bs[1].focus();
+  return 1;
+})()`;
 // 0.17.0 TK-1: いちばん上の「タスク管理」を開く（ビュー「マイタスク」）
 const OPEN_TASKS_DB = OPEN_DB_AT(`if (document.querySelector('#plist .pitem').dataset.pid !== 'pk0') throw new Error('「タスク管理」がいちばん上でない');`);
 // 0.17.0 LK-1: ロック中のデータベースを開いて「···」を開く（灰色の［削除］）。印と［削除］が無ければ投げて「撮れない」の NG にする
@@ -732,6 +742,8 @@ const SCREENS = [
   { name: 'sidebar-minutes-light', page: 'app', theme: 'light', get answers() { return minutesAnswers(); }, act: OPEN_SIDE_MINUTES },
   // 0.17.0 TK-1（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 「タスク管理」の「マイタスク」（担当に「自分」・完了でない・期限の順）
   { name: 'tasks-db-light', page: 'app', theme: 'light', get answers() { return tasksAnswers(); }, act: OPEN_TASKS_DB },
+  // 0.17.0 TK-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 議事録の要約の ToDo の［タスクを開く］（タスクにした1つ目）と、フォーカスした2つ目の［タスクにする］
+  { name: 'todo-task-light', page: 'app', theme: 'light', get answers() { return { 'koeApp.pageGet': { page: { ...PAGE, blocks: PAGE.blocks.map((b) => (b.id === 'b6' ? { ...b, task: 'rk1' } : b)) }, segments: SEGMENTS } }; }, act: OPEN_TODO_TASK },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
