@@ -292,14 +292,16 @@ function cacheOf(db) {
 // 出さない会議の判定と日付の絞りに使う。録音中の写しを外すためにもう読んでいるので、読み直さない）
 function listedRows(db) {
   const out = [];
+  const trashUp = new Set();   // 0.17.0 点検 2（rv59 軽い 8・R48）: ゴミ箱の子のあるページ（白紙のページの一覧の1行の trashKid）
   for (const r of db.prepare(HOT_QUERIES.list).all()) {
-    if (r.trashed_at !== null && r.trashed_at !== undefined) continue;
+    if (r.trashed_at !== null && r.trashed_at !== undefined) { if (r.parent_id) trashUp.add(r.parent_id); continue; }
     const attrs = JSON.parse(r.attrs || '{}');
     if (isLive(attrs)) continue;
     out.push({ id: r.id, key: keyOfRow(r), attrs, createdAt: r.created_at, parentId: r.parent_id ?? null, ord: r.ord, title: r.text });   // 0.15.0 PH-7: 題名は MCP の場所の文（決めたこと 34）
   }
   // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の中の子ページ（と子孫）は、行が生きている間だけ一覧に出し、一番近い行の印 inRow を付ける
   // （画面はサイドバーの木に出さない）。行かデータベースをゴミ箱へ入れると見えなくなる（ページには書かない: 決めたこと 28）
+  for (const r of out) if (trashUp.has(r.id)) r.trashKid = true;
   const scope = rowScope(db, out);
   return out.filter((r) => {
     const s = scope.page(r.id);
@@ -320,7 +322,10 @@ const viewRowsOf = (views) => (Array.isArray(views) ? views : []).filter((v) => 
 function withTree(e, row) {
   e.parentId = row.parentId ?? null;
   e.ord = row.ord;
-  if (row.attrs && row.attrs.kind === 'blank') e.kind = 'blank';
+  if (row.attrs && row.attrs.kind === 'blank') {
+    e.kind = 'blank';
+    if (row.trashKid) e.trashKid = true;   // 点検 2（rv59 軽い 8）: 画面の［データベース］は、ゴミ箱の子だけを持つページにも出さない（DB の page.toDb と同じ: IR7）
+  }
   if (row.attrs && row.attrs.kind === 'database') {
     e.kind = 'database';   // 0.16.0 DR-1: リレーションの列のつなぐ先を選ぶ窓（DX-1 のサイドバーの 🗃️ も）
     e.views = viewRowsOf(row.attrs.views);   // 0.17.0 SV-1（決めたこと 36）: サイドバーのビューの行（データベースの行だけ）
@@ -872,6 +877,7 @@ function editRevert(db, a, ctx) {
     same = opsMatch(db, fwd, { pageId: a.pageId });   // 0.15.0 PR-1（決めたこと 50）: 子のページの行の trashed_at も照らす
   } catch (_) { throw refuse('bad-args'); }   // 戻せない操作（ページの行の削除・発言など）
   if (!same) throw refuse('stale');
+  if (back.some((o) => o.op === 'add' && viewToNonDb(db, o.row))) throw refuse('stale');   // 0.17.0 点検 2（rv59 軽い 1・R45）
   // 0.15.0 PR-1（決めたこと 59）: 戻すと今の子ページの行に文・型を入れる歩み（/ページ で替えた行の前の文）は戻さない
   const typeNow = db.prepare('select type from blocks where id = ?');
   if (back.some((o) => (o.op === 'text' || o.op === 'retype') && (typeNow.get(o.id) || {}).type === 'subpage')) throw refuse('stale');
@@ -1293,8 +1299,41 @@ function pageRestore(db, a, ctx) {
   if (me.parentId !== null && (!hostSeen || !rowBack)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱・録音中の写しの親の下・無い親）に戻さない
   if (body) ops.push(...body);
   if (rowAt !== undefined) ops.push({ op: 'set', id: a.id, key: 'rowAt', value: undefined, old: rowAt });
+  const merge = minutesMergeOps(db, a.id);   // 0.17.0 点検 2（rv59 重要 3・R43）
+  ops.push(...merge.ops);
   applyOps(db, ops);
-  return { ops, pageIds: body ? [a.id, me.parentId] : [a.id], result: listPages(db) };
+  return { ops, pageIds: [...(body ? [a.id, me.parentId] : [a.id]), ...merge.pageIds], result: listPages(db) };
+}
+// 0.17.0 点検 2（rv59 重要 3・R43。2026-11-15 の持ち主の答え「中身を今の方へ移す（おすすめ）」）: ゴミ箱から戻す「議事録」データベース（役の印）のほかに、生きている
+// 「議事録」があれば、戻す方の子の議事録（ゴミ箱の議事録も。録音中の写しは除く）を、同じ命令で今の方の子の末尾へ（会議の日付と始めた時刻の順）移し、戻す方は
+// 役の印を外したふつうのデータベースにする（印のある生きた「議事録」を1つに保つ: F203）。戻す方の列とビューは今の方へ写さない。議事録のセルは、今の方に同じ ID・
+// 同じ名前・同じ種類の列（参加者など。選択肢とリレーションの列を除く）があれば残し、同じ ID の違う列の値は外す（今の方の列に違う形の値を見せない）→ { ops, pageIds }
+function minutesMergeOps(db, id) {
+  const raw = parseOr((db.prepare('select attrs from blocks where id = ?').get(id) || {}).attrs);
+  if (!raw || raw.role !== 'minutes' || !isDbPage(raw)) return { ops: [], pageIds: [] };
+  const cur = minutesDbOf(db);
+  if (!cur || cur.id === id) return { ops: [], pageIds: [] };
+  const list = [];
+  for (const r of db.prepare(HOT_QUERIES.minutesKids).all(id)) {
+    const at = parseOr(r.attrs);
+    if (at && isMeetingRaw(at)) list.push({ id: r.id, ord: r.ord, cells: isObj(at.cells) ? at.cells : {}, key: `${typeof at.date === 'string' ? at.date : ''}\u0000${r.created_at || ''}\u0000${r.id}` });
+  }
+  list.sort((x, y) => cmpStr(x.key, y.key));
+  const ops = [];
+  ops.push({ op: 'set', id, key: 'role', value: undefined, old: raw.role });
+  const oldCols = new Map((Array.isArray(raw.cols) ? raw.cols : []).filter(isObj).map((c) => [c.id, c]));
+  const curCols = new Map(cur.cols.map((c) => [c.id, c]));
+  const SAME_OK = (o, n) => Boolean(o) && o.type === n.type && o.name === n.name && !['select', 'multi', 'status', 'rel'].includes(n.type);
+  let last = (db.prepare(HOT_QUERIES.kidLastOrd).get(cur.id) || {}).m || null;
+  for (const p of list) {
+    last = appendKey(last);
+    ops.push({ op: 'move', id: p.id, ord: last, old: p.ord, parent: cur.id, oldParent: id });
+    for (const [k, v] of Object.entries(p.cells)) {
+      const n = curCols.get(k);
+      if (n && !SAME_OK(oldCols.get(k), n)) ops.push({ op: 'set', id: p.id, key: `cell:${k}`, value: undefined, old: v });
+    }
+  }
+  return { ops, pageIds: [cur.id, ...list.map((p) => p.id)] };
 }
 
 // 0.16.0 DX-2（決めたこと 44・R98 (1)・R102）: 行のまとまり（同じデータベース・同じ時刻に消した行）を、元の並びの鍵のまま戻す（1つの命令・oplog の1行。
@@ -1910,13 +1949,23 @@ function pageToDb(db, a, ctx) {
 // データベースから白紙のページへ戻すときは、行が1つでもあれば（ゴミ箱の行も）戻さない（行を見えなくしない）。種類・列・アイコンと本文の行が、その歩みの後の
 // 形のままでなければ（後で列を変えて、その歩みがまだ戻っていない・戻した後に本文を書いた）stale。ビューと次の番号は見た目と数なので見ない（前の値へ戻す）
 const KIND_SWITCH_SKIP = Object.freeze(['views', 'nextNo', 'updatedAt']);
-// 0.17.0 PD-1 直し（rv58 重要 3）: ほかの所からこのデータベースへの指し。生きているデータベースのリレーションの列（消した列も: col.restore で戻せるので）の相手か、
-// 生きているリンクドビューの行（attrs.db）の元か。あれば白紙のページへ戻さない（つなげない列・データベースでないページを指すビューを作らない）
-function relColsTo(db, id) {
-  return db.prepare("select attrs from blocks where type = 'page' and trashed_at is null and json_extract(attrs, '$.kind') = 'database'").all()
-    .some((r) => { const cols = JSON.parse(r.attrs || '{}').cols; return Array.isArray(cols) && cols.some((c) => isObj(c) && c.type === 'rel' && c.db === id); });
+// 0.17.0 PD-1 直し（rv58 重要 3）: ほかの所からこのデータベースへの指し。データベースのリレーションの列（消した列も: col.restore で戻せるので）の相手か、
+// リンクドビューの行（attrs.db）の元か。あれば白紙のページへ戻さない（つなげない列・データベースでないページを指すビューを作らない）。
+// 点検 2（rv59 軽い 1・R45）: ゴミ箱のデータベースの列と、消した（ゴミ箱の）リンクドビューの行も数える（戻すと白紙のページを指す）。attrs は JS で照らす
+// （parseOr。json_extract は壊れた attrs の行1つで問い合わせごと投げ、Ctrl+Z が internal になる: R40 と同じ理由）
+const relColsTo = (db, id) => db.prepare("select attrs from blocks where type = 'page' and instr(attrs, '\"rel\"') > 0").all()
+  .some((r) => { const a = parseOr(r.attrs); return Boolean(a) && isDbPage(a) && Array.isArray(a.cols) && a.cols.some((c) => isObj(c) && c.type === 'rel' && c.db === id); });
+// 足し直すリンクドビューの行（row）が、データベースでなくなったページ（白紙のページへ戻したデータベース）を指すか。消した行は oplog にだけあり、
+// 数えられないので、足し直す Ctrl+Z の側で断る（無いページ・ゴミ箱のデータベースを指す行は今どおり戻す）
+function viewToNonDb(db, row) {
+  if (!isObj(row) || row.type !== 'dbview') return false;
+  const a = typeof row.attrs === 'string' ? parseOr(row.attrs) : row.attrs;
+  const t = isObj(a) && typeof a.db === 'string' ? db.prepare(HOT_QUERIES.pageRow).get(a.db) : null;
+  if (!t || t.type !== 'page') return false;
+  const ta = parseOr(t.attrs);
+  return !ta || !isDbPage(ta);
 }
-const linkedViewsTo = (db, id) => db.prepare("select count(*) as c from blocks where type = 'dbview' and trashed_at is null and json_extract(attrs, '$.db') = ?").get(id).c > 0;
+const linkedViewsTo = (db, id) => db.prepare("select attrs from blocks where type = 'dbview'").all().some((r) => { const a = parseOr(r.attrs); return Boolean(a) && a.db === id; });
 function kindSwitchRevert(db, a, ctx, fwd) {
   const id = a.pageId;
   const row = db.prepare('select type, attrs, trashed_at from blocks where id = ?').get(id);
@@ -2070,8 +2119,18 @@ function rowsTrash(db, a, ctx) {
   const at = ctx.now().toISOString();
   const picked = [...new Set(a.ids)].map((id) => liveRow(db, d, id));
   const extra = subKidsOf(db, d, picked.map((r) => r.id)).map((id) => liveRow(db, d, id));
-  const ops = [...picked, ...extra].map((r) => ({ op: 'trash', id: r.id, at, old: r.raw.trashed_at ?? null }));
-  return dbDone(db, d, ops, { trashed: ops.length }, ops.map((o) => o.id));
+  const rows = [...picked, ...extra];
+  const ops = rows.map((r) => ({ op: 'trash', id: r.id, at, old: r.raw.trashed_at ?? null }));
+  // 0.17.0 点検 2（rv59 重要 1・R44）: 「議事録」の議事録の行は、page.delete と同じく子孫のページも同じ時刻で（trashGroup。もうゴミ箱にある子孫は
+  // 書き換えない）。子ページを親の無い最上位に残さない。答えの数は表の行だけ（知らせ「行 n 件」）
+  const meetings = rows.filter((r) => r.raw.page);
+  if (meetings.length) {
+    const prows = pageRowsOf(db);
+    const tree = PT.pageTree(prows);
+    const seen = new Set(ops.map((o) => o.id));
+    for (const r of meetings) for (const id of PT.trashGroup(prows, r.id, tree)) if (!seen.has(id)) { seen.add(id); ops.push({ op: 'trash', id, at, old: null }); }
+  }
+  return dbDone(db, d, ops, { trashed: rows.length }, ops.map((o) => o.id));
 }
 // 何行何列かの貼り付け（DQ7 (a)・決めたこと 52・R35）: ビューの見えている並びで、選んだセルから右下へ。足りない行は足し（絞り込みの値を入れる）、
 // 右にはみ出した列・書けない列・リレーションは飛ばして skipped に、種類に読めない値は空にして unread に数える。全部が1つの命令（Ctrl+Z の1回）
@@ -2080,7 +2139,8 @@ function rowsPaste(db, a, ctx, dry = false) {
   const raw = viewOf(d, a.viewId);
   if (!raw) throw refuse('bad-args');
   const v = normView(d, raw);
-  const stored = db.prepare(HOT_QUERIES.dbRows).all(d.id);
+  // 0.17.0 点検 2（rv59 軽い 5・R46）: 表に見えている並びと同じ1か所（dbRowsOf。「議事録」では議事録の行も）で並べる
+  const stored = dbRowsOf(db, d);
   const list = stored.map(rowView);
   const order = [...new Set(DV.applyView(list, v, d.cols, { now: ctx.now().getTime() }).order.map((o) => o.id))];
   const start = order.indexOf(a.at.row);
@@ -2090,7 +2150,8 @@ function rowsPaste(db, a, ctx, dry = false) {
   const rowsFor = order.slice(start, start + a.grid.length);
   while (rowsFor.length < a.grid.length) rowsFor.push(null);   // 足りない行は足す
   const adding = rowsFor.filter((x) => x === null).length;
-  if (stored.length + adding > LIMITS.dbRows) throw refuse('too-big');
+  if (adding && isMinutesDb(d)) throw refuse('bad-args');   // 決めたこと 52: 「議事録」では行を足す分の貼り付けを使えない
+  if (db.prepare(HOT_QUERIES.dbRowCount).get(d.id).c + adding > LIMITS.dbRows) throw refuse('too-big');
   const colsNow = new Map(d.cols.map((c) => [c.id, c]));
   const defaults = DV.filterDefaults(v, d.cols);
   const st = { filled: 0, added: 0, skipped: 0, unread: 0 };
@@ -2366,7 +2427,15 @@ function colRename(db, a) {
   return dbDone(db, d, [dbSet(d, 'cols', colsWith(d, next))], { col: next });
 }
 // そのデータベースの全部の行（ゴミ箱の行も。列の種類を変える・選択肢を消す・完全に消すは、戻したときに形の違うセルを残さない）
-const allRows = (db, d) => db.prepare(HOT_QUERIES.dbAllRows).all(d.id).map((r) => ({ id: r.id, cells: (JSON.parse(r.attrs || '{}').cells) || {}, trashed: r.trashed_at !== null }));
+// 0.17.0 点検 2（rv59 重要 2・R44）: 「議事録」データベースでは子の議事録のページ（ゴミ箱も。録音中の写し・白紙のページ・データベースを除く）も、セルを持つ行
+function cellRowsOf(db, id) {
+  const out = db.prepare(HOT_QUERIES.dbAllRows).all(id);
+  if (isMinutesDb(dbOf(db, id))) {
+    for (const r of db.prepare(HOT_QUERIES.minutesKids).all(id)) { const a = parseOr(r.attrs); if (a && isMeetingRaw(a)) out.push({ id: r.id, attrs: r.attrs, trashed_at: r.trashed_at }); }
+  }
+  return out;
+}
+const allRows = (db, d) => cellRowsOf(db, d.id).map((r) => ({ id: r.id, cells: (JSON.parse(r.attrs || '{}').cells) || {}, trashed: r.trashed_at !== null }));
 // 種類を変える（決めたこと 13: セルを新しい種類に読み替えて同じ命令で書き直す。前の値は oplog にあり、Ctrl+Z で戻る）→ { col, emptied }
 // 種類を変えたときの新しい列とセルの書き直し（col.setType と、変える前に数を見る col.typeCheck の両方: R63）→ { from, to, cellSets, emptied } | null（同じ種類）
 function typePlan(db, d, a) {
@@ -2642,7 +2711,7 @@ function dbRevert(db, a, ctx, fwd) {
     if (o.op !== 'set' || o.key !== 'cols' || !Array.isArray(o.value) || !Array.isArray(o.old)) continue;
     const keep = new Set(o.value.map((c) => c && c.id));
     const lost = o.old.map((c) => c && c.id).filter((id) => !keep.has(id));
-    if (lost.length && db.prepare(HOT_QUERIES.dbAllRows).all(o.id).some((r) => { const c = JSON.parse(r.attrs || '{}').cells; return isObj(c) && lost.some((id) => Object.hasOwn(c, id)); })) throw refuse('stale');
+    if (lost.length && cellRowsOf(db, o.id).some((r) => { const c = JSON.parse(r.attrs || '{}').cells; return isObj(c) && lost.some((id) => Object.hasOwn(c, id)); })) throw refuse('stale');
   }
   applyOps(db, back);
   // 戻すと消える選択肢（足した選択肢の戻し）を、戻した後も持つ行があれば戻さない（ゴミ箱の行も。行に持ち主の無い選択肢の ID を残さない: rv44 F5・R72）。
@@ -2658,7 +2727,7 @@ function dbRevert(db, a, ctx, fwd) {
       for (const x of c.opts) if (x && !keep.has(x.id)) lostOpts.push([c.id, x.id]);
     }
   }
-  if (lostOpts.length && db.prepare(HOT_QUERIES.dbAllRows).all(a.pageId).some((r) => {
+  if (lostOpts.length && cellRowsOf(db, a.pageId).some((r) => {
     const c = JSON.parse(r.attrs || '{}').cells;
     return isObj(c) && lostOpts.some(([col, id]) => c[col] === id || (Array.isArray(c[col]) && c[col].includes(id)));
   })) throw refuse('stale');

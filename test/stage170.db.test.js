@@ -339,7 +339,7 @@ test('PD-1・F188（rv58 重要 2）: やり直し（白紙のページに戻し
   assert.strictEqual(attrsOf(db, e.P).kind, 'database');
 }));
 
-test('PD-1・F188（rv58 重要 3）: データベースから白紙のページへ戻す前に、ほかの所からの指し（生きているデータベースのリレーションの列（消した列も）の相手・生きているリンクドビューの行）があれば stale で何も変えない。指しが無くなれば戻る', T, () => withDb((db) => {
+test('PD-1・F188（rv58 重要 3・rv59 軽い 1）: データベースから白紙のページへ戻す前に、ほかの所からの指し（データベースのリレーションの列（消した列も・ゴミ箱のデータベースも）の相手・リンクドビューの行（消した行も））があれば stale で何も変えない。指しが無くなれば戻る。壊れた attrs の行があっても internal にならない', T, () => withDb((db) => {
   const revert = (id, tx) => { tick(); return call(db, 'edit.revert', { pageId: id, steps: [tx] }); };
   // ほかのデータベースのリレーションの列（片側）の相手
   const P = blankWith(db, { icon: '' });
@@ -354,13 +354,23 @@ test('PD-1・F188（rv58 重要 3）: データベースから白紙のページ
   ok(call(db, 'col.purge', { db: O, col }), 'col.purge');
   ok(revert(P, 'a:s170-ptr-1'), '列を完全に消した後');
   assert.strictEqual(attrsOf(db, P).kind, 'blank');
-  // ゴミ箱のデータベースの列は数えない（生きているデータベースだけ）
+  // rv59 軽い 1: ゴミ箱のデータベースの列も数える（ゴミ箱から戻すと、その列が白紙のページを指す）
   const Q = blankWith(db, { icon: '' });
   ok(toDb(db, Q, 'a:s170-ptr-2'), 'page.toDb');
   const O2 = ok(call(db, 'db.create', {}), 'db.create').result.id;
   ok(call(db, 'col.add', { db: O2, type: 'rel', target: Q }), 'col.add');
   ok(call(db, 'page.delete', { id: O2 }), 'page.delete');
-  ok(revert(Q, 'a:s170-ptr-2'), 'ゴミ箱のデータベースの列で断った');
+  assert.strictEqual(revert(Q, 'a:s170-ptr-2').code, 'stale', 'ゴミ箱のデータベースの列の相手なのに白紙のページに戻した');
+  // 壊れた attrs の行（ページ・リンクドビューの行）があっても、問い合わせごと投げない（Ctrl+Z を internal にしない）
+  const R2 = blankWith(db, { icon: '' });
+  ok(toDb(db, R2, 'a:s170-ptr-4'), 'page.toDb');
+  const brokenView = blankWith(db, { icon: '' });
+  db.prepare("insert into blocks(id, type, page_id, parent_id, ord, text, attrs, rev, created_at, updated_at) values ('bbroken01', 'dbview', ?, null, 'z', '', '{', 1, '', '')").run(brokenView);
+  const o2Attrs = rowOf(db, O2).attrs;
+  db.prepare("update blocks set attrs = '{\"rel\":' where id = ?").run(O2);
+  ok(revert(R2, 'a:s170-ptr-4'), '壊れた attrs の行で戻せない');
+  db.prepare('delete from blocks where id = ?').run('bbroken01');
+  db.prepare('update blocks set attrs = ? where id = ?').run(o2Attrs, O2);
   // ほかの白紙のページのリンクドビューの行
   const S = blankWith(db, { icon: '' });
   ok(toDb(db, S, 'a:s170-ptr-3'), 'page.toDb');
@@ -370,9 +380,18 @@ test('PD-1・F188（rv58 重要 3）: データベースから白紙のページ
   snap = dump(db); n0 = oplogN(db);
   assert.strictEqual(revert(S, 'a:s170-ptr-3').code, 'stale', 'リンクドビューが指しているのに白紙のページに戻した');
   assert.deepStrictEqual([dump(db), oplogN(db)], [snap, n0], '断ったのに書いた');
-  ok(call(db, 'block.remove', { pageId: host, blockId: vid }), 'block.remove');
-  ok(revert(S, 'a:s170-ptr-3'), 'リンクドビューを消した後');
+  // ページごとゴミ箱に入れたリンクドビューの行も数える（ページを戻すと、白紙のページを指すビューが残る）
+  ok(call(db, 'page.delete', { id: host }), 'page.delete');
+  assert.strictEqual(revert(S, 'a:s170-ptr-3').code, 'stale', 'ゴミ箱のページのリンクドビューが指しているのに戻した');
+  ok(call(db, 'page.restore', { id: host }), 'page.restore');
+  // rv59 軽い 1: 消したリンクドビューの行（block.remove は行を消し、行は oplog だけにある）は戻せるが、その後でホストのページの Ctrl+Z で
+  // データベースでないページを指すビューの行を足し直さない（stale）
+  const rm = ok(call(db, 'block.remove', { pageId: host, blockId: vid }), 'block.remove');
+  ok(revert(S, 'a:s170-ptr-3'), 'リンクドビューの行が無くなった後');
   assert.strictEqual(attrsOf(db, S).kind, 'blank');
+  snap = dump(db); n0 = oplogN(db);
+  assert.strictEqual(revert(host, rm.tx).code, 'stale', 'データベースでないページを指すリンクドビューの行を Ctrl+Z で戻した');
+  assert.deepStrictEqual([dump(db), oplogN(db)], [snap, n0], '断ったのに書いた');
 }));
 
 test('PD-1: T4b（控えに後の oplog（page.toDb・edit.revert・やり直しを含む）を前へ当て直すと今の表と同じ）', T, async () => {

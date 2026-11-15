@@ -15928,6 +15928,7 @@
     const byId = new Map(pages.filter(Boolean).map((p) => [p.id, p]));
     const me = byId.get(curId);
     if (!me) return false;
+    if (me.trashKid) return false;   // 点検 2（rv59 軽い 8・R48）: 子がゴミ箱にある（DB はゴミ箱の子も数えて断る: IR7）
     const rowUp = me.inRow ? me.inRow.row : null;
     if (rowUp !== null && me.parentId === rowUp) return false;   // 親がデータベースの行
     for (let up = me.parentId, seen = new Set(); up && up !== rowUp && !seen.has(up);) {

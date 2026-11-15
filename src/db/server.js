@@ -155,9 +155,10 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     // 0.14.0 EB-2（決めたこと 6・R59・R75）: 何か変えた命令（と、その送り直し）の答えだけに changed（画面の元に戻すの1歩）
     reply(port, id, r.changed || r.dupChanged ? { ok: true, result: r.result, changed: true } : { ok: true, result: r.result });
     if (r.changed) broadcast({ event: 'changed', pageIds: r.changed.pageIds, actor: r.changed.actor });
-    if (role === 'main' && SWEEP_AFTER.includes(data.cmd) && r.changed) sweepMinutes();   // 0.17.0 MG-2（決めたこと 48）: 締め・復旧の後の見回り
+    if (r.changed && SWEEP_AFTER.includes(`${role} ${data.cmd}`)) sweepMinutes();   // 0.17.0 MG-2（決めたこと 48）: 締め・復旧の後の見回り
   }
-  const SWEEP_AFTER = Object.freeze(['meeting.finalize', 'meeting.recover']);
+  // 0.17.0 点検 2（rv59 軽い 2・R47）: 画面の page.restore（ゴミ箱から最上位に戻した議事録）の後も見回る
+  const SWEEP_AFTER = Object.freeze(['main meeting.finalize', 'main meeting.recover', 'app page.restore']);
 
   const idOf = (data) => (isObj(data) && typeof data.id === 'number' && Number.isFinite(data.id) ? data.id : null);
 

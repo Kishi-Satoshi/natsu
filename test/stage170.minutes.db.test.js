@@ -178,6 +178,7 @@ const { samplePage, tmpData, electronShape } = require('./helpers/dbtmp');
 const { startServer } = require('../src/db/server');
 const { applyOps } = require('../src/db/ops');
 const PT160 = require(path.join(__dirname, 'fixtures', 'v160', 'pageTree.js'));
+const LIST160 = require(path.join(__dirname, 'fixtures', 'v160', 'listed.js'));
 // 0.16.0 までに締めた議事録（移す前の形: 最上位・親なし）。種は putPageRows（oplog を書かない: 0.16.0 の DB にもともとある行）
 function oldMeeting(t, id, i) {
   const at = new Date(Date.parse('2026-10-01T01:00:00.000Z') + i * 3600000 * 7).toISOString();
@@ -237,8 +238,9 @@ test('MG-2・F193: 移し替え（最上位の締めた議事録 300 だけが�
   // meta: 「議事録」データベースの ID と、移した数と日時
   assert.strictEqual(metaOf(db, 'minutes.db'), M);
   assert.deepStrictEqual(JSON.parse(metaOf(db, 'minutes.gathered')), { n: 300, at: new Date(clock).toISOString() });
-  // F194: 0.16.0 の木（0a6a375 の pageTree を写した見本）では、移した議事録が全部「議事録」データベースの下の子として並ぶ（行の型にしない）
-  const tree = PT160.pageTree(listOf(db));
+  // F194: 0.16.0 の一覧（0a6a375 の listedRows を写した見本）と木（pageTree）と、サイドバーの絞り（!p.inRow）では、移した議事録が全部
+  // 「議事録」データベースの下の子として並ぶ（行の型にしない）。rv59 軽い 4（R49）: 0.17.0 の pages.list でなく 0.16.0 の読み方で読む
+  const tree = PT160.pageTree(LIST160.listedRows(db).filter((p) => !p.inRow));
   assert.deepStrictEqual([...(tree.kids.get(M) || [])].sort(), [...ids].sort(), '0.16.0 の木で「議事録」の下に並ばない');
   assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'row' and parent_id = ?").get(M).c, 0, '議事録を行の型にした');
 }));
@@ -489,3 +491,146 @@ test('MG-2・F194（決めたこと 48）: 締め・復旧の後の見回り。�
     assert.deepStrictEqual(log, [['system', 'minutes.gather']], '締めと別の命令（actor system）で入れていない');
   } finally { peek.db.close(); d.done(); }
 });
+
+// ---------------------------------------------------------------- 点検 2（rv59）の直し（計画の R43〜）
+const trashedAt = (db, id) => db.prepare('select trashed_at from blocks where id = ?').get(id).trashed_at;
+const parentOf = (db, id) => db.prepare('select parent_id from blocks where id = ?').get(id).parent_id;
+
+test('rv59 重要 1・決めたこと 54: 「議事録」の表で議事録の行をゴミ箱へ（rows.trash）入れると、子孫のページも同じ時刻でゴミ箱へ（サイドバーの最上位に出ない）。Ctrl+Z でも、ゴミ箱の［戻す］でも一緒に「議事録」へ戻る', T, () => withDb((db) => {
+  meeting(db, 'pa1');
+  meeting(db, 'pa2', { at: '2026-11-11T02:00:00.000Z', date: '2026-11-11' });
+  const M = minutesDbs(db)[0];
+  const kid = ok(call(db, 'page.create', { parentId: 'pa1' }), 'page.create').result.id;
+  const grand = ok(call(db, 'page.create', { parentId: kid }), 'page.create').result.id;
+  const early = ok(call(db, 'page.create', { parentId: 'pa1' }), 'page.create').result.id;
+  ok(call(db, 'page.delete', { id: early }), 'page.delete');   // 先にゴミ箱に入れた子の時刻は書き換えない
+  const was = trashedAt(db, early);
+  const tr = ok(call(db, 'rows.trash', { db: M, ids: ['pa1'] }), 'rows.trash');
+  assert.strictEqual(tr.result.trashed, 1, '答えの数は表の行だけ');
+  assert.ok(trashedAt(db, 'pa1'));
+  assert.deepStrictEqual([trashedAt(db, kid), trashedAt(db, grand), trashedAt(db, early), trashedAt(db, 'pa2')], [trashedAt(db, 'pa1'), trashedAt(db, 'pa1'), was, null], '子孫が同じ時刻でゴミ箱に入らない');
+  assert.deepStrictEqual(listOf(db).filter((p) => [kid, grand].includes(p.id)), [], '親の無い子ページが一覧に出た');
+  // Ctrl+Z（データベースの歩み）で一緒に戻る
+  ok(call(db, 'edit.revert', { pageId: M, steps: [tr.tx] }), 'edit.revert');
+  assert.deepStrictEqual([trashedAt(db, 'pa1'), trashedAt(db, kid), trashedAt(db, grand), trashedAt(db, early)], [null, null, null, was]);
+  // ゴミ箱の［戻す］でも一緒に「議事録」へ戻る
+  ok(call(db, 'rows.trash', { db: M, ids: ['pa1'] }), 'rows.trash');
+  ok(call(db, 'page.restore', { id: 'pa1' }), 'page.restore');
+  assert.deepStrictEqual([trashedAt(db, 'pa1'), trashedAt(db, kid), trashedAt(db, grand), parentOf(db, 'pa1'), parentOf(db, kid)], [null, null, null, M, 'pa1']);
+}));
+
+test('rv59 重要 2・R39: 「議事録」の列ごとの書き直し（種類を変える・確かめの数・選択肢を消す・完全に消す）は、議事録のページ（ゴミ箱も）のセルにも当たる', T, () => withDb((db) => {
+  meeting(db, 'pb1');
+  meeting(db, 'pb2', { at: '2026-11-11T02:00:00.000Z', date: '2026-11-11' });
+  const M = minutesDbs(db)[0];
+  const cols = attrsOf(db, M).cols;
+  const person = cols.find((c) => c.type === 'person').id;
+  ok(call(db, 'row.setCell', { db: M, id: 'pb1', col: person, value: ['メンバー甲'] }), 'row.setCell');
+  ok(call(db, 'row.setCell', { db: M, id: 'pb2', col: person, value: ['メンバー乙'] }), 'row.setCell');
+  ok(call(db, 'rows.trash', { db: M, ids: ['pb2'] }), 'rows.trash');
+  assert.strictEqual(ok(call(db, 'col.typeCheck', { db: M, col: person, type: 'number' }), 'col.typeCheck').result.emptied, 1, '確かめの数に議事録のセルが入らない（ゴミ箱は数えない）');
+  const st = ok(call(db, 'col.setType', { db: M, col: person, type: 'text' }), 'col.setType');
+  assert.ok(st.result.emptied === 0, '人の名前は文字に読める');
+  assert.deepStrictEqual([attrsOf(db, 'pb1').cells[person], attrsOf(db, 'pb2').cells[person]], ['メンバー甲', 'メンバー乙'], '議事録のセルを新しい種類に読み替えない（ゴミ箱も）');
+  // 選択肢を消すと議事録のセルからも外れる
+  const sel = ok(call(db, 'col.add', { db: M, type: 'select', name: '区分' }), 'col.add').result.col;   // 列の名前（画面の文の外の試しの字）
+  const withOpt = ok(call(db, 'col.setOpts', { db: M, col: sel.id, opts: [{ id: 'o1', name: '定例', color: 'gray' }] }), 'col.setOpts').result.col;
+  ok(call(db, 'row.setCell', { db: M, id: 'pb1', col: sel.id, value: withOpt.opts[0].id }), 'row.setCell');
+  ok(call(db, 'col.setOpts', { db: M, col: sel.id, opts: [] }), 'col.setOpts');
+  assert.ok(!Object.hasOwn(attrsOf(db, 'pb1').cells, sel.id), '消した選択肢が議事録のセルに残る');
+  // 完全に消すと議事録のセル（ゴミ箱も）からも消える
+  ok(call(db, 'col.remove', { db: M, col: person }), 'col.remove');
+  ok(call(db, 'col.purge', { db: M, col: person }), 'col.purge');
+  assert.deepStrictEqual([Object.hasOwn(attrsOf(db, 'pb1').cells, person), Object.hasOwn(attrsOf(db, 'pb2').cells, person)], [false, false], '完全に消した列の値が議事録に残る');
+}));
+
+test('rv59 重要 3・F203（R43）: ゴミ箱から古い「議事録」を戻したとき、ほかに生きている「議事録」があれば、古い方の議事録（ゴミ箱の議事録も）を同じ命令で今の方へ移し、古い方は役の印を外したふつうのデータベースで戻る（列とビューは写さない）', T, () => withDb((db) => {
+  meeting(db, 'pc1');
+  meeting(db, 'pc2', { at: '2026-11-11T02:00:00.000Z', date: '2026-11-11' });
+  const OLD = minutesDbs(db)[0];
+  const oldCols = attrsOf(db, OLD).cols;
+  const person = oldCols.find((c) => c.type === 'person').id;
+  ok(call(db, 'row.setCell', { db: OLD, id: 'pc1', col: person, value: ['メンバー甲'] }), 'row.setCell');
+  const extra = ok(call(db, 'col.add', { db: OLD, type: 'text', name: '場所' }), 'col.add').result.col;   // 列の名前（試しの字）
+  ok(call(db, 'row.setCell', { db: OLD, id: 'pc1', col: extra.id, value: '三階' }), 'row.setCell');
+  const kid = ok(call(db, 'page.create', { parentId: 'pc2' }), 'page.create').result.id;
+  ok(call(db, 'page.delete', { id: 'pc2' }), 'page.delete');   // 先に1つだけゴミ箱へ（古い方の子のまま）
+  ok(call(db, 'page.delete', { id: OLD }), 'page.delete');
+  meeting(db, 'pc3', { at: '2026-11-12T02:00:00.000Z', date: '2026-11-12' });   // 決めたこと 49: 新しい「議事録」ができる
+  const CUR = minutesDbs(db)[0];
+  assert.notStrictEqual(CUR, OLD);
+  const other = ok(call(db, 'col.add', { db: CUR, type: 'number', name: '人数' }), 'col.add').result.col;   // 同じ ID で種類の違う列（試しの字）
+  assert.strictEqual(other.id, extra.id, '前提: 同じ ID の列');
+  const oldViews = attrsOf(db, OLD).views;
+  const curShape = { cols: attrsOf(db, CUR).cols, views: attrsOf(db, CUR).views };
+  const r = ok(call(db, 'page.restore', { id: OLD }), 'page.restore');
+  assert.deepStrictEqual(minutesDbs(db), [CUR], '役の印のある生きた「議事録」が2つ');
+  assert.strictEqual(metaOf(db, 'minutes.db'), CUR);
+  const a = attrsOf(db, OLD);
+  assert.deepStrictEqual([a.kind, a.role, trashedAt(db, OLD), a.views], ['database', undefined, null, oldViews], '古い方はふつうのデータベース');
+  assert.deepStrictEqual({ cols: attrsOf(db, CUR).cols, views: attrsOf(db, CUR).views }, curShape, '今の方の列とビューを変えた');
+  assert.deepStrictEqual(['pc1', 'pc2'].map((id) => parentOf(db, id)), [CUR, CUR], '古い方の議事録が今の方へ移らない');
+  assert.deepStrictEqual([trashedAt(db, 'pc1'), Boolean(trashedAt(db, 'pc2')), parentOf(db, kid)], [null, true, 'pc2'], 'ゴミ箱の議事録は移してもゴミ箱のまま');
+  const ord = (id) => db.prepare('select ord from blocks where id = ?').get(id).ord;
+  assert.ok(ord('pc3') < ord('pc1'), '移した議事録は今の方の末尾');
+  // セル: 今の方の同じ列（参加者）は残り、同じ ID で違う列の値は外す（今の方の列に違う種類の値を見せない）
+  assert.deepStrictEqual(attrsOf(db, 'pc1').cells, { [person]: ['メンバー甲'] });
+  assert.deepStrictEqual(viewOf(db, CUR).rows.map((x) => x.id).sort(), ['pc1', 'pc3']);
+  // 1つの命令（oplog の1行）。後でゴミ箱の議事録を戻すと今の方へ戻る
+  assert.strictEqual(db.prepare('select count(*) c from oplog where tx = ?').get(r.tx).c, 1);
+  ok(call(db, 'page.restore', { id: 'pc2' }), 'page.restore');
+  assert.deepStrictEqual([parentOf(db, 'pc2'), trashedAt(db, 'pc2'), trashedAt(db, kid)], [CUR, null, null]);
+  // ほかに「議事録」が無ければ、今どおり「議事録」として戻る
+  ok(call(db, 'page.delete', { id: CUR }), 'page.delete');
+  ok(call(db, 'page.restore', { id: CUR }), 'page.restore');
+  assert.deepStrictEqual([minutesDbs(db), attrsOf(db, CUR).role], [[CUR], 'minutes']);
+}));
+
+test('rv59 軽い 5・決めたこと 52: 「議事録」の表への貼り付け（rows.paste）は表に見えている並び（dbRowsOf: 議事録の行も）で書き、行を足す分は断る', T, () => withDb((db) => {
+  meeting(db, 'pd1', { at: '2026-11-10T01:30:00.000Z', date: '2026-11-10' });
+  meeting(db, 'pd2', { at: '2026-11-11T01:30:00.000Z', date: '2026-11-11' });
+  const M = minutesDbs(db)[0];
+  const row = ok(call(db, 'row.add', { db: M, title: '行の題' }), 'row.add').result.id;   // データベースの行の題名（D77 の外）
+  const person = attrsOf(db, M).cols.find((c) => c.type === 'person').id;
+  const order = viewOf(db, M).rows.map((r) => r.id);
+  assert.deepStrictEqual(order, ['pd2', 'pd1', row], '前提: 表の並び（日付の新しい順・日付の無い行は後ろ）');
+  ok(call(db, 'rows.paste', { db: M, viewId: 'v1', at: { row: 'pd2', col: person }, grid: [['メンバー甲'], ['メンバー乙']] }), 'rows.paste');
+  assert.deepStrictEqual([attrsOf(db, 'pd2').cells[person], attrsOf(db, 'pd1').cells[person], (attrsOf(db, row).cells || {})[person]], [['メンバー甲'], ['メンバー乙'], undefined], '見えている並びで書かない');
+  const n0 = db.prepare('select count(*) c from oplog').get().c;
+  assert.strictEqual(call(db, 'rows.paste', { db: M, viewId: 'v1', at: { row: 'pd1', col: person }, grid: [['甲'], ['乙'], ['丙']] }).code, 'bad-args', '「議事録」に行を足した');
+  assert.strictEqual(db.prepare('select count(*) c from oplog').get().c, n0);
+}));
+
+test('rv59 軽い 2・決めたこと 48: ゴミ箱から最上位に戻した議事録（移す前にゴミ箱にあった・消した「議事録」の中の1つ）は、戻した命令の後の見回りで「議事録」に入る（次の起動を待たない）', { timeout: 60000 }, async () => {
+  const d = tmpData({ pages: 0 });
+  d.close();
+  addOld(d, 'pq0', 0);
+  addOld(d, 'pq1', 1);
+  const c = core.open({ sqlite, file: d.file });
+  try { c.db.prepare("update blocks set trashed_at = '2026-11-01T00:00:00.000Z' where id = 'pq1'").run(); } finally { c.db.close(); }   // 移す前にゴミ箱にあった議事録
+  const s = boot(d, { runCheck: async () => 'ok' });
+  try {
+    await s.ready();
+    const app = s.port('app');
+    const seen = []; app.onEvent((e) => seen.push(e));
+    assert.strictEqual((await app.ask({ id: 2, cmd: 'page.restore', args: { id: 'pq1' }, tx: 'a:rv59-res-0001' })).ok, true);
+    await waitFor(() => seen.some((e) => e.pageIds && e.pageIds.includes('pq1') && e.actor === 'system'), '見回りの知らせ');
+  } finally { await s.stop(); }
+  const peek = core.open({ sqlite, file: d.file });
+  try {
+    const M = minutesDbs(peek.db)[0];
+    assert.deepStrictEqual(['pq0', 'pq1'].map((id) => peek.db.prepare('select parent_id from blocks where id = ?').get(id).parent_id), [M, M], '戻した議事録が最上位に残る');
+  } finally { peek.db.close(); d.done(); }
+});
+
+test('rv59 重要 4・決めたこと 59（R51）: 移し替えは Ctrl+Z で戻らない（edit.revert は断り、何も変えない）。議事録はページのまま「議事録」の子で、0.16.0 の一覧と木でも全部見える', T, () => withDb((db, t) => {
+  for (let i = 0; i < 3; i += 1) oldMeeting(t, `pu${i}`, i);
+  const g = ok(gather(db), 'minutes.gather');
+  const M = g.result.db;
+  const n0 = db.prepare('select count(*) c from oplog').get().c;
+  assert.strictEqual(call(db, 'edit.revert', { pageId: M, steps: [g.tx] }).code, 'bad-args', '移し替えを Ctrl+Z で戻した');
+  assert.strictEqual(db.prepare('select count(*) c from oplog').get().c, n0);
+  assert.deepStrictEqual(['pu0', 'pu1', 'pu2'].map((id) => parentOf(db, id)), [M, M, M]);
+  const tree = PT160.pageTree(LIST160.listedRows(db).filter((p) => !p.inRow));
+  assert.deepStrictEqual([...(tree.kids.get(M) || [])].sort(), ['pu0', 'pu1', 'pu2']);
+}));

@@ -1671,9 +1671,11 @@ const IDS_170 = [
   'pd-empty-text', 'pd-empty-kids', 'pd-empty-trashkid', 'pd-keep-title', 'pd-icon-off', 'pd-icon-undo', 'pd-keep-place', 'pd-kind-only-blank', 'pd-live', 'pd-same-shape',
   'pd-undo', 'pd-undo-rows', 'pd-parent-row',
   'pd-redo-same', 'pd-undo-rel', 'pd-undo-linked', 'pd-undo-why',   // 点検 1（rv58 重要 2・3・軽い 1）の直しで足した行
+  'pd-undo-rel-trash', 'pd-undo-bad-attrs', 'pd-undo-view-readd',   // 点検 2（rv59 軽い 1）の直しで足した行
   // 0.17.0 PD-2 で作った行（表の行の順に）
   'pd-ui-blank-only', 'pd-ui-hide', 'pd-ui-ime', 'pd-ui-focus',
   'pd-ui-row-kid', 'pd-ui-trash-up', 'pd-ui-undo-why', 'pd-ui-err-code',   // 点検 1（rv58 重要 1・軽い 1・2）の直しで足した行
+  'pd-ui-trash-kid',   // 点検 2（rv59 軽い 8）の直しで足した行
   // 0.17.0 SV-1・SV-2 で作った行（表の行の順に。sw-fresh は SV-2: R26）
   'sw-rows-under', 'sw-fresh', 'sw-list-speed', 'sw-open-key', 'sw-key-nav', 'sw-key-left', 'sw-no-drag', 'sw-no-select', 'sw-only-tree', 'sw-open-view',
   'sw-mark', 'sw-focus-gone',
@@ -1681,7 +1683,9 @@ const IDS_170 = [
   'mg-rows-pages', 'mg-rows-trash', 'mg-col-readonly', 'mg-sum-preview', 'mg-creator-me', 'mg-put-keep-cells', 'mg-rel-find',
   // 0.17.0 MG-2 で作った行（表の行の順に。mg-mcp-same は MG-3 の行を前倒しした: R40）
   'mg-gather-one-tx', 'mg-gather-snapshot', 'mg-gather-once', 'mg-gather-keep-body', 'mg-gather-skip-bad', 'mg-keep-nested', 'mg-page-not-row', 'mg-sweep', 'mg-sweep-close', 'mg-sweep-wait',
-  'mg-finalize-place', 'mg-live-out', 'mg-role-one', 'mg-mcp-same',
+  'mg-finalize-place', 'mg-live-out', 'mg-role-one',
+  'mg-rows-trash-kids', 'mg-cells-pages', 'mg-restore-merge', 'mg-restore-role', 'mg-restore-cells', 'mg-paste-rows', 'mg-paste-add', 'mg-sweep-restore',   // 点検 2（rv59）の直しで足した行
+  'mg-mcp-same',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
 function planRows170() {
@@ -1697,7 +1701,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
-  assert.strictEqual(rows.length, 144, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 25・sw- 12・mg- 27・tk- 11・rt- 8・lc- 5。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2 を足した）が読めない');
+  assert.strictEqual(rows.length, 156, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 29・sw- 12・mg- 35・tk- 11・rt- 8・lc- 5。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8 を足した）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');

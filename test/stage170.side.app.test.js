@@ -83,11 +83,11 @@ test('PD-2・F189: 押す・Enter・Space で pageToDb の1回（変換中の En
   const l = await realApp({ before: (call) => {
     const ids = [0, 1, 2].map(() => call('page.create', {}).id);
     const trashKid = call('page.create', {}).id;
-    call('page.delete', { id: call('page.create', { parentId: trashKid }).id });   // ゴミ箱の子だけ（画面は見えないので押せるが、DB が断る）
-    return { ids, trashKid };
+    const late = call('page.create', {}).id;   // 開いた後に、画面の一覧の外で trashKid のゴミ箱の子にする
+    return { ids, trashKid, late };
   } });
   try {
-    const { ids, trashKid } = l.made;
+    const { ids, trashKid, late } = l.made;
     const btn = () => $(l, 'emptyDbBtn');
     await open(l, ids[0]);
     l.key({ key: 'Enter', isComposing: true, keyCode: 229 }, btn()); await l.drain(80);
@@ -106,7 +106,9 @@ test('PD-2・F189: 押す・Enter・Space で pageToDb の1回（変換中の En
     assert.deepStrictEqual(l.called('pageToDb').map((c) => c.args), [[ids[0]], [ids[1]], [ids[2]]], 'Space か押すで1回ずつでない');
     // 断られたら知らせ（ページはそのまま）
     await open(l, trashKid);
-    assert.ok(shown(l), '前提: ゴミ箱の子は画面に見えないので［データベース］が出る');
+    assert.ok(shown(l), '前提: 空の白紙のページに［データベース］が出ない');
+    // 画面の一覧が古い間に、ほかの所でゴミ箱の子ができた（rv59 軽い 8 の後は、一覧を読み直せば出ない: 下の rv59 軽い 8 のテスト）
+    l.db.prepare("update blocks set parent_id = ?, trashed_at = '2026-11-14T02:00:00.000Z' where id = ?").run(trashKid, late);
     btn().dispatchEvent({ type: 'click' }); await l.drain(200);
     assert.strictEqual($(l, 'toast').textContent, '中身のあるページはデータベースにできません。');
     assert.ok(!$(l, 'pageWrap').classList.contains('db'));
@@ -192,6 +194,27 @@ test('PD-2・F189（rv58 重要 1）: DB が断るページには［データベ
     l.db.prepare('update blocks set trashed_at = ? where id = ?').run('2026-11-14T02:00:00.000Z', gone);
     l.fire('onPagesUpdated'); await l.drain(200);
     assert.ok(!shown(l), '一覧に無いページに出た');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('PD-2・F189（rv59 軽い 8）: 子がゴミ箱にだけある白紙のページには［データベース］を出さない（DB はゴミ箱の子も数えて断る: IR7）。子を完全に消せば出る', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const host = call('page.create', {}).id;
+    const kid = call('page.create', { parentId: host }).id;
+    call('page.delete', { id: kid });
+    const plain = call('page.create', {}).id;
+    return { host, kid, plain };
+  } });
+  try {
+    const { host, kid, plain } = l.made;
+    await open(l, plain);
+    assert.ok(curOf(l) === plain && shown(l), '前提: 白紙のページに出ない');
+    await open(l, host);
+    assert.ok(curOf(l) === host && !shown(l), 'ゴミ箱の子だけを持つページに出た');
+    l.db.prepare('delete from blocks where page_id = ?').run(kid);   // ゴミ箱から完全に消した
+    l.fire('onPagesUpdated'); await l.drain(200);
+    assert.ok(curOf(l) === host && shown(l), '子を完全に消したのに出ない');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
