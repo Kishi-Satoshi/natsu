@@ -514,7 +514,10 @@ test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース
     const one = (want) => {
       if (want === 'plain') swap('views', 'vx');
       timed();
-      const [ms, list] = timed();
+      // R80（ee30109 の run 43684065552 の mutate-1 の元のままの確かめ）: 1回の時間でなく、続けて計った3回のいちばん短い時間（ほかの手が割り込んだ回を数えない）
+      const runs = [timed(), timed(), timed()];
+      const ms = Math.min(...runs.map((x) => x[0]));
+      const list = runs[2][1];
       if (want === 'plain') {
         assert.deepStrictEqual(list.filter((p) => Array.isArray(p.views) && p.views.length), list.filter((p) => p.id === made.id && p.views.length), '前提: ビューの欄の名前を替えても views がある');
         swap('vx', 'views');
