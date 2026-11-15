@@ -33,7 +33,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.17.0 LK-1（決めたこと 73・75）: データベースのロック（元に戻すの歩みにしない: UNDO_CMDS に入れない）（66）
   'db.setLock',
   // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（67）
-  'todo.toTask']);
+  'todo.toTask',
+  // 0.17.0 RT-1（決めたこと 66〜70）: 行のテンプレート（72）
+  'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -47,6 +49,7 @@ const UNDO_CMDS = new Set([
   'block.insertDbView', 'db.setTitle',
   'page.toDb',   // 0.17.0 PD-1（決めたこと 33）: データベースにした歩み（args.id はそのページ = データベース）
   'todo.toTask',   // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（args.pageId のページの要約の欄・本文の歩み）
+  'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl',   // 0.17.0 RT-1（決めたこと 70）: 行のテンプレート（args.db のデータベースの歩み）
 ]);
 const editSteps = [];
 function editStep(req) {
@@ -260,6 +263,12 @@ contextBridge.exposeInMainWorld('koeApp', {
   dbSetSub: (db, on) => dbCall('db.setSub', { db, on: Boolean(on) }),
   dbSetLock: (db, on) => dbCall('db.setLock', { db, on: Boolean(on) }),   // 0.17.0 LK-1（決めたこと 73）
   todoToTask: (pageId, blockId) => dbCall('todo.toTask', { pageId, blockId }),   // 0.17.0 TK-2（決めたこと 63）
+  // 0.17.0 RT-1（決めたこと 66〜70）: 行のテンプレート（作る・複製・消す・既定にする（id '' は「空白のページ」・view があれば「このビューだけ」）・テンプレートから行を作る）
+  tplAdd: (db, title) => dbCall('tpl.add', { db, ...(title ? { title } : {}) }),
+  tplDup: (db, id) => dbCall('tpl.dup', { db, id }),
+  tplRemove: (db, id) => dbCall('tpl.remove', { db, id }),
+  tplSetDefault: (db, id, view) => dbCall('tpl.setDefault', { db, id, ...(view ? { view } : {}) }),
+  rowFromTpl: (db, id, afterId) => dbCall('row.fromTpl', { db, id, ...(afterId === undefined ? {} : { afterId }) }),
   relFind: (db, q) => dbCall('rel.find', { db, ...(q ? { q } : {}) }),
   colRename: (db, col, name) => dbCall('col.rename', { db, col, name }),
   colSetType: (db, col, type) => dbCall('col.setType', { db, col, type }),

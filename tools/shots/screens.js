@@ -204,6 +204,11 @@ const OPEN_SIDE_MINUTES = `(async () => {
   await w(200);
   return 1;
 })()`;
+// 0.17.0 RT-2: データベースを開いて［＋ 新しい行］の右の ▾ を押す（テンプレートの窓）
+const OPEN_DB_TPL = OPEN_DB_AT(`const b = document.querySelector('#pDb .dbtplbtn');
+  if (!b) throw new Error('▾ が無い');
+  b.click();
+  if (!document.querySelector('#pDb .dbtplmenu .dbtpldef')) throw new Error('「既定」の札が無い');`);
 // 0.17.0 TK-2: ページを開いて［AI 要約］の欄。1つ目の ToDo は［タスクを開く］、2つ目の ToDo の［タスクにする］にフォーカス（乗せる・フォーカスで出る）
 const OPEN_TODO_TASK = `(async () => {
   document.querySelector('#plist .pitem').click();
@@ -743,6 +748,8 @@ const SCREENS = [
   // 0.17.0 TK-1（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 「タスク管理」の「マイタスク」（担当に「自分」・完了でない・期限の順）
   { name: 'tasks-db-light', page: 'app', theme: 'light', get answers() { return tasksAnswers(); }, act: OPEN_TASKS_DB },
   // 0.17.0 TK-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 議事録の要約の ToDo の［タスクを開く］（タスクにした1つ目）と、フォーカスした2つ目の［タスクにする］
+  // 0.17.0 RT-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: ［＋ 新しい行］の右の ▾ の窓（テンプレート2つ・既定の札・「空白のページ」・［＋ 新しいテンプレート］）
+  { name: 'db-template-light', page: 'app', theme: 'light', get answers() { const a = dbAnswers(); return { ...a, 'koeApp.dbGet': { ...a['koeApp.dbGet'], tpls: { list: [{ id: 'rt1', title: '定例の見本' }, { id: 'rt2', title: '見積もりの見本' }], base: 'rt1', defaults: { v1: 'rt1' } } } }; }, act: OPEN_DB_TPL },
   { name: 'todo-task-light', page: 'app', theme: 'light', get answers() { return { 'koeApp.pageGet': { page: { ...PAGE, blocks: PAGE.blocks.map((b) => (b.id === 'b6' ? { ...b, task: 'rk1' } : b)) }, segments: SEGMENTS } }; }, act: OPEN_TODO_TASK },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。

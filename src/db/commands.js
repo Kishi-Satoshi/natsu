@@ -403,6 +403,7 @@ function rowHits(db, rows, cands) {
     const info = scope.row(id);
     if (!info || !info.live) continue;
     const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+    if (isTplRaw(r)) continue;   // 0.17.0 RT-1（決めたこと 66）: テンプレートの行は検索に出さない
     const d = dbOf(db, info.db);
     const v = rowView(r);
     out.push({ id, at: at.has(info.db) ? at.get(info.db) : rows.length, ord: r.ord, texts: DM.foldCells(d ? d.cols : [], v.cells).split('\n'),
@@ -2175,6 +2176,7 @@ function dbGetOf(db, id, linked) {
   if (typeof d.attrs.icon === 'string' && d.attrs.icon) out.icon = d.attrs.icon;
   if (d.attrs.locked === true) out.locked = true;   // 0.17.0 LK-1（決めたこと 73）
   if (d.attrs.role === 'tasks') out.tasks = true;   // 0.17.0 TK-1（決めたこと 62）: 担当の候補の先頭に「自分」
+  if (!isMinutesDb(d)) out.tpls = tplInfo(db, d);   // 0.17.0 RT-1（決めたこと 66・67）: テンプレートの並びとビューごとの既定
   if (isMinutesDb(d)) out.minutes = true;   // 0.17.0 MG-4（決めたこと 52・53）: 「議事録」データベースの表（［＋ 新しい議事録］・読む列の灰色・空のときの文）
   const sub = subOf(d);   // 0.16.0 DR-1 直し2（rv51 I2・R108）: 木にしているときだけ（列が消えている・互いを指していないなら無い）
   if (sub) out.sub = sub;
@@ -2345,6 +2347,120 @@ function rowsPaste(db, a, ctx, dry = false) {
   } else ops.push(...addOps, ...rowOps);
   if (st.added) ops.push({ op: 'set', id: d.id, key: 'nextNo', value: no, old: d.attrs.nextNo });
   return dbDone(db, d, ops, st);
+}
+
+// ---- 0.17.0 RT-1（計画 docs/plans/2026-11-13-170.md の決めたこと 66・67・69・70・F202）: 行のテンプレート
+// テンプレートはデータベースの下の行（type row）に attrs.tpl = true を付けた物（題名・列の値・本文）。表・検索・MCP・集計・リレーションの選びには出さない（dbRowsOf が外す）。
+// 1つのデータベースに 20 まで。既定はデータベースの既定 attrs.tplDefault と、ビューごとの既定 attrs.tplViews（{ ビューの ID: テンプレートの ID | '' }。'' は「空白のページ」）。
+// ビューの既定はデータベースの欄に持つ（ビューの設定 views は元に戻すの歩みにしない: DB_NO_REVERT。R58・M12）。どれも役 app・データベースの歩み（Ctrl+Z）
+const isTplRaw = (r) => Boolean(r) && r.type === 'row' && (r.trashed_at === null || r.trashed_at === undefined) && (parseOr(r.attrs) || {}).tpl === true;
+const tplRowsOf = (db, d) => db.prepare("select id, type, ord, text, attrs, trashed_at, created_at from blocks where type = 'row' and parent_id = ? and instr(attrs, '\"tpl\"') > 0 order by ord, id").all(d.id).filter(isTplRaw);
+function liveTpl(db, d, id) {
+  const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+  if (!r || r.parent_id !== d.id || !isTplRaw(r)) throw refuse('bad-args');
+  return r;
+}
+const tplViewsOf = (d) => (isObj(d.attrs.tplViews) ? d.attrs.tplViews : {});
+// 画面の形（db.get の tpls）: テンプレートの並び（題名）・ビューごとの今の既定（ビューの既定 → データベースの既定 → ''）
+function tplInfo(db, d) {
+  const list = tplRowsOf(db, d).map((r) => ({ id: r.id, title: r.text }));
+  const ids = new Set(list.map((x) => x.id));
+  const base = typeof d.attrs.tplDefault === 'string' && ids.has(d.attrs.tplDefault) ? d.attrs.tplDefault : '';
+  const per = tplViewsOf(d);
+  const defaults = {};
+  for (const v of d.views) defaults[v.id] = typeof per[v.id] === 'string' && (per[v.id] === '' || ids.has(per[v.id])) ? per[v.id] : base;
+  return { list, base, defaults };
+}
+// 本文のブロックを写す操作（ブロックの ID は新しく作り、子ページの行・リンクドビューの行とその下は写さない。ToDo の［タスクにする］の印は外す）
+function copyBodyOps(db, ctx, fromId, toId) {
+  const rows = db.prepare(HOT_QUERIES.pageBlocks).all(fromId, fromId);
+  const map = new Map([[fromId, toId]]);
+  const out = [];
+  for (const r of rows) {
+    if (r.type === 'subpage' || r.type === 'dbview' || !map.has(r.parent_id)) continue;   // 親を写さなかったブロックの下も写さない
+    const id = newBlockId(db, ctx.now);
+    map.set(r.id, id);
+    const attrs = parseOr(r.attrs) || {};
+    delete attrs.task;
+    let rich = null;
+    try { rich = r.rich ? JSON.parse(r.rich) : null; } catch (_) { rich = null; }
+    out.push({ op: 'add', id, row: { id, type: r.type, page_id: toId, parent_id: map.get(r.parent_id), ord: r.ord, text: String(r.text || ''), rich: Array.isArray(rich) ? rich : null, attrs, rev: 1, created_at: '', updated_at: '', trashed_at: null } });
+  }
+  return out;
+}
+const rowsFull = (db, d) => LIMITS.dbRows <= db.prepare(HOT_QUERIES.dbRowCount).get(d.id).c;   // 1つのデータベースの行の上限（テンプレートも数える: 決めたこと 7）
+function tplRoom(db, d) {
+  if (tplRowsOf(db, d).length >= LIMITS.tpls) throw refuse('too-big');
+  if (rowsFull(db, d)) throw refuse('too-big');
+}
+// 新しい行（テンプレートか、テンプレートから作る行）の操作。src があれば題名・列の値（今ある書ける列だけ）・本文を写す
+function tplRowOps(db, a, ctx, d, src, asTpl) {
+  const id = newRowId(db, ctx.now);
+  const who = whoOf(ctx);
+  const live = new Set(d.cols.filter((c) => !c.gone && c.type !== 'title' && DM.COLS[c.type] && DM.COLS[c.type].writable).map((c) => c.id));
+  const from = src ? (parseOr(src.attrs) || {}).cells : null;
+  const cells = {};
+  if (isObj(from)) for (const [k, v] of Object.entries(from)) if (live.has(k)) cells[k] = structuredClone(v);
+  const title = src ? String(src.text || '') : String(a.title || '');
+  const ops = [];
+  if (asTpl) {
+    const row = rowBlock({ id, db: d.id, ord: appendKey((db.prepare(HOT_QUERIES.dbLastOrd).get(d.id) || {}).m || null), title, cells, by: { c: who, u: who }, at: ctx.now().toISOString() });
+    row.attrs.tpl = true;
+    delete row.attrs.no;
+    ops.push({ op: 'add', id, row });
+  } else {
+    const no = Number.isSafeInteger(d.attrs.nextNo) && d.attrs.nextNo >= 1 ? d.attrs.nextNo : 1;
+    ops.push({ op: 'add', id, row: rowBlock({ id, db: d.id, ord: rowOrd(db, d.id, a.afterId), title, cells, by: { c: who, u: who }, no, at: ctx.now().toISOString() }) },
+      { op: 'set', id: d.id, key: 'nextNo', value: no + 1, old: d.attrs.nextNo });
+  }
+  if (src) ops.push(...copyBodyOps(db, ctx, src.id, id));
+  return { id, ops };
+}
+// tpl.add（a.id があれば tpl.dup: そのテンプレートの複製）→ { id }
+function tplAdd(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  if (isMinutesDb(d)) throw refuse('bad-args');   // 決めたこと 69（TQ13 の (a)）: 「議事録」にはテンプレートを作らない
+  const src = a.id === undefined ? null : liveTpl(db, d, a.id);
+  tplRoom(db, d);
+  const { id, ops } = tplRowOps(db, a, ctx, d, src, true);
+  return dbDone(db, d, ops, { id }, [id]);
+}
+function tplRemove(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  liveTpl(db, d, a.id);
+  const ops = [{ op: 'trash', id: a.id, at: ctx.now().toISOString(), old: null }];
+  if (d.attrs.tplDefault === a.id) ops.push({ op: 'set', id: d.id, key: 'tplDefault', value: undefined, old: a.id });   // 既定のテンプレートを消すと既定が外れる
+  const per = tplViewsOf(d);
+  if (Object.values(per).includes(a.id)) {
+    const next = Object.fromEntries(Object.entries(per).filter(([, v]) => v !== a.id));   // そのビューは「データベースの既定」に戻る
+    ops.push({ op: 'set', id: d.id, key: 'tplViews', value: Object.keys(next).length ? next : undefined, old: d.attrs.tplViews });
+  }
+  return dbDone(db, d, ops, { removed: a.id }, [a.id]);
+}
+function tplSetDefault(db, a) {
+  const d = mustDb(db, a.db);
+  if (isMinutesDb(d)) throw refuse('bad-args');
+  if (a.id !== '') liveTpl(db, d, a.id);
+  const ops = [];
+  if (a.view !== undefined) {   // 「このビューだけ」
+    if (!viewOf(d, a.view)) throw refuse('bad-args');
+    const next = { ...tplViewsOf(d), [a.view]: a.id };
+    if (!isDeepStrictEqual(next, d.attrs.tplViews)) ops.push({ op: 'set', id: d.id, key: 'tplViews', value: next, old: d.attrs.tplViews });
+  } else {   // 「すべてのビュー」: データベースの既定にして、ビューごとの既定を外す
+    const val = a.id === '' ? undefined : a.id;
+    if (d.attrs.tplDefault !== val) ops.push({ op: 'set', id: d.id, key: 'tplDefault', value: val, old: d.attrs.tplDefault });
+    if (d.attrs.tplViews !== undefined) ops.push({ op: 'set', id: d.id, key: 'tplViews', value: undefined, old: d.attrs.tplViews });
+  }
+  const after = { ...d, attrs: { ...d.attrs, ...Object.fromEntries(ops.map((o) => [o.key, o.value])) } };
+  return dbDone(db, d, ops, { tpls: tplInfo(db, after) });
+}
+function rowFromTpl(db, a, ctx) {
+  const d = mustDb(db, a.db);
+  if (isMinutesDb(d)) throw refuse('bad-args');
+  const src = liveTpl(db, d, a.id);
+  if (rowsFull(db, d)) throw refuse('too-big');
+  const { id, ops } = tplRowOps(db, a, ctx, d, src, false);
+  return dbDone(db, d, ops, { id }, [id]);
 }
 
 // ---- リレーションとサブアイテム（0.16.0 DR-1。決めたこと 33〜38・R98）
@@ -2853,8 +2969,10 @@ function dbRevert(db, a, ctx, fwd) {
   // 0.17.0 LK-1（決めたこと 74）: ロック中は、列（両側のリレーションの相手も）の形を戻さない（ロックの前の列の歩みも。行とセルの歩みは戻す）
   if (back.some((o) => o.op === 'set' && o.key === 'cols' && isLockedDb(db, o.id))) throw refuse('stale');
   // 戻すと消える行（足した行）に本文があれば戻さない（本文を親の無い行にしない）
-  const body = db.prepare('select count(*) as c from blocks where page_id = ? and id <> ?');
-  if (back.some((o) => o.op === 'trash' && isObj(o.old) && body.get(o.id, o.id).c > 0)) throw refuse('stale');
+  // 0.17.0 RT-1: 同じ歩みで足した本文（テンプレートから写した本文）は、同じ歩みで消えるので数えない
+  const goneNow = new Set(back.filter((o) => o.op === 'trash' && isObj(o.old)).map((o) => o.id));
+  const body = db.prepare('select id from blocks where page_id = ? and id <> ?');
+  if (back.some((o) => o.op === 'trash' && isObj(o.old) && body.all(o.id, o.id).some((x) => !goneNow.has(x.id)))) throw refuse('stale');
   // 戻すと消える列（足した列の戻し）に値のある行があれば戻さない（ゴミ箱の行も。行に持ち主の無いセルを残さない: rv42 I2・R57）
   // 0.16.0 DR-1: 両側のリレーションの列は相手のデータベースの列も同じ歩み（o.id はそのデータベース）
   for (const o of back) {
@@ -2904,6 +3022,7 @@ function dbRevert(db, a, ctx, fwd) {
 // ---- 送り直しの答え（rv42 M3・R59: 1回目と同じ R29 の形を、今の中身と oplog の1行から作り直す。データベースが無ければ null）
 const dupOps = (row) => { try { const l = JSON.parse(row.ops || '[]'); return Array.isArray(l) ? l : []; } catch (_) { return []; } };
 const dupDb = (db, a) => dbOf(db, a.db);
+const tplDupId = (row) => { const add = dupOps(row).find((o) => isObj(o) && o.op === 'add' && isObj(o.row) && o.row.type === 'row'); return add ? add.id : null; };   // 0.17.0 RT-1
 // 0.16.0 DL-1: ビューの命令の今のビューの並び（linked ならその行の。行が無ければ null）
 function dupViews(db, a) {
   const d = dupDb(db, a);
@@ -3493,6 +3612,12 @@ const DEFS = {
       return page ? { page, blockId: o ? o.id : null } : null;
     } },
   'db.setTitle': { roles: ['app'], write: true, args: { db: 'id', title: 'title' }, pageOf: dbOfArgs, run: dbSetTitle, dupResult: (db, a) => readPage(db, a.db) },
+  // 0.17.0 RT-1（決めたこと 66〜70）: 行のテンプレート（どれも役 app・データベースの歩み。作るのはロック中は断る: 決めたこと 69・74）
+  'tpl.add': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', title: 'title?' }, pageOf: dbOfArgs, run: tplAdd, dupResult: (db, a, row) => ({ id: tplDupId(row) }) },
+  'tpl.dup': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', id: 'id' }, pageOf: dbOfArgs, run: tplAdd, dupResult: (db, a, row) => ({ id: tplDupId(row) }) },
+  'tpl.remove': { roles: ['app'], write: true, args: { db: 'id', id: 'id' }, pageOf: dbOfArgs, run: tplRemove, dupResult: (db, a) => ({ removed: a.id }) },
+  'tpl.setDefault': { roles: ['app'], write: true, args: { db: 'id', id: 'idOrEmpty', view: 'id?' }, pageOf: dbOfArgs, run: tplSetDefault, dupResult: (db, a) => { const d = dbOf(db, a.db); return d ? { tpls: tplInfo(db, d) } : null; } },
+  'row.fromTpl': { roles: ['app'], write: true, args: { db: 'id', id: 'id', afterId: 'idOrEmpty?' }, pageOf: dbOfArgs, run: rowFromTpl, dupResult: (db, a, row) => ({ id: tplDupId(row) }) },
   // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（役 app・要約の欄の歩み: Ctrl+Z で行と印が一緒に戻る）
   'todo.toTask': { roles: ['app'], write: true, args: { pageId: 'id', blockId: 'id' }, run: todoToTask,
     dupResult: (db, a) => { const l = loadPage(db, a.pageId); const h = l ? BT.locate(l.page.blocks, a.blockId) : null; const r = h && h.b.task ? db.prepare(HOT_QUERIES.dbRow).get(h.b.task) : null; return r ? { id: r.id, db: r.parent_id } : null; } },

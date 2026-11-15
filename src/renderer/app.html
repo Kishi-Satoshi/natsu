@@ -755,6 +755,18 @@
   .ptrow > :first-child { flex: 1 1 auto; min-width: 0; }   /* 題名の欄（D71: 頭の CSS の規則の文は変えない） */
   .plock { flex: none; font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
   .plock:hover { background: var(--hover); }
+  /* 0.17.0 RT-2（決めたこと 67・68）: テンプレートを編集している行のページの帯と、［＋ 新しい行］の右の ▾ の窓 */
+  .tplbanner { margin: 6px 0 2px; padding: 6px 10px; border-radius: 6px; background: var(--hover); color: var(--muted); font-size: 13px; }
+  .dbtplbtn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; padding: 6px 6px; border-radius: 6px; cursor: pointer; }
+  .dbtplbtn:hover { background: var(--hover); }
+  .dbtplrow { display: flex; align-items: center; gap: 4px; }
+  .dbtplrow .dbtplpick { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
+  .dbtpldef { flex: none; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--hover); color: var(--muted); }
+  .dbtplmore { flex: none; border: 0; background: none; color: var(--muted); font: inherit; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+  .dbtplmore:hover { background: var(--hover); }
+  .dbtplnote { padding: 6px 8px; color: var(--muted); font-size: 12px; }
+  .dbtplask { position: absolute; z-index: 7; padding: 12px; max-width: 360px; }
+  .dbtplask .dbtplbtns { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
   /* 0.15.0 PL-3（決めたこと 37）: ページの頭のアイコンは押せる button（見た目は今の頭のアイコンの規則のまま。button の地・線・余白を外す。その規則は D71 のまま） */
   #pIcon { display: block; padding: 0; border: none; border-radius: 6px; background: transparent; color: inherit; font-family: inherit; cursor: pointer; }
   #pIcon[hidden] { display: none; }
@@ -1429,6 +1441,7 @@
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
             <button type="button" class="plock" id="pLock" aria-haspopup="menu" hidden>ロック中</button>
             </div>
+            <div class="tplbanner" id="tplBanner" role="note" hidden>テンプレートを編集しています。ここで書いた物は、このテンプレートから作る行に写ります。</div>
             <div class="pprops" id="pProps"></div>
             <div class="prop" id="pTypeRow">
               <span class="k"><span class="ic">🏷</span> <span>会議の種類</span></span>
@@ -7607,6 +7620,7 @@
       dbShow(null);
       $('pTitle').textContent = '';
       $('pLock').hidden = true;
+      $('tplBanner').hidden = true;
       $('pProps').textContent = '';
       $('pMore').hidden = true;
       // 議事録を選ぶ前は中身の無いセレクタを出さない（選べない物を見せない）
@@ -7629,6 +7643,7 @@
     $('pTitle').textContent = curPage.title;
     $('pTitle').setAttribute('contenteditable', 'true');
     $('pLock').hidden = !(dbp && curPage.locked === true);   // 0.17.0 LK-1（決めたこと 73）
+    $('tplBanner').hidden = !(rowp && curPage.tpl === true);   // 0.17.0 RT-2（決めたこと 68）: テンプレートを編集している行のページ
 
     if (!blank) renderTypeRow();   // 会議の種類の行（0.11.0 V-1。白紙のページには無い）
 
@@ -11488,7 +11503,7 @@
   const DB_READ_MAX = 200;    // db.view の1回の行（src/db/commands.js の DB_VIEW_MAX と同じ）
   const DB_SEL_MAX = 2000;    // 選んだ行の命令の上限（src/db/validate.js の LIMITS.blocks と同じ: R47）
   const DB_EDIT_TYPES = ['title', 'text', 'url', 'email', 'phone', 'number'];   // 1行の文字の欄で書く種類（0.16.0 DV-2: 数値も。選択肢・ユーザー・日付・チェックの書き手は下の DV-2 の節）
-  const DB_STEP_RE = /^(?:(?:rows?|col|rel|db)\.|page\.toDb$)/;   // データベースの歩みの命令（ビューの命令は歩みにしない: 決めたこと 47。0.17.0 PD-2: データベースにした歩みも）
+  const DB_STEP_RE = /^(?:(?:rows?|col|rel|db|tpl)\.|page\.toDb$)/;   // データベースの歩みの命令（ビューの命令は歩みにしない: 決めたこと 47。0.17.0 PD-2: データベースにした歩みも。RT-2: テンプレートも）
   const DB_ROWS_FULL = '1つのデータベースの行は 10,000 までです。';
   const DB_AGG_LABEL = { count: '全件', values: '値のある件数', unique: '異なる値の数', empty: '空の数', filled: '空でない数', emptyPct: '空の割合', filledPct: '空でない割合',
     sum: '合計', avg: '平均', median: '中央値', min: '最小', max: '最大', range: '範囲', earliest: '最も早い', latest: '最も遅い',
@@ -11727,7 +11742,7 @@
     if (fresh || !st.painted) dbPaintRows(st);
   }
   // 印が変わったときに列とビューを読み直す（ほかの所・ほかの窓で変わった）。変わっていれば骨組みを描き直して真
-  const dbInfoKey = (info) => JSON.stringify(info ? [info.title, info.cols, info.views, info.sub || null, info.locked === true] : null);   // 0.17.0 LK-1: ロックも
+  const dbInfoKey = (info) => JSON.stringify(info ? [info.title, info.cols, info.views, info.sub || null, info.locked === true, info.tpls || null] : null);   // 0.17.0 LK-1: ロックも・RT-2: テンプレートも
   async function dbInfoAgain(st, seq) {
     let info = null;
     try { info = await window.koeApp.dbGet(st.id, ...(st.linked ? [st.linked] : [])); } catch (_) { info = null; }
@@ -11827,8 +11842,15 @@
     const add = document.createElement('button');
     add.type = 'button'; add.className = 'dbadd';
     add.textContent = st.info.minutes ? DB_MIN_NEW : '＋ 新しい行';
-    add.onclick = () => (st.info.minutes ? openReady() : dbAddRow(null));   // 0.17.0 MG-4（決めたこと 53）
+    add.onclick = () => (st.info.minutes ? openReady() : dbNewRow(st));   // 0.17.0 MG-4（決めたこと 53）・RT-2（既定のテンプレート: 決めたこと 67）
     box.appendChild(add);
+    if (!st.info.minutes && st.info.tpls) {   // 0.17.0 RT-2（決めたこと 67・69）: ［＋ 新しい行］の右の ▾（「議事録」には出さない）
+      const tb = document.createElement('button');
+      tb.type = 'button'; tb.className = 'dbtplbtn'; tb.textContent = '▾';
+      tb.setAttribute('aria-label', DB_TPL_PICK); tb.title = DB_TPL_PICK; tb.setAttribute('aria-haspopup', 'menu');
+      tb.onclick = () => dbTplMenu(tb);
+      box.appendChild(tb);
+    }
     st.parts = { tabs, bar, sc, grid, head, all, top, body, bottom, foot };
     if (st.key === 'page') for (const b of $('pMenu').querySelectorAll('.mitem')) if (b.dataset.sub === '1') b.setAttribute('aria-checked', st.info.sub ? 'true' : 'false');   // 0.16.0 DR-1: ［サブアイテム］の印
     dbPaintTabs(st);
@@ -11949,6 +11971,127 @@
   }
   // 0.17.0 MG-4（計画 docs/plans/2026-11-13-170.md の決めたこと 50〜53・56・F198）: 「議事録」データベースの表。日付・作成者・要約の列は議事録から自動で入る（灰色・吹き出し）。
   // ［＋ 新しい行］は［＋ 新しい議事録］（録音の前のページ: サイドバーと同じ）。議事録の行は議事録のページとして開く（行のページにしない）。議事録が無ければ空のときの文
+  // ---------------- 0.17.0 RT-2（計画 docs/plans/2026-11-13-170.md の決めたこと 66〜70・F202）: 行のテンプレートの画面
+  // ［＋ 新しい行］の右の ▾ の窓: テンプレートの名前（無題は「無題のテンプレート」）・「空白のページ」・今のビューの既定に「既定」の札・［＋ 新しいテンプレート］（ロック中は出さず、
+  // テンプレートが無ければ「ロックを外すと、テンプレートを作れます。」）。名前を押すとそのテンプレートから行を作って今のタブで開く（「空白のページ」は今の［＋ 新しい行］）。
+  // ［···］（aria-label は今の「ほかの操作」）は［既定にする］［編集］［複製］［削除］（「空白のページ」は［既定にする］だけ）。［既定にする］は確かめの窓（すべてのビュー・
+  // このビューだけ・やめる）。［＋ 新しいテンプレート］と［編集］はテンプレートの行のページを今のタブで開く（帯 #tplBanner）。↑↓ で項目・Esc で閉じて ▾ へ
+  const DB_TPL_PICK = 'テンプレートを選ぶ';
+  const DB_TPL_HEAD = 'テンプレート';
+  const DB_TPL_BLANK = '空白のページ';
+  const DB_TPL_NEW = '＋ 新しいテンプレート';
+  const DB_TPL_DEF = '既定';
+  const DB_TPL_UNTITLED = '無題のテンプレート';
+  const DB_TPL_FULL = 'テンプレートは 20 までです。';
+  const DB_TPL_LOCKED = 'ロックを外すと、テンプレートを作れます。';
+  const DB_TPL_ASK = (name) => `新しい行を作るときに『${name}』を既定のテンプレートにしますか？`;
+  const dbTplName = (t) => (t ? (oneLine(t.title) || DB_TPL_UNTITLED) : DB_TPL_BLANK);
+  function dbNewRow(st) {
+    const def = st.info && st.info.tpls && st.info.tpls.defaults ? st.info.tpls.defaults[st.viewId] : '';
+    if (def && st.info.tpls.list.some((t) => t.id === def)) dbFromTpl(st, def); else dbAddRow(null);
+  }
+  async function dbFromTpl(st, id) {
+    dbMenuClose();
+    const r = await dbWrite(() => window.koeApp.rowFromTpl(st.id, id), undefined, st);
+    if (r && r.id) dbOpenRow(r.id, false);
+  }
+  async function dbTplWrite(st, send) {   // 作る・複製（上限は「テンプレートは 20 までです。」）
+    dbMenuClose();
+    let r = null;
+    try { r = await inFlight(send()); }
+    catch (e) { const code = String((e && (e.code || e.message)) || 'internal'); toast(code === 'too-big' ? DB_TPL_FULL : `変更を保存できませんでした: ${code}`); return null; }
+    await dbLoadSame(st);
+    return r;
+  }
+  function dbTplMenu(anchor) {
+    const st = dbSt;
+    if (!st || !st.info || !st.info.tpls) return;
+    if (st.menu && st.menu.classList.contains('dbtplmenu')) { dbMenuClose(); return; }
+    dbMenuClose();
+    dbPanelClose();
+    const tp = st.info.tpls;
+    const def = tp.defaults && typeof tp.defaults[st.viewId] === 'string' ? tp.defaults[st.viewId] : '';
+    const m = document.createElement('div');
+    m.className = 'dbmenu dbtplmenu'; m.setAttribute('role', 'menu'); m.setAttribute('aria-label', DB_TPL_HEAD);
+    const h = document.createElement('div'); h.className = 'dbmenuhead'; h.textContent = DB_TPL_HEAD; m.appendChild(h);
+    const row = (t) => {
+      const r = document.createElement('div'); r.className = 'dbtplrow';
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'mitem dbtplpick'; b.setAttribute('role', 'menuitem'); b.tabIndex = -1;
+      const n = document.createElement('span'); n.className = 'dbtplname'; n.textContent = dbTplName(t);
+      b.appendChild(n);
+      if ((t ? t.id : '') === def) { const d = document.createElement('span'); d.className = 'dbtpldef'; d.textContent = DB_TPL_DEF; b.appendChild(d); }
+      b.onclick = () => (t ? dbFromTpl(st, t.id) : (dbMenuClose(), dbAddRow(null)));
+      const mo = document.createElement('button');
+      mo.type = 'button'; mo.className = 'dbtplmore'; mo.textContent = '···'; mo.tabIndex = -1;
+      mo.setAttribute('aria-label', 'ほかの操作'); mo.title = 'ほかの操作'; mo.setAttribute('aria-haspopup', 'menu');
+      mo.onclick = (ev) => { if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbTplSub(st, m, mo, t); };
+      r.append(b, mo);
+      m.appendChild(r);
+    };
+    for (const t of tp.list) row(t);
+    row(null);
+    if (st.info.locked === true) {
+      if (!tp.list.length) { const x = document.createElement('div'); x.className = 'dbtplnote'; x.textContent = DB_TPL_LOCKED; m.appendChild(x); }
+    } else {
+      const nb = document.createElement('button');
+      nb.type = 'button'; nb.className = 'mitem'; nb.setAttribute('role', 'menuitem'); nb.tabIndex = -1; nb.textContent = DB_TPL_NEW;
+      nb.onclick = async () => { const r = await dbTplWrite(st, () => window.koeApp.tplAdd(st.id)); if (r && r.id) dbOpenRow(r.id, false); };
+      m.appendChild(nb);
+    }
+    const items = () => [...m.querySelectorAll('.mitem')].filter((b) => !b.closest || !b.closest('.dbtplsub'));
+    m.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); if (typeof ev.stopPropagation === 'function') ev.stopPropagation(); dbMenuClose(); if (anchor && anchor.isConnected !== false) anchor.focus(); return; }
+      const list = items(); const i = list.indexOf(document.activeElement);
+      if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); list[(i + 1) % list.length].focus(); }
+      if (ev.key === 'ArrowUp' && list.length) { ev.preventDefault(); list[(i + list.length - 1) % list.length].focus(); }
+    };
+    st.host.appendChild(m);
+    dbMenuPlace(m, anchor, st.host);
+    st.menu = m;
+    dbBind(st, m);
+    const f = items()[0];
+    if (f) f.focus();
+  }
+  // テンプレートの［···］（t が null なら「空白のページ」）
+  function dbTplSub(st, m, from, t) {
+    const old = m.querySelector('.dbtplsub');
+    if (old) old.parentNode.removeChild(old);
+    const sub = document.createElement('div');
+    sub.className = 'dbtplsub'; sub.setAttribute('role', 'menu');
+    const it = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.tabIndex = -1; b.textContent = label; b.onclick = fn; sub.appendChild(b); return b; };
+    it('既定にする', () => dbTplAsk(st, from, t));
+    if (t) {
+      it('編集', () => { dbMenuClose(); dbOpenRow(t.id, false); });
+      it('複製', () => dbTplWrite(st, () => window.koeApp.tplDup(st.id, t.id)));
+      it('削除', () => { dbMenuClose(); dbWrite(() => window.koeApp.tplRemove(st.id, t.id), undefined, st); });
+    }
+    from.parentNode.appendChild(sub);
+    const f = sub.querySelector('.mitem');
+    if (f) f.focus();
+  }
+  // ［既定にする］の確かめの窓（すべてのビュー・このビューだけ・やめる）
+  function dbTplAsk(st, anchor, t) {
+    dbMenuClose();
+    const box = document.createElement('div');
+    box.className = 'dbmenu dbtplask'; box.setAttribute('role', 'dialog');
+    const q = document.createElement('div'); q.textContent = DB_TPL_ASK(dbTplName(t)); box.appendChild(q);
+    box.setAttribute('aria-label', q.textContent);
+    const bs = document.createElement('div'); bs.className = 'dbtplbtns';
+    const btn = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ghost'; b.textContent = label; b.onclick = fn; bs.appendChild(b); return b; };
+    const id = t ? t.id : '';
+    const all = btn('すべてのビュー', () => { dbMenuClose(); dbWrite(() => window.koeApp.tplSetDefault(st.id, id), undefined, st); });
+    btn('このビューだけ', () => { dbMenuClose(); dbWrite(() => window.koeApp.tplSetDefault(st.id, id, st.viewId), undefined, st); });
+    btn('やめる', () => dbMenuClose());
+    box.appendChild(bs);
+    box.onkeydown = (ev) => { if (imeEnter(ev)) return; if (ev.key === 'Escape') { ev.preventDefault(); dbMenuClose(); } };
+    st.host.appendChild(box);
+    dbMenuPlace(box, st.parts && st.parts.sc ? st.parts.sc : st.host, st.host);
+    st.menu = box;
+    dbBind(st, box);
+    all.focus();
+  }
   const DB_ME = '自分';   // 0.17.0 TK-1（決めたこと 62。画面の文「担当の候補の先頭「自分」」・0.16.0 の作成者の列の字と同じ）
   const DB_MIN_AUTO = ['mdate', 'cby', 'msum'];
   const DB_MIN_AUTO_TIP = '議事録から自動で入ります';

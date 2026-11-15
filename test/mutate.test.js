@@ -1695,6 +1695,10 @@ const IDS_170 = [
   'tk-totask-once', 'tk-totask-noguess', 'tk-totask-undo', 'tk-totask-rel', 'tk-rel-oneside', 'tk-totask-ime',
   // 0.17.0 TK-3 で作った行（表の行の順に。tk-actions-open は R57 で足した）
   'tk-actions-keep', 'tk-actions-open',
+  // 0.17.0 RT-1 で作った行（表の行の順に）
+  'rt-hidden', 'rt-copy-ids', 'rt-default-gone', 'rt-max', 'rt-minutes-off', 'rt-view-default', 'rt-blank-default', 'rt-dup',
+  // 0.17.0 RT-2 で作った行（表の行の順に。R59 で足した）
+  'rt-ui-new-default', 'rt-ui-banner', 'rt-ui-this-view', 'rt-ui-minutes-btn',
   // 0.17.0 LK-1 で作った行（表の行の順に。lc-ui-del 以下は R52 で足した）
   'lc-delete', 'lc-cols', 'lc-menu', 'lc-rows-ok', 'lc-minutes-start', 'lc-ui-del', 'lc-ui-plus', 'lc-undo-cols', 'lc-paste-opts',
 ];
@@ -1712,7 +1716,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
-  assert.strictEqual(rows.length, 170, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 29・sw- 12・mg- 42・tk- 14・rt- 8・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2、TK-3（R57）で tk- 1 を足した）が読めない');
+  assert.strictEqual(rows.length, 174, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2、TK-3（R57）で tk- 1、RT-2（R59）で rt- 4 を足した）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');

@@ -315,3 +315,83 @@ test('TK-3・F201: 検索の窓の［アクション］には、タスクにし�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- RT-2（決めたこと 67・68・F202）: 行のテンプレートの画面
+const tplMenu = (l) => l.document.querySelector('.dbtplmenu');
+const tplRows = (l) => (tplMenu(l) ? tplMenu(l).querySelectorAll('.dbtplrow') : []);
+const tplMain = (l, name) => tplRows(l).map((r) => r.querySelector('.dbtplpick')).find((b) => b && b.querySelector('.dbtplname').textContent === name);
+const tplMoreOf = (l, name) => tplRows(l).find((r) => r.querySelector('.dbtplname').textContent === name).querySelector('.dbtplmore');
+const openTpl = async (l) => { await clickEl(l, $(l, 'pDb').querySelector('.dbtplbtn'), 60); };
+test('RT-2・F202: ［＋ 新しい行］の右の ▾（aria-label「テンプレートを選ぶ」）の窓: 見出し「テンプレート」・名前（無題は「無題のテンプレート」）・「空白のページ」と「既定」の札・［＋ 新しいテンプレート］・↑↓・Esc。［···］は［既定にする］［編集］［複製］［削除］（「空白のページ」は［既定にする］だけ）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const D = call('db.create', {}).id;
+    const A = call('tpl.add', { db: D, title: '定例の見本' }).id;   // テンプレートの題名（D77 の外）
+    call('tpl.add', { db: D });
+    return { D, A };
+  } });
+  try {
+    const { D } = l.made;
+    await open(l, D);
+    const btn = $(l, 'pDb').querySelector('.dbtplbtn');
+    assert.ok(btn && btn.getAttribute('aria-label') === 'テンプレートを選ぶ' && btn.title === 'テンプレートを選ぶ', '▾ が無い');
+    await openTpl(l);
+    assert.strictEqual(tplMenu(l).querySelector('.dbmenuhead').textContent, 'テンプレート');
+    assert.deepStrictEqual(tplRows(l).map((r) => r.querySelector('.dbtplname').textContent), ['定例の見本', '無題のテンプレート', '空白のページ']);
+    assert.deepStrictEqual(tplRows(l).map((r) => Boolean(r.querySelector('.dbtpldef'))), [false, false, true], '「空白のページ」に「既定」の札が無い');
+    assert.ok(tplMenu(l).querySelectorAll('.mitem').some((b) => b.textContent === '＋ 新しいテンプレート'));
+    // ↑↓ で項目を移る
+    const first = tplMain(l, '定例の見本');
+    assert.ok(l.document.activeElement === first, '開いたときに最初の名前にフォーカスが無い');
+    l.key({ key: 'ArrowDown' }, tplMenu(l)); await l.drain();
+    assert.ok(l.document.activeElement === tplMain(l, '無題のテンプレート'), `↓ で次の名前へ移らない: ${l.document.activeElement && l.document.activeElement.textContent}`);
+    // ［···］
+    await clickEl(l, tplMoreOf(l, '定例の見本'), 40);
+    assert.deepStrictEqual(l.document.querySelector('.dbtplsub').querySelectorAll('.mitem').map((b) => b.textContent), ['既定にする', '編集', '複製', '削除']);
+    await clickEl(l, tplMoreOf(l, '空白のページ'), 40);
+    assert.deepStrictEqual(l.document.querySelector('.dbtplsub').querySelectorAll('.mitem').map((b) => b.textContent), ['既定にする']);
+    // Esc で閉じて ▾ へ
+    l.key({ key: 'Escape' }, tplMenu(l)); await l.drain();
+    assert.ok(!tplMenu(l), 'Esc で閉じない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('RT-2・F202: ［既定にする］は確かめの窓（「すべてのビュー」「このビューだけ」「やめる」）で tpl.setDefault の1回・既定があれば［＋ 新しい行］はそのテンプレートで作って今のタブで開く・［＋ 新しいテンプレート］と［編集］は今のタブで帯つき・「議事録」では ▾ が無い', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const D = call('db.create', {}).id;
+    const A = call('tpl.add', { db: D, title: '定例の見本' }).id;   // テンプレートの題名（D77 の外）
+    call('meeting.finalize', { pageId: 'pm1', page: MEET('pm1', '2026-11-10T01:30:00.000Z', '2026-11-10'), segments: [] }, 'main');
+    return { D, A, M: call('pages.list', {}).find((p) => p.minutes).id };
+  } });
+  try {
+    const { D, A, M } = l.made;
+    await open(l, D);
+    await openTpl(l);
+    await clickEl(l, tplMoreOf(l, '定例の見本'), 40);
+    await clickEl(l, l.document.querySelector('.dbtplsub').querySelectorAll('.mitem').find((b) => b.textContent === '既定にする'), 40);
+    const ask = l.document.querySelector('.dbtplask');
+    assert.ok(ask && ask.textContent.includes('新しい行を作るときに『定例の見本』を既定のテンプレートにしますか？'), '確かめの窓が無い');
+    assert.deepStrictEqual(ask.querySelectorAll('button').map((b) => b.textContent), ['すべてのビュー', 'このビューだけ', 'やめる']);
+    await clickEl(l, ask.querySelectorAll('button').find((b) => b.textContent === 'このビューだけ'), 300);
+    assert.deepStrictEqual(l.called('tplSetDefault').map((c) => c.args), [[D, A, 'v1']]);
+    // 既定があれば［＋ 新しい行］はそのテンプレートから作り、今のタブで行のページを開く
+    await open(l, D);
+    await clickEl(l, $(l, 'pDb').querySelector('.dbadd'), 400);
+    assert.strictEqual(l.called('rowFromTpl').length, 1, '既定のテンプレートで作らない');
+    const made = l.called('rowFromTpl')[0];
+    assert.deepStrictEqual(made.args.slice(0, 2), [D, A]);
+    assert.ok(String(l.document.querySelector('.tabitem.active').dataset.key).startsWith('page:r'), '作った行のページを今のタブで開かない');
+    assert.ok($(l, 'tplBanner').hidden, 'ふつうの行に帯が出た');
+    // ［＋ 新しいテンプレート］: 今のタブで帯つき
+    await open(l, D);
+    await openTpl(l);
+    await clickEl(l, tplMenu(l).querySelectorAll('.mitem').find((b) => b.textContent === '＋ 新しいテンプレート'), 400);
+    assert.strictEqual(l.called('tplAdd').length, 1);
+    const banner = $(l, 'tplBanner');
+    assert.ok(!banner.hidden && banner.textContent === 'テンプレートを編集しています。ここで書いた物は、このテンプレートから作る行に写ります。', '帯が無い');
+    // 「議事録」には ▾ が無い
+    await open(l, M);
+    assert.ok(!$(l, 'pDb').querySelector('.dbtplbtn'), '「議事録」に ▾ がある');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

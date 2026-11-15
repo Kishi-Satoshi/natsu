@@ -483,7 +483,8 @@ test('NE-2: preload の APP_COMMANDS（58）は役 app の命令と同じ集ま�
   // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して直した: 空の白紙のページをデータベースにする page.toDb を足して 65（照らしは同じ）
   // 0.17.0 LK-1（「意図して変えるテスト」）で意図して直した: データベースのロック db.setLock を足して 66（照らしは同じ）
   // 0.17.0 TK-2（「意図して変えるテスト」）で意図して直した: ［タスクにする］todo.toTask を足して 67（照らしは同じ）
-  assert.strictEqual(names.length, 67);
+  // 0.17.0 RT-1（「意図して変えるテスト」）で意図して直した: 行のテンプレートの tpl.add・tpl.dup・tpl.remove・tpl.setDefault・row.fromTpl を足して 72（照らしは同じ）
+  assert.strictEqual(names.length, 72);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const k = exposed.koeApp;
   k.blockIndent('pa1', 'b2', 'in'); k.blockSetOpen('pa1', 't', false); k.blockSetOpenAll('pa1', true);

@@ -565,18 +565,22 @@ function opsMatch(db, ops, { pageId, dbId } = {}) {
 const DB_NO_REVERT = Object.freeze(['nextNo', 'views', 'updatedAt', 'by', 'seq']);   // seq: 振った列と選択肢の ID の数（使い直さない: R56）
 // 0.16.0 DR-1: ［新しい行を作ってつなぐ］は相手のデータベースに行を足す（同じ歩み）ので、どのデータベースの行でも戻す（ページの行・本文の行は戻さない）
 const isDbRow = (r) => isObj(r) && r.type === 'row' && typeof r.parent_id === 'string' && r.parent_id !== '';
+// 0.17.0 RT-1: 同じ歩みで足した（消した）行の本文のブロック（テンプレートから写した本文）も、その行と一緒に戻す
+const bodyRowsIn = (ops) => new Set(ops.filter((o) => isObj(o) && ((o.op === 'add' && isDbRow(o.row)) || (o.op === 'trash' && isDbRow(o.old)))).map((o) => o.id));
+const isBodyOf = (r, rows) => isObj(r) && r.type !== 'row' && r.type !== 'page' && typeof r.page_id === 'string' && rows.has(r.page_id);
 function invertDbOps(ops, dbId) {
   const out = [];
+  const rows = bodyRowsIn(ops);
   for (const o of [...ops].reverse()) {
     if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('invertOps: 操作の形が正しくない');
     switch (o.op) {
       case 'add':
-        if (!isDbRow(o.row, dbId)) throw new Error('invertOps: データベースの行でない');
+        if (!isDbRow(o.row, dbId) && !isBodyOf(o.row, rows)) throw new Error('invertOps: データベースの行でない');
         out.push({ op: 'trash', id: o.id, old: o.row });
         break;
       case 'trash':
         if (isObj(o.old)) {
-          if (!isDbRow(o.old, dbId)) throw new Error('invertOps: データベースの行でない');
+          if (!isDbRow(o.old, dbId) && !isBodyOf(o.old, rows)) throw new Error('invertOps: データベースの行でない');
           out.push({ op: 'add', id: o.id, row: o.old });   // 足した行を戻した歩み → やり直し
           break;
         }
@@ -605,6 +609,7 @@ function invertDbOps(ops, dbId) {
 }
 // 各操作の「後の値」が今の表と同じか（行のセルは cells の中の1つずつ、足した行は題名・並び・セル・番号の全部、行のゴミ箱は trashed_at）
 function dbOpsMatch(db, ops, dbId) {
+  const rows = bodyRowsIn(ops);
   const want = new Map();   // id → { gone } か { cols, cells（足した行なら全部の写し）か null, cell: Map, sets: Map }
   const at = (id) => {
     let w = want.get(id);
@@ -615,7 +620,8 @@ function dbOpsMatch(db, ops, dbId) {
     if (!isObj(o) || typeof o.op !== 'string' || typeof o.id !== 'string') throw new Error('opsMatch: 操作の形が正しくない');
     switch (o.op) {
       case 'add': {
-        if (!isDbRow(o.row, dbId)) throw new Error('opsMatch: データベースの行でない');
+        if (!isDbRow(o.row, dbId) && !isBodyOf(o.row, rows)) throw new Error('opsMatch: データベースの行でない');
+        if (!isDbRow(o.row, dbId)) { want.set(o.id, { gone: false, cols: { type: o.row.type }, cells: null, cell: new Map(), sets: new Map() }); break; }   // 0.17.0 RT-1: 本文のブロックは在るかだけ
         const r = o.row;
         const attrs = isObj(r.attrs) ? r.attrs : {};
         want.set(o.id, { gone: false, cols: { type: r.type, parent_id: r.parent_id, ord: r.ord, text: str(r.text), trashed_at: r.trashed_at ?? null },

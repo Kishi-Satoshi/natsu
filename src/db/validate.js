@@ -23,7 +23,8 @@ const LIMITS = { blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000,
   // 1回の貼り付けのセル。選択肢（200）・リレーションの行（100）・テキストのセル（10,000 字）は src/dbModel.js の MAX
   dbRows: 10000, dbCols: 100, dbViews: 20, dbAttrs: 256 * 1024, pasteCells: 2000,
   // 0.16.0 DL-1（決めたこと 40）: 1つの本文に置けるデータベースの表（インラインとリンクドビュー。速さのため）
-  dbTables: 10 };
+  dbTables: 10,
+  tpls: 20 };   // 0.17.0 RT-1（決めたこと 66）: 1つのデータベースの行のテンプレート
 const RESERVED_BLOCK = ['id', 'type', 'text', 'rich', 'children'];
 const RESERVED_PAGE = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];

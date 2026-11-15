@@ -21,6 +21,8 @@ const UNDO_CMDS = new Set([
   'page.toDb',
   // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（要約の欄・本文の歩み。Ctrl+Z で行と ToDo の印が一緒に戻る）
   'todo.toTask',
+  // 0.17.0 RT-1（決めたこと 70）: 行のテンプレート（データベースの歩み）
+  'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl',
 ]);
 const UNDO_MAX = 100;          // 1つの列の歩みの数（古いものから捨てる）
 const TYPE_PAUSE_MS = 2000;    // 打つ手がこれだけ止まったら保存する（1回の保存が1歩。決めたこと 8）

@@ -267,6 +267,7 @@ const NEW_170 = ['page-blank-empty-light', 'page-blank-empty-dark',
   'db-locked-light',   // 0.17.0 LK-1 で足した1枚（ロック中のデータベース。まだ基準が無い）
   'minutes-db-light', 'minutes-db-dark', 'sidebar-minutes-light',   // 0.17.0 MG-4 で足した3枚（「議事録」データベースの表とサイドバー。まだ基準が無い）
   'tasks-db-light',   // 0.17.0 TK-1 で足した1枚（「タスク管理」のマイタスク。まだ基準が無い）
+  'db-template-light',   // 0.17.0 RT-2 で足した1枚（行のテンプレートの ▾ の窓。まだ基準が無い。撮る並びは TK-2 の前）
   'todo-task-light'];   // 0.17.0 TK-2 で足した1枚（ToDo の［タスクにする］［タスクを開く］。まだ基準が無い）
 // 0.17.0 PD-2 で意図して直した: 0.17.0 で足した画面（NEW_170）も 0.15.1 の画面に数えない
 const ADDED_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name) && !NEW_170.includes(s.name)).map((s) => s.name);
@@ -1341,7 +1342,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 TK-2・TK-3: ToDo の行の［タスクにする］［タスクを開く］（乗せる・フォーカスで出す .atag.totask・押す・Enter・変換中の Enter は抜ける・知らせ・Ctrl+Z の歩み）と、
   // 検索の窓の［アクション］のタスクにした行の［タスクを開く］。変わる画面は足した todo-task-light（NEW_170・RETAKE）と ToDo の行のある画面（アプリの画面は
   // どれも RETAKE_170）。値を今の app.html に合わせた（前の値は c0f2fa12…）
-  assert.strictEqual(sha, '25a3f6fa486cb250196d858c8a026c028cf03003100b6ff81167f2a93af3c93a',
+  // 0.17.0 RT-2: ［＋ 新しい行］の右の ▾ とテンプレートの窓・［···］・既定の確かめの窓・テンプレートを編集している行のページの帯 #tplBanner・既定のテンプレートで作る
+  // ［＋ 新しい行］・表の歩みに tpl.。変わる画面は足した db-template-light（NEW_170・RETAKE）とデータベースの表の画面（アプリの画面はどれも RETAKE_170）。
+  // 値を今の app.html に合わせた（前の値は 25a3f6fa…）
+  assert.strictEqual(sha, '0e3038b7119e1ccd1b49e7c475cf31a0646eca0218f93c144be1799b7cc9d3b2',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

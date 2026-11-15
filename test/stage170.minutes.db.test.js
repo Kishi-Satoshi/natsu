@@ -849,3 +849,87 @@ test('TK-2・F199: Ctrl+Z（edit.revert）で行（ゴミ箱へ）と ToDo の�
   assert.strictEqual(ok(call(db, 'todo.toTask', { pageId: 'pw3', blockId: 'pw3t0' }), 'todo.toTask').result.db, r2.result.db);
   assert.strictEqual(tasksDbs(db).length, 1, '「タスク管理」を2つ作った');
 }));
+
+// ---------------------------------------------------------------- RT-1（決めたこと 66・67・69・70・F202）: 行のテンプレートの命令
+const bodyIds = (db, id) => db.prepare('select id from blocks where page_id = ? and id <> ? order by ord').all(id, id).map((r) => r.id);
+const bodyTexts = (db, id) => db.prepare('select type, text from blocks where page_id = ? and id <> ? order by ord').all(id, id).map((r) => `${r.type}:${r.text}`);
+function tplWithBody(db, D, title) {
+  const tp = ok(call(db, 'tpl.add', { db: D, title }), 'tpl.add').result.id;
+  const b1 = ok(call(db, 'block.insert', { pageId: tp, afterBlockId: '', type: 'heading' }), 'block.insert').result.blockId;
+  ok(call(db, 'block.update', { pageId: tp, blockId: b1, patch: { text: '進め方' } }), 'block.update');
+  const b2 = ok(call(db, 'block.insert', { pageId: tp, afterBlockId: b1, type: 'todo' }), 'block.insert').result.blockId;
+  ok(call(db, 'block.update', { pageId: tp, blockId: b2, patch: { text: '先方に確かめる' } }), 'block.update');
+  return tp;
+}
+test('RT-1・F202: tpl.add のテンプレートの行は表・検索・MCP・集計・リレーションの選びに出ない。row.fromTpl は題名・列の値・本文を写した行（ブロックの ID は新しい・テンプレートを直しても作った行は変わらない）。tpl.dup は ID が新しい。21 個目は too-big。「議事録」とロック中は tpl.add が bad-args', T, () => withDb((db, t) => {
+  const D = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const c1 = ok(call(db, 'col.add', { db: D, type: 'text', name: '場所' }), 'col.add').result.col.id;   // 列の名前（試しの字）
+  const tp = tplWithBody(db, D, '定例の見本');   // テンプレートの題名（D77 の外）
+  ok(call(db, 'row.setCell', { db: D, id: tp, col: c1, value: '会議室' }), 'row.setCell');
+  assert.strictEqual(attrsOf(db, tp).tpl, true);
+  const N = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const rel = ok(call(db, 'col.add', { db: N, type: 'rel', target: D }), 'col.add').result.col.id;
+  const r0 = ok(call(db, 'row.add', { db: N, title: '相手' }), 'row.add').result.id;   // 行の題名（D77 の外）
+  assert.deepStrictEqual(ok(call(db, 'db.view', { id: D, viewId: 'v1', from: 0, count: 50 }), 'db.view').result.rows.map((r) => r.id), [], 'テンプレートが表に出た');
+  assert.deepStrictEqual(ok(call(db, 'rel.find', { db: D }), 'rel.find').result.rows.map((r) => r.id), [], 'テンプレートがリレーションの選びに出た');
+  assert.ok(rel && r0);
+  assert.strictEqual(require('../src/db/commands').dbDump(db, D, 100, clock).total, 0, 'テンプレートが Claude の答えに出た');
+  // row.fromTpl: 写した行（本文のブロックの ID は新しい）
+  const f = ok(call(db, 'row.fromTpl', { db: D, id: tp }), 'row.fromTpl');
+  const r1 = f.result.id;
+  const a1 = attrsOf(db, r1);
+  assert.deepStrictEqual([db.prepare('select text from blocks where id = ?').get(r1).text, a1.cells[c1], a1.tpl], ['定例の見本', '会議室', undefined]);
+  assert.deepStrictEqual(bodyTexts(db, r1), bodyTexts(db, tp), '本文が写らない');
+  assert.ok(bodyIds(db, r1).every((id) => !bodyIds(db, tp).includes(id)), 'ブロックの ID を分け合う');
+  const hits = JSON.stringify(ok(call(db, 'pages.list', { q: '会議室' }), 'pages.list').result);
+  assert.ok(hits.includes(r1) && !hits.includes(tp), `テンプレートが検索に出た（作った行は出る）: ${hits.slice(0, 200)}`);
+  ok(call(db, 'block.update', { pageId: tp, blockId: bodyIds(db, tp)[0], patch: { text: '変えた' } }), 'block.update');
+  assert.deepStrictEqual(bodyTexts(db, r1)[0], 'heading:進め方', 'テンプレートを直すと作った行が変わった');
+  // Ctrl+Z（データベースの歩み）で作った行が本文ごと戻る
+  ok(call(db, 'edit.revert', { pageId: D, steps: [f.tx] }), 'edit.revert');
+  assert.deepStrictEqual([db.prepare('select count(*) c from blocks where id = ?').get(r1).c, bodyIds(db, r1)], [0, []], 'Ctrl+Z で行と本文が戻らない');
+  // tpl.dup
+  const dp = ok(call(db, 'tpl.dup', { db: D, id: tp }), 'tpl.dup').result.id;
+  assert.notStrictEqual(dp, tp);
+  assert.strictEqual(attrsOf(db, dp).tpl, true);
+  assert.ok(bodyIds(db, dp).length === 2 && bodyIds(db, dp).every((id) => !bodyIds(db, tp).includes(id)), '複製がブロックの ID を分け合う');
+  // 20 まで
+  for (let i = 0; i < 18; i += 1) ok(call(db, 'tpl.add', { db: D }), 'tpl.add');
+  assert.strictEqual(call(db, 'tpl.add', { db: D }).code, 'too-big', '21 個目を作れた');
+  assert.strictEqual(call(db, 'tpl.dup', { db: D, id: tp }).code, 'too-big');
+  // 「議事録」とロック中
+  oldMeeting(t, 'px0', 0);
+  const M = ok(gather(db), 'minutes.gather').result.db;
+  ok(call(db, 'db.setLock', { db: M, on: false }), 'db.setLock');
+  assert.strictEqual(call(db, 'tpl.add', { db: M }).code, 'bad-args', '「議事録」でテンプレートを作れた');
+  ok(call(db, 'db.setLock', { db: N, on: true }), 'db.setLock');
+  assert.strictEqual(call(db, 'tpl.add', { db: N }).code, 'bad-args', 'ロック中にテンプレートを作れた');
+}));
+
+test('RT-1・F202: 既定（データベースの既定・ビューごとの既定）。「このビューだけ」はほかのビューを変えない・「空白のページ」に戻せる・既定のテンプレートを消すとビューは「データベースの既定」→「空白のページ」に戻る。どれもデータベースの歩みで Ctrl+Z', T, () => withDb((db) => {
+  const D = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const v2 = ok(call(db, 'view.add', { db: D, layout: 'table' }), 'view.add').result.view.id;
+  const A = ok(call(db, 'tpl.add', { db: D, title: '見本A' }), 'tpl.add').result.id;   // テンプレートの題名（D77 の外）
+  const B = ok(call(db, 'tpl.add', { db: D, title: '見本B' }), 'tpl.add').result.id;   // テンプレートの題名（D77 の外）
+  const def = (v) => ok(call(db, 'db.get', { id: D }), 'db.get').result.tpls.defaults[v];
+  ok(call(db, 'tpl.setDefault', { db: D, id: A }), 'tpl.setDefault');
+  assert.deepStrictEqual([def('v1'), def(v2)], [A, A], '「すべてのビュー」');
+  const s2 = ok(call(db, 'tpl.setDefault', { db: D, id: B, view: v2 }), 'tpl.setDefault');
+  assert.deepStrictEqual([def('v1'), def(v2)], [A, B], '「このビューだけ」がほかのビューに効いた');
+  ok(call(db, 'tpl.setDefault', { db: D, id: '', view: 'v1' }), 'tpl.setDefault');
+  assert.deepStrictEqual([def('v1'), def(v2)], ['', B], '「空白のページ」に戻せない');
+  // 既定のテンプレート B を消すと、v2 はデータベースの既定（A）に戻る。A を消すと「空白のページ」
+  ok(call(db, 'tpl.remove', { db: D, id: B }), 'tpl.remove');
+  assert.strictEqual(def(v2), A);
+  ok(call(db, 'tpl.setDefault', { db: D, id: A, view: 'v1' }), 'tpl.setDefault');
+  ok(call(db, 'tpl.remove', { db: D, id: A }), 'tpl.remove');
+  assert.deepStrictEqual([def('v1'), def(v2)], ['', ''], '消したテンプレートが既定に残る');
+  assert.deepStrictEqual([attrsOf(db, D).tplDefault, attrsOf(db, D).tplViews], [undefined, undefined], '消したテンプレートの既定の欄が残る（ゴミ箱から戻すとまた既定になる）');
+  assert.deepStrictEqual(ok(call(db, 'db.get', { id: D }), 'db.get').result.tpls.list, [], '消したテンプレートが並びに残る');
+  // Ctrl+Z
+  const steps = db.prepare("select tx from oplog where action in ('tpl.remove') order by seq desc").all().map((r) => r.tx);
+  ok(call(db, 'edit.revert', { pageId: D, steps: [steps[0]] }), 'edit.revert');
+  assert.deepStrictEqual(ok(call(db, 'db.get', { id: D }), 'db.get').result.tpls.list.map((x) => x.id), [A], 'Ctrl+Z で消したテンプレートが戻らない');
+  assert.strictEqual(def('v1'), A, 'Ctrl+Z で既定が戻らない');
+  assert.ok(s2.tx);
+}));
