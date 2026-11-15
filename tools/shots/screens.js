@@ -219,7 +219,12 @@ const OPEN_TODO_TASK = `(async () => {
   document.getElementById('paneBtnNote').click();
   const bs = [...document.querySelectorAll('#pNote .totask')];
   if (bs.length < 2 || bs[0].textContent !== 'タスクを開く' || bs[1].textContent !== 'タスクにする') throw new Error('［タスクにする］［タスクを開く］が無い');
+  // 0.17.0 Task G の前半の見比べ（R84）で直した: ［タスクにする］は乗せる・フォーカスで出る（それまで visibility: hidden でフォーカスが入らない）ので、
+  // 先にその ToDo の行の文にフォーカスを入れてボタンを出し、それからボタンにフォーカスする（捲れて行が写る）。入らなければ投げて「撮れない」の NG にする
+  const t = bs[1].closest('.blk') && bs[1].closest('.blk').querySelector('.txt');
+  if (t) t.focus();
   bs[1].focus();
+  if (document.activeElement !== bs[1]) throw new Error('［タスクにする］にフォーカスが入らない');
   return 1;
 })()`;
 // 0.17.0 TK-1: いちばん上の「タスク管理」を開く（ビュー「マイタスク」）
@@ -1168,7 +1173,7 @@ function minutesAnswers() {
   const SUMS = ['来週までに見積もりの案を三つ用意する', '発注の段取りを担当ごとに決め直す', ''];
   const WHO = [['佐藤', '鈴木'], ['高橋'], []];
   const rows = LIST.map((p, i) => ({ id: p.id, ord: `a${i}`, title: p.title, createdAt: p.createdAt, updatedAt: p.updatedAt, by: { c: 'me' }, page: true,
-    cells: WHO[i].length ? { c3: WHO[i] } : {}, mdate: { start: p.date, time: p.createdAt.slice(11, 16) }, ...(SUMS[i] ? { msum: SUMS[i] } : {}), depth: 0, hasKids: false }));
+    cells: WHO[i].length ? { c3: WHO[i] } : {}, mdate: { start: p.date, time: new Date(Date.parse(p.createdAt) + JST_MIN * 60000).toISOString().slice(11, 16) }   /* 0.17.0 R84: 時刻は TIME_ZONE の時刻（本物の rowView は日本の PC の時刻で書く） */, ...(SUMS[i] ? { msum: SUMS[i] } : {}), depth: 0, hasKids: false }));
   const db = { id: 'pm0', title: '議事録', date: page.date, durationSec: 0, createdAt: page.createdAt, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'database', minutes: true, locked: true,
     views: [{ id: 'v1', name: 'すべて', type: 'table' }] };
   const blank = { id: 'pb9', kind: 'blank', title: '来月の計画', date: '2026-10-18', durationSec: 0, createdAt: '2026-10-18T00:00:00.000Z', updatedAt: '2026-10-18T00:00:00.000Z', meetingType: '', hasSummary: false, parentId: null, ord: 'i' };

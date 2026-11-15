@@ -1761,3 +1761,25 @@ test('R128・近道の表のデータベースの行の画面: settings-shortcut
   const sub = SH.SCREENS.find((x) => x.name === 'db-subitems-light');
   assert.ok(/const tog3 = [^;]*\.dbsubtog/.test(sub.act) && sub.act.includes('tog3.click();') && sub.act.includes("t3.getAttribute('aria-expanded') !== 'true'"), 'サブアイテムの画面で r3 の ▸ を開かない');
 });
+
+// 0.17.0 Task G の前半の見比べ（R84）で見つけた撮る画面の誤り2つ: minutes-db-* の「日付」の時刻が題名の時刻と9時間ずれる（見本が createdAt の UTC の字を切り出して
+// いた。本物の rowView は DB のプロセスの時刻（日本の PC では日本の時刻）で書く）・todo-task-light が ToDo の行を写さない（見えない［タスクにする］に focus() しても
+// フォーカスが入らず、捲れもしない）
+test('R84: minutes-db の見本の「日付」の時刻は、題名と同じ TIME_ZONE の時刻（UTC の字でない）', { timeout: 5000 }, () => {
+  for (const n of ['minutes-db-light', 'minutes-db-dark', 'sidebar-minutes-light']) {
+    const rows = SH.SCREENS.find((s) => s.name === n).answers['koeApp.dbView'].rows;
+    assert.ok(rows.length >= 3, n);
+    for (const r of rows) {
+      const hm = (/ (\d{2}:\d{2}) の議事録$/.exec(String(r.title).replace(/ (\d):/, ' 0$1:')) || [])[1];
+      assert.ok(hm, `${n}: 題名に時刻が無い（${r.title}）`);
+      assert.strictEqual(r.mdate.time, hm, `${n}: ${r.title} の「日付」の時刻が題名と違う`);
+    }
+  }
+});
+test('R84: todo-task-light は、［タスクにする］の ToDo の行にフォーカスを入れてから（乗せる・フォーカスで出る）ボタンにフォーカスし、入らなければ投げる', { timeout: 5000 }, () => {
+  const s = SH.SCREENS.find((x) => x.name === 'todo-task-light');
+  const a = s.act;
+  const row = a.indexOf("closest('.blk')"); const btn = a.indexOf('bs[1].focus()');
+  assert.ok(row > 0 && btn > row, '［タスクにする］の行にフォーカスを入れてからボタンにフォーカスしていない');
+  assert.ok(a.includes('document.activeElement !== bs[1]') && /document\.activeElement !== bs\[1\]\) throw new Error/.test(a), 'ボタンにフォーカスが入らなくても撮る');
+});
