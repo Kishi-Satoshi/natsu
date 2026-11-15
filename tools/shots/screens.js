@@ -191,6 +191,12 @@ const OPEN_DB_SELECT = OPEN_DB_AT(`cell(2, 'c2').click();`);
 const OPEN_DB_DATE = OPEN_DB_AT(`cell(0, 'c4').click();`);
 // 0.16.0 DV-3: リスト（開くだけ）・絞り込みの窓（⚙ →［絞り込み］）・グループ（開くだけ）・タブの「他 n 件」と今のタブのメニュー
 const OPEN_DB_PLAIN = OPEN_DB_AT('');
+// 0.17.0 LK-1: ロック中のデータベースを開いて「···」を開く（灰色の［削除］）。印と［削除］が無ければ投げて「撮れない」の NG にする
+const OPEN_DB_LOCKED = OPEN_DB_AT(`if (document.getElementById('pLock').hidden) throw new Error('「ロック中」が無い');
+  document.getElementById('pMore').click();
+  await new Promise((r) => setTimeout(r, 100));
+  const del = [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === '削除');
+  if (!del || del.getAttribute('aria-disabled') !== 'true') throw new Error('［削除］が灰色でない');`);
 // DV-3 直し（rv48 F1・F4・F7・R89）: 本物の Chromium で見る（偽の DOM では見えない NodeList・フォーカス・タブの幅）。崩れていれば投げて「撮れない」の NG にする
 const OPEN_DB_FILTER = OPEN_DB_AT(`const errs = [];
   window.addEventListener('error', (e) => errs.push(String(e.message)));
@@ -703,6 +709,8 @@ const SCREENS = [
   // 0.17.0 SV-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: サイドバーで開いたデータベースの下のビューの行（3つ。開いたビュー「表」の行に印）
   { name: 'sidebar-db-views-light', page: 'app', theme: 'light', get answers() { return sideViewsAnswers(); }, act: OPEN_SIDE_VIEWS },
   { name: 'sidebar-db-views-dark', page: 'app', theme: 'dark', get answers() { return sideViewsAnswers(); }, act: OPEN_SIDE_VIEWS },
+  // 0.17.0 LK-1（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: ロック中のデータベース（題名の右の「ロック中」・「···」の灰色の［削除］）
+  { name: 'db-locked-light', page: 'app', theme: 'light', get answers() { return lockedAnswers(); }, act: OPEN_DB_LOCKED },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -1101,6 +1109,14 @@ function sideViewsAnswers() {
   const views = [v1, { ...v1, id: 'v2', name: '一覧', layout: 'list' }, { ...v1, id: 'v3', name: '担当別' }];
   const list = a['koeApp.pagesSearch'].map((p) => (p.id === 'pd1' ? { ...p, views: views.map((v) => ({ id: v.id, name: v.name, type: v.layout })) } : p));
   return { ...a, 'koeApp.pagesSearch': list, 'koeApp.dbGet': { ...g, views } };
+}
+
+/** 0.17.0 LK-1: dbAnswers の「案件の一覧」をロックした形（ページ・一覧の行・db.get の locked） */
+function lockedAnswers() {
+  const a = dbAnswers();
+  const g = a['koeApp.pageGet'];
+  return { ...a, 'koeApp.pageGet': { ...g, page: { ...g.page, locked: true } }, 'koeApp.dbGet': { ...a['koeApp.dbGet'], locked: true },
+    'koeApp.pagesSearch': a['koeApp.pagesSearch'].map((p) => (p.id === 'pd1' ? { ...p, locked: true } : p)) };
 }
 
 /** 0.17.0 PD-2: 一覧のいちばん上の、本文が空の白紙のページ pe1（題名だけ） */

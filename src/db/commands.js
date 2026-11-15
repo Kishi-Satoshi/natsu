@@ -329,6 +329,7 @@ function withTree(e, row) {
   if (row.attrs && row.attrs.kind === 'database') {
     e.kind = 'database';   // 0.16.0 DR-1: リレーションの列のつなぐ先を選ぶ窓（DX-1 のサイドバーの 🗃️ も）
     e.views = viewRowsOf(row.attrs.views);   // 0.17.0 SV-1（決めたこと 36）: サイドバーのビューの行（データベースの行だけ）
+    if (row.attrs.locked === true) e.locked = true;   // 0.17.0 LK-1（決めたこと 74）: サイドバーの行のメニュー（名前を変える・移動先…を出さない）
   }
   if (row.attrs && typeof row.attrs.icon === 'string' && row.attrs.icon) e.icon = row.attrs.icon;
   if (row.inRow) e.inRow = { ...row.inRow };   // 0.16.0 R97: データベースの行の中のページ（一番近い行・その題名・データベース・その題名）
@@ -1676,6 +1677,21 @@ function turnBlock(l, a) {
 // どの命令も1つのトランザクション＝oplog の1行（core.call）で、oplog の page_id はデータベース（pageOf: args.db。元に戻すの列はデータベースの歩み: 決めたこと 47）。
 // セルの値の照らしは dbModel.cellOf、ビューの照らしは dbView.normalizeView の1か所（決めたこと 10・15）。行を読むのは命令の中の1回（決めたこと 30）
 const isDbPage = (attrs) => isObj(attrs) && attrs.kind === 'database';
+// 0.17.0 LK-1（決めたこと 73）: ロック中のデータベース（attrs.locked が true のデータベースのページ。ゴミ箱でも印は見る）か
+function isLockedDb(db, id) {
+  if (typeof id !== 'string') return false;
+  const a = parseOr((db.prepare('select attrs from blocks where id = ? and type = \'page\'').get(id) || {}).attrs);
+  return Boolean(a) && isDbPage(a) && a.locked === true;
+}
+// db.setLock（決めたこと 73・75。役 app・データベースの歩みにしない）: on なら locked: true、外すなら欄を消す（前の値つき）→ { locked }
+function dbSetLock(db, a) {
+  const d = mustDb(db, a.db);
+  const was = d.attrs.locked === true;
+  if (was === a.on) return { ops: [], pageIds: [], result: { locked: was } };
+  const ops = [{ op: 'set', id: d.id, key: 'locked', value: a.on ? true : undefined, old: d.attrs.locked }];
+  applyOps(db, ops);
+  return { ops, pageIds: [d.id], result: { locked: a.on } };
+}
 const dbOfArgs = (a) => a.db;   // oplog の page_id（元に戻すの列の鍵: データベース）
 const DB_VIEW_MAX = 200;   // db.view の1回に返す行（決めたこと 30）
 const TITLE_COL = Object.freeze({ id: 'title', name: '名前', type: 'title' });   // 新しいデータベースの題名の列（画面の文「名前」）
@@ -1974,6 +1990,7 @@ function kindSwitchRevert(db, a, ctx, fwd) {
   const kindOp = fwd.find((o) => o.op === 'set' && o.id === id && o.key === 'kind');
   if (!kindOp) throw refuse('bad-args');
   if (kindOp.value === 'database') {   // データベース → 白紙のページ（Ctrl+Z）
+    if (attrs.locked === true) throw refuse('stale');   // 0.17.0 LK-1（決めたこと 74）: ロック中のデータベースは白紙のページに戻さない
     if (db.prepare(HOT_QUERIES.dbAllRows).all(id).length) throw refuse('has-rows');   // 行（ゴミ箱の行も）。知らせを分ける答え（rv58 軽い 1）
     if (relColsTo(db, id)) throw refuse('stale');   // rv58 重要 3: ほかのデータベースのリレーションの列の相手
     if (linkedViewsTo(db, id)) throw refuse('stale');   // rv58 重要 3: リンクドビューの行の元
@@ -2033,6 +2050,7 @@ function dbGetOf(db, id, linked) {
   const views = linked === undefined ? d.views : linkedOf(db, d.id, linked).views;
   const out = { id, title: d.title, cols: d.cols, views: views.map((v) => normView(d, v)), rowCount: db.prepare(HOT_QUERIES.dbRowCount).get(id).c };
   if (typeof d.attrs.icon === 'string' && d.attrs.icon) out.icon = d.attrs.icon;
+  if (d.attrs.locked === true) out.locked = true;   // 0.17.0 LK-1（決めたこと 73）
   const sub = subOf(d);   // 0.16.0 DR-1 直し2（rv51 I2・R108）: 木にしているときだけ（列が消えている・互いを指していないなら無い）
   if (sub) out.sub = sub;
   return out;
@@ -2154,6 +2172,7 @@ function rowsPaste(db, a, ctx, dry = false) {
   if (db.prepare(HOT_QUERIES.dbRowCount).get(d.id).c + adding > LIMITS.dbRows) throw refuse('too-big');
   const colsNow = new Map(d.cols.map((c) => [c.id, c]));
   const defaults = DV.filterDefaults(v, d.cols);
+  const locked = d.attrs.locked === true;
   const st = { filled: 0, added: 0, skipped: 0, unread: 0 };
   const rowOps = [];
   const addOps = [];
@@ -2175,8 +2194,10 @@ function rowsPaste(db, a, ctx, dry = false) {
       else if (s.trim() === '') val = null;
       else {
         const got = DM.convertCell(PASTE_TEXT, colsNow.get(col.id), s.trim());
-        colsNow.set(col.id, got.col);
-        val = got.value;
+        // 0.17.0 LK-1（決めたこと 74）: ロック中は選択肢を足さない（足す値は読めない値と同じく空にして数える）
+        const grew = locked && !isDeepStrictEqual(got.col, colsNow.get(col.id));
+        if (!grew) colsNow.set(col.id, got.col);
+        val = grew ? null : got.value;
         if (val === null) st.unread += 1;
       }
       if (fresh) { if (col.type === 'title') fresh.title = val; else if (val === null) delete fresh.cells[col.id]; else fresh.cells[col.id] = val; }
@@ -2702,6 +2723,8 @@ function dbRevert(db, a, ctx, fwd) {
     same = opsMatch(db, fwd, { dbId: a.pageId });
   } catch (_) { throw refuse('bad-args'); }
   if (!same) throw refuse('stale');   // 後で変わったセル・行（決めたこと 48）
+  // 0.17.0 LK-1（決めたこと 74）: ロック中は、列（両側のリレーションの相手も）の形を戻さない（ロックの前の列の歩みも。行とセルの歩みは戻す）
+  if (back.some((o) => o.op === 'set' && o.key === 'cols' && isLockedDb(db, o.id))) throw refuse('stale');
   // 戻すと消える行（足した行）に本文があれば戻さない（本文を親の無い行にしない）
   const body = db.prepare('select count(*) as c from blocks where page_id = ? and id <> ?');
   if (back.some((o) => o.op === 'trash' && isObj(o.old) && body.get(o.id, o.id).c > 0)) throw refuse('stale');
@@ -2854,7 +2877,7 @@ const DEFS = {
   'page.setType': { roles: ['app', 'main'], write: true, args: { id: 'id', type: 'meetingTypeArg', preset: 'bool?' },
     run: (db, a, ctx) => editPage(db, a.id, ctx, (p) => setTypePage(p, a, ctx.now())), dupResult: reread },
   // 削除はゴミ箱へ（Q2。元の JSON から取り込みで戻らないように、行は消さない）。答えは一覧
-  'page.delete': { roles: ['app', 'main'], write: true, args: { id: 'id' },
+  'page.delete': { roles: ['app', 'main'], write: true, lockBlocked: true, args: { id: 'id' },
     run: (db, a, ctx) => {
       // DS-2 直し（rv40 F2・R42）: データベースの行はページの木に無いので、ページとしては消さない（行は rows.trash でゴミ箱へ: 決めたこと 28）
       if ((db.prepare(HOT_QUERIES.typeOf).get(a.id) || {}).type === 'row') throw refuse('bad-args');
@@ -2884,7 +2907,7 @@ const DEFS = {
       const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type === 'page');
       return add ? { page: readPage(db, add.id), id: add.id } : null;
     } },
-  'page.move': { roles: ['app'], write: true, args: { id: 'id', parentId: 'idOrEmpty', afterId: 'idOrEmpty?', rowAfter: 'idOrEmpty?', rowParent: 'id?' },   // PR-2 直し（R44）: rowAfter・rowParent
+  'page.move': { roles: ['app'], write: true, lockBlocked: true, args: { id: 'id', parentId: 'idOrEmpty', afterId: 'idOrEmpty?', rowAfter: 'idOrEmpty?', rowParent: 'id?' },   // PR-2 直し（R44）: rowAfter・rowParent
     run: pageMove, dupResult: (db) => listPages(db) },
   'page.restore': { roles: ['app'], write: true, args: { id: 'id' },
     run: pageRestore, dupResult: (db) => listPages(db) },
@@ -3343,12 +3366,14 @@ const DEFS = {
       return page ? { page, blockId: o ? o.id : null } : null;
     } },
   'db.setTitle': { roles: ['app'], write: true, args: { db: 'id', title: 'title' }, pageOf: dbOfArgs, run: dbSetTitle, dupResult: (db, a) => readPage(db, a.db) },
+  // 0.17.0 LK-1（決めたこと 73・75）: データベースのロック（役 app・元に戻すの歩みにしない: UNDO_CMDS に入れない）
+  'db.setLock': { roles: ['app'], write: true, args: { db: 'id', on: 'bool' }, pageOf: dbOfArgs, run: dbSetLock, dupResult: (db, a) => { const d = dbOf(db, a.db); return d ? { locked: d.attrs.locked === true } : null; } },
   // 0.16.0 DR-1（決めたこと 33〜38・R98）: リレーションの行を足す・外す・サブアイテムを入れる・外す（データベースの歩み）・つなぐ先の行を探す（読む）
   'rel.link': { roles: ['app'], write: true, args: { db: 'id', id: 'id', col: 'id', ids: 'ids', title: 'title?' }, pageOf: dbOfArgs, run: (db, a, ctx) => relEdit(db, a, ctx, true),
     dupResult: (db, a, row) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); const c = r ? JSON.parse(r.attrs || '{}').cells : null; const add = dupOps(row).find((o) => o && o.op === 'add'); return r ? { cell: (isObj(c) && c[a.col]) || [], ...(add ? { added: add.id } : {}) } : null; } },
   'rel.unlink': { roles: ['app'], write: true, args: { db: 'id', id: 'id', col: 'id', ids: 'ids' }, pageOf: dbOfArgs, run: (db, a, ctx) => relEdit(db, a, ctx, false),
     dupResult: (db, a) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); const c = r ? JSON.parse(r.attrs || '{}').cells : null; return r ? { cell: (isObj(c) && c[a.col]) || [] } : null; } },
-  'db.setSub': { roles: ['app'], write: true, args: { db: 'id', on: 'bool' }, pageOf: dbOfArgs, run: dbSetSub,
+  'db.setSub': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', on: 'bool' }, pageOf: dbOfArgs, run: dbSetSub,
     dupResult: (db, a) => { const d = dupDb(db, a); const s = d ? subOf(d) : null; return d ? (s ? { sub: s } : {}) : null; } },
   'rel.find': { roles: ['app'], write: false, args: { db: 'id', q: 'short?' }, run: relFind },
   'row.add': { roles: ['app'], write: true, args: { db: 'id', afterId: 'idOrEmpty?', cells: 'cellsArg?', title: 'title?' }, pageOf: dbOfArgs,
@@ -3368,23 +3393,27 @@ const DEFS = {
   'rows.trash': { roles: ['app'], write: true, args: { db: 'id', ids: 'ids' }, pageOf: dbOfArgs, run: rowsTrash,
     dupResult: (_db, _a, row) => ({ trashed: JSON.parse(row.ops || '[]').length }) },
   'rows.paste': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', at: 'cellRef', grid: 'pasteGrid' }, pageOf: dbOfArgs, run: rowsPaste, dupResult: DUP['rows.paste'] },
-  'col.add': { roles: ['app'], write: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?', target: 'id?', both: 'bool?' }, pageOf: dbOfArgs, run: colAdd, dupResult: DUP['col.add'] },
-  'col.rename': { roles: ['app'], write: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: dupCol },
-  'col.setType': { roles: ['app'], write: true, args: { db: 'id', col: 'id', type: 'colType' }, pageOf: dbOfArgs, run: colSetType, dupResult: DUP['col.setType'] },
+  'col.add': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?', target: 'id?', both: 'bool?' }, pageOf: dbOfArgs, run: colAdd, dupResult: DUP['col.add'] },
+  'col.rename': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: dupCol },
+  'col.setType': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id', type: 'colType' }, pageOf: dbOfArgs, run: colSetType, dupResult: DUP['col.setType'] },
   'col.typeCheck': { roles: ['app'], write: false, args: { db: 'id', col: 'id', type: 'colType' }, run: colTypeCheck },
-  'col.move': { roles: ['app'], write: true, args: { db: 'id', col: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: colMove, dupResult: dupCol },
-  'col.remove': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRemove, dupResult: dupCol },
-  'col.restore': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRestore, dupResult: dupCol },
-  'col.purge': { roles: ['app'], write: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colPurge, dupResult: DUP['col.purge'] },
-  'col.setOpts': { roles: ['app'], write: true, args: { db: 'id', col: 'id', opts: 'optsArg', groups: 'groupsArg?' }, pageOf: dbOfArgs, run: colSetOpts, dupResult: dupCol },
-  'col.setFmt': { roles: ['app'], write: true, args: { db: 'id', col: 'id', fmt: 'short?', prefix: 'short?' }, pageOf: dbOfArgs, run: colSetFmt, dupResult: dupCol },
-  'view.add': { roles: ['app'], write: true, args: { db: 'id', layout: 'layout?', name: 'short?', from: 'id?', linked: 'id?' }, pageOf: dbOfArgs, run: viewAdd, dupResult: DUP['view.add'] },
+  'col.move': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id', after: 'idOrEmpty' }, pageOf: dbOfArgs, run: colMove, dupResult: dupCol },
+  'col.remove': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRemove, dupResult: dupCol },
+  'col.restore': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colRestore, dupResult: dupCol },
+  'col.purge': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id' }, pageOf: dbOfArgs, run: colPurge, dupResult: DUP['col.purge'] },
+  'col.setOpts': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id', opts: 'optsArg', groups: 'groupsArg?' }, pageOf: dbOfArgs, run: colSetOpts, dupResult: dupCol },
+  'col.setFmt': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id', fmt: 'short?', prefix: 'short?' }, pageOf: dbOfArgs, run: colSetFmt, dupResult: dupCol },
+  'view.add': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', layout: 'layout?', name: 'short?', from: 'id?', linked: 'id?' }, pageOf: dbOfArgs, run: viewAdd, dupResult: DUP['view.add'] },
   'view.update': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', patch: 'viewPatch', linked: 'id?' }, pageOf: dbOfArgs, run: viewUpdate, dupResult: DUP['view.one'] },
-  'view.remove': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', linked: 'id?' }, pageOf: dbOfArgs, run: viewRemove, dupResult: DUP['view.remove'] },
+  'view.remove': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', viewId: 'id', linked: 'id?' }, pageOf: dbOfArgs, run: viewRemove, dupResult: DUP['view.remove'] },
   'view.move': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', after: 'idOrEmpty', linked: 'id?' }, pageOf: dbOfArgs, run: viewMove, dupResult: DUP['view.one'] },
 };
 
+// 0.17.0 LK-1（計画 docs/plans/2026-11-13-170.md の決めたこと 74・75・F204。持ち主の試作 5 の「命令の表の1か所の印」）: lockBlocked の命令は、指すデータベース
+// （a.db、無ければ a.id。リンクドビューのビュー（a.linked）はそのページの行の設定なので見ない）がロック中なら bad-args で何も書かない。送り直しの答えは今どおり（core が先に見る）
+const lockTargetOf = (a) => (a.linked !== undefined ? null : typeof a.db === 'string' ? a.db : typeof a.id === 'string' ? a.id : null);
+const lockGuard = (run) => (db, a, ctx) => { if (isLockedDb(db, lockTargetOf(a))) throw refuse('bad-args'); return run(db, a, ctx); };
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
-  Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v)]))));
+  Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v.lockBlocked ? { ...v, run: lockGuard(v.run) } : v)]))));
 
 module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump };

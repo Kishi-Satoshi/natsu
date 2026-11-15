@@ -29,7 +29,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.16.0 DL-1（決めたこと 39・40・R105）: リンクドビューの行を置く・データベースの題名（64）
   'block.insertDbView', 'db.setTitle',
   // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の決めたこと 32）: 空の白紙のページをデータベースにする（65）
-  'page.toDb']);
+  'page.toDb',
+  // 0.17.0 LK-1（決めたこと 73・75）: データベースのロック（元に戻すの歩みにしない: UNDO_CMDS に入れない）（66）
+  'db.setLock']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -253,6 +255,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   relLink: (db, id, col, ids, title) => dbCall('rel.link', { db, id, col, ids, ...(typeof title === 'string' ? { title } : {}) }),
   relUnlink: (db, id, col, ids) => dbCall('rel.unlink', { db, id, col, ids }),
   dbSetSub: (db, on) => dbCall('db.setSub', { db, on: Boolean(on) }),
+  dbSetLock: (db, on) => dbCall('db.setLock', { db, on: Boolean(on) }),   // 0.17.0 LK-1（決めたこと 73）
   relFind: (db, q) => dbCall('rel.find', { db, ...(q ? { q } : {}) }),
   colRename: (db, col, name) => dbCall('col.rename', { db, col, name }),
   colSetType: (db, col, type) => dbCall('col.setType', { db, col, type }),

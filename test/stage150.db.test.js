@@ -385,7 +385,8 @@ function loadPreload() {
 test('PH-2: preload の 58 の名前・pageMove の引数（afterId が無ければ送らない）・UNDO_CMDS にページの命令が無い', T, async () => {
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRELOAD)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
   // 0.17.0 PD-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」）で意図して直した: 空の白紙のページをデータベースにする page.toDb を足して 65（照らしは同じ）
-  assert.strictEqual(names.length, 65);
+  // 0.17.0 LK-1（「意図して変えるテスト」）で意図して直した: データベースのロック db.setLock を足して 66（照らしは同じ）
+  assert.strictEqual(names.length, 66);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   for (const cmd of ['page.create', 'page.move', 'page.restore', 'pages.trash']) assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd);
   assert.strictEqual(core.COMMANDS['pages.trash'].write, false);

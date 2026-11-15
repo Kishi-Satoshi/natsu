@@ -281,7 +281,8 @@ test('MG-2・F203: 「議事録」の題名を変えても、見回りで新し�
   assert.deepStrictEqual(minutesDbs(db), [M], '題名を変えたら新しいデータベースを作った');
   assert.strictEqual(metaOf(db, 'minutes.db'), M, 'meta を印に合わせない');
   assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pq2').parent_id, M);
-  // ゴミ箱に入れた「議事録」は無いのと同じ（次の見回り・締めで新しく作る: 決めたこと 49）
+  // ゴミ箱に入れた「議事録」は無いのと同じ（次の見回り・締めで新しく作る: 決めたこと 49）。ロックを外してから消す（決めたこと 55）
+  ok(call(db, 'db.setLock', { db: M, on: false }), 'db.setLock');
   ok(call(db, 'page.delete', { id: M }), 'page.delete');
   oldMeeting(t, 'pq3', 3);
   const r2 = ok(gather(db, {}), 'minutes.gather');
@@ -523,6 +524,7 @@ test('rv59 重要 2・R39: 「議事録」の列ごとの書き直し（種類�
   meeting(db, 'pb1');
   meeting(db, 'pb2', { at: '2026-11-11T02:00:00.000Z', date: '2026-11-11' });
   const M = minutesDbs(db)[0];
+  ok(call(db, 'db.setLock', { db: M, on: false }), 'db.setLock');   // 列の書き直しはロックを外してから（決めたこと 74）
   const cols = attrsOf(db, M).cols;
   const person = cols.find((c) => c.type === 'person').id;
   ok(call(db, 'row.setCell', { db: M, id: 'pb1', col: person, value: ['メンバー甲'] }), 'row.setCell');
@@ -548,6 +550,7 @@ test('rv59 重要 3・F203（R43）: ゴミ箱から古い「議事録」を戻�
   meeting(db, 'pc1');
   meeting(db, 'pc2', { at: '2026-11-11T02:00:00.000Z', date: '2026-11-11' });
   const OLD = minutesDbs(db)[0];
+  ok(call(db, 'db.setLock', { db: OLD, on: false }), 'db.setLock');   // ロックを外して列を足し、消す（決めたこと 55・74）
   const oldCols = attrsOf(db, OLD).cols;
   const person = oldCols.find((c) => c.type === 'person').id;
   ok(call(db, 'row.setCell', { db: OLD, id: 'pc1', col: person, value: ['メンバー甲'] }), 'row.setCell');
@@ -559,6 +562,7 @@ test('rv59 重要 3・F203（R43）: ゴミ箱から古い「議事録」を戻�
   meeting(db, 'pc3', { at: '2026-11-12T02:00:00.000Z', date: '2026-11-12' });   // 決めたこと 49: 新しい「議事録」ができる
   const CUR = minutesDbs(db)[0];
   assert.notStrictEqual(CUR, OLD);
+  ok(call(db, 'db.setLock', { db: CUR, on: false }), 'db.setLock');
   const other = ok(call(db, 'col.add', { db: CUR, type: 'number', name: '人数' }), 'col.add').result.col;   // 同じ ID で種類の違う列（試しの字）
   assert.strictEqual(other.id, extra.id, '前提: 同じ ID の列');
   const oldViews = attrsOf(db, OLD).views;
@@ -633,4 +637,72 @@ test('rv59 重要 4・決めたこと 59（R51）: 移し替えは Ctrl+Z で戻
   assert.deepStrictEqual(['pu0', 'pu1', 'pu2'].map((id) => parentOf(db, id)), [M, M, M]);
   const tree = PT160.pageTree(LIST160.listedRows(db).filter((p) => !p.inRow));
   assert.deepStrictEqual([...(tree.kids.get(M) || [])].sort(), ['pu0', 'pu1', 'pu2']);
+}));
+
+// ---------------------------------------------------------------- LK-1（決めたこと 55・73〜77・F204）: データベースのロック
+test('LK-1・F204: ロック中は page.delete・page.move・col.*・view.add・view.remove・db.setSub が bad-args で何も変えない。row.add・row.setCell・rows.trash・view.update（並べ替えと絞り込み）・題名とアイコンは通る。ロックを外すとできる。ロックの切り替えは Ctrl+Z の歩みにしない', T, () => withDb((db) => {
+  const D = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const host = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  const c1 = ok(call(db, 'col.add', { db: D, type: 'text', name: '場所' }), 'col.add').result.col.id;   // 列の名前（試しの字）
+  const sel = ok(call(db, 'col.add', { db: D, type: 'select', name: '区分' }), 'col.add').result.col.id;   // 列の名前（試しの字）
+  const lk = ok(call(db, 'db.setLock', { db: D, on: true }), 'db.setLock');
+  assert.strictEqual(attrsOf(db, D).locked, true);
+  assert.strictEqual(listOf(db).find((p) => p.id === D).locked, true, '一覧の行にロックの印が無い');
+  assert.strictEqual(ok(call(db, 'db.get', { id: D }), 'db.get').result.locked, true, 'db.get にロックの印が無い');
+  const snap = () => db.prepare('select id, parent_id, ord, text, attrs, trashed_at from blocks order by id').all().map((r) => ({ ...r }));
+  const before = snap();
+  const n0 = db.prepare('select count(*) c from oplog').get().c;
+  const refused = [
+    ['page.delete', { id: D }], ['page.move', { id: D, parentId: host }],
+    ['col.add', { db: D, type: 'text', name: '別' }], ['col.rename', { db: D, col: c1, name: '別' }], ['col.setType', { db: D, col: c1, type: 'number' }],
+    ['col.move', { db: D, col: c1, after: '' }], ['col.remove', { db: D, col: c1 }], ['col.setOpts', { db: D, col: sel, opts: [{ id: 'o1', name: '定例', color: 'gray' }] }],
+    ['col.setFmt', { db: D, col: c1, fmt: 'comma' }], ['view.add', { db: D, layout: 'table' }], ['view.remove', { db: D, viewId: 'v1' }], ['db.setSub', { db: D, on: true }],
+  ];
+  for (const [cmd, args] of refused) assert.strictEqual(call(db, cmd, args).code, 'bad-args', `ロック中に ${cmd} が通った`);
+  assert.deepStrictEqual([snap(), db.prepare('select count(*) c from oplog').get().c], [before, n0], '断ったのに書いた');
+  // 中身は書ける（決めたこと 74）
+  const r = ok(call(db, 'row.add', { db: D, title: '一' }), 'row.add').result.id;   // データベースの行の題名（D77 の外）
+  ok(call(db, 'row.setCell', { db: D, id: r, col: c1, value: '三階' }), 'row.setCell');
+  const v = ok(call(db, 'db.get', { id: D }), 'db.get').result.views[0];
+  ok(call(db, 'view.update', { db: D, viewId: v.id, patch: { sort: [{ col: c1, dir: 'asc' }] } }), 'view.update');
+  ok(call(db, 'db.setTitle', { db: D, title: '名簿' }), 'db.setTitle');   // データベースの題名（D77 の外）
+  ok(call(db, 'page.setIcon', { id: D, icon: 'ic:star' }), 'page.setIcon');
+  ok(call(db, 'rows.trash', { db: D, ids: [r] }), 'rows.trash');
+  // ロックの切り替えは元に戻すの歩みにしない
+  assert.strictEqual(call(db, 'edit.revert', { pageId: D, steps: [lk.tx] }).code, 'bad-args', 'ロックを Ctrl+Z で戻した');
+  // ロックを外せば、ふつうのデータベースと同じ
+  ok(call(db, 'db.setLock', { db: D, on: false }), 'db.setLock');
+  assert.ok(!Object.hasOwn(attrsOf(db, D), 'locked'), '外したのに印が残る');
+  assert.ok(!Object.hasOwn(listOf(db).find((p) => p.id === D), 'locked'));
+  ok(call(db, 'col.rename', { db: D, col: c1, name: '別' }), 'col.rename');
+  ok(call(db, 'page.delete', { id: D }), 'page.delete');
+  assert.strictEqual(call(db, 'db.setLock', { db: D, on: true }).code, 'bad-args', 'ゴミ箱のデータベースをロックした');
+}));
+
+test('LK-1・F204: ロックの前の列とビューの歩みは、ロック中は Ctrl+Z で戻さない（stale）。ロック中の貼り付けは選択肢を足さない（読めない値は空にして数える）。ロック中のデータベースは白紙のページに戻さない', T, () => withDb((db) => {
+  const D = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const add = ok(call(db, 'col.add', { db: D, type: 'select', name: '区分' }), 'col.add');   // 列の名前（試しの字）
+  const sel = add.result.col.id;
+  ok(call(db, 'row.add', { db: D, title: '一' }), 'row.add');   // データベースの行の題名（D77 の外）
+  ok(call(db, 'db.setLock', { db: D, on: true }), 'db.setLock');
+  assert.strictEqual(call(db, 'edit.revert', { pageId: D, steps: [add.tx] }).code, 'stale', 'ロック中に列を足した歩みを戻した');
+  const first = ok(call(db, 'db.view', { id: D, viewId: 'v1', from: 0, count: 10 }), 'db.view').result.rows[0].id;
+  const p = ok(call(db, 'rows.paste', { db: D, viewId: 'v1', at: { row: first, col: sel }, grid: [['定例']] }), 'rows.paste').result;
+  assert.deepStrictEqual([p.unread, attrsOf(db, D).cols.find((c) => c.id === sel).opts || []], [1, []], 'ロック中の貼り付けで選択肢を足した');
+  // page.toDb で作ったデータベースをロックしたら、白紙のページへ戻さない
+  const P = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  const to = ok(call(db, 'page.toDb', { id: P }), 'page.toDb');
+  ok(call(db, 'db.setLock', { db: P, on: true }), 'db.setLock');
+  assert.strictEqual(call(db, 'edit.revert', { pageId: P, steps: [to.tx] }).code, 'stale', 'ロック中のデータベースを白紙のページに戻した');
+}));
+
+test('LK-1・lc-minutes-start（決めたこと 76・77）: 「議事録」はロックした形で作る。0.16.0 の一覧の読み方（0a6a375 の listedRows を写した見本）とビューの照らしは、locked があっても落ちずにデータベースとして読む', T, () => withDb((db) => {
+  meeting(db, 'pk1');
+  const M = minutesDbs(db)[0];
+  assert.strictEqual(attrsOf(db, M).locked, true);
+  assert.strictEqual(call(db, 'page.delete', { id: M }).code, 'bad-args', '「議事録」を消せた');
+  const row = LIST160.listedRows(db).find((r) => r.id === M);
+  assert.ok(row && row.attrs.kind === 'database' && row.attrs.locked === true);
+  const V160 = require(path.join(__dirname, 'fixtures', 'v160', 'dbView.js'));
+  assert.doesNotThrow(() => V160.normalizeView(row.attrs.views[0], row.attrs.cols));
 }));

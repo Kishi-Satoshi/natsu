@@ -263,7 +263,8 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 const RETAKE_170 = SH.SCREENS.filter((s) => s.page === 'app').map((s) => s.name);
 // 0.17.0 PD-2 で足した2枚（空の白紙のページの［データベース］。まだ基準が無い）
 const NEW_170 = ['page-blank-empty-light', 'page-blank-empty-dark',
-  'sidebar-db-views-light', 'sidebar-db-views-dark'];   // 0.17.0 SV-2 で足した2枚（サイドバーのビューの行。まだ基準が無い）
+  'sidebar-db-views-light', 'sidebar-db-views-dark',   // 0.17.0 SV-2 で足した2枚（サイドバーのビューの行。まだ基準が無い）
+  'db-locked-light'];   // 0.17.0 LK-1 で足した1枚（ロック中のデータベース。まだ基準が無い）
 // 0.17.0 PD-2 で意図して直した: 0.17.0 で足した画面（NEW_170）も 0.15.1 の画面に数えない
 const ADDED_151 = SH.SCREENS.filter((s) => s.page === 'app' && s.name !== 'notes-collapsed-light' && !NEW_160.includes(s.name) && !NEW_170.includes(s.name)).map((s) => s.name);
 const img = (w, h, fill = [255, 255, 255, 255]) => ({ width: w, height: h, data: Buffer.from(Array.from({ length: w * h }, () => fill).flat()) });
@@ -1326,7 +1327,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 37a65077…）
   // 0.17.0 直し（rv59 軽い 8）: 子がゴミ箱にだけある白紙のページに［データベース］を出さない（<script> の中だけ。撮る画面の種はどれもこの形に当たらないので見た目は
   // 変わらない。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は dec71caa…）
-  assert.strictEqual(sha, 'bc86612b2129e7642478b7a1b4be6f196a2104f8f962a2b2f94e7ad996e151f5',
+  // 0.17.0 LK-1: データベースのロック（題名の右の「ロック中」#pLock と［ロックを外す］の窓・「···」の［データベースをロック］・ロック中の灰色の［削除］と
+  // 隠す項目・表の右端の［＋］とビューの［＋］・列のメニューの灰色）。題名を .ptrow で包んだ（見た目は同じ）。変わる画面は足した db-locked-light（NEW_170・RETAKE）。
+  // 値を今の app.html に合わせた（前の値は bc86612b…）
+  assert.strictEqual(sha, '99685649468a3ee27291a29e3bbb6ba183aaef4063fe3b5b6f7e2afa60576937',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -746,6 +746,12 @@
   .ptitle { font-size: 40px; font-weight: 700; line-height: 48px; outline: none; border-radius: 4px; padding: 0 2px;
     overflow-wrap: anywhere; }
   .ptitle:focus { background: var(--hover); }
+  /* 0.17.0 LK-1（決めたこと 73）: データベースの題名の右の「ロック中」（押すと［ロックを外す］） */
+  .ptrow { display: flex; align-items: center; gap: 8px; position: relative; }
+  .lockmenu { right: 0; top: 100%; }
+  .ptrow > :first-child { flex: 1 1 auto; min-width: 0; }   /* 題名の欄（D71: 頭の CSS の規則の文は変えない） */
+  .plock { flex: none; font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  .plock:hover { background: var(--hover); }
   /* 0.15.0 PL-3（決めたこと 37）: ページの頭のアイコンは押せる button（見た目は今の頭のアイコンの規則のまま。button の地・線・余白を外す。その規則は D71 のまま） */
   #pIcon { display: block; padding: 0; border: none; border-radius: 6px; background: transparent; color: inherit; font-family: inherit; cursor: pointer; }
   #pIcon[hidden] { display: none; }
@@ -1411,7 +1417,10 @@
           <div class="phead">
             <div class="pcol">
             <button type="button" class="picon" id="pIcon" aria-label="アイコンを変える">🎙️</button>
+            <div class="ptrow">
             <div class="ptitle" id="pTitle" contenteditable="true" spellcheck="false"></div>
+            <button type="button" class="plock" id="pLock" aria-haspopup="menu" hidden>ロック中</button>
+            </div>
             <div class="pprops" id="pProps"></div>
             <div class="prop" id="pTypeRow">
               <span class="k"><span class="ic">🏷</span> <span>会議の種類</span></span>
@@ -6250,15 +6259,16 @@
     const run = (fn) => () => { closeTreeMenu(); fn(); };
     const kbd = (b, shown, aria) => { b.setAttribute('data-kbd', shown); b.setAttribute('aria-keyshortcuts', aria); return b; };   // 右に灰色の近道（CSS の attr）
     menuItem(box, 'リンクを写す', () => { closeTreeMenu(true); copyRowLink(id); });   // 0.15.1 PS-3 直し 2（R43）: 写した後のフォーカスは行へ
-    kbd(menuItem(box, '名前を変える', run(() => startRename(id, where))), 'Ctrl+Shift+R', 'Control+Shift+R');
-    menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id, where })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
+    const locked = Boolean((pages.find((p) => p && p.id === id) || {}).locked);   // 0.17.0 LK-1（決めたこと 74）: ロック中のデータベースは出さない
+    if (!locked) kbd(menuItem(box, '名前を変える', run(() => startRename(id, where))), 'Ctrl+Shift+R', 'Control+Shift+R');
+    if (!locked) menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id, where })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
     // 0.16.0 DX-1（決めたこと 43・R30）: ［中にデータベースを作る］は［中にページを作る］の次。データベースの行には中に作る2つを出さない
     if (!isDbPage(crumbPage(id))) {
       menuItem(box, '中にページを作る', run(() => createPageIn(id)));
       menuItem(box, '中にデータベースを作る', run(() => createPageIn(id, undefined, true)));
     }
     kbd(menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true }))), 'Ctrl+Enter', 'Control+Enter');
-    menuItem(box, '削除', run(() => deletePageFlow(id)));
+    menuItem(box, '削除', run(() => deletePageFlow(id)), locked ? { off: DB_LOCK_DEL } : {});
     const at = sideSectionView.stampText((pages.find((p) => p && p.id === id) || {}).updatedAt);
     if (at) {
       const sep = document.createElement('div'); sep.className = 'msep'; sep.setAttribute('role', 'separator');
@@ -6314,6 +6324,7 @@
     if (renameEd) commitRename(renameEd);
     const p = pages.find((x) => x && x.id === id);
     if (!p || !rowOf(where, id)) return false;
+    if (p.locked) return false;   // 0.17.0 LK-1（決めたこと 74）: ロック中のデータベースはサイドバーで名前を変えない（Ctrl+Shift+R も。題名はページの頭で）
     const stand = p.title === untitledName(p);
     renameEd = { id, where, old: p.title, value: stand ? '' : p.title, stand, input: null, done: false, remount: false, hadFocus: true };
     mountRename();
@@ -7452,6 +7463,51 @@
 
   // 「…」（#pMore）とその中のメニュー（#pMenu の［コピー］［リンクを写す］［削除］）。
   // Enter／Space（変換確定の Enter は除く）・↓ で開いて最初の項目へ、↑／↓ で移り、Esc で閉じて「…」へ戻る
+  // ---------------- 0.17.0 LK-1（計画 docs/plans/2026-11-13-170.md の決めたこと 55・73〜77・F204）: データベースのロック
+  // 「···」の［データベースをロック］（チェックの印の切り替え）・題名の右の「ロック中」（押すと［ロックを外す］）。ロック中は［削除］が灰色で吹き出し、
+  // ［名前を変える］［移動先…］・列とビューの形を変える所を出さない（灰色）。db.setLock は元に戻すの歩みにしない（preload の UNDO_CMDS に入れない）
+  const DB_LOCK = 'データベースをロック';
+  const DB_UNLOCK = 'ロックを外す';
+  const DB_LOCK_DEL = 'ロックを外すと、ゴミ箱に入れられます';
+  // 「···」の項目を灰色にして吹き出しを付ける（押してもメニューを閉じるだけ）
+  function lockOff(b) {
+    b.setAttribute('aria-disabled', 'true'); b.classList.add('off'); b.title = DB_LOCK_DEL;
+    b.onclick = () => setMoreOpen(false);
+  }
+  async function dbLockSet(on) {
+    const id = curId;
+    try { await inFlight(window.koeApp.dbSetLock(id, on)); }
+    catch (e) { toast(`変更を保存できませんでした: ${String((e && (e.code || e.message)) || 'internal')}`); return; }
+    await refreshList();
+    if (curId !== id || !curPage) return;
+    if (on) curPage.locked = true; else delete curPage.locked;
+    renderPage();
+    const st = dbPageSt();
+    if (st && st.id === id && dbUse(st)) await dbInfoAgain(st, st.seq);
+  }
+  let lockMenu = null;
+  function lockMenuClose(back) {
+    if (!lockMenu) return;
+    const m = lockMenu; lockMenu = null;
+    if (m.parentNode) m.parentNode.removeChild(m);
+    if (back) $('pLock').focus();
+  }
+  $('pLock').onclick = () => {
+    if (lockMenu) { lockMenuClose(true); return; }
+    const box = document.createElement('div');
+    box.className = 'blockmenu lockmenu'; box.setAttribute('role', 'menu'); box.setAttribute('aria-label', DB_LOCK);
+    menuItem(box, DB_UNLOCK, () => { lockMenuClose(); dbLockSet(false); });
+    box.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); lockMenuClose(true); }
+      else if (ev.key === 'Tab') lockMenuClose();
+      else if ((ev.key === 'Enter' || ev.key === ' ') && document.activeElement && document.activeElement.classList.contains('mitem')) { ev.preventDefault(); document.activeElement.onclick(); }
+    };
+    $('pLock').parentNode.appendChild(box);
+    lockMenu = box;
+    const first = box.querySelector('.mitem');
+    if (first) first.focus();
+  };
   function setMoreOpen(on, focusItem) {
     const menu = $('pMenu');
     menu.hidden = !on;
@@ -7514,6 +7570,7 @@
     if (!curPage) {
       dbShow(null);
       $('pTitle').textContent = '';
+      $('pLock').hidden = true;
       $('pProps').textContent = '';
       $('pMore').hidden = true;
       // 議事録を選ぶ前は中身の無いセレクタを出さない（選べない物を見せない）
@@ -7535,6 +7592,7 @@
     $('pMore').hidden = false;
     $('pTitle').textContent = curPage.title;
     $('pTitle').setAttribute('contenteditable', 'true');
+    $('pLock').hidden = !(dbp && curPage.locked === true);   // 0.17.0 LK-1（決めたこと 73）
 
     if (!blank) renderTypeRow();   // 会議の種類の行（0.11.0 V-1。白紙のページには無い）
 
@@ -7616,15 +7674,20 @@
         if (!base) { toast('リンクを写せませんでした。'); return; }
         await window.koeApp.copy(pageRefLine(page, base)); toast('リンクを写しました。');
       }, false, true);
+      if (dbp) {   // 0.17.0 LK-1（決めたこと 73）: ［データベースをロック］（切り替え・チェックの印）
+        const lk = mk(DB_LOCK, () => dbLockSet(curPage.locked !== true), false, true);
+        lk.setAttribute('role', 'menuitemcheckbox'); lk.setAttribute('aria-checked', curPage.locked === true ? 'true' : 'false');
+      }
       if (dbp) {   // 0.16.0 DR-1（決めたこと 37）: データベースの［サブアイテム］（入れる・外す。印は表の列とビューを読んだ後に dbPaint が付ける）
         const sb = mk(DB_SUB, () => dbSubSet(!(dbPageSt() && dbPageSt().id === curId && dbPageSt().info && dbPageSt().info.sub)), false, true);
         sb.setAttribute('role', 'menuitemcheckbox'); sb.dataset.sub = '1';
         sb.setAttribute('aria-checked', dbPageSt() && dbPageSt().id === curId && dbPageSt().info && dbPageSt().info.sub ? 'true' : 'false');
       }
-      if (!rowp) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
+      if (!rowp && !(dbp && curPage.locked === true)) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.17.0 LK-1: ロック中は出さない   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
       lookMenuItems(mk);   // 0.15.0 PL-3（決めたこと 40）: 見た目（議事録にも白紙のページにも。録音中の写しには出さない: R71）
     }
-    mk('削除', () => (rowp ? rowPageTrash() : deletePageFlow(curId)), false, true);   // 0.16.0 DV-4（R90）: 行は確かめずに rows.trash へ
+    const delBtn = mk('削除', () => (rowp ? rowPageTrash() : deletePageFlow(curId)), false, true);   // 0.16.0 DV-4（R90）: 行は確かめずに rows.trash へ
+    if (dbp && curPage.locked === true) lockOff(delBtn);   // 0.17.0 LK-1（決めたこと 74）: ロック中は灰色で吹き出し
 
     renderBlocks();
     renderScript();
@@ -11627,7 +11690,7 @@
     if (fresh || !st.painted) dbPaintRows(st);
   }
   // 印が変わったときに列とビューを読み直す（ほかの所・ほかの窓で変わった）。変わっていれば骨組みを描き直して真
-  const dbInfoKey = (info) => JSON.stringify(info ? [info.title, info.cols, info.views, info.sub || null] : null);
+  const dbInfoKey = (info) => JSON.stringify(info ? [info.title, info.cols, info.views, info.sub || null, info.locked === true] : null);   // 0.17.0 LK-1: ロックも
   async function dbInfoAgain(st, seq) {
     let info = null;
     try { info = await window.koeApp.dbGet(st.id, ...(st.linked ? [st.linked] : [])); } catch (_) { info = null; }
@@ -11712,7 +11775,7 @@
     pb.type = 'button'; pb.className = 'dbcoladd'; pb.textContent = '＋';
     pb.setAttribute('aria-label', DB_COL_ADD); pb.title = DB_COL_ADD; pb.setAttribute('aria-haspopup', 'menu');
     pb.onclick = () => dbAddColMenu(pb);
-    plus.appendChild(pb);
+    if (st.info.locked !== true) plus.appendChild(pb);   // 0.17.0 LK-1（決めたこと 74）: ロック中は列を足さない（右端の［＋］を出さない）
     head.appendChild(plus);
     if (!list) grid.appendChild(head);
     const top = document.createElement('div'); top.className = 'dbpad'; top.setAttribute('aria-hidden', 'true');
@@ -12908,24 +12971,25 @@
     const title = col.type === 'title';
     const typeOk = DB_TYPE_LIST.includes(col.type);
     const p = (dbViewOf(st).props || []).find((x) => x.col === colId) || {};
+    const lk = st.info.locked === true;   // 0.17.0 LK-1（決めたこと 74）: ロック中は列の形を変える項目を灰色に（ビューの設定は今どおり）
     const items = [
-      { label: '名前を変える', fn: () => dbMenuInput(anchor, col.name, col.name, (v) => { if (v && v !== col.name) dbWrite(() => window.koeApp.colRename(st.id, col.id, v)); }) },
-      { label: '種類 ▸', fn: () => dbTypeMenu(col, anchor), off: !typeOk },
+      { label: '名前を変える', fn: () => dbMenuInput(anchor, col.name, col.name, (v) => { if (v && v !== col.name) dbWrite(() => window.koeApp.colRename(st.id, col.id, v)); }), off: lk },
+      { label: '種類 ▸', fn: () => dbTypeMenu(col, anchor), off: !typeOk || lk },
     ];
-    if (col.type === 'number') items.push({ label: '見せ方 ▸', fn: () => dbFmtMenu(col, anchor) });
+    if (col.type === 'number') items.push({ label: '見せ方 ▸', fn: () => dbFmtMenu(col, anchor), off: lk });
     if (['select', 'multi', 'status'].includes(col.type)) {
-      items.push({ label: '選択肢を足す', fn: () => dbMenuInput(anchor, '選択肢を足す', '', (v) => { if (v) dbAddOpt(col, v); }) });
-      items.push({ label: '色 ▸', fn: () => dbColorMenu(col, anchor), off: !(col.opts || []).length });
+      items.push({ label: '選択肢を足す', fn: () => dbMenuInput(anchor, '選択肢を足す', '', (v) => { if (v) dbAddOpt(col, v); }), off: lk });
+      items.push({ label: '色 ▸', fn: () => dbColorMenu(col, anchor), off: !(col.opts || []).length || lk });
     }
-    if (col.type === 'no') items.push({ label: '接頭辞', fn: () => dbMenuInput(anchor, '接頭辞', col.prefix || '', (raw) => { const v = raw.normalize('NFKC'); if (v !== (col.prefix || '')) dbWrite(() => window.koeApp.colSetFmt(st.id, col.id, { prefix: v })); }) });   // DV-2 直し（rv46 M5）: 日本語入力の全角の英字を半角に
+    if (col.type === 'no') items.push({ label: '接頭辞', fn: () => dbMenuInput(anchor, '接頭辞', col.prefix || '', (raw) => { const v = raw.normalize('NFKC'); if (v !== (col.prefix || '')) dbWrite(() => window.koeApp.colSetFmt(st.id, col.id, { prefix: v })); }), off: lk });   // DV-2 直し（rv46 M5）: 日本語入力の全角の英字を半角に
     items.push(
-      { label: '左に入れる', fn: () => dbInsertCol(col, 'left') },
-      { label: '右に入れる', fn: () => dbInsertCol(col, 'right') },
+      { label: '左に入れる', fn: () => dbInsertCol(col, 'left'), off: lk },
+      { label: '右に入れる', fn: () => dbInsertCol(col, 'right'), off: lk },
       { label: '折り返す', on: p.wrap === true, fn: () => dbPropPatch(col.id, { wrap: p.wrap !== true }) },
       { label: '集計 ▸', fn: () => dbAggMenu(col, anchor) },
       { label: '隠す', fn: () => dbPropPatch(col.id, { show: false }), off: title },
       // 0.16.0 DR-1 直し2（MQ2・R108）: サブアイテムを入れている間は2つの列を消せない（外すのはデータベースの「···」の［サブアイテム］から）
-      { label: '削除', fn: () => { dbMenuClose(); dbWrite(() => window.koeApp.colRemove(st.id, col.id)); }, off: title || dbSubCol(st.info, col.id) },
+      { label: '削除', fn: () => { dbMenuClose(); dbWrite(() => window.koeApp.colRemove(st.id, col.id)); }, off: title || dbSubCol(st.info, col.id) || lk },
     );
     const m = dbMenuAt(anchor, items, 'dbcolmenu');
     m.dataset.col = colId;
@@ -13117,7 +13181,8 @@
     add.type = 'button'; add.className = 'dbviewadd'; add.textContent = '＋';
     add.setAttribute('aria-label', DB_VIEW_ADD); add.title = DB_VIEW_ADD; add.setAttribute('aria-haspopup', 'menu');
     add.onclick = () => dbViewAddMenu(add);
-    tabs.append(more, add);
+    tabs.append(more);
+    if (st.linked || st.info.locked !== true) tabs.append(add);   // 0.17.0 LK-1（決めたこと 74）: ロック中は元のデータベースのビューを足さない（リンクドビューは今どおり）
     st.parts.more = more; st.parts.add = add; st.parts.search = null; st.parts.q = null;
     if (dbSearchOn(st)) {   // 決めたこと 22・V-T23: 行が 3 以上のとき（語があれば、行が減っても出したまま）
       const wrap = document.createElement('span');
@@ -13244,11 +13309,12 @@
     if (st.menu && st.menu.dataset.tab === viewId) { dbMenuClose(); return; }
     dbEditEnd(true);
     const n = st.info.views.length;
+    const vlk = !st.linked && st.info.locked === true;   // 0.17.0 LK-1（決めたこと 74）: ロック中は元のデータベースのビューを足さない・消さない
     const m = dbMenuAt(anchor, [
       { label: '名前を変える', fn: () => dbMenuInput(anchor, DB_VIEW_NAME, v.name, (name) => { if (name && name !== v.name) dbViewSave({ name }, v.id); }) },
-      { label: '複製', fn: () => dbViewCopy(v.id), off: n >= DB_VIEWS_MAX },
+      { label: '複製', fn: () => dbViewCopy(v.id), off: n >= DB_VIEWS_MAX || vlk },
       { label: 'リンクを写す', fn: () => dbViewLink(v.id) },
-      { label: '削除', fn: () => dbViewRemove(v.id), off: n <= 1 },
+      { label: '削除', fn: () => dbViewRemove(v.id), off: n <= 1 || vlk },
     ], 'dbcolmenu');
     m.dataset.tab = viewId;
   }
@@ -13830,6 +13896,7 @@
   // 選択・複数選択・ステータス・ユーザーの選び（探す・選ぶ・無い名前で Enter → 足す）
   function dbPickWriter(st, host, col, value, write, close) {
     const many = col.type === 'multi' || col.type === 'person';
+    const noNew = Boolean(st.info && st.info.locked === true);   // 0.17.0 LK-1（決めたこと 74）: ロック中は選択肢を足さない（人の名前は選択肢でないので今どおり）
     let cur = col;
     let val = value === null ? (many ? [] : null) : value;
     const inp = document.createElement('input');
@@ -13874,7 +13941,7 @@
         }
       } else shown.forEach(mk);
       const typed = inp.value.trim();
-      if (typed && col.type !== 'person' && !items().some((it) => dbModelView.foldName(it.name) === dbModelView.foldName(typed))) {
+      if (typed && col.type !== 'person' && !noNew && !items().some((it) => dbModelView.foldName(it.name) === dbModelView.foldName(typed))) {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'dbopt dbnew'; b.setAttribute('role', 'option'); b.setAttribute('aria-selected', 'false');
         const a = document.createElement('span'); a.textContent = '選択肢を足す';
@@ -13933,7 +14000,7 @@
       const typed = inp.value.trim();
       if (!typed) { close('stay'); return; }
       const hit = items().find((it) => dbModelView.foldName(it.name) === dbModelView.foldName(typed));
-      if (hit) { inp.value = ''; pick(hit.id); } else create(typed);
+      if (hit) { inp.value = ''; pick(hit.id); } else if (!noNew || col.type === 'person') create(typed);
     };
     paint();
     inp.focus();
