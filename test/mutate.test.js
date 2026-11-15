@@ -1713,6 +1713,8 @@ const IDS_170 = [
   'rt-ui-dup-lock', 'lc-ui-drag', 'rt-ui-tpl-again', 'tk-mcp-shown',
   // 0.17.0 点検 3 の後の持ち主の答え（2026-11-15。問い 4・R82）で足した行（表の行の順に）
   'tk-open-remake', 'tk-open-db-live', 'tk-open-acts',
+  // 0.17.0 R81 で手順を確かめたときに出た問い（2026-11-15 の持ち主の答え。問い 5 の 1・M20・R85）で足した行
+  'mg-ui-ref-minutes',
 ];
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
 function planRows170() {
@@ -1728,7 +1730,8 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
-  assert.strictEqual(rows.length, 202, '計画の 0.17.0 の表（ig- 25・iv- 32・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2、TK-3（R57）で tk- 1、RT-2（R59）で rt- 4、IV-2（R60）で iv- 1、点検 3 の rv60 の直し（R64〜R77）で lc- 5・mg- 4・rt- 5・tk- 10、点検 3 の後の問い 4（R82）で tk- 3 を足した）が読めない');
+  // 問い 5 の 1（R85）で mg- 1 を足して 203 行に意図して直した
+  assert.strictEqual(rows.length, 203, '計画の 0.17.0 の表（ig- 25・iv- 32・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2、TK-3（R57）で tk- 1、RT-2（R59）で rt- 4、IV-2（R60）で iv- 1、点検 3 の rv60 の直し（R64〜R77）で lc- 5・mg- 4・rt- 5・tk- 10、点検 3 の後の問い 4（R82）で tk- 3、問い 5 の 1（R85）で mg- 1 を足した）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');

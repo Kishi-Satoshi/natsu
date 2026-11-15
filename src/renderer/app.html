@@ -7478,6 +7478,12 @@
     const title = String((page && page.title) || '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim() || '無題';
     return `NaTsu の議事録「${title}」（${String((page && page.date) || '')}）${base}${page.id}`;
   }
+  // 0.17.0（2026-11-15 の持ち主の答え「ページと同じ 1 行にそろえる（おすすめ）」・M20・R85）: データベースの表の行の1行（選んだ行・行のメニューの［リンクを写す］）。
+  // 「議事録」の表の議事録の行（db.view の page: true）はページの「···」と同じ議事録の形（日付は日付の列の日 = ページの date）、ほかの行は R87 の「NaTsu の「題名」」
+  function dbRowRefLine(row, base) {
+    const meeting = row.page === true;
+    return pageRefLine(meeting ? { id: row.id, title: row.title, date: row.mdate && row.mdate.start } : { id: row.id, title: row.title, kind: 'row' }, base);
+  }
 
   // 0.13.0 ED-8（EQ4 (a)・決めたこと 35・画面の文）: 人が直した行 = 人が足した・直した行（citeState が manual・stale）と、AI の4つの型でない行。
   // 0.11.0 の印の行（mark。manual だが AI が書いた）は人の行にしない
@@ -12474,7 +12480,7 @@
     const base = await linkBaseNow();
     if (!base) { toast('リンクを写せませんでした。'); return; }
     const lines = [...st.checked].map((id) => st.known.get(id)).filter(Boolean)
-      .map((row) => pageRefLine({ id: row.id, title: row.title, kind: 'row' }, base));   // R87: データベースの行は「NaTsu の「題名」」
+      .map((row) => dbRowRefLine(row, base));   // R87・R85: データベースの行は「NaTsu の「題名」」・「議事録」の議事録の行はページと同じ1行
     if (!lines.length) return;
     await window.koeApp.copy(lines.join('\n')); toast('リンクを写しました。');
   }
@@ -12653,7 +12659,7 @@
     if (!row) return;
     const base = await linkBaseNow();
     if (!base) { toast('リンクを写せませんでした。'); return; }
-    await window.koeApp.copy(pageRefLine({ id: row.id, title: row.title, kind: 'row' }, base)); toast('リンクを写しました。');   // R87
+    await window.koeApp.copy(dbRowRefLine(row, base)); toast('リンクを写しました。');   // R87・R85
   }
   // 1つの行をゴミ箱へ（確かめない: 決めたこと 28）
   async function dbTrashRow(rowId) {

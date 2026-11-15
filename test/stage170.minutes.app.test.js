@@ -223,6 +223,54 @@ test('MG-4（決めたこと 56）: 議事録の無い「議事録」の表に�
   } finally { l.done(); }
 });
 
+// ---------------------------------------------------------------- 問い 5 の 1（M20・R85。2026-11-15 の持ち主の答え「ページと同じ 1 行にそろえる（おすすめ）」）
+const selBtn = (l, label) => $(l, 'pDb').querySelector('.dbselbar').querySelectorAll('button').find((b) => b.textContent === label);
+const rowEl = (l, id) => $(l, 'pDb').querySelectorAll('.dbrow').find((x) => x.dataset.id === id);
+const checkRow = async (l, id) => { const ck = rowEl(l, id).querySelector('.dbcheck'); ck.checked = true; ck.dispatchEvent({ type: 'change' }); await l.drain(20); };
+const rowMenuCopy = async (l, id) => {
+  rowEl(l, id).dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(20);
+  await clickEl(l, l.document.querySelector('.dbrowmenu').querySelectorAll('.mitem').find((b) => b.textContent === 'リンクを写す'), 100);
+};
+test('問い 5・M20（R85）: 「議事録」の表で選んだ行の［リンクを写す］と行のメニューの［リンクを写す］は、ページの「···」の［リンクを写す］と同じ1行（「NaTsu の議事録「題名」（日付）住所」）。ほかのデータベースの行は今どおり「NaTsu の「題名」 住所」', T, async () => {
+  const B = 'https://example.invalid/open#p=';
+  const l = await realApp({ before: (call) => {
+    const s = minutesSeed(call);
+    const D = call('db.create', {}).id;
+    call('db.setTitle', { db: D, title: '名簿' });   // データベースの題名（D77 の外）
+    const r = call('row.add', { db: D, title: '一' }).id;   // 行の題名（D77 の外）
+    return { ...s, D, r };
+  } });
+  try {
+    const { M, D, r } = l.made;
+    const last = () => l.called('copy').map((c) => c.args[0]).slice(-1);
+    // ページの「···」の［リンクを写す］（議事録の形）
+    const pageLine = {};
+    for (const id of ['pm1', 'pm2']) {
+      await open(l, id);
+      $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+      await clickEl(l, moreItem(l, 'リンクを写す'));
+      [pageLine[id]] = last();
+    }
+    assert.strictEqual(pageLine.pm1, `NaTsu の議事録「${titleAt('2026-11-10T01:30:00.000Z')}」（2026-11-10）${B}pm1`, '前提: ページの「···」の1行が議事録の形でない');
+    assert.strictEqual(pageLine.pm2, `NaTsu の議事録「${titleAt('2026-11-11T02:00:00.000Z')}」（2026-11-11）${B}pm2`);
+    // 「議事録」の表で行の頭のチェックを入れて［リンクを写す］・行のメニューの［リンクを写す］
+    await open(l, M);
+    await checkRow(l, 'pm2'); await checkRow(l, 'pm1');
+    await clickEl(l, selBtn(l, 'リンクを写す'));
+    assert.deepStrictEqual(last(), [`${pageLine.pm2}\n${pageLine.pm1}`], '表で選んだ議事録の行の1行がページの「···」と違う');
+    await rowMenuCopy(l, 'pm1');
+    assert.deepStrictEqual(last(), [pageLine.pm1], '行のメニューの議事録の1行がページの「···」と違う');
+    // ほかのデータベースの行は今どおり（R87）
+    await open(l, D);
+    await checkRow(l, r);
+    await clickEl(l, selBtn(l, 'リンクを写す'));
+    assert.deepStrictEqual(last(), [`NaTsu の「一」 ${B}${r}`]);
+    await rowMenuCopy(l, r);
+    assert.deepStrictEqual(last(), [`NaTsu の「一」 ${B}${r}`]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 // ---------------------------------------------------------------- TK-1（決めたこと 60〜62・65・F200）
 test('TK-1・F200: サイドバーは「議事録」の下に「タスク管理」・▸ を開くとビューの行「すべて」「マイタスク」「期限順」・「マイタスク」の行で開く・担当の候補の先頭が「自分」', T, async () => {
   const l = await realApp({ before: (call) => {
