@@ -821,7 +821,10 @@ test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）
   const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
   const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.ok(names.length >= 8, '引いた［…］が少ない');
-  for (const n of names) assert.ok(src.includes(n), `0.15.0 の節の［${n}］が src/ に無い`);
+  // 0.17.0 IH-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」の identity.test.js:811 の行・rv58 軽い 6）で意図して変えた: 0.17.0 IV-1 で「新しいページ」の
+  // 項目の頭の絵文字を外した（出した 0.15.0 の節の字は直さない）。頭の絵文字を外した字が今の画面にあれば通す（app.html の注釈に残っていた前の字を IH-1 で直したため）
+  const now = (n) => n.replace(/^(?:📄|🎙️) /u, '');
+  for (const n of names) assert.ok(src.includes(now(n)), `0.15.0 の節の［${n}］が src/ に無い`);
   const titles = ['find/page-tree', 'find/page-look', 'find/delete-and-backups', 'find/search', 'settings/hotkeys', 'start/claude-mcp']
     .map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
   for (const t of titles) assert.ok(t && sec.includes(`「${t}」`), `0.15.0 の節にヘルプの記事「${t}」が無い`);

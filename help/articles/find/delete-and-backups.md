@@ -1,7 +1,7 @@
 ---
 title: ページを消す・戻す・毎日の控え
 description: 「···」の［削除］でページをゴミ箱へ入れる（中のページも一緒に）。データベースとその行も。［ゴミ箱］から戻す。消した中身の行き先と、毎日の控え・保存が壊れたときの戻り方
-updated: 2026-11-13
+updated: 2026-11-15
 sources: CHANGELOG.md, README.md, src/renderer/app.html, src/main.js, src/db/snapshot.js, src/db/commands.js
 related: find/search, find/page-tree, record/start-stop
 ---
@@ -22,7 +22,7 @@ related: find/search, find/page-tree, record/start-stop
 | データベース | 「このデータベースと行 … 件をゴミ箱に入れます。よろしいですか？（ゴミ箱から戻せます）」 |
 
 - 中のページ（[ページの中のページ](find/page-tree.md)）のあるページを消すと、中のページも全部一緒にゴミ箱へ入ります。
-- 白紙のページの本文の「📄 題名」の行を消したときは、確かめずにそのページをゴミ箱へ入れ、[[Ctrl+Z]] で戻せます（[ページの中のページの見え方](find/page-tree.md#kids)）。
+- 白紙のページの本文の中のページの行を消したときは、確かめずにそのページをゴミ箱へ入れ、[[Ctrl+Z]] で戻せます（[ページの中のページの見え方](find/page-tree.md#kids)）。
 - データベースの行は、確かめずにゴミ箱へ入り、[[Ctrl+Z]] で戻せます（[データベース](find/database.md#table)）。データベースをゴミ箱へ入れると、その行も見えなくなり、データベースを戻すと行も一緒に戻ります。
 - ゴミ箱のページは Claude に出ません。一覧と検索の窓にも、戻すまで出ません。
 

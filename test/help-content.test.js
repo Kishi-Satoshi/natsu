@@ -342,7 +342,8 @@ test('0.13.0 RDY-5: record/start-stop の頭の NOTE は録音の前のページ
   // ［新しい議事録］を押すだけで録音が始まると読める文が無い
   assert.ok(!t.includes('- サイドバーの ［新しい議事録］ を押す\n'), '［新しい議事録］で始まる前の箇条が残っている');
   assert.ok(!/description: ［新しい議事録］・ホットキー・トレイから録音を始め/.test(t), 'description が前の形');
-  assert.ok(/updated: 2026-10-2[6-9]/.test(t), 'updated を直していない');
+  // 0.17.0 IH-1（計画 docs/plans/2026-11-13-170.md の Task IH-1）で意図して変えた: 締めた議事録の置き場の1文を足して updated を直した（2026-10-26 より後なら通す）
+  assert.ok(/updated: 2026-(10-2[6-9]|10-3\d|11-\d\d)/.test(t), 'updated を直していない');
   assert.ok(t.includes('docs/plans/2026-10-24-130.md'), 'sources に計画が無い');
   // ほかの記事と README も同じ中身
   assert.ok(read(fileOf('start/what-natsu-does')).includes('録音の前のページ'), 'start/what-natsu-does が前の形');
@@ -793,7 +794,9 @@ test('PH-8: 近道の表は SHORTCUTS と同じで、Ctrl+Shift+N・Ctrl+Shift+U
 test('PH-8・BQ4・BQ6・RF60: 「録音中のページは動かせません」「新しい議事録はいちばん上にできます」「一緒に消した中のページも戻ります」「ゴミ箱のページは Claude に出ません」の字がある。「戻す画面はありません」は無い', { timeout: 5000 }, () => {
   const pt = read(fileOf('find/page-tree'));
   const del = read(fileOf('find/delete-and-backups'));
-  for (const w of ['録音中のページは動かせません', '新しい議事録はいちばん上にできます']) assert.ok(pt.includes(w), `find/page-tree に「${w}」が無い`);
+  // 0.17.0 IH-1 で意図して変えた: 新しい議事録は「議事録」データベースに入る（決めたこと 56 が BQ4 を替えた。画面の文「ヘルプ（第3部。IH-1）」の字）
+  for (const w of ['録音中のページは動かせません', '録音した議事録は、サイドバーのいちばん上の「議事録」データベースに入ります。']) assert.ok(pt.includes(w), `find/page-tree に「${w}」が無い`);
+  assert.ok(!pt.includes('新しい議事録はいちばん上にできます'), 'find/page-tree に前の置き場の文が残る');
   for (const w of ['一緒に消した中のページも戻ります', 'ゴミ箱のページは Claude に出ません']) assert.ok(del.includes(w), `find/delete-and-backups に「${w}」が無い`);
   assert.ok(read(fileOf('start/claude-mcp')).includes('ゴミ箱のページは Claude に出ません'), 'start/claude-mcp に「ゴミ箱のページは Claude に出ません」が無い');
   assert.ok(!del.includes('戻す画面はありません'), '前の版の「戻す画面はありません」が残っている');
@@ -872,7 +875,8 @@ test('PL-3: 記事 find/page-look の ［…］ はアプリにある文字だ�
   }
   assert.ok(!/notion/i.test(a.text), 'Notion の名前がある');
   // 記事の絵文字の一覧の分類は辞書の分類と同じ並び
-  assert.ok(a.text.includes(`（${require('../src/emojiDict').CATS.map((c) => c.label).join('・')}）`), '分類の並びが辞書と違う');
+  // 0.17.0 IH-1 で意図して変えた: アイコンと絵文字のタブごとの分類（絵文字の分類は［絵文字］の後ろ）
+  assert.ok(a.text.includes(`［絵文字］ は ${require('../src/emojiDict').CATS.map((c) => c.label).join('・')}）`), '分類の並びが辞書と違う');
 });
 
 // ---------------------------------------------------------------- 0.15.0 Task G（計画の Task G・R78）: README の「画面の使い方」・設計書の D の行と H1・H5・U3・notion-behavior の答え
@@ -880,7 +884,8 @@ test('0.15.0 Task G: README の「画面の使い方」にページの階層・�
   const readme = read('README.md');
   const use = readme.slice(readme.indexOf('### 画面の使い方'), readme.indexOf('\n### 音声入力'));
   for (const w of ['**ページの中のページ・白紙のページ（0.15.0 から）:**', '**新しいページ（0.15.0 から）:**', '**ゴミ箱（0.15.0 から）:**', '**ページのアイコンと見た目（0.15.0 から）:**',
-    '［中にページを作る］', '［移動先…］', '`/ページ`', '「このページの中のページ」', '［📄 白紙のページ］', '［🎙️ 議事録（録音の前のページ）］', '［🗑️ ゴミ箱］', '［戻す］', '［最近使ったもの］', '［外す］', '［全幅］', '［小さい文字］', '［書体 ▸］']) {
+    '［中にページを作る］', '［移動先…］', '`/ページ`', '「このページの中のページ」', '［白紙のページ］', '［議事録（録音の前のページ）］',   // 0.17.0 IH-1（rv58 軽い 6）で意図して変えた: 項目の頭の絵文字を外した（画面の文「新しいページ」の項目）
+    '［🗑️ ゴミ箱］', '［戻す］', '［最近使ったもの］', '［外す］', '［全幅］', '［小さい文字］', '［書体 ▸］']) {
     assert.ok(use.includes(w), `README の「画面の使い方」に「${w}」が無い`);
   }
   const app = read('src/renderer/app.html');
@@ -1153,7 +1158,8 @@ test('DH-1: 直した記事の ［…］ はアプリにある文字だけで、
   const find = site.categories.find((c) => c.id === 'find');
   assert.strictEqual(find.articles[find.articles.indexOf('page-tree') + 1], 'database', 'site.json の find の page-tree の次に database が無い');
   assert.ok(find.description.includes('データベース'), 'find の説明に「データベース」が無い');
-  assert.ok(read('src/mainlib.js').includes("'find/page-tree', 'find/database', 'find/page-look'"), 'HELP_ARTICLES に find/database が無い');
+  // 0.17.0 IH-1 で意図して変えた: find/database の次に find/minutes-db・find/tasks を足した
+  assert.ok(read('src/mainlib.js').includes("'find/page-tree', 'find/database', 'find/minutes-db', 'find/tasks', 'find/page-look'"), 'HELP_ARTICLES に find/database が無い');
   const db = read(fileOf('find/database'));
   for (const id of ['create', 'table', 'views', 'sort-filter', 'columns', 'gone', 'relation', 'subitems', 'inline', 'row', 'keys', 'limits']) assert.ok(db.includes(`{#${id}}`), `find/database に {#${id}} の節が無い`);
   // 0.17.0 IV-1（画面の文「新しいページ」の項目: 頭の絵文字を外した）で意図して変えた（R11）
@@ -1335,8 +1341,10 @@ test('0.16.0 Task G の後半: README の「画面の使い方」・「ホット
   const dbLine = use.split('\n').filter((l) => l.startsWith('- **データベース（0.16.0 から）:**'));
   assert.strictEqual(dbLine.length, 1, 'README の「画面の使い方」にデータベースの1行が無い');
   assert.ok(use.indexOf('- **ゴミ箱（0.15.0 から）:**') < use.indexOf(dbLine[0]) && use.indexOf(dbLine[0]) < use.indexOf('- **ページのアイコンと見た目（0.15.0 から）:**'), 'データベースの1行が「ゴミ箱（0.15.0 から）」の次に無い');
-  for (const w of ['1行が1ページの表を作れます。', '`Ctrl+Shift+N` の［🗃️ データベース］', '［中にデータベースを作る］', '`/データベース`', '`/リンクドビュー`', 'ID とリレーションです。',
-    'サブアイテムで行の下に行をぶら下げられます。', 'データベースはサイドバーの木に 🗃️ で並び、行は出ません（行は検索の窓で見つかります）。', '1つのデータベースに 1万行まで（ヘルプの「データベース」）。']) {
+  for (const w of ['1行が1ページの表を作れます。', '`Ctrl+Shift+N` の［データベース］',   // 0.17.0 IH-1（rv58 軽い 6）で意図して変えた: 項目の頭の絵文字を外した
+    '［中にデータベースを作る］', '`/データベース`', '`/リンクドビュー`', 'ID とリレーションです。',
+    'サブアイテムで行の下に行をぶら下げられます。', 'データベースはサイドバーの木に表のアイコンで並び、行は出ません（行は検索の窓で見つかります）。',   // 0.17.0 IH-1 で意図して変えた: 絵文字の印を表のアイコンの言い方に
+    '1つのデータベースに 1万行まで（ヘルプの「データベース」）。']) {
     assert.ok(dbLine[0].includes(w), `README のデータベースの1行に「${w}」が無い`);
   }
   const app = read('src/renderer/app.html');
@@ -1371,4 +1379,62 @@ test('R128・MQ10: Ctrl+Shift+N の説明は「新しいページを作る（白
   assert.ok(read('src/renderer/app.html').includes(`{ keys: 'Ctrl+Shift+N', what: '${want}', where: '窓のどこでも', codes: [] },`), '画面の写しの Ctrl+Shift+N の説明が答えの字でない');
   assert.ok(read(fileOf('settings/hotkeys')).includes(`| [[Ctrl+Shift+N]] | ${want} |`), 'ヘルプの近道の表の Ctrl+Shift+N の説明が答えの字でない');
   for (const f of ['src/shortcuts.js', 'src/renderer/app.html', fileOf('settings/hotkeys')]) assert.ok(!read(f).includes('白紙のページか議事録を選ぶ'), `${f} に前の説明が残る`);
+});
+
+// ---------------------------------------------------------------- 0.17.0 IH-1（計画 docs/plans/2026-11-13-170.md の Task IH-1・画面の文「ヘルプ（IH-1）」「ヘルプ（第3部。IH-1）」「出典」・
+// IV-4 のヘルプの1文・rv58 軽い 6（R38））: ヘルプと README をアイコンの言い方に。新しい記事 find/minutes-db・find/tasks
+const IH1_REFS = ['find/page-look', 'find/page-tree', 'find/database', 'find/delete-and-backups', 'start/overview', 'summary/edit-summary', 'record/start-stop', 'find/minutes-db', 'find/tasks'];
+const IH1_SAY = [   // 画面の文（承認済み: IQ13「この文で作る（おすすめ）」）の字のまま
+  ['find/page-look', 'ページの頭の大きなアイコン（議事録はマイク、白紙のページは書類、データベースは表のアイコン）を押します。'],
+  ['find/page-look', 'アイコンの選びが開きます。上に ［アイコン］ と ［絵文字］ のタブがあり、いつも ［アイコン］ が先に開きます。'],
+  ['find/page-look', '上の欄に名前かよみを打つと、開いているタブの中で絞れます（「しょるい」「ショルイ」「書類」のどれでも書類のアイコンが出ます）。'],
+  ['find/page-look', '［外す］ を押すと、既定のアイコン（議事録はマイク、白紙のページは書類、データベースは表）に戻ります。'],
+  ['find/page-look', 'ページのアイコンの一部は、デジタル庁の『イラストレーション・アイコン素材』（https://www.digital.go.jp/policies/servicedesign/designsystem/Illustration_Icons ）を元に、NaTsu が色を文字の色に合わせ、使わない切り抜きの指定を外し、日本語の名前を付けて使っています。デジタル庁がこのアプリを作ったり、確かめたりしたものではありません。'],
+  ['find/page-look', 'ほかのアイコンは、Google の Material Symbols（https://github.com/google/material-design-icons 。Apache License 2.0）を元に、NaTsu が色を文字の色に合わせて使っています。'],
+  ['find/database', 'サイドバーの「プライベート」の ［＋］ で作ったページは、本文が空の間、ページのいちばん下の ［データベース］ でデータベースにできます（題名はそのまま。付けていたアイコンは外れ、表のアイコンになります。Ctrl+Z で白紙のページに戻すと、アイコンも戻ります）。'],
+  ['find/database', 'サイドバーでは、データベースの ▸ を開くと、ビューが1行ずつ並び、押すとそのビューで開きます。'],
+  ['find/minutes-db', '録音した議事録は、サイドバーのいちばん上の「議事録」データベースに入ります。'],
+  ['find/minutes-db', '0.17.0 に更新して初めて起動したときに、それまでの議事録をまとめて移しました（ページの中に置いた議事録はそのままです）。移す前に控えを取っています。'],
+  ['find/minutes-db', '「議事録」の表の列は、名前・日付・作成者・参加者・要約です。日付・作成者・要約は議事録から自動で入り、表では変えられません。要約の列には、AI の要約の最初の要点が出ます。'],
+  ['find/minutes-db', '「議事録」は初めからロックしています。ロック中は消せず、列を足せません。ロックを外すと消せます。'],
+  ['find/minutes-db', '前の版（0.16.0）に戻すと、議事録はサイドバーの「議事録」の ▸ の下に並びます。'],
+  ['find/tasks', '議事録の ToDo に乗せると出る ［タスクにする］ で、「タスク管理」に行ができます。担当と期限は ToDo に書いてあるときだけ入ります。'],
+  ['find/tasks', 'タスクにした ToDo には ［タスクを開く］ が出ます。ToDo とタスクの済みは、それぞれで付けます。'],
+  ['find/tasks', '「マイタスク」には、担当に「自分」があり、済んでいないタスクが期限の順に並びます。サイドバーの「タスク管理」の ▸ から開けます。'],
+  ['find/tasks', 'データベースの ［＋ 新しい行］ の横の ▾ で、行のテンプレートを作り、既定にできます。'],
+  ['summary/edit-summary', 'コールアウトの印は、画面では電球の線の絵で出ますが、写して貼ると 💡 の字になります。'],
+  ['record/start-stop', '録音した議事録は、サイドバーのいちばん上の「議事録」データベースに入ります。'],
+];
+test('IH-1: 承認された画面の文（ヘルプ・出典・コールアウトの1文）が記事に字のままある。直した記事の ［…］ はアプリにある文字だけで、updated は 2026-11-15 から。pre は使わない。Notion の名前が無い', { timeout: 5000 }, () => {
+  const app = L.appLabelText(ROOT);
+  for (const [ref, say] of IH1_SAY) assert.ok(read(fileOf(ref)).includes(say), `${ref} に承認の文が無い: ${say.slice(0, 40)}`);
+  for (const ref of IH1_REFS) {
+    const a = articles.find((x) => x.ref === ref);
+    assert.ok(a, `${ref} の記事が無い（site.json の分類にも）`);
+    assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${ref}: アプリに無い ［…］`);
+    assert.ok(metaOf(a).updated >= '2026-11-15', `${ref}: updated を直した日にしていない`);
+    assert.ok(!/<pre|```/.test(a.text), `${ref}: pre の要素を使った`);
+    assert.ok(!/notion/i.test(a.text), `${ref}: Notion の名前がある`);
+  }
+  const pl = read(fileOf('find/page-look'));
+  assert.ok(pl.includes('## アイコンの出典'), 'find/page-look の末に「アイコンの出典」の節が無い');
+  assert.ok(!pl.slice(pl.indexOf('## アイコンの出典') + 5).includes('\n## '), '「アイコンの出典」が末の節でない');
+  // 決めたこと 59・R51: 移し替えを元に戻す道は書かない
+  assert.ok(!read(fileOf('find/minutes-db')).includes('控えから戻す'), 'find/minutes-db に戻す道を書いた');
+});
+
+test('IH-1・rv58 軽い 6: 記事と README に、絵文字で書いた既定のアイコン（🎙️・📄・🗃️）が無い（画面はアイコンの絵。写しの「📄 題名」は記事に書いていない）。README の「新しいページ」の項目は今の字', { timeout: 5000 }, () => {
+  for (const a of articles) assert.ok(!/🎙|📄|🗃/u.test(a.text), `${a.ref}: 絵文字の既定のアイコンが残る: ${(a.text.match(/.{0,20}(?:🎙|📄|🗃).{0,20}/u) || [''])[0]}`);
+  const readme = read('README.md');
+  assert.ok(!/🎙|📄|🗃/u.test(readme), `README に絵文字の既定のアイコンが残る: ${(readme.match(/.{0,20}(?:🎙|📄|🗃).{0,20}/u) || [''])[0]}`);
+  assert.ok(readme.includes('［白紙のページ］か［議事録（録音の前のページ）］'), 'README の「新しいページ」の項目が今の字でない');
+  for (const say of IH1_SAY.filter(([ref]) => ref === 'find/page-look').slice(4).map((x) => x[1])) assert.ok(readme.includes(say), 'README に出典の文が無い');
+});
+
+test('IH-1: site.json の find の database の次に minutes-db・tasks。HELP_ARTICLES も同じ並び。find の説明に「議事録」データベースとタスク管理', { timeout: 5000 }, () => {
+  const find = site.categories.find((c) => c.id === 'find');
+  const i = find.articles.indexOf('database');
+  assert.deepStrictEqual(find.articles.slice(i, i + 3), ['database', 'minutes-db', 'tasks']);
+  assert.ok(find.description.includes('「議事録」データベース') && find.description.includes('タスク管理'), 'find の説明に新しい記事の中身が無い');
+  assert.ok(read('src/mainlib.js').includes("'find/database', 'find/minutes-db', 'find/tasks', 'find/page-look'"), 'HELP_ARTICLES に新しい記事が無い');
 });

@@ -1,7 +1,7 @@
 ---
 title: 要約を書き直す
 description: 要約とメモの行を1行ずつ書き直す。/ のメニュー・行頭の記法・文字の飾りとリンクと色・貼り付け・行を選ぶ・元に戻す・＋ と ⠿・入れ子とトグル・近道と、作り直すと戻ること
-updated: 2026-11-02
+updated: 2026-11-15
 sources: src/renderer/app.html, src/blockEdit.js, src/blockTree.js, src/richText.js, src/pasteConvert.js, src/undoBook.js, src/memoDoc.js, src/shortcuts.js, src/db/commands.js, src/winstate.js, src/preload.js
 related: summary/how-summaries, summary/citations, settings/hotkeys
 ---
@@ -240,3 +240,4 @@ Claude に渡すメモ（要約を作るとき・Claude デスクトップから
 要約を書き直した後は（どんな直しでも）、作り直す前に「書き直した要約を作り直しますか？」と確かめます（［作り直す］ か ［やめる］）。
 
 ［コピー］ と Claude デスクトップから読む要約（[Claude との連携（MCP）](start/claude-mcp.md)）にも、見出しの段・番号付き・引用・区切り線と、入れ子の中の行が写ります。
+コールアウトの印は、画面では電球の線の絵で出ますが、写して貼ると 💡 の字になります。

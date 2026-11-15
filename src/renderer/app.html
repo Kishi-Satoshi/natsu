@@ -288,7 +288,7 @@
     border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 12px; }
   .selbar #selCount { flex: 1 0 100%; color: var(--text-2); }
   .selbar button { height: 26px; font-size: 12px; padding: 0 10px; }
-  /* 行の頭のチェックボックス（16px。🎙️ の代わり。行の高さ 30px は変えない）。地は --accent、印は --on-accent */
+  /* 行の頭のチェックボックス（16px。行の頭のアイコンの代わり。行の高さ 30px は変えない）。地は --accent、印は --on-accent */
   .pchk { flex: none; width: 16px; height: 16px; margin: 0 2px; border: 1.5px solid var(--muted); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
   .pchk[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .pchk[aria-checked="true"]::after { content: ''; width: 8px; height: 4px; border: solid var(--on-accent); border-width: 0 0 2px 2px; transform: translate(0, -1px) rotate(-45deg); }
@@ -304,7 +304,7 @@
   /* 高さを一定に保つ: タイトルもメタも1行で省略する */
   .pitem .t { font-weight: 600; font-size: 13px; line-height: 1.5;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* サイドバーの議事録は「🎙️ 題名」の1行（第1b2回 L-2。高さ 30px）。日付・長さ・要約なし・タイプは行の title */
+  /* サイドバーの議事録は「アイコン 題名」の1行（第1b2回 L-2。高さ 30px。0.17.0 IV-1 から既定のアイコンはマイクの線の絵）。日付・長さ・要約なし・タイプは行の title */
   .side .pitem { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; flex: none; }
   .side .pitem .t { flex: 1; min-width: 0; font-size: 14px; font-weight: inherit; }
   /* 0.15.0 PH-3（決めたこと 18・21）: サイドバーの木。子のある行（.kids）は、乗せる・フォーカスでアイコンの所が ▸（開いていれば ▾）になり、押すと開け閉め
@@ -436,7 +436,7 @@
   .dbopen:hover { background: var(--hover); color: var(--text); }
   .dbopen:focus-visible { outline: 2px solid var(--accent); }
   .dbcell[aria-readonly="true"] { color: var(--muted); }
-  /* 0.16.0 DR-1（決めたこと 34・38）: リレーションのセルの「📄 題名」（押すと開く）・サブアイテムの ▸／▾（字は content: セルの文字は題名のまま）と段の字下げ・
+  /* 0.16.0 DR-1（決めたこと 34・38）: リレーションのセルの「アイコン 題名」（押すと開く。0.17.0 IV-1 から書類の線の絵）・サブアイテムの ▸／▾（字は content: セルの文字は題名のまま）と段の字下げ・
      絞り込みに当たった子の親（灰色）・リレーションの列を足す窓のチェック */
   .dbrel { display: inline-block; margin-right: 8px; text-decoration: underline; text-decoration-color: var(--line); cursor: pointer; }
   .dbrel:hover { text-decoration-color: currentColor; }
@@ -585,7 +585,7 @@
   .palbox #searchBox:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .palopts { flex: none; padding: 8px 12px 4px; }
   #palList { padding: 4px 8px 8px; }
-  /* 結果の行は2行（🎙️・題名、灰色の日付・長さ・抜粋）で高さ約 44px。↓↑ で選んでいる行（.kbd）は --tint */
+  /* 結果の行は2行（アイコン・題名、灰色の日付・長さ・抜粋）で高さ約 44px。↓↑ で選んでいる行（.kbd）は --tint */
   #palList .pitem { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; padding: 5px 8px; flex: none; }
   #palList .pitem .pi { line-height: 1.5; }
   #palList .pb { flex: 1; min-width: 0; }
@@ -981,7 +981,7 @@
   .blk.subpage .txt:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
   .blk.subpage.gone .txt { cursor: default; color: var(--muted); text-decoration: none; }
   .blk.subpage.gone .txt:hover { background: transparent; }
-  /* 0.16.0 DL-1 (2)（R111）: 本文のインラインの表（子ページの行の inline）。行の文（📄 の題名）は出さず、頭（🗃️・題名の欄・⤢）と表。表は 15 行の高さで中を捲る */
+  /* 0.16.0 DL-1 (2)（R111）: 本文のインラインの表（子ページの行の inline）。行の文（アイコンと題名）は出さず、頭（データベースのアイコン・題名の欄・⤢）と表。表は 15 行の高さで中を捲る */
   .blk.dbinline { flex-wrap: wrap; }
   .blk.dbinline > .txt { display: none; }
   .dbhost { flex: 1 1 100%; min-width: 0; margin: 4px 0 8px; position: relative; }   /* 0.16.0 直し（R128）: 表のメニュー・窓の置き場所の基は表の入れ物（dbMenuPlace の位置と同じ） */
@@ -5992,7 +5992,7 @@
     return { FILTER_OPS, FILTER_DEPTH, GROUP_TYPES, AGG_KINDS, defaultView, normalizeView, matchFilter, compareCells, aggregate, applyView, filterDefaults, windowOf };
   })();
   // ---- dbView の写しはここまで
-  // サイドバーの議事録は「🎙️ 題名」の1行。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
+  // サイドバーの議事録は「アイコン 題名」の1行（0.17.0 IV-1 から既定はマイクの線の絵）。日付・長さ・要約なし・会議の種類（選べる種類のときだけ）は行の title（この順。要約なしが先）
   function rowTitle(p) {
     // PH-6・PH-7 直し（2026-11-04 の持ち主の答え「日付だけにする」・F116）: 白紙のページは日付だけ（長さ・要約なし・種類は会議の欄）
     // 0.16.0 DX-2（R102）: データベースと、検索に当たったデータベースの行も日付だけ（長さ・要約なしは会議の欄）
@@ -6021,7 +6021,7 @@
   function treeRowOf(p) { return { id: p.id, parentId: typeof p.parentId === 'string' && p.parentId ? p.parentId : null, ord: p.ord, createdAt: p.createdAt, updatedAt: p.updatedAt }; }
   function treeNow() {
     if (treeFor !== pages) {
-      // 0.16.0 R97（M14）: データベースの行の中のページ（一覧の inRow）はサイドバーの木に入れない（行の本文の 📄 の行とパンくずから開く）
+      // 0.16.0 R97（M14）: データベースの行の中のページ（一覧の inRow）はサイドバーの木に入れない（行の本文の子ページの行とパンくずから開く）
       // 0.17.0 MG-3（決めたこと 56）: 「議事録」データベースの中（一覧の inMinutes: 議事録と議事録の子ページ）も入れない（「議事録」の表と議事録の頭から開く）
       treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string' && !p.inRow && !p.inMinutes).map(treeRowOf));
       treeFor = pages;
@@ -6208,7 +6208,7 @@
       el.dataset.pid = p.id;
       let ic;
       if (listSel.on) {
-        // 0.10.0 L-2: 選ぶ形の間は 🎙️ の代わりにチェックボックス。押すと付け外し（ページは開かない）
+        // 0.10.0 L-2: 選ぶ形の間は行の頭のアイコンの代わりにチェックボックス。押すと付け外し（ページは開かない）
         ic = document.createElement('span'); ic.className = 'pchk'; ic.setAttribute('role', 'checkbox');
         ic.setAttribute('aria-checked', listSel.ids.includes(p.id) ? 'true' : 'false');
         // PH-3 直し（R28 (3)・決めたこと 23）: 選ぶ形でも子のある行は、チェックボックスの隣の小さな ▸ で開け閉めできる（選びは変えない・ページは開かない）
@@ -6820,7 +6820,7 @@
   // PH-5 直し 2（R56 M-2）: 窓の中のフォーカスを取れない所（見出し・候補・余白）を押してもフォーカスを探す欄から外さない（キーは探す欄で受ける）
   $('movePop').addEventListener('mousedown', (ev) => { if (keepPopFocus(ev, [$('moveSearch'), $('moveList')])) ev.preventDefault(); });
   // 新しいページの選び（決めたこと 28・BQ7 (a)）: Ctrl+Shift+N（窓のどこでも。変換中は抜ける・設定や検索の窓・確かめが開いているときは何もしない）で
-  // 「新しいページ」に［📄 白紙のページ］［🎙️ 議事録（録音の前のページ）］。↑↓・Enter・Esc。項目は表で持つ（0.17.0 で［データベース］を足せる並び）。
+  // 「新しいページ」に［白紙のページ］［議事録（録音の前のページ）］（0.17.0 IV-1 から頭の絵文字を外し、前にアイコンの線の絵）。↑↓・Enter・Esc。項目は表で持つ（0.17.0 で［データベース］を足せる並び）。
   // ［白紙のページ］は最上位に作って開く（pageCreate()）、［議事録］は［＋ 新しい議事録］と同じ（録音の前のページを開くだけ。録音中・作成中は灰色で「録音中です」）
   const NEW_BUSY = '録音中です';
   // PH-5 直し 2（R56 M-3）: 選んだ後のフォーカス。白紙のページは作ったページの題名（createPageIn）・作れなければ開く前の所（無ければ見出しの［＋］）、
@@ -7137,7 +7137,7 @@
     const p = pages.find((x) => x && x.id === id);
     return pageTreeView.placeText(p && p.inMinutes ? treeFlat() : treeNow(), (x) => oneLine((crumbPage(x) || {}).title), id);   // 0.17.0 MG-3（決めたこと 57）
   }
-  // 検索の窓の結果は2行（🎙️・題名、灰色の日付・長さ・要約なし・タイプ）と抜粋
+  // 検索の窓の結果は2行（アイコン・題名、灰色の日付・長さ・要約なし・タイプ）と抜粋
   function renderResults() {
     const box = $('palList'); box.textContent = '';
     // 0.10.0 LN-4（決めたこと 148）: 貼ったリンクの議事録を開く行（結果の頭。Enter・押すで開く）
@@ -7392,7 +7392,7 @@
   }
   const LIVE_COPY_PHASES = ['recording', 'paused', 'finalizing'];   // 録音中の写し（src/db/commands.js の LIVE_PHASES と同じ）
   const isLiveCopy = (page) => Boolean(page && page.meeting && typeof page.meeting === 'object' && LIVE_COPY_PHASES.includes(page.meeting.phase));
-  // 0.15.0 PH-4（決めたこと 24・36）: 白紙のページ（ページの kind が 'blank'。一覧の行の kind も同じ）。アイコンは今は既定だけ（議事録 🎙️・白紙のページ 📄。選べるのは PL-3）
+  // 0.15.0 PH-4（決めたこと 24・36）: 白紙のページ（ページの kind が 'blank'。一覧の行の kind も同じ）。既定のアイコンは、0.17.0 IV-1 から議事録はマイク・白紙のページは書類の線の絵（選べるのは PL-3）
   // （描く関数は script の上の方からも呼ばれるので、どれも巻き上がる関数の宣言にする）
   function isBlankPage(p) { return Boolean(p && typeof p === 'object' && p.kind === 'blank'); }
   // 0.16.0 DV-4（決めたこと 26・R91）: データベースの行のページ（openPage が page.get の答えの db から付けた kind 'row' と db。DB の欄ではない）
@@ -7616,9 +7616,9 @@
     clearActs();
     $('pageWrap').classList.remove('live-on');   // 記録中のタブを描くときは showLive → drawLive が付け直す
     renderWave();   // 0.9.3 M-6: 保存したページには波を出さない
-    // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・BQ2 (a)）: 白紙のページは頭がアイコン（📄）と題名だけで、その下が本文
+    // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 24・BQ2 (a)）: 白紙のページは頭がアイコン（既定は書類の線の絵）と題名だけで、その下が本文
     // （会議の種類の行・プロパティ・［AI 要約］［メモ］［文字起こし］のタブ・［要約を生成］を出さない）
-    // 0.16.0 DV-4（決めたこと 26・R90）: データベースの行のページも頭（📄 と題名）と本文は白紙のページと同じ形。頭の下に列の値の並び（#pProps）
+    // 0.16.0 DV-4（決めたこと 26・R90）: データベースの行のページも頭（書類のアイコンと題名）と本文は白紙のページと同じ形。頭の下に列の値の並び（#pProps）
     const rowp = isRowPage(curPage);
     const blank = isBlankPage(curPage) || rowp;
     $('pageWrap').classList.toggle('blank', blank);
@@ -7921,7 +7921,7 @@
   let iconPop = null;   // 開いているとき { id, at }
   let iconPopOn = false;
   const iconOpts = () => [...$('iconList').querySelectorAll('.icopt')];
-  function iconLocked() { return !curPage || isLiveCopy(curPage) || isRowPage(curPage); }   // 0.16.0 DV-4（R92）: 行のページのアイコンは 📄 のまま   // 巻き上がる宣言（renderPage から呼ぶ）。記録中のタブ・録音の前のページでは curPage が null（showLive）
+  function iconLocked() { return !curPage || isLiveCopy(curPage) || isRowPage(curPage); }   // 0.16.0 DV-4（R92）: 行のページのアイコンは既定（書類）のまま   // 巻き上がる宣言（renderPage から呼ぶ）。記録中のタブ・録音の前のページでは curPage が null（showLive）
   function syncIconBtn() {
     const b = $('pIcon');
     if (iconLocked()) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
@@ -11618,7 +11618,7 @@
   const dbLineAt = (st, li) => (st.lines ? st.lines[li] : li);
   const dbRowLine = (st, i) => (st.rowLine && Number.isInteger(st.rowLine[i]) ? st.rowLine[i] : i);
   // ---- 0.16.0 DL-1 (2)（R111・決めたこと 39・R107 の画面の文）: 白紙のページの本文の表。子ページの行の inline: true はインラインの表。
-  // 頭は「🗃️」・題名の欄（手引き「無題のデータベース」・aria-label「データベースの題名」。変えると db.setTitle の1回）・⤢（title「ページで開く」）。
+  // 頭はデータベースのアイコン・題名の欄（手引き「無題のデータベース」・aria-label「データベースの題名」。変えると db.setTitle の1回）・⤢（title「ページで開く」）。
   // 表の状態は行の ID を鍵に dbTables に置き、本文を描き直しても同じ部品（箱）を付け直す（読み直さない）
   const DB_GONE_ROW = '（このデータベースは見られません）';
   const DB_PAGE_OPEN = 'ページで開く';
@@ -12609,7 +12609,7 @@
   // ================= 0.16.0 DV-4: 行を開く・行のメニュー・行のページ =================
   // 計画 docs/plans/2026-11-04-160.md の決めたこと 26・51・R49・R90〜R93。題名のセルの［開く］（Ctrl+クリックで新しいタブ）・選んだセルの Space で、
   // 今のタブに行のページを開く。行のメニュー（行の右クリック・⋮⋮ を押す・選んだセルの Shift+F10／ContextMenu）は［開く］［新しいタブで開く］［リンクを写す］［削除］。
-  // 行のページは頭（📄 と題名）・列の値の並び（#pProps。押すと表と同じ書き手）・本文（白紙のページの部品。歩みは行の要約の欄 bookKey(<行>, 'note')）
+  // 行のページは頭（書類のアイコンと題名）・列の値の並び（#pProps。押すと表と同じ書き手）・本文（白紙のページの部品。歩みは行の要約の欄 bookKey(<行>, 'note')）
   const DB_OPEN = '開く';
   const DB_TRASHED = (n) => `行 ${n} 件をゴミ箱に入れました（Ctrl+Z で戻せます）`;
   function dbOpenBtn(rowId) {
@@ -12739,7 +12739,7 @@
     }
     const x = dbModelView.cellValue(row, col);
     const text = dbModelView.fmtCell(col, x, { rowsById: st.known });
-    if (col.type === 'rel') dbRelChips(v, x, row._rel);   // 0.16.0 DR-1: 「📄 題名」の並び（表と同じ）
+    if (col.type === 'rel') dbRelChips(v, x, row._rel);   // 0.16.0 DR-1: 「アイコン 題名」の並び（表と同じ）
     else if (x !== null && ['url', 'email', 'phone'].includes(col.type)) {   // 値の文字を押すと開く・写す（表と同じ: SEC2）
       const a = document.createElement('span');
       a.className = 'dblink'; a.textContent = text;
@@ -12843,7 +12843,7 @@
     rpPaint(st);
   }
   // ================= 0.16.0 DR-1: リレーションとサブアイテム =================
-  // 計画 docs/plans/2026-11-04-160.md の決めたこと 33〜38・R98・R99。リレーションのセルは「📄 題名」の並び（相手の題名は db.view・page.get の答えの rel。
+  // 計画 docs/plans/2026-11-04-160.md の決めたこと 33〜38・R98・R99。リレーションのセルは「アイコン 題名」の並び（相手の題名は db.view・page.get の答えの rel。
   // ゴミ箱の行は答えに無いので出ない）。押すと相手の行が開き、セルの余白を押す（か Enter）と選びの窓（行を探す・押すとつなぐ／外す・［新しい行を作ってつなぐ］）。
   // サブアイテムはデータベースの「···」の［サブアイテム］で入れ、行のメニューの［サブアイテムを足す］で子を作る。子のある行の題名の前に ▸／▾（開いた行は
   // ビューごとの窓のメモリ st.subOpen。db.view の open に渡す）。他人の文字（題名）は textContent だけ
@@ -12860,7 +12860,7 @@
   const dbRelIcon = () => pageIconValue({ kind: 'row' });   // rv58 軽い 4（R8）: 相手は行のページなので、行に入った値を見ずにいつも行の既定（書類。ほかの所と同じ）
   // サブアイテムの列（親アイテム・サブアイテム）か
   const dbSubCol = (info, colId) => Boolean(info && info.sub && (info.sub.parent === colId || info.sub.kids === colId));
-  // セルの「📄 題名」の並び（rel: 相手の行の ID → { title, icon? }。無い行は出さない）。押すと相手の行を開く（Ctrl+クリックで新しいタブ）
+  // セルの「アイコン 題名」の並び（rel: 相手の行の ID → { title, icon? }。無い行は出さない）。押すと相手の行を開く（Ctrl+クリックで新しいタブ）
   function dbRelChips(host, ids, rel) {
     for (const id of Array.isArray(ids) ? ids : []) {
       const r = rel && Object.hasOwn(rel, id) ? rel[id] : null;
@@ -13081,7 +13081,7 @@
   function dbCellFill(st, cell, col, row) {
     const v = dbModelView.cellValue(row, col);
     cell.textContent = '';
-    if (col.type === 'rel') { dbRelChips(cell, v, row._rel); return; }   // 0.16.0 DR-1（決めたこと 34）: 「📄 題名」の並び
+    if (col.type === 'rel') { dbRelChips(cell, v, row._rel); return; }   // 0.16.0 DR-1（決めたこと 34）: 「アイコン 題名」の並び
     const text = dbModelView.fmtCell(col, v, { rowsById: st.known });
     if (v === null || !['url', 'email', 'phone'].includes(col.type)) {
       cell.textContent = text;
@@ -16000,7 +16000,7 @@
         dragStartX = Number(ev.clientX) || 0;
         ev.dataTransfer.effectAllowed = 'move';
         try { ev.dataTransfer.setData('text/plain', b.id); } catch (_) { /* noop */ }
-        // 0.16.0 DL-1 (2b-2)（決めたこと 56 (2)・DQ4・DQ9）: 白紙のページの本文の子ページの行（📄・🗃️・インライン）はサイドバーへも落とせる（ページの印も置く）
+        // 0.16.0 DL-1 (2b-2)（決めたこと 56 (2)・DQ4・DQ9）: 白紙のページの本文の子ページの行（ページ・データベース・インライン）はサイドバーへも落とせる（ページの印も置く）
         const sp = !dragIds && b.type === 'subpage' && keyOfEl(el) === curId && isBlankPage(curPage) ? subPageOf(b) : null;
         if (sp) { pageDrag = sp.id; try { ev.dataTransfer.setData(PAGE_DRAG_TYPE, sp.id); } catch (_) { /* 印を置けなければサイドバーには落とせない */ } }
       };
