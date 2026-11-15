@@ -49,15 +49,16 @@ const LIST = [{ id: 'pa1', title: titleAt('2026-10-16T01:00:00.000Z'), date: '20
   { id: 'pc3', title: titleAt('2026-10-01T08:00:00.000Z'), date: '2026-10-14', durationSec: 600, hasSummary: false, meetingType: 'standup' }];
 const TYPES = [{ key: 'general', label: '一般・その他' }, { key: 'standup', label: '定例・進捗報告' }];
 const ST = (o = {}) => ({ active: true, finalizing: false, startedAt: Date.now() - 60000, segments: [{ atMs: 0, text: '始めます（見本）' }], pending: 0, pauses: [], cloud: true, ...o });
-const row = (el) => [el.querySelector('.ic') ? el.querySelector('.ic').textContent : null, el.childNodes.filter((n) => n.tagName === '#text').map((n) => n.textContent).join('')];
+// 0.17.0 IV-3（計画 docs/plans/2026-11-13-170.md の決めたこと 23・R61）で意図して変えた: 線の絵の行は .ic の中の .pgi の data-icon（字の印の行は今どおり .ic の字）
+const row = (el) => [el.querySelector('.ic') ? (el.querySelector('.ic .pgi') ? el.querySelector('.ic .pgi').getAttribute('data-icon') : el.querySelector('.ic').textContent) : null, el.childNodes.filter((n) => n.tagName === '#text').map((n) => n.textContent).join('')];
 
 test('1b2 直し: サイドバーの［＋ 新しい議事録］［■ 終了して作成］［破棄］もアイコンの欄（.ic）を持ち、文字がほかの行とそろう', async () => {
   const l = await load(APP, { preloadSrc: PRELOAD, returns: { pagesSearch: () => LIST, meetingTypes: () => TYPES } });
   await l.drain();
   const tog = l.byId.get('mtToggleBtn'), dis = l.byId.get('mtDiscardBtn');
-  assert.deepStrictEqual(row(l.byId.get('sideSearch')), ['🔍', '検索'], '前提: ほかの行はアイコンの欄と文字');
+  assert.deepStrictEqual(row(l.byId.get('sideSearch')), ['ic:search', '検索'], '前提: ほかの行はアイコンの欄と文字');
   assert.deepStrictEqual(row(tog), ['＋', '新しい議事録']);
-  assert.deepStrictEqual(row(dis), ['🗑️', '破棄']);
+  assert.deepStrictEqual(row(dis), ['ic:delete', '破棄']);
   l.fire('onMeetingUpdate', ST()); await l.drain();
   assert.deepStrictEqual(row(tog), ['■', '終了して作成']);
   l.fire('onMeetingUpdate', ST({ finalizing: true })); await l.drain();

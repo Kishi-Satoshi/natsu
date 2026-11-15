@@ -583,7 +583,8 @@ test('PS-2・F162・PQ8: ［表示］の［5］でいちばん上の行が 5 つ
   await press(l, $(l, 'sideMore'));
   assert.deepStrictEqual(tabKeysOf(l), ['library'], '［もっと見る］でライブラリを開かない');
   assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').dataset.key, 'library');
-  assert.strictEqual($(l, 'tabbar').querySelector('[aria-selected="true"]').textContent.replace('×', ''), '📚 ライブラリ');
+  // 0.17.0 IV-3（計画 docs/plans/2026-11-13-170.md の決めたこと 23・R61）で意図して変えた: 名前は「ライブラリ」、印は .ti の線の絵（ic:library_books）
+  assert.deepStrictEqual([$(l, 'tabbar').querySelector('[aria-selected="true"]').textContent.replace('×', ''), $(l, 'tabbar').querySelector('[aria-selected="true"] .ti').getAttribute('data-icon')], ['ライブラリ', 'ic:library_books']);
   assert.deepStrictEqual([$(l, 'tabLibrary').classList.contains('active'), $(l, 'tabNotes').classList.contains('active'), $(l, 'tabLibrary').querySelector('h1').textContent],
     [true, false, 'ライブラリ'], 'ライブラリの中身が出ない');
   await press(l, uRow(l, 'pg7'));

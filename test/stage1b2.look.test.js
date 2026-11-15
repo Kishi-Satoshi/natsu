@@ -112,7 +112,8 @@ test('1b2 L-2: サイドバーの頭はロゴと NaTsu と飾りの ▾。行は
   const side = l.byId.get('side');
   // 0.11.1 LG-4 で意図して変えた: ロゴは箱とリスの2本（海の色の波は無い）
   assert.ok(side.querySelector('.logo .logo-box') && side.querySelector('.logo .logo-sq') && side.querySelector('.ws-caret'));
-  assert.strictEqual(l.byId.get('sideSearch').textContent, '🔍検索');
+  // 0.17.0 IV-3（計画 docs/plans/2026-11-13-170.md の決めたこと 23・R61）で意図して変えた: 印は .ic の中の線の絵（ic:search）で、字は「検索」
+  assert.deepStrictEqual([l.byId.get('sideSearch').textContent, l.byId.get('sideSearch').querySelector('.ic .pgi').getAttribute('data-icon')], ['検索', 'ic:search']);
   assert.strictEqual(l.byId.get('mtToggleBtn').textContent, '＋新しい議事録');   // ＋ はアイコンの欄（.ic）。第1b2回の直し（stage1b2.fix.test.js）
   assert.ok(!side.querySelector('#searchBox') && !side.querySelector('#fltAll'), '検索の欄と絞り込みがサイドバーに残っている');
   // 0.15.1 ND-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・D114）で意図して変えた: 下の行は［⚙️ 設定］（音声入力の行は無い）

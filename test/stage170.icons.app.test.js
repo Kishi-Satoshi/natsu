@@ -19,6 +19,7 @@ const S = require('./helpers/simcss');
 const core = require('../src/db/core');
 const P = require('../src/pageIcons');
 const PATHS = require('../src/pageIconPaths');
+const MD = require('../src/memoDoc');
 
 const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'src', 'renderer', 'app.html');
@@ -125,7 +126,8 @@ test('IV-1・F181・F186: iconEl（ic: は SVG の名前空間の svg と path�
   const made = (l.createdNS || []).filter((e) => e.tagName === 'svg').length;
   const shown = l.document.querySelectorAll('svg').length;
   assert.ok(shown >= 30, `描いた svg が少ない（${shown}）`);
-  assert.ok(made <= 8, `svg を ${made} 回組んだ（写していない）`);
+  // IV-3（R61）でサイドバーの決まった行と会議の種類の行の4つの絵（検索・ゴミ箱・設定・札）が増えたので、上限を 8 から 12 に（30 の行で 30 回組まないことは同じ）
+  assert.ok(made <= 12, `svg を ${made} 回組んだ（写していない）`);
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -446,4 +448,148 @@ test('IV-2: 最近使ったものは開いているタブの種類だけ・選�
   assert.deepStrictEqual(l.called('pageSetIcon').map((c) => c.args), [['g1', '🌸'], ['g1', '']]);
   assert.strictEqual(iconOf($(l, 'pIcon')), DOC, '［外す］で既定（書類）に戻らない');
   assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// ---------------------------------------------------------------- IV-3（決めたこと 23・IQ10）
+// 画面の飾り: サイドバーの決まった行・ライブラリのタブ・議事録の項目の行の印は線のアイコン（data-icon の決まった値）。字は今のまま。選びの窓には出さない
+const UI_ICONS = ['ic:settings', 'ic:delete', 'ic:library_books'];
+test('IV-3: サイドバーの［検索］［破棄］［ゴミ箱］［設定］の印が線のアイコン（.ic の中の .pgi・data-icon の決まった値・絵文字の字が無い）。字と読み上げの名前は「検索」「破棄」「ゴミ箱」「設定」', T, async () => {
+  const heads = [{ id: 'tr1', title: '捨てた白紙', kind: 'blank', trashedAt: '2026-10-22T00:00:00.000Z', count: 0 }];   // 白紙のページの題名（D77 の外）
+  const l = await boot({ returns: { pagesTrash: () => heads } });
+  const want = { sideSearch: ['ic:search', '検索'], mtDiscardBtn: ['ic:delete', '破棄'], tabBtnTrash: ['ic:delete', 'ゴミ箱'], tabBtnSettings: ['ic:settings', '設定'] };
+  for (const [id, [icon, text]] of Object.entries(want)) {
+    const b = $(l, id);
+    const ic = b.querySelector('.ic');
+    assert.ok(ic, `${id} に .ic が無い`);
+    assert.strictEqual(iconOf(ic), icon, `${id} の印`);
+    assert.strictEqual(ic.querySelector('.pgi').getAttribute('aria-hidden'), 'true', `${id} の印を読み上げる`);
+    assert.ok(ic.querySelector('svg'), `${id} の印が線の絵でない`);
+    assert.strictEqual(b.textContent, text, `${id} の字`);
+    assert.strictEqual(b.getAttribute('aria-label'), null, `${id} に新しい読み上げの名前`);
+  }
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('IV-3: ライブラリのタブの印が線のアイコン（.ti が ic:library_books・字は「ライブラリ」・title も「ライブラリ」）。ページのタブは今のまま', T, async () => {
+  const l = await boot({ returns: { uiState: () => ({ tabs: { open: ['page:pa1', 'library'], active: 'library' } }) } });
+  const lib = $(l, 'tabbar').querySelectorAll('.tabitem').find((t) => t.dataset.key === 'library');
+  assert.ok(lib, '前提: ライブラリのタブ');
+  assert.strictEqual(iconOf(lib.querySelector('.ti')), 'ic:library_books', 'ライブラリのタブの印');
+  assert.ok(lib.querySelector('.ti svg'), '線の絵でない');
+  assert.deepStrictEqual([lib.querySelector('.tt').textContent, lib.title], ['ライブラリ', 'ライブラリ'], 'タブの字');
+  assert.ok(!lib.textContent.includes('📚'), '📚 の字が残る');
+  assert.strictEqual(iconOf(tabOf(l, 'pa1').querySelector('.ti')), MIC, 'ページのタブ');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('IV-3: 議事録の項目の行（作成日時・長さ・区間・出典・アクション・会議の種類）の印が線のアイコン。字（「作成日時」など）と値は今のまま・どこで処理したかの行は字のまま', T, async () => {
+  const base = LIST();
+  const l = await boot({ list: base, returns: { pageGet: (id) => {
+    const r = PAGE(id, base);
+    if (r && id === 'pa1') { r.page.citeStat = { linked: 1, total: 2 }; r.page.actionStat = { total: 3, withAssignee: 1, withDue: 2 }; r.page.routeText = ['☁ 文字起こし: クラウド']; }
+    return r;
+  } } });
+  await open(l, 'pa1');
+  const rows = $(l, 'pProps').querySelectorAll('.prop');
+  const k = (r) => r.querySelector('.k');
+  const named = rows.slice(0, 5).map((r) => [iconOf(k(r).querySelector('.ic')), k(r).textContent]);
+  assert.deepStrictEqual(named, [['ic:calendar_month', ' 作成日時'], ['ic:timer', ' 長さ'], ['ic:chat', ' 区間'], ['ic:link', ' 出典'], ['ic:task_alt', ' アクション']], '項目の行の印と字');
+  assert.deepStrictEqual(rows.slice(1, 5).map((r) => r.querySelector('.v').textContent), ['10分0秒', '0', '1/2', '3（担当1 / 期限2）'], '値');
+  for (const r of rows.slice(0, 5)) assert.ok(k(r).querySelector('.ic svg'), '線の絵でない');
+  const route = rows[5];
+  assert.ok(route && route.querySelector('.k').textContent.includes('☁'), 'どこで処理したかの行の字が変わった');
+  const ty = $(l, 'pTypeRow').querySelector('.k');
+  assert.deepStrictEqual([iconOf(ty.querySelector('.ic')), ty.textContent], ['ic:label', ' 会議の種類'], '会議の種類の行');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('IV-3: 画面の飾りだけの絵（設定・ゴミ箱・ライブラリ）は選びの窓のどちらのタブにも出ず、探しても当たらない', T, async () => {
+  const l = await boot();
+  await open(l, 'g1');
+  await openPop(l);
+  const all = () => optsOf(l).map((b) => b.dataset.e);
+  assert.ok(all().length > 100, '前提: アイコンの並び');
+  assert.deepStrictEqual(all().filter((v) => UI_ICONS.includes(v)), [], 'アイコンのタブに飾りの絵');
+  const q = $(l, 'iconSearch');
+  for (const w of ['せってい', 'ごみばこ', 'らいぶらり', 'settings', 'delete', 'library']) {
+    q.value = w; q.dispatchEvent({ type: 'input' }); await l.drain();
+    assert.deepStrictEqual(all().filter((v) => UI_ICONS.includes(v)), [], `「${w}」で飾りの絵が当たる`);
+  }
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// ---------------------------------------------------------------- IV-4（決めたこと 24・IQ8・F192）
+// コールアウトの印は画面だけ電球の線のアイコン（ic:lightbulb）。保存する値・文字の写し・MCP は 💡 のまま
+const CO = (id, text) => ({ id, type: 'callout', text, icon: '💡', citeState: 'manual' });
+test('IV-4・F192: 白紙のページの本文・議事録の要約の欄・メモの行のコールアウトの印が data-icon = ic:lightbulb の線の絵（字の 💡 が無い・読み上げない）。行の文は今のまま', T, async () => {
+  const base = LIST();
+  const memoDoc = [CO('m1', 'メモの囲み')];
+  const l = await boot({ list: base, returns: { pageGet: (id) => {
+    const r = PAGE(id, base);
+    if (r && id === 'k1') r.page.blocks = [CO('c1', '本文の囲み')];
+    if (r && id === 'pa1') { r.page.blocks = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, CO('c2', '要約の囲み')]; r.page.memo = MD.memoPlain(memoDoc); r.page.memoDoc = memoDoc; }
+    return r;
+  } } });
+  const check = (row, text, where) => {
+    assert.ok(row, `${where}: 前提: コールアウトの行`);
+    const ic = row.querySelector('.icon');
+    assert.ok(ic, `${where}: 印の欄（.icon）が無い`);
+    assert.strictEqual(iconOf(ic), 'ic:lightbulb', `${where}: 印が電球の線の絵でない`);
+    assert.ok(ic.querySelector('svg'), `${where}: 線の絵でない`);
+    assert.strictEqual(ic.querySelector('.pgi').getAttribute('aria-hidden'), 'true', `${where}: 印を読み上げる`);
+    assert.ok(!ic.textContent.includes('💡'), `${where}: 字の 💡 が残る`);
+    assert.strictEqual(row.querySelector('.txt').textContent, text, `${where}: 行の文`);
+  };
+  await open(l, 'k1');
+  check($(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === 'c1'), '本文の囲み', '本文');
+  await open(l, 'pa1');
+  $(l, 'paneBtnNote').dispatchEvent({ type: 'click' }); await l.drain();
+  check($(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === 'c2'), '要約の囲み', '要約の欄');
+  $(l, 'paneBtnMemo').onclick(); await l.drain();
+  check($(l, 'pMemo').querySelectorAll('.blk').find((e) => e.dataset.id === 'm1'), 'メモの囲み', 'メモの行');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('IV-4・F192: `/コールアウト` で作った行も同じ線の絵。保存の値（DB の icon）・［コピー］の Markdown（「> 💡 文」）・選んで写した text/plain（同じ「> 💡 文」）と text/html は 💡 か印なしのまま（ic: や svg が出ない）', T, async () => {
+  const l = await realApp((call) => {
+    const top = call('page.create', {}).id;
+    call('page.setTitle', { id: top, title: '囲みの見本' });   // 白紙のページの題名（D77 の外）
+    const b = call('block.insert', { pageId: top, afterBlockId: '', type: 'paragraph' }).blockId;
+    return { top, b };
+  });
+  try {
+    const { top, b } = l.made;
+    l.fire('onPageOpen', top); await l.drain(80);
+    const rowEl = () => $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === b);
+    const t = rowEl()._txt;
+    t.focus(); t.textContent = '/こーるあうと'; l.caret.set(t, t.textContent.length); t.dispatchEvent({ type: 'input' }); await l.drain();
+    const opt = $(l, 'pNote').querySelector('.slashmenu');
+    assert.ok(opt, '前提: / のメニュー');
+    l.key({ key: 'Enter' }, t); await l.drain(80);
+    const blk = l.call('page.get', { id: top }).page.blocks.find((x) => x.id === b);
+    assert.deepStrictEqual([blk.type, blk.icon], ['callout', '💡'], '保存の値が 💡 でない');
+    // 囲みの文を打つ（保存は今どおり行の文だけ）
+    const t2 = rowEl()._txt;
+    t2.focus(); t2.textContent = '覚えておくこと'; l.caret.set(t2, t2.textContent.length); t2.dispatchEvent({ type: 'input' }); await l.drain(80);
+    t2.dispatchEvent({ type: 'blur' }); await l.drain(80);
+    assert.strictEqual(l.call('page.get', { id: top }).page.blocks.find((x) => x.id === b).text, '覚えておくこと', '前提: 文の保存');
+    const ic = rowEl().querySelector('.icon');
+    assert.deepStrictEqual([iconOf(ic), Boolean(ic.querySelector('svg')), ic.textContent.includes('💡')], ['ic:lightbulb', true, false], '/ で作った行の印');
+    // ［コピー］（Markdown）
+    $(l, 'pMore').dispatchEvent({ type: 'click' });
+    $(l, 'pMenu').querySelectorAll('.mitem').find((x) => x.textContent === 'コピー').dispatchEvent({ type: 'click' }); await l.drain(80);
+    assert.ok(l.copies.length === 1 && l.copies[0].split('\n').includes('> 💡 覚えておくこと'), `［コピー］の写し: ${l.copies[0]}`);
+    // 行を選んで写す（text/plain も「> 💡 文」）
+    rowEl()._txt.focus();
+    l.key({ key: 'Escape' }, rowEl()._txt);
+    const data = {};
+    l.key({ type: 'copy', clipboardData: { setData: (k, v) => { data[k] = v; } } });
+    await l.drain();
+    assert.strictEqual(data['text/plain'], '> 💡 覚えておくこと');
+    for (const x of [...l.copies, data['text/plain'], data['text/html']]) {
+      assert.ok(typeof x === 'string' && x.length > 0);
+      for (const w of ['ic:', 'lightbulb', '<svg']) assert.ok(!x.includes(w), `${w}: ${x}`);
+    }
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
 });

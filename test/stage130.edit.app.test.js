@@ -1098,7 +1098,8 @@ test('ED-7・F51: 見出し1〜3（段の無い見出しは段 2）・番号付�
     assert.strictEqual(v.textContent, '');
     assert.strictEqual(v.getAttribute('role'), 'separator');
     assert.strictEqual(v.tabIndex, 0, '区切り線にフォーカスできない');
-    assert.strictEqual(rowOf(l, 'c1').querySelector('.icon').textContent, '💡');
+    // 0.17.0 IV-4（計画 docs/plans/2026-11-13-170.md の決めたこと 24・「意図して変えるテスト」）で意図して変えた: 画面の印は電球の線の絵（data-icon が ic:lightbulb。保存の値は 💡 のまま）
+    assert.deepStrictEqual([rowOf(l, 'c1').querySelector('.icon .pgi').getAttribute('data-icon'), rowOf(l, 'c1').querySelector('.icon').textContent], ['ic:lightbulb', '']);
     const z = rowOf(l, 'z1');
     assert.ok(z.classList.contains('paragraph'), '知らない型がテキストの見た目でない');
     assert.strictEqual(z.querySelector('.txt').textContent, '知らない型の行');

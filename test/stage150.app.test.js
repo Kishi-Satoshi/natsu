@@ -2329,7 +2329,8 @@ test('PH-6・BQ6 (a)・F121（決めたこと 31・32）: ゴミ箱が空なら�
     const { k, g } = l.made;
     const btn = $(l, 'tabBtnTrash');
     assert.strictEqual(btn.hidden, true, 'ゴミ箱が空なのに［ゴミ箱］が出る');
-    assert.strictEqual(btn.textContent, '🗑️ゴミ箱');
+    // 0.17.0 IV-3（計画 docs/plans/2026-11-13-170.md の決めたこと 23・R61）で意図して変えた: 印は .ic の中の線の絵（ic:delete）で、字は「ゴミ箱」
+    assert.deepStrictEqual([btn.textContent, btn.querySelector('.ic .pgi').getAttribute('data-icon')], ['ゴミ箱', 'ic:delete']);
     await treeMenuDo(l, 'pb1', '削除');
     assert.strictEqual(btn.hidden, false, '消しても［ゴミ箱］が出ない');
     await treeMenuDo(l, 'pa1', '削除');

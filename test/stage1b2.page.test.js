@@ -128,7 +128,8 @@ test('1b2 P-2・G9: プロパティの名前のアイコンは灰色（.ic）で
   const l = await openPage('pa1');
   const rows = l.byId.get('pProps').querySelectorAll('.prop').map((r) => r.querySelector('.k'));
   assert.ok(rows.length && rows.every((k) => k.querySelector('.ic')), 'アイコンが .ic に包まれていない');
-  assert.ok(rows.some((k) => k.textContent === '🔗 出典'), '名前の欄の文字が変わった');
+  // 0.17.0 IV-3（計画 docs/plans/2026-11-13-170.md の決めたこと 23・R61）で意図して変えた: 決まった項目の印は .ic の中の線の絵（名前の字は「出典」のまま）
+  assert.ok(rows.some((k) => k.textContent === ' 出典' && k.querySelector('.ic .pgi').getAttribute('data-icon') === 'ic:link'), '名前の欄の文字が変わった');
   // 0.11.0（R22）: 要素は assert.ok で比べる（赤のときに報告が最小 DOM の木を丸ごと書き出し、変異確認の写しで数 GB の記憶を使った）
   assert.ok(l.byId.get('pNote').querySelector('.note.info') === null, '案内の帯が残っている');
   const cite = l.byId.get('pNote').querySelector('.cite');

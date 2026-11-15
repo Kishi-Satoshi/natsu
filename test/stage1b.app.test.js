@@ -230,7 +230,8 @@ const propRows = (l) => l.byId.get('pageWrap').querySelectorAll('.prop').map((r)
 test('N4: プロパティは「アイコン・名前・値」の行。会議の種類の選び方もこの行にあり、第1c回の経路の行は名前と値に分ける', async () => {
   const l = await openPa1({ pageGet: (id) => ({ ...PAGE(id), page: { ...PAGE(id).page, citeStat: { linked: 2, total: 2 }, routeText: ['☁ 文字起こし: クラウド（Groq（無料枠））2', '✨ 要約: Claude Code'] } }) });
   const rows = propRows(l);
-  assert.match(rows.find((r) => r[0] === '🔗 出典')[1], /✔ 2\/2/, '出典がそろったことを色だけで伝えている');
+  // 0.17.0 IV-3（計画 docs/plans/2026-11-13-170.md の決めたこと 23・R61）で意図して変えた: 決まった項目の印は .ic の中の線の絵（字は「 出典」。「🔗 出典」でない）
+  assert.match(rows.find((r) => r[0] === ' 出典')[1], /✔ 2\/2/, '出典がそろったことを色だけで伝えている');
   assert.ok(rows.map((r) => r[0]).filter((k) => /作成日時|長さ|区間|会議の種類|文字起こし|要約$/.test(k)).length >= 6, JSON.stringify(rows));
   assert.deepStrictEqual(rows.find((r) => r[0] === '☁ 文字起こし'), ['☁ 文字起こし', 'クラウド（Groq（無料枠））2']);
   assert.ok(l.byId.get('pType').closest('.prop'), '会議の種類がプロパティの行に無い');

@@ -1669,6 +1669,8 @@ const IDS_170 = [
   'iv-newpop', 'iv-crumb-more', 'iv-trash', 'iv-kids', 'iv-subrow',
   // 0.17.0 IV-2 で作った行（表の行の順に。iv-pop-recent-load は R60 で足した）
   'iv-pop-first', 'iv-pop-tabkey', 'iv-pop-tabfocus', 'iv-pop-ime', 'iv-pop-query-keep', 'iv-pop-recent-kind', 'iv-pop-clear', 'iv-pop-cur', 'iv-pop-name', 'iv-pop-recent-load',
+  // 0.17.0 IV-3 で作った行（表の行の順に）
+  'iv-ui-side', 'iv-ui-props', 'iv-ui-lib',
   // 0.17.0 PD-1 で作った行（表の行の順に）
   'pd-empty-text', 'pd-empty-kids', 'pd-empty-trashkid', 'pd-keep-title', 'pd-icon-off', 'pd-icon-undo', 'pd-keep-place', 'pd-kind-only-blank', 'pd-live', 'pd-same-shape',
   'pd-undo', 'pd-undo-rows', 'pd-parent-row',
@@ -1681,6 +1683,8 @@ const IDS_170 = [
   // 0.17.0 SV-1・SV-2 で作った行（表の行の順に。sw-fresh は SV-2: R26）
   'sw-rows-under', 'sw-fresh', 'sw-list-speed', 'sw-open-key', 'sw-key-nav', 'sw-key-left', 'sw-no-drag', 'sw-no-select', 'sw-only-tree', 'sw-open-view',
   'sw-mark', 'sw-focus-gone',
+  // 0.17.0 IV-4 で作った行（表の行の順に。表では sw- の後ろ）
+  'iv-callout-bulb', 'iv-callout-store', 'iv-callout-copy',
   // 0.17.0 MG-1 で作った行（表の行の順に）
   'mg-rows-pages', 'mg-rows-trash', 'mg-col-readonly', 'mg-sum-preview', 'mg-creator-me', 'mg-put-keep-cells', 'mg-rel-find',
   // 0.17.0 MG-2 で作った行（表の行の順に。mg-mcp-same は MG-3 の行を前倒しした: R40）

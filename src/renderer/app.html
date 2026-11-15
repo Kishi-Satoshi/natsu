@@ -1007,7 +1007,7 @@
   .bodykids .kidrow:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .bodykids .kidrow.dragging { opacity: .5; }   /* PR-2 直し（R44）: 本文へ引っ張っている行の無い子 */
   .blk.callout { background: var(--hover); border-radius: 6px; padding: 8px 10px; margin: 2px 0; }
-  .blk.callout .icon { flex: none; line-height: 24px; user-select: none; }
+  .blk.callout .icon { flex: none; line-height: 24px; height: 24px; display: inline-flex; align-items: center; user-select: none; }   /* 0.17.0 IV-4: 印は線の絵（.pgi）。文の1行目の高さの真ん中に */
   /* 0.13.0 ED-8（EQ4 (a)）: ［要約を再生成］の確かめの小さな窓（後ろは設定のポップアップと同じ .setmodal の暗い地） */
   .askbox { max-width: min(420px, calc(100vw - 48px)); padding: 18px 20px 16px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); }
   .askbox .askmsg { margin: 0 0 14px; font-size: 14px; line-height: 22px; color: var(--text); }
@@ -1390,10 +1390,10 @@
       <span class="ws-caret" aria-hidden="true">▾</span>
       <button class="side-btn" id="sideCollapse" type="button" aria-label="サイドバーを畳む" title="サイドバーを畳む（Ctrl+\）">«</button>
     </div>
-    <button class="side-row" id="sideSearch" type="button"><span class="ic">🔍</span>検索</button>
+    <button class="side-row" id="sideSearch" type="button"><span class="ic"></span>検索</button>
     <div class="tools">
       <button class="side-row" id="mtToggleBtn"><span class="ic">＋</span>新しい議事録</button>
-      <button class="side-row" id="mtDiscardBtn" style="display:none"><span class="ic">🗑️</span>破棄</button>
+      <button class="side-row" id="mtDiscardBtn" style="display:none"><span class="ic"></span>破棄</button>
     </div>
     <!-- 0.15.1 PS-2（計画 docs/plans/2026-11-04-151.md の決めたこと 20〜23・D124）: 一覧の見出し「プライベート」（押すと畳む・開く。印 ⌄／› は読み上げない）と、
          右の ↗（ライブラリで開く）・［＋］（ページを追加。0.15.0 PH-4 の #newPageBtn を置き直した）・［···］（並べ替え・表示・ページを選ぶ）。右の3つは乗せる・フォーカスで出る（PQ6） -->
@@ -1419,8 +1419,8 @@
     <button id="sideMore" class="side-more" type="button" hidden>もっと見る</button>
     <div class="side-fill" id="sideFill" hidden></div>
     <!-- 0.15.0 PH-6（決めたこと 32・BQ6 (a)）: ［🗑️ ゴミ箱］（ゴミ箱に何かあるときだけ。押すと #trashPop） -->
-    <button id="tabBtnTrash" class="side-row" type="button" hidden><span class="ic">🗑️</span>ゴミ箱</button>
-    <button id="tabBtnSettings" class="side-row"><span class="ic">⚙️</span>設定</button>
+    <button id="tabBtnTrash" class="side-row" type="button" hidden><span class="ic"></span>ゴミ箱</button>
+    <button id="tabBtnSettings" class="side-row"><span class="ic"></span>設定</button>
     <div class="side-grip" id="sideGrip" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅" tabindex="0" aria-valuemin="200" aria-valuemax="480" aria-valuenow="260"></div>
   </aside>
   <div class="col">
@@ -1451,7 +1451,7 @@
             <div class="tplbanner" id="tplBanner" role="note" hidden>テンプレートを編集しています。ここで書いた物は、このテンプレートから作る行に写ります。</div>
             <div class="pprops" id="pProps"></div>
             <div class="prop" id="pTypeRow">
-              <span class="k"><span class="ic">🏷</span> <span>会議の種類</span></span>
+              <span class="k"><span class="ic"></span> <span>会議の種類</span></span>
               <span class="v">
               <select class="typeSel" id="pType" aria-label="会議の種類"></select>
               <span class="hint" id="pMemoType"></span>
@@ -2695,7 +2695,7 @@
   function tabLabel(k) {
     if (isPageKey(k)) return tabTitles.get(k.slice(5)) || (rowPages.has(k.slice(5)) ? blankUntitled() : '議事録');   // 0.16.0 DV-4: 無題の行は「無題のページ」
     if (k === 'live') return readyNow() ? '新しい議事録' : mtPhase === 'paused' ? '⏸ 一時停止中' : '● 記録中';   // 0.13.0 RDY-2（RT1）: 録音の前のページ
-    if (k === 'library') return '📚 ライブラリ';   // 0.15.1 PS-2（決めたこと 32）
+    if (k === 'library') return 'ライブラリ';   // 0.15.1 PS-2（決めたこと 32）。0.17.0 IV-3: 印は .ti の線の絵（ic:library_books）
     return k;
   }
   // 記録中のタブ（live）は覚えない（N6）。選んでいる間は、その前に選んでいたタブを覚える
@@ -2735,6 +2735,7 @@
         if (t) t.focus();
       };
       if (isPageKey(key)) { const ti = iconEl(tabIcon(key.slice(5)), ICON_ROW); ti.classList.add('ti'); el.append(ti); }   // 0.17.0 IV-1（決めたこと 20）: タブの頭のアイコンの要素
+      else if (key === 'library') { const ti = iconEl('ic:library_books', ICON_ROW); ti.classList.add('ti'); el.append(ti); }   // 0.17.0 IV-3（決めたこと 23）
       el.append(t);
       if (!(key === 'live' && mtWasActive)) el.append(x);   // 記録中のタブは会議の間は閉じない（戻る道が無くなる）
       el.onclick = () => activateTab(key, { fromBar: true });
@@ -7440,6 +7441,10 @@
   }
   // 文の頭のアイコン（後ろに少し空ける。前は「絵文字 + 空白 + 文」の1つの字だった所: 決めたこと 20）
   function iconLead(value) { const el = iconEl(value, ICON_ROW); el.classList.add('lead'); return el; }
+  // 0.17.0 IV-3（決めたこと 23）: 画面の飾りは線の絵（設定・ゴミ箱と破棄は選びの窓に出さない ui の絵）。字は今のまま、絵は読み上げない
+  for (const [id, v] of [['sideSearch', 'ic:search'], ['mtDiscardBtn', 'ic:delete'], ['tabBtnTrash', 'ic:delete'], ['tabBtnSettings', 'ic:settings'], ['pTypeRow', 'ic:label']]) {
+    const ic = $(id).querySelector('.ic'); ic.textContent = ''; ic.append(iconEl(v, ICON_ROW));
+  }
   function blankUntitled() { return '無題のページ'; }   // 無題の白紙のページの名前と題名の欄の手引き（議事録の「(無題の議事録)」は変えない）
   // 0.10.0 LS-2（D63・D69・決めたこと 111）: 要約の欄の鍵。src/mainlib.js の summaryLock の写し（repo が同じ表を両方に当てる）。
   // 上から順に見て、最初に当たった行の符号（鍵なしは ''）。making は画面の［要約を生成］の最中と、main が知らせる自動の要約の最中
@@ -16024,7 +16029,7 @@
         const n = document.createElement('span'); n.className = 'num'; n.textContent = '1.';   // 数えた番号は renumberRows が入れる
         el.insertBefore(n, txt);
       } else if (b.type === 'callout') {
-        const ic = document.createElement('span'); ic.className = 'icon'; ic.textContent = CALLOUT_ICON;   // EQ15 (a): 絵文字は 💡 だけ
+        const ic = document.createElement('span'); ic.className = 'icon'; ic.append(iconEl('ic:lightbulb', ICON_ROW));   // EQ15 (a): 選べない。0.17.0 IV-4（決めたこと 24・IQ8）: 画面だけ電球の線の絵（保存の値・写し・MCP は CALLOUT_ICON の 💡 のまま）
         el.insertBefore(ic, txt);
       }
       // 0.13.1 NE-4b（決めたこと 18・E5）: トグルとトグル見出しは ⠿ と文の間に ▸（押すと開け閉め。鍵の間は画面だけ: NR16）
@@ -16433,21 +16438,22 @@
       const r = document.createElement('div'); r.className = 'prop';
       const k = document.createElement('span'); k.className = 'k';
       if (icon) {
-        const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = icon;
+        const ic = document.createElement('span'); ic.className = 'ic';
+        if (pageIconView.isIconId(icon)) ic.append(iconEl(icon, ICON_ROW)); else ic.textContent = icon;   // 0.17.0 IV-3（決めたこと 23）: 決まった項目は線の絵。どこで処理したかの頭の字（☁ など）は字のまま
         k.append(ic, document.createTextNode(` ${name}`));
       } else k.textContent = name;
       const v = document.createElement('span'); v.className = 'v'; v.textContent = value;
       if (color) v.style.color = color;
       r.append(k, v); props.appendChild(r);
     };
-    add('📅', '作成日時', new Date(curPage.createdAt).toLocaleString('ja-JP'));
-    add('⏱', '長さ', fmtDur(curPage.durationSec || 0));
-    add('💬', '区間', `${curSegs.length}`);
+    add('ic:calendar_month', '作成日時', new Date(curPage.createdAt).toLocaleString('ja-JP'));
+    add('ic:timer', '長さ', fmtDur(curPage.durationSec || 0));
+    add('ic:chat', '区間', `${curSegs.length}`);
     const st = curPage.citeStat;
     // そろったときは緑の文字に加えて「✔」の印を付ける（色だけで意味を伝えない）
-    if (st && st.total) add('🔗', '出典', st.linked === st.total ? `✔ ${st.linked}/${st.total}` : `${st.linked}/${st.total}`, st.linked === st.total ? 'var(--ok)' : '');
+    if (st && st.total) add('ic:link', '出典', st.linked === st.total ? `✔ ${st.linked}/${st.total}` : `${st.linked}/${st.total}`, st.linked === st.total ? 'var(--ok)' : '');
     const ast = curPage.actionStat;
-    if (ast && ast.total) add('✅', 'アクション', `${ast.total}（担当${ast.withAssignee} / 期限${ast.withDue}）`);
+    if (ast && ast.total) add('ic:task_alt', 'アクション', `${ast.total}（担当${ast.withAssignee} / 期限${ast.withDue}）`);
     // どこで処理したか（第1c回 OL6）。文は main が mainlib.routeLabel で作って page:get に添える。古いページ・古い main には無い。
     // 1行を最初の ': ' で名前と値に分ける（': ' が無ければ名前だけ）。文そのものは変えない
     for (const t of Array.isArray(curPage.routeText) ? curPage.routeText : []) {
