@@ -1306,7 +1306,8 @@ test('0.16.0 Task G: 設計書の版の表の 0.16.0 の欄・節「利用者が
   for (const k of ['DQ1', 'DQ2', 'DQ3', 'DQ4', 'DQ5', 'DQ6', 'DQ7', 'DQ8', 'DQ9', 'DQ10', 'DQ11', 'M14', 'M15-1', 'M15-4', 'M16', 'MQ1', 'MQ2', 'MQ3', 'MQ4', 'MQ5', 'MQ6']) {
     assert.ok(new RegExp(`${k}(?![0-9-])`).test(sec), `0.16.0 の節に ${k} の答えが無い`);
   }
-  assert.ok(sec.includes('（DQ8「0.17.0 まで「議事録」のまま（おすすめ）」） | 2026-11-06 の D124 で、0.15.1 から見出しは「プライベート」になった（D124 が追い越した） |'), 'D135 に D124 が追い越した印が無い');
+  // 0.17.0 Task G の前半（計画 docs/plans/2026-11-13-170.md の R83・設計書の直しの案 7）で意図して直した: D135 の行の末に「D135 を閉じた」を書き添えたので、行の末の ` |` までは見ない
+  assert.ok(sec.includes('（DQ8「0.17.0 まで「議事録」のまま（おすすめ）」） | 2026-11-06 の D124 で、0.15.1 から見出しは「プライベート」になった（D124 が追い越した）'), 'D135 に D124 が追い越した印が無い');
   // 第11回の行の書き添え（第1c回の D1〜D10 と同じ番号なので、第11回の節の中で見る）
   const a11 = d.indexOf('\n### 第11回 — データベース（表・リスト）\n');
   const s11 = d.slice(a11, d.indexOf('\n### ', a11 + 5)).split('\n');
@@ -1437,4 +1438,65 @@ test('IH-1: site.json の find の database の次に minutes-db・tasks。HELP_
   assert.deepStrictEqual(find.articles.slice(i, i + 3), ['database', 'minutes-db', 'tasks']);
   assert.ok(find.description.includes('「議事録」データベース') && find.description.includes('タスク管理'), 'find の説明に新しい記事の中身が無い');
   assert.ok(read('src/mainlib.js').includes("'find/database', 'find/minutes-db', 'find/tasks', 'find/page-look'"), 'HELP_ARTICLES に新しい記事が無い');
+});
+
+// ---------------------------------------------------------------- 0.17.0 Task G の前半（計画 docs/plans/2026-11-13-170.md の Task G・「設計書の直しの案」・R83）
+// 設計書の版の表と D140〜D152・「全体を通して守ること」のアイコンの出どころ・U2・H2・第11回 D1・第12回 TP1〜TP4・K・D135 の書き添え、notion-behavior の 2026-11-14 の画面の動き
+test('0.17.0 Task G: 設計書の版の表の 0.17.0 の欄・節「利用者が決めたこと（アイコンの版・…）」の D140〜D152（持ち主の言葉は計画の字のまま）・全体を通して守ることのアイコンの出どころ・U2・H2・第11回 D1・TP1〜TP4・K・D135 の書き添え、notion-behavior の SC-01〜SC-08・X-14・X-15・N-27・V-T37・V-T38、計画の R83', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const plan = read('docs/plans/2026-11-13-170.md');
+  // 全体を通して守ること（設計書の直しの案 1）
+  const head = d.slice(0, d.indexOf('\n---\n'));
+  assert.ok(head.includes('アイコンは絵文字・自作の SVG・デジタル庁の『イラストレーション・アイコン素材』・Material Symbols（Outlined・線の太さ 300）。出典と手を加えた所を `src/licenses/page-icons.txt` とヘルプに書く（D140）。'), '全体を通して守ることにアイコンの出どころが無い');
+  assert.ok(!d.includes('アイコンは絵文字か自作の SVG。'), '全体を通して守ることに前のアイコンの文が残る');
+  // 版の表の 0.17.0 の欄（直しの案 2）。後ろの版はずらさない
+  const ver = d.split('\n').find((l) => l.startsWith('| 版 | 0.1.0'));
+  assert.ok(ver.includes('| 0.17.0（テンプレートとタスク管理: `docs/plans/2026-11-13-170.md`。D113（と、アイコンの版・データベースの作り方とサイドバーのビューの行: D140〜。2026-11-13 の持ち主の答え IQ1）。') && ver.includes('D140〜D152） | 0.18.0（MCP の書く道具と残り。'), '版の表の 0.17.0 の欄に計画と D140〜D152 が無い');
+  assert.ok(ver.includes('| 0.19.0（配布用の公開リポジトリと Electron の入れ替え: D101〜D104） | 1.0.0 |'), '後ろの版がずれた');
+  // 0.17.0 の節: D140〜D152 がちょうど1つずつ、0.16.0 の節と「作り方」の間に並ぶ
+  const h = '## 利用者が決めたこと（アイコンの版・データベースの作り方・テンプレートとタスク管理。2026-11-09〜11-15）';
+  const at = d.indexOf(`\n${h}\n`);
+  assert.ok(at > 0, `設計書に節「${h}」が無い`);
+  const sec = d.slice(at, d.indexOf('\n## ', at + 5));
+  const ids = [...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(ids, Array.from({ length: 13 }, (_, i) => `D${140 + i}`), '0.17.0 の節の D の行が D140〜D152 でない');
+  for (const id of ids) assert.strictEqual(d.split('\n').filter((l) => l.startsWith(`| ${id} |`)).length, 1, `設計書に ${id} の行が1つでない`);
+  assert.ok(d.indexOf('\n| D139 |') < at && at < d.indexOf('\n## 作り方（Superpowers の進め方。'), '0.17.0 の節が D139 の後と「作り方」の間に無い');
+  // 持ち主の言葉（「…（おすすめ）」と、おすすめと違う答え・頼みの言葉）は計画にある字のまま
+  const quotes = [...sec.matchAll(/「([^「」]|「[^「」]*(「[^「」]*」[^「」]*)*」)*（おすすめ）」/g)].map((m) => m[0]);
+  assert.ok(quotes.length >= 40, `0.17.0 の節の持ち主の答えの字が少ない（${quotes.length}）`);
+  for (const q of quotes) assert.ok(plan.includes(q), `設計書の ${q} が計画に無い（持ち主の言葉の字が違う）`);
+  for (const q of ['「アイコンの版に入れる」', '「0.17.0 のテンプレートと一緒に」', '「60 種すべて」', '「既定だけ電球の線のアイコンに」', '「Notion と同じく外す」', '「今の Notion と同じ 5 列」',
+    '「Material Symbols で補ってください。」', '「Notionはどうなっている？」']) {
+    assert.ok(sec.includes(q) && plan.includes(q), `0.17.0 の節に ${q} が無い（または計画の字と違う）`);
+  }
+  for (const k of ['IQ1', 'IQ2', 'IQ3', 'IQ4', 'IQ5', 'IQ6', 'IQ7', 'IQ8', 'IQ9', 'IQ10', 'IQ11', 'IQ12', 'IQ13', 'IQ14', 'IQ15', 'IQ16', 'IQ17', 'RQ1', 'RQ2', 'RQ3', 'RQ4', 'SQ1',
+    'TQ1', 'TQ2', 'TQ2b', 'TQ3', 'TQ4', 'TQ5', 'TQ6', 'TQ7', 'TQ8', 'TQ9', 'TQ10', 'TQ11', 'TQ12', 'TQ13', 'TQ14', 'rv59 重要 3', 'rv59 重要 4', 'rv60 重要 4', 'rv60 軽い 1', 'rv60 軽い 3']) {
+    assert.ok(new RegExp(`${k}(?![0-9b])`).test(sec), `0.17.0 の節に ${k} の答えが無い`);
+  }
+  // 書き添え（直しの案 3・4・6・7・8）
+  const one = (k, within) => { const xs = (within || d).split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.equal(xs.length, 1, `${k} の行が1つでない`); return xs[0]; };
+  assert.ok(one('U2').includes('**（2026-11-13 の 0.17.0 で足した: D140）アイコンのタブ（デジタル庁の絵が先・足りない絵は Material Symbols）を先に開き、既定のアイコンもアイコン（D142）** |'), 'U2 に書き添えが無い');
+  assert.ok(one('H2').endsWith('**（D145）データベースの行を開くとビューの行** |'), 'H2 に書き添えが無い');
+  const a11 = d.indexOf('\n### 第11回 — データベース（表・リスト）\n');
+  assert.ok(one('D1', d.slice(a11, d.indexOf('\n### ', a11 + 5))).endsWith('**（D144）空の白紙のページの［データベース］でデータベースにできる** |'), '第11回の D1 に書き添えが無い');
+  assert.ok(one('TP1').endsWith('**（D147・D148）「議事録」の列は 名前・日付・作成者・参加者・要約（TQ2）・タスク管理の「議事録」は片側のリレーション（TQ2b）** |'), 'TP1 に書き添えが無い');
+  assert.ok(one('TP2').includes('**（D150）') && one('TP4').endsWith('**（D151）個人の要約タイプはスペースを作る段階B の回で（TQ12 の答え）** |'), 'TP2・TP4 に書き添えが無い');
+  assert.ok(one('TP3').includes('**（D146）「議事録」はページのまま `parent_id` を「議事録」データベースにする（行の型にしない）。移し替えは確かめ済みの控えの後の1つのトランザクション（actor `system`）・起動のたびの見回り・「議事録」データベースは消せない（TQ7・D152）** |'), 'TP3 に書き添えが無い');
+  assert.ok(one('K').endsWith('**（D149）アクション一覧は残す（TQ9 の答え）** |'), 'K に書き添えが無い');
+  assert.ok(one('D135').endsWith('（D124 が追い越した）。2026-11-14: 0.17.0 でも見出しは「プライベート」のまま（0.17.0 の計画の決めたこと 56）。D135 を閉じた |'), 'D135 を閉じた印が無い');
+  assert.ok(one('D152').includes('計画の R66'), 'D152 に R66（持ち主が画面で確かめるまで決めない）が無い');
+  // notion-behavior（2026-11-14 の画面の動き: 日付と方法・写真と名前を入れない）
+  const nb = read('docs/plans/notion-behavior.md');
+  const nrow = (k) => one(k, nb);
+  const c22 = nb.slice(nb.indexOf('\n## 22. 持ち主の PC の Notion の画面で確かめた動き（2026-11-14）\n'), nb.indexOf('\n## 項目の数\n'));
+  assert.ok(c22.length > 100 && c22.includes('**確かめた日と方法:** 2026-11-14。') && c22.includes('アプリの中身（コード・内部のデータ・通信）は調べていない') && c22.includes('写真に写った名前（ワークスペース・ページ・人）は、この文書にもリポジトリにも入れない'), 'notion-behavior に 22 章（日付と方法）が無い');
+  assert.deepStrictEqual([...c22.matchAll(/^\| (SC-\d+) \|/gm)].map((m) => m[1]), Array.from({ length: 8 }, (_, i) => `SC-0${i + 1}`), '22 章の項目が SC-01〜SC-08 でない');
+  assert.ok(!/\.(png|jpe?g)\b/i.test(c22), '22 章に写真のファイルの名前がある');
+  for (const k of ['N-27', 'V-T37', 'V-T38', 'X-14', 'X-15', 'CP', 'CD', 'DT', '22']) nrow(k);
+  assert.ok(nrow('A-02').includes('（2026-11-14 の画面: SC-03。0.17.0 の形: 設計書 D140・D142）') && nrow('N-26').includes('SC-04') && nrow('N-25').includes('SC-07'), 'notion-behavior の A-02・N-25・N-26 に画面の動きの書き添えが無い');
+  assert.ok(nb.includes('N 27・Q-S 11・A 9・V-T 38・R 25・J 25 で、**計 284 項目**') && nb.includes('SC 8 件') && nb.includes('X 15 件'), 'notion-behavior の項目の数が合わない');
+  // 計画: R83・今の状態
+  assert.strictEqual(plan.split('\n').filter((l) => l.startsWith('- **R83（')).length, 1, '計画に R83 が1つでない');
+  assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-15）: Task G の前半まで済んだ（R83）。'), '計画の頭の今の状態が Task G の前半でない');
 });
