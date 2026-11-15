@@ -97,6 +97,8 @@ test('PL-3: #pIcon は button（aria-label）・押すと #iconPop・よみで�
   const pop = $(l, 'iconPop');
   assert.strictEqual(pop.hidden, false, '押しても選びの窓が出ない');
   assert.ok(l.document.activeElement === $(l, 'iconSearch'), '探す欄にフォーカスが無い');
+  // 0.17.0 IV-2（決めたこと 13・計画 docs/plans/2026-11-13-170.md の R60）で意図して直した: 窓はいつも［アイコン］で開くので、絵文字の確かめは［絵文字］のタブで
+  $(l, 'iconTabEmoji').dispatchEvent({ type: 'click' }); await l.drain();
   assert.deepStrictEqual(heads(l), ['最近使ったもの', ...D.CATS.map((c) => c.label)], '最近使ったもの・分類の見出しが違う');
   assert.deepStrictEqual(opts(l).slice(0, 2).map((b) => b.textContent), ['🌸', '🚀'], '最近使ったもの（辞書に無い値は落とす）が違う');
   assert.strictEqual(opts(l).length, 2 + D.EMOJI.length);
@@ -116,7 +118,7 @@ test('PL-3: #pIcon は button（aria-label）・押すと #iconPop・よみで�
   $(l, 'iconSearch').focus();
   const ring = [];
   for (let i = 0; i < 3; i++) { l.key({ key: 'Tab' }, l.document.activeElement); ring.push(l.document.activeElement); }
-  assert.deepStrictEqual(ring.map((e) => e.id || e.className), ['iconClear', 'icopt', 'iconSearch'], 'Tab が窓の中で回らない');
+  assert.deepStrictEqual(ring.map((e) => e.id || e.className), ['iconClear', 'icopt', 'iconTabEmoji'], 'Tab が窓の中で回らない');   // 0.17.0 IV-2: 輪に選んでいるタブ
   l.key({ key: 'Tab', shiftKey: true }, l.document.activeElement);
   assert.ok(l.document.activeElement.className === 'icopt', 'Shift+Tab が逆に回らない');
   $(l, 'iconSearch').focus();
@@ -167,6 +169,8 @@ test('PL-3 直し（R77）: 並びの ↑↓ は見える行と列で分類を�
   await open(l, 'g1');
   const btn = $(l, 'pIcon');
   btn.dispatchEvent({ type: 'click' }); await l.drain();
+  $(l, 'iconTabEmoji').dispatchEvent({ type: 'click' }); await l.drain();   // 0.17.0 IV-2（R60）で意図して直した: 絵文字の並びの確かめは［絵文字］のタブで
+  $(l, 'iconSearch').focus();
   const at = () => opts(l).indexOf(l.document.activeElement);
   const key = (k) => l.key({ key: k }, l.document.activeElement);
   const nFace = D.EMOJI.filter((x) => x.c === D.CATS[0].key).length;   // 顔の数（10 で割り切れない: 最後の行が短い）
@@ -351,6 +355,7 @@ test('PL-3・F120: 見た目とアイコンの答えを待つ間にほかのペ�
   openMenu(l);
   item(l, '全幅').dispatchEvent({ type: 'click' }); await l.drain();
   $(l, 'pIcon').dispatchEvent({ type: 'click' }); await l.drain();
+  $(l, 'iconTabEmoji').dispatchEvent({ type: 'click' }); await l.drain();   // 0.17.0 IV-2（R60）で意図して直した: 絵文字は［絵文字］のタブで
   opts(l).find((b) => b.textContent === '📄').dispatchEvent({ type: 'click' }); await l.drain();
   await open(l, 'pa2');
   done(); iconDone(); await l.drain();

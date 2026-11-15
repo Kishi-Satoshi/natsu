@@ -378,6 +378,13 @@
   .iclist .icopt:hover { background: var(--hover); }
   .iclist .icopt.on { background: var(--tint); }
   .iclist .icopt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* 0.17.0 IV-2（決めたこと 13）: ［アイコン］［絵文字］のタブ（選んでいるタブに下線）と、アイコンの並び（24px の線の絵を真ん中に） */
+  .ictabs { display: flex; gap: 4px; padding: 0 4px 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .ictab { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-2); font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 4px 4px 0 0; cursor: pointer; }
+  .ictab:hover { background: var(--hover); }
+  .ictab.on { color: var(--text); font-weight: 500; border-bottom-color: var(--text); }   /* 影は浮く部品の --shadow だけ（N1）なので、選んでいる印は .dbtab と同じ下の線 */
+  .ictab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .iclist .icgrid.icons .icopt { display: flex; align-items: center; justify-content: center; }
   .iclist .icnone { font-size: 13px; color: var(--muted); padding: 8px 4px; }
   /* 0.15.0 PL-3（決めたこと 40）: 「···」の見た目の項目（全幅・小さい文字は印のある menuitemcheckbox・書体の3つは menuitemradio。書体の3つは［書体 ▸］の下に字下げ） */
   .pacts .pmenu .mitem[role="menuitemcheckbox"]::before, .pacts .pmenu .mitem[role="menuitemradio"]::before { content: ''; display: inline-block; width: 1.3em; }
@@ -1549,6 +1556,7 @@
   <div class="movepop" id="iconPop" role="dialog" aria-modal="true" aria-labelledby="iconPopHead" hidden>
     <div class="mpbox icbox">
       <div class="mphead" id="iconPopHead">アイコン</div>
+      <div class="ictabs" role="tablist" aria-label="アイコンの種類"><button type="button" class="ictab on" role="tab" id="iconTabIcon" aria-selected="true" aria-controls="iconList">アイコン</button><button type="button" class="ictab" role="tab" id="iconTabEmoji" aria-selected="false" aria-controls="iconList" tabindex="-1">絵文字</button></div>
       <div class="icbar"><input type="text" id="iconSearch" placeholder="名前やよみで探す" aria-label="アイコンを名前やよみで探す" autocomplete="off" spellcheck="false" /><button type="button" class="ghost" id="iconClear">外す</button></div>
       <div class="mplist iclist" id="iconList"></div>
     </div>
@@ -3050,7 +3058,8 @@
       if (tb && Array.isArray(tb.open) && !tabsTouched) restoreTabs(tb);
       slashRecent = recentCheck(st && st.slashRecent);   // 0.13.0 ED-5（決めたこと 39）: 壊れていれば空（メニューは決まった並びだけ）
       // 0.15.0 PL-3（決めたこと 37）: アイコンの選びの最近使ったもの（main が照らした値。辞書に無い値はここでも落とす）
-      if (st && Array.isArray(st.emojiRecent)) iconRecent = st.emojiRecent.filter((e) => emojiView.isPageIcon(e)).slice(0, ICON_RECENT_MAX);
+      // 0.17.0 IV-2（決めたこと 15・rv58 軽い 3・R38）: 絵文字と ic: の値を混ぜたまま読む（照らしは pageIconView.isPageIconValue。壊れた値と重なりは項目ごとに落とす）
+      if (st && Array.isArray(st.emojiRecent)) iconRecent = [...new Set(st.emojiRecent.filter((e) => pageIconView.isPageIconValue(e)))].slice(0, ICON_RECENT_MAX);
       // 0.15.0 PH-3（決めたこと 19）: サイドバーの木の開け閉め（main が今あるページだけに絞って渡す）。届く前に開け閉めしていたら上書きしない
       const to = st && st.tree && Array.isArray(st.tree.open) ? st.tree.open : null;
       if (to && !treeTouched) { treeOpen = new Set(to.filter((id) => typeof id === 'string').slice(-TREE_OPEN_MAX)); renderList(); }   // PH-3 直し（R28 (2)）: 新しい 500 個
@@ -7912,10 +7921,21 @@
     const b = $('pIcon');
     if (iconLocked()) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
   }
+  // 0.17.0 IV-2（決めたこと 13〜18・F182）: 窓の頭に［アイコン］［絵文字］のタブ（いつも［アイコン］で開く）。探す欄・最近使ったもの・分類は開いているタブの中だけ。
+  // タブは ←→・Home・End で替え（フォーカスは替えた先のタブ）、Tab の輪は 選んでいるタブ → 探す欄 → ［外す］ → 選んでいる並びの1つ。探す語はタブを替えても残す
+  const ICON_GRID = 24;   // 選びの窓の並びのアイコンの大きさ（決めたこと 7）
+  const iconTabs = () => [$('iconTabIcon'), $('iconTabEmoji')];
+  function iconTabSet(tab, focus) {
+    if (!iconPop) return;
+    iconPop.tab = tab; iconPop.at = 0;
+    iconTabs().forEach((b) => { const on = b.id === (tab === 'icon' ? 'iconTabIcon' : 'iconTabEmoji'); b.setAttribute('aria-selected', on ? 'true' : 'false'); b.classList.toggle('on', on); b.tabIndex = on ? 0 : -1; });
+    renderIconList();
+    if (focus) (tab === 'icon' ? $('iconTabIcon') : $('iconTabEmoji')).focus();
+  }
   function iconButton(e, name, cur) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'icopt' + (e === cur ? ' on' : ''); b.tabIndex = -1;
-    b.textContent = e;
+    if (pageIconView.isIconId(e)) b.appendChild(iconEl(e, ICON_GRID)); else b.textContent = e;
     b.title = name; b.setAttribute('aria-label', name);
     b.dataset.e = e;
     b.onclick = () => pickIcon(e);
@@ -7925,23 +7945,25 @@
   function renderIconList() {
     const box = $('iconList');
     box.textContent = '';
-    const cur = curPage && emojiView.isPageIcon(curPage.icon) ? curPage.icon : '';
-    const nameOf = new Map(emojiView.EMOJI.map((x) => [x.e, x.n]));
+    const cur = curPage && pageIconView.isPageIconValue(curPage.icon) ? curPage.icon : '';
+    const icons = !iconPop || iconPop.tab !== 'emoji';
+    const kindOk = (e) => (icons ? pageIconView.isIconId(e) : emojiView.isPageIcon(e));
     const section = (label, list) => {
       const h = document.createElement('div'); h.className = 'ichead'; h.textContent = label;
-      const g = document.createElement('div'); g.className = 'icgrid'; g.setAttribute('role', 'group'); g.setAttribute('aria-label', label);
-      for (const e of list) g.appendChild(iconButton(e, nameOf.get(e) || e, cur));
+      const g = document.createElement('div'); g.className = 'icgrid' + (icons ? ' icons' : ''); g.setAttribute('role', 'group'); g.setAttribute('aria-label', label);
+      for (const e of list) g.appendChild(iconButton(e, pageIconView.iconNameOf(e) || e, cur));
       box.append(h, g);
     };
     const q = $('iconSearch').value;
     if (q.trim()) {
-      const hits = emojiView.findEmoji(q);
+      const hits = icons ? pageIconView.findIcons(q) : emojiView.findEmoji(q);
       if (hits.length) section('見つかったもの', hits);
       else { const d = document.createElement('div'); d.className = 'icnone'; d.textContent = ICON_NONE; box.appendChild(d); }
     } else {
-      const recent = iconRecent.filter((e) => emojiView.isPageIcon(e));
+      const recent = iconRecent.filter(kindOk);
       if (recent.length) section('最近使ったもの', recent);
-      for (const c of emojiView.CATS) section(c.label, emojiView.EMOJI.filter((x) => x.c === c.key).map((x) => x.e));
+      if (icons) for (const c of pageIconView.ICON_CATS) section(c.label, pageIconView.ICON_LIST.filter((x) => !x.ui && x.cat === c.key).map((x) => `ic:${x.id}`));
+      else for (const c of emojiView.CATS) section(c.label, emojiView.EMOJI.filter((x) => x.c === c.key).map((x) => x.e));
     }
     const opts = iconOpts();
     if (iconPop) iconPop.at = Math.max(0, Math.min(iconPop.at, opts.length - 1));
@@ -7949,11 +7971,11 @@
   }
   function openIconPop() {
     if (iconPopOn || iconLocked() || popOpen()) return;
-    iconPop = { id: curId, at: 0 };
+    iconPop = { id: curId, at: 0, tab: 'icon' };
     iconPopOn = true;
     $('iconSearch').value = '';
     $('iconPop').hidden = false;   // 先に見せてから欄にフォーカス（R59）
-    renderIconList();
+    iconTabSet('icon', false);   // 0.17.0 IV-2（決めたこと 13）: いつも［アイコン］で開く
     $('iconSearch').focus();
   }
   function closeIconPop(back) {
@@ -8003,9 +8025,10 @@
     const opts = iconOpts();
     const a = document.activeElement;
     const i = opts.indexOf(a);
-    if (ev.key === 'Tab') {   // 窓の中で回る（探す欄・［外す］・選んでいる絵文字）
+    if (ev.key === 'Tab') {   // 窓の中で回る（選んでいるタブ・探す欄・［外す］・選んでいる並び: 0.17.0 IV-2）
       ev.preventDefault();
-      const ring = [$('iconSearch'), $('iconClear'), ...(opts.length ? [opts[iconPop ? iconPop.at : 0]] : [])];
+      const tabNow = iconPop && iconPop.tab === 'emoji' ? $('iconTabEmoji') : $('iconTabIcon');
+      const ring = [tabNow, $('iconSearch'), $('iconClear'), ...(opts.length ? [opts[iconPop ? iconPop.at : 0]] : [])];
       const k = ring.indexOf(i >= 0 ? ring[ring.length - 1] : a);
       ring[(Math.max(0, k) + (ev.shiftKey ? ring.length - 1 : 1)) % ring.length].focus();
       return;
@@ -8031,6 +8054,22 @@
   }
   $('iconSearch').onkeydown = iconKey;
   $('iconClear').onkeydown = iconKey;
+  // 0.17.0 IV-2: タブ（押す・←→・Home・End で替える。ほかのキーは窓の受け口: Tab の輪と Esc）
+  for (const b of iconTabs()) {
+    b.onclick = () => iconTabSet(b.id === 'iconTabEmoji' ? 'emoji' : 'icon', true);
+    b.onkeydown = (ev) => {
+      if (imeEnter(ev)) return;
+      const k = ev.key;
+      if (k === 'ArrowRight' || k === 'ArrowLeft' || k === 'Home' || k === 'End') {
+        ev.preventDefault();
+        const now = iconPop && iconPop.tab === 'emoji' ? 1 : 0;
+        const to = k === 'Home' ? 0 : k === 'End' ? 1 : (now + 1) % 2;
+        iconTabSet(to === 1 ? 'emoji' : 'icon', true);
+        return;
+      }
+      iconKey(ev);
+    };
+  }
   $('iconPop').onclick = (ev) => { if (ev && ev.target === $('iconPop')) closeIconPop(true); };   // 後ろの全面を押すと閉じる
   $('iconPop').addEventListener('mousedown', (ev) => { if (!(ev && ev.target && ev.target.tagName === 'BUTTON') && keepPopFocus(ev, [$('iconPop'), $('iconList'), $('iconSearch')])) ev.preventDefault(); });
   // ---------------- 0.15.0 PL-3（決めたこと 39〜42・F120）: ページごとの見た目（全幅・小さい文字・書体）

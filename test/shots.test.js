@@ -264,6 +264,7 @@ const RETAKE_170 = SH.SCREENS.filter((s) => s.page === 'app').map((s) => s.name)
 // 0.17.0 PD-2 で足した2枚（空の白紙のページの［データベース］。まだ基準が無い）
 const NEW_170 = ['page-blank-empty-light', 'page-blank-empty-dark',
   'sidebar-db-views-light', 'sidebar-db-views-dark',   // 0.17.0 SV-2 で足した2枚（サイドバーのビューの行。まだ基準が無い）
+  'icon-pop-icons-light', 'icon-pop-icons-dark', 'icon-pop-icons-search-light',   // 0.17.0 IV-2 で足した3枚（選びの窓の［アイコン］のタブ。まだ基準が無い。撮る並びは LK-1 の前）
   'db-locked-light',   // 0.17.0 LK-1 で足した1枚（ロック中のデータベース。まだ基準が無い）
   'minutes-db-light', 'minutes-db-dark', 'sidebar-minutes-light',   // 0.17.0 MG-4 で足した3枚（「議事録」データベースの表とサイドバー。まだ基準が無い）
   'tasks-db-light',   // 0.17.0 TK-1 で足した1枚（「タスク管理」のマイタスク。まだ基準が無い）
@@ -1345,7 +1346,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 RT-2: ［＋ 新しい行］の右の ▾ とテンプレートの窓・［···］・既定の確かめの窓・テンプレートを編集している行のページの帯 #tplBanner・既定のテンプレートで作る
   // ［＋ 新しい行］・表の歩みに tpl.。変わる画面は足した db-template-light（NEW_170・RETAKE）とデータベースの表の画面（アプリの画面はどれも RETAKE_170）。
   // 値を今の app.html に合わせた（前の値は 25a3f6fa…）
-  assert.strictEqual(sha, '0e3038b7119e1ccd1b49e7c475cf31a0646eca0218f93c144be1799b7cc9d3b2',
+  // 0.17.0 IV-2: 選びの窓の［アイコン］［絵文字］のタブ（.ictabs・いつも［アイコン］・←→・Home・End・Tab の輪・探す語を残す・タブごとの最近使ったもの・24px の線の絵）と、
+  // 最近使ったものを読む照らし（ic: も残す: rv58 軽い 3）。変わる画面は足した icon-pop-icons-*（NEW_170・RETAKE）と［絵文字］のタブを押した形にした icon-pop-light・
+  // icon-pop-dark（アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 0e3038b7…）
+  assert.strictEqual(sha, '4593ce1b7085fb0d3357052a81b02d6cb33063e9bf349d07ae0864de6c78e1d9',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

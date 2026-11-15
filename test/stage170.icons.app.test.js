@@ -229,8 +229,9 @@ test('IV-1: 描き直し（アイコンを変えると、サイドバー・タ�
   await open(l, 'g1');
   assert.strictEqual(iconOf($(l, 'pIcon')), DOC);
   $(l, 'pIcon').dispatchEvent({ type: 'click' }); await l.drain();
-  const pick = $(l, 'iconList').querySelectorAll('.icopt').find((b) => b.textContent === '🚀') || $(l, 'iconList').querySelectorAll('.icopt')[0];
-  const v = pick.textContent;
+  // IV-2（決めたこと 13）で意図して直した: 窓はいつも［アイコン］で開くので、並びの最初のアイコン（値は data-e）
+  const pick = $(l, 'iconList').querySelectorAll('.icopt')[0];
+  const v = pick.dataset.e;
   pick.dispatchEvent({ type: 'click' }); await l.drain();
   assert.deepStrictEqual([iconOf($(l, 'pIcon')), iconOf($(l, 'crumb').querySelector('.ci')), iconOf(tabOf(l, 'g1').querySelector('.ti')), iconOf(rowOf(l, 'g1').querySelector('.pi'))], [v, v, v, v]);
   assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -365,4 +366,84 @@ test('IV-1・F179（R10）: 画面の写しに ic: の字が出ない（白紙�
     }
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- IV-2（決めたこと 13〜18・F182）: 選びの窓の［アイコン］［絵文字］のタブ
+const tabsOf = (l) => [$(l, 'iconTabIcon'), $(l, 'iconTabEmoji')];
+const optsOf = (l) => $(l, 'iconList').querySelectorAll('.icopt');
+const headsOf = (l) => $(l, 'iconList').querySelectorAll('.ichead').map((h) => h.textContent);
+const openPop = async (l) => { $(l, 'pIcon').dispatchEvent({ type: 'click' }); await l.drain(); };
+test('IV-2・F182: いつも［アイコン］で開く（今のアイコンが絵文字でも）・タブの role と aria-selected・←→・Home・End で替える・替えてもフォーカスは窓の中・Tab の輪（タブ → 探す欄 → ［外す］ → 並び）', T, async () => {
+  const l = await boot({ list: LIST().map((p) => (p.id === 'g1' ? { ...p, icon: '🚀' } : p)) });
+  await open(l, 'g1');
+  await openPop(l);
+  const [ti, te] = tabsOf(l);
+  assert.ok(ti && te, 'タブが無い');
+  assert.strictEqual(ti.parentNode.getAttribute('role'), 'tablist');
+  assert.strictEqual(ti.parentNode.getAttribute('aria-label'), 'アイコンの種類');
+  assert.deepStrictEqual([ti.textContent, te.textContent, ti.getAttribute('role'), ti.getAttribute('aria-selected'), te.getAttribute('aria-selected')], ['アイコン', '絵文字', 'tab', 'true', 'false'], '［アイコン］で開かない');
+  assert.ok(optsOf(l).every((b) => P.isIconId(b.dataset.e)), 'アイコンのタブに絵文字が混じる');
+  assert.deepStrictEqual(headsOf(l).slice(0, 10), P.ICON_CATS.map((c) => c.label), '分類の見出し');
+  ti.focus();
+  l.key({ key: 'ArrowRight' }, ti); await l.drain();
+  assert.ok(te.getAttribute('aria-selected') === 'true' && l.document.activeElement === te, '→ で［絵文字］へ替わらない');
+  assert.ok(optsOf(l).every((b) => !P.isIconId(b.dataset.e)), '絵文字のタブにアイコンが混じる');
+  l.key({ key: 'Home' }, te); await l.drain();
+  assert.ok(ti.getAttribute('aria-selected') === 'true' && l.document.activeElement === ti, 'Home で［アイコン］へ替わらない');
+  l.key({ key: 'End' }, ti); await l.drain();
+  assert.ok(te.getAttribute('aria-selected') === 'true' && l.document.activeElement === te, 'End で［絵文字］へ替わらない');
+  l.key({ key: 'ArrowLeft' }, te); await l.drain();
+  assert.ok(ti.getAttribute('aria-selected') === 'true' && l.document.activeElement === ti);
+  // Tab の輪（タブ → 探す欄 → ［外す］ → 並び → タブ）
+  l.key({ key: 'Tab' }, ti); await l.drain();
+  assert.ok(l.document.activeElement === $(l, 'iconSearch'), 'タブの次が探す欄でない');
+  l.key({ key: 'Tab' }, $(l, 'iconSearch')); await l.drain();
+  assert.ok(l.document.activeElement === $(l, 'iconClear'), '探す欄の次が［外す］でない');
+  l.key({ key: 'Tab' }, $(l, 'iconClear')); await l.drain();
+  assert.ok(optsOf(l).includes(l.document.activeElement), '［外す］の次が並びでない');
+  l.key({ key: 'Tab' }, l.document.activeElement); await l.drain();
+  assert.ok(l.document.activeElement === ti, '並びの次が選んでいるタブでない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('IV-2・F182: 探す語はタブを替えても残り、替えた先で探す・別の種類が混じらない・変換中の Enter で選ばない', T, async () => {
+  const l = await boot();
+  await open(l, 'g1');
+  await openPop(l);
+  const q = $(l, 'iconSearch');
+  q.value = 'しょるい'; q.dispatchEvent({ type: 'input' }); await l.drain();
+  assert.ok(optsOf(l).length > 0 && optsOf(l).every((b) => P.isIconId(b.dataset.e)), 'アイコンのタブで探せない');
+  assert.strictEqual(optsOf(l)[0].dataset.e, 'ic:certification_with_seal');
+  q.dispatchEvent({ type: 'keydown', key: 'Enter', isComposing: true, keyCode: 229, preventDefault() {} }); await l.drain();
+  assert.strictEqual(l.called('pageSetIcon').length, 0, '変換中の Enter で選んだ');
+  $(l, 'iconTabEmoji').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.strictEqual(q.value, 'しょるい', 'タブを替えると探す語が消える');
+  assert.ok(optsOf(l).every((b) => !P.isIconId(b.dataset.e)), '絵文字のタブにアイコンが混じる');
+  q.value = 'ほし'; q.dispatchEvent({ type: 'input' }); await l.drain();
+  $(l, 'iconTabIcon').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.ok(optsOf(l).every((b) => P.isIconId(b.dataset.e)) && optsOf(l).length > 0, '替えた先で探し直さない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+test('IV-2: 最近使ったものは開いているタブの種類だけ・選ぶと先頭に入り saveUi の1回（ic: も残る: rv58 軽い 3）・今の値に印・ボタンの aria-label と title が日本語の名前・［外す］で既定に戻る（pageSetIcon の1回）', T, async () => {
+  const saved = [];
+  const l = await boot({ list: LIST().map((p) => (p.id === 'g1' ? { ...p, icon: 'ic:mic' } : p)), returns: { uiState: () => ({ emojiRecent: ['ic:star', '🚀', 'ic:__proto__', 'ic:mic'] }), uiSave: (x) => { saved.push(x); return true; } } });
+  await open(l, 'g1');
+  await openPop(l);
+  assert.strictEqual(headsOf(l)[0], '最近使ったもの');
+  const recent = $(l, 'iconList').querySelectorAll('.icgrid')[0].querySelectorAll('.icopt').map((b) => b.dataset.e);
+  assert.deepStrictEqual(recent, ['ic:star', 'ic:mic'], 'アイコンのタブの最近使ったもの');
+  const mic = optsOf(l).find((b) => b.dataset.e === 'ic:mic');
+  assert.ok(mic.classList.contains('on'), '今の値に印が無い');
+  assert.deepStrictEqual([mic.getAttribute('aria-label'), mic.title], [P.iconNameOf('ic:mic'), P.iconNameOf('ic:mic')], 'ボタンの名前が ic: のまま');
+  $(l, 'iconTabEmoji').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual($(l, 'iconList').querySelectorAll('.icgrid')[0].querySelectorAll('.icopt').map((b) => b.dataset.e), ['🚀'], '絵文字のタブの最近使ったもの');
+  // 選ぶと先頭に入り、ic: の値も消えずに書き戻す
+  optsOf(l).find((b) => b.dataset.e === '🌸').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(saved.filter((x) => x && x.emojiRecent).map((x) => x.emojiRecent), [['🌸', 'ic:star', '🚀', 'ic:mic']], '最近使ったものの書き戻し');
+  await openPop(l);
+  $(l, 'iconClear').dispatchEvent({ type: 'click' }); await l.drain();
+  assert.deepStrictEqual(l.called('pageSetIcon').map((c) => c.args), [['g1', '🌸'], ['g1', '']]);
+  assert.strictEqual(iconOf($(l, 'pIcon')), DOC, '［外す］で既定（書類）に戻らない');
+  assert.deepStrictEqual(l.errors.map(fmt), []);
 });

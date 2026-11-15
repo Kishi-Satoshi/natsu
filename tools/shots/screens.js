@@ -166,6 +166,9 @@ const OPEN_ICON = `(async () => {
   await until(() => !document.getElementById('iconPop').hidden, 'アイコンの窓が出ない');
   return 1;
 })()`;
+// 0.17.0 IV-2: 選びの窓を開いて［絵文字］のタブを押す・［アイコン］のタブで「しょるい」と探す
+const OPEN_ICON_EMOJI = OPEN_ICON.replace('  return 1;\n})()', "  document.getElementById('iconTabEmoji').click();\n  if (document.getElementById('iconTabEmoji').getAttribute('aria-selected') !== 'true') throw new Error('［絵文字］のタブにならない');\n  return 1;\n})()");
+const OPEN_ICON_SEARCH = OPEN_ICON.replace('  return 1;\n})()', "  const q = document.getElementById('iconSearch');\n  q.value = 'しょるい';\n  q.dispatchEvent(new Event('input', { bubbles: true }));\n  if (!document.querySelector('#iconList .icopt svg')) throw new Error('探したアイコンが無い');\n  return 1;\n})()");
 // 0.15.0 PL-3: 1行目のページを開いて「···」のメニューを開き、［書体 ▸］を押して 標準・明朝・等幅 を出す
 const OPEN_LOOK_MENU = `(async () => {
   document.querySelector('#plist .pitem').click();
@@ -681,8 +684,9 @@ const SCREENS = [
   { name: 'trash-pop-light', page: 'app', theme: 'light', get answers() { return trashAnswers(); }, act: OPEN_TRASH },
   // 0.15.0 PL-3（計画の「取り直す画面」）: アイコンの選び（最近使ったもの・分類の見出しと並び）の明暗・全幅（拡大 200% で横の捲り棒が出ない）・
   // 小さい文字と明朝・等幅・「···」の見た目の項目（全幅に印・［書体 ▸］を開いて明朝に印）。足した画面（まだ基準が無い）
-  { name: 'icon-pop-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON },
-  { name: 'icon-pop-dark', page: 'app', theme: 'dark', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON },
+  // 0.17.0 IV-2（計画 docs/plans/2026-11-13-170.md の「取り直す画面」）で意図して変えた: 窓はいつも［アイコン］で開くので、この2枚は［絵文字］のタブを押した形
+  { name: 'icon-pop-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON_EMOJI },
+  { name: 'icon-pop-dark', page: 'app', theme: 'dark', answers: { 'koeApp.uiState': { emojiRecent: ['🚀', '📊', '🌸'] } }, act: OPEN_ICON_EMOJI },
   { name: 'look-wide-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ wide: true }); }, act: OPEN_PAGE },
   { name: 'look-wide-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return lookAnswers({ wide: true }); }, act: OPEN_PAGE },
   { name: 'look-small-serif-light', page: 'app', theme: 'light', get answers() { return lookAnswers({ small: true, font: 'serif' }); }, act: OPEN_PAGE },
@@ -740,6 +744,10 @@ const SCREENS = [
   { name: 'sidebar-db-views-light', page: 'app', theme: 'light', get answers() { return sideViewsAnswers(); }, act: OPEN_SIDE_VIEWS },
   { name: 'sidebar-db-views-dark', page: 'app', theme: 'dark', get answers() { return sideViewsAnswers(); }, act: OPEN_SIDE_VIEWS },
   // 0.17.0 LK-1（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: ロック中のデータベース（題名の右の「ロック中」・「···」の灰色の［削除］）
+  // 0.17.0 IV-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 選びの窓の［アイコン］のタブ（最近使ったものにアイコンと絵文字・分類の見出しと線の絵）と、「しょるい」で探した形
+  { name: 'icon-pop-icons-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { emojiRecent: ['ic:mic', '🚀', 'ic:calendar_month', 'ic:certification_with_seal'] } }, act: OPEN_ICON },
+  { name: 'icon-pop-icons-dark', page: 'app', theme: 'dark', answers: { 'koeApp.uiState': { emojiRecent: ['ic:mic', '🚀', 'ic:calendar_month', 'ic:certification_with_seal'] } }, act: OPEN_ICON },
+  { name: 'icon-pop-icons-search-light', page: 'app', theme: 'light', act: OPEN_ICON_SEARCH },
   { name: 'db-locked-light', page: 'app', theme: 'light', get answers() { return lockedAnswers(); }, act: OPEN_DB_LOCKED },
   // 0.17.0 MG-4（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 「議事録」データベースの表（5列・ロック中の印・日時の新しい順）と、サイドバーのいちばん上の「議事録」の行（移し替えた形）
   { name: 'minutes-db-light', page: 'app', theme: 'light', get answers() { return minutesAnswers(); }, act: OPEN_MINUTES_DB },

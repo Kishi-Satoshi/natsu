@@ -1667,6 +1667,8 @@ const IDS_170 = [
   'iv-svg-ns', 'iv-fill-current', 'iv-aria-hidden', 'iv-size', 'iv-clone', 'iv-tab-el', 'iv-live-crumb', 'iv-inline-head', 'iv-list-row', 'iv-rel-chip',
   'iv-rel-row',   // 点検 1（rv58 軽い 4）の直しで足した行
   'iv-newpop', 'iv-crumb-more', 'iv-trash', 'iv-kids', 'iv-subrow',
+  // 0.17.0 IV-2 で作った行（表の行の順に。iv-pop-recent-load は R60 で足した）
+  'iv-pop-first', 'iv-pop-tabkey', 'iv-pop-tabfocus', 'iv-pop-ime', 'iv-pop-query-keep', 'iv-pop-recent-kind', 'iv-pop-clear', 'iv-pop-cur', 'iv-pop-name', 'iv-pop-recent-load',
   // 0.17.0 PD-1 で作った行（表の行の順に）
   'pd-empty-text', 'pd-empty-kids', 'pd-empty-trashkid', 'pd-keep-title', 'pd-icon-off', 'pd-icon-undo', 'pd-keep-place', 'pd-kind-only-blank', 'pd-live', 'pd-same-shape',
   'pd-undo', 'pd-undo-rows', 'pd-parent-row',
@@ -1716,7 +1718,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
-  assert.strictEqual(rows.length, 174, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2、TK-3（R57）で tk- 1、RT-2（R59）で rt- 4 を足した）が読めない');
+  assert.strictEqual(rows.length, 175, '計画の 0.17.0 の表（ig- 25・iv- 32・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2、TK-3（R57）で tk- 1、RT-2（R59）で rt- 4、IV-2（R60）で iv- 1 を足した）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');
