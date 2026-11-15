@@ -370,7 +370,7 @@ function searchPassages(db, args, { now, ctx }) {
 
 // 0.16.0 DX-3（決めたこと 49・R103）: データベースのゴミ箱でない行の数と、読む答えの列と行（100 行まで）
 const DB_READ_ROWS = 100;
-const rowCountOf = (db, id) => db.prepare(commands.HOT_QUERIES.dbRowCount).get(id).c;
+const rowCountOf = (db, id) => commands.dbRowCountOf(db, id);   // 0.17.0 点検 3（rv60 重要 2・R69）: 表と同じ数え方（テンプレートは数えない・「議事録」は議事録の行も）
 const dumpOf = (db, page, now) => (F.isDb(page) ? commands.dbDump(db, page.id, DB_READ_ROWS, now.getTime()) : null);
 
 // get_meeting（決めたこと 114）。一覧に出す行に無い ID（無い・ゴミ箱・録音中の写し）は not-found

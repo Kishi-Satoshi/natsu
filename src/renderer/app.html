@@ -11854,7 +11854,7 @@
       hb.type = 'button'; hb.className = 'dbcolbtn'; hb.setAttribute('aria-haspopup', 'menu');
       hb.textContent = c.col.name;
       hb.onclick = () => dbColMenu(c.col.id, hb);
-      hb.draggable = true;   // 0.16.0 DV-3（V-T10・R74）: 見出しを引っ張って、このビューの列の並びを替える
+      hb.draggable = st.info.locked !== true;   // 0.16.0 DV-3（V-T10・R74）: 見出しを引っ張って、このビューの列の並びを替える。0.17.0 点検 3（rv60 軽い 8・R52）: ロック中は替えない（決めたこと 74）
       hb.ondragstart = (ev) => dbColDragStart(ev, c.col.id);
       h.ondragover = (ev) => dbColDragOver(ev, h);
       h.ondragleave = () => h.classList.remove('dropbefore', 'dropafter');
@@ -12045,7 +12045,13 @@
     try { r = await inFlight(send()); }
     catch (e) { const code = String((e && (e.code || e.message)) || 'internal'); toast(code === 'too-big' ? DB_TPL_FULL : `変更を保存できませんでした: ${code}`); return null; }
     await dbLoadSame(st);
+    await dbTplAgain(st);
     return r;
+  }
+  // 0.17.0 点検 3（rv60 軽い 9・R77）: テンプレートの足し引きは表の行の印（sig）を変えないので、表を読み直しても窓の並びが古いまま。db.get を読み直す
+  async function dbTplAgain(st) {
+    if (!dbUse(st)) return;
+    if (await dbInfoAgain(st, ++st.seq)) await dbLoad(true, st);
   }
   function dbTplMenu(anchor) {
     const st = dbSt;
@@ -12108,8 +12114,8 @@
     it('既定にする', () => dbTplAsk(st, from, t));
     if (t) {
       it('編集', () => { dbMenuClose(); dbOpenRow(t.id, false); });
-      it('複製', () => dbTplWrite(st, () => window.koeApp.tplDup(st.id, t.id)));
-      it('削除', () => { dbMenuClose(); dbWrite(() => window.koeApp.tplRemove(st.id, t.id), undefined, st); });
+      if (st.info.locked !== true) it('複製', () => dbTplWrite(st, () => window.koeApp.tplDup(st.id, t.id)));   // 0.17.0 点検 3（rv60 軽い 5・R73）: ロック中は作れない（決めたこと 69・74）
+      it('削除', async () => { dbMenuClose(); if (await dbWrite(() => window.koeApp.tplRemove(st.id, t.id), undefined, st)) await dbTplAgain(st); });
     }
     from.parentNode.appendChild(sub);
     const f = sub.querySelector('.mitem');
@@ -12953,11 +12959,15 @@
     const st = dbSt;
     const dbs = pages.filter((p) => p && p.kind === 'database' && typeof p.id === 'string');
     if (!dbs.some((p) => p.id === st.id)) dbs.unshift({ id: st.id, title: curPage && curPage.id === st.id ? curPage.title : '' });
-    const m = dbMenuAt(anchor, [{ head: DB_REL_HEAD }, ...dbs.map((p) => ({ label: oneLine(p.title) || dbUntitled(), fn: () => dbAddRelCol(p.id, Boolean(ck.checked), anchor) }))], 'dbcolmenu dbrelcol');
+    // 0.17.0 点検 3（rv60 重要 1・R68）: チェック（両側）の間は、ロック中のデータベースの項目を灰色に（DB も col.add の both を断る。新しい字は無い）
+    const lockedAt = dbs.map((p) => p.locked === true);
+    const m = dbMenuAt(anchor, [{ head: DB_REL_HEAD }, ...dbs.map((p, i) => ({ label: oneLine(p.title) || dbUntitled(), fn: () => { if (ck.checked && lockedAt[i]) return; dbAddRelCol(p.id, Boolean(ck.checked), anchor); } }))], 'dbcolmenu dbrelcol');
     const lab = document.createElement('label');
     lab.className = 'dbrelbothl';
     const ck = document.createElement('input');
     ck.type = 'checkbox'; ck.className = 'dbrelboth';
+    const picks = [...m.querySelectorAll('.mitem')];
+    ck.onchange = () => { picks.forEach((b, i) => { if (lockedAt[i]) b.disabled = Boolean(ck.checked); }); };
     lab.append(ck, document.createTextNode(DB_REL_BOTH));
     const head = m.querySelector('.dbmenuhead');
     if (head && head.nextSibling) m.insertBefore(lab, head.nextSibling); else m.appendChild(lab);

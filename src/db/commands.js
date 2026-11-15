@@ -103,6 +103,7 @@ const HOT_QUERIES = Object.freeze({
   topPages: "select id, ord, attrs, created_at from blocks where type = 'page' and parent_id is null and trashed_at is null",
   minutesDbs: "select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, '\"minutes\"') > 0 order by created_at, id",
   tasksDbs: "select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, '\"tasks\"') > 0 order by created_at, id",   // 0.17.0 TK-1
+  tasksDbsAll: "select id, attrs from blocks where type = 'page' and instr(attrs, '\"tasks\"') > 0 order by created_at, id",   // 0.17.0 点検 3（rv60 軽い 4）: ゴミ箱の「タスク管理」も
   kidLastOrd: "select max(ord) as m from blocks where parent_id = ? and type in ('page', 'row')",
   // 0.16.0 DX-2（決めたこと 44）: ゴミ箱の行（［ゴミ箱］の窓のまとまり）と、1つのまとまり（同じデータベース・同じ時刻）の行
   trashedRows: "select id, parent_id, ord, text, trashed_at from blocks where type = 'row' and trashed_at is not null",
@@ -245,6 +246,28 @@ function keepStoredLook(was, page) {
 // 0.17.0 MG-1（決めたこと 49・F195・P9）: 要約の書き戻しと締め直しは、「議事録」データベースの書ける列の値（議事録のページの attrs.cells）を DB の今の値のまま
 function keepStoredCells(was, page) {
   if (Object.hasOwn(was, 'cells')) page.cells = structuredClone(was.cells); else delete page.cells;
+}
+// 0.17.0 点検 3（rv60 軽い 3・R67。2026-11-15 の持ち主の答え「同じ文の ToDo に印を引き継ぐ（おすすめ）」）: 要約の書き戻し（page.put。作り直した要約は
+// 新しいブロックの ID）で、印の無い ToDo の文（前後の空白を除いて）が、前のページの印のある ToDo の文と1字も同じなら、前のページの順で最初に当たる印を
+// 引き継ぐ（使った印は外す: 1つのタスクを2つの ToDo が指さない）。送ったページの中で同じ印が2つあれば、後の方の印を外す
+function keepTaskMarks(was, page) {
+  const marked = (b) => isObj(b) && b.type === 'todo' && typeof b.task === 'string' && b.task !== '';
+  const now = BT.flattenBlocks(Array.isArray(page.blocks) ? page.blocks : []);
+  const taken = new Set();
+  for (const b of now) if (marked(b)) { if (taken.has(b.task)) delete b.task; else taken.add(b.task); }
+  const left = [];
+  for (const b of BT.flattenBlocks(Array.isArray(was.blocks) ? was.blocks : [])) {
+    if (marked(b) && !taken.has(b.task) && !left.some((x) => x.task === b.task)) left.push({ text: String(b.text || '').trim(), task: b.task });
+  }
+  for (const b of now) {
+    if (!left.length) break;
+    if (!isObj(b) || b.type !== 'todo' || marked(b)) continue;
+    const text = String(b.text || '').trim();
+    const i = text ? left.findIndex((x) => x.text === text) : -1;
+    if (i < 0) continue;
+    b.task = left[i].task;
+    left.splice(i, 1);
+  }
 }
 function editPage(db, id, ctx, fn, { summary = false, view = false } = {}) {
   const w = forWrite(db, id);
@@ -664,7 +687,7 @@ function meetingFinalize(db, { pageId, page, segments }, ctx) {
   const was = loadPage(db, pageId, { trashed: true });
   // 0.17.0 MG-2（決めたこと 49）: 新しい議事録（行が無い・録音中の写し）は「議事録」データベースへ。締め直し（締めた議事録）は置き場を変えない
   const { ops, made } = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: false }), segments, was, !was || isLive(was.page) ? ctx : null);
-  return { ops, pageIds: made ? [pageId, made] : [pageId], result: readPage(db, pageId) };
+  return { ops, pageIds: made ? [pageId, made, ...colSetIds(ops)] : [pageId], result: readPage(db, pageId) };
 }
 
 function meetingRecover(db, { pageId, page, segments }, ctx) {
@@ -673,7 +696,7 @@ function meetingRecover(db, { pageId, page, segments }, ctx) {
   if (!l || isLive(l.page)) {
     // 行が無い・録音中の写し（ゴミ箱に入っていても）: 下書きの中身で作る・上書きする（下書きが正本）
     const { ops, made } = putMeetingPage(db, meetingPage(pageId, page, ctx.now, { recovered: true }), segments, l, ctx);   // 0.17.0 MG-2: 下書きから作った議事録も「議事録」へ
-    return { ops, pageIds: made ? [pageId, made] : [pageId], result: { page: readPage(db, pageId), already: false } };
+    return { ops, pageIds: made ? [pageId, made, ...colSetIds(ops)] : [pageId], result: { page: readPage(db, pageId), already: false } };
   }
   // 締め済み（F11）: ページは変えず、下書きにあって DB に無い発言だけ後ろに足す
   const olds = readSegments(db, pageId);
@@ -743,9 +766,25 @@ function minutesDbFor(db, ctx, make) {
   if (d) { putMetaRow(db, 'minutes.db', d.id); return { id: d.id, ops: [], made: null }; }
   if (!make) return null;
   const op = newMinutesDb(db, ctx);
+  const prev = db.prepare("select value from meta where key = 'minutes.db'").get();
   putMetaRow(db, 'minutes.db', op.id);
-  return { id: op.id, ops: [op], made: op.id };
+  // 0.17.0 点検 3（rv60 軽い 4・R72）: 前の「議事録」（消した・印を外した）を指す「タスク管理」の「議事録」の列は、作った「議事録」へ
+  return { id: op.id, ops: [op, ...(prev && prev.value !== op.id ? tasksRelRepoint(db, prev.value, op.id) : [])], made: op.id };
 }
+// 0.17.0 点検 3（rv60 軽い 4・R72）: 「タスク管理」（役の印。ゴミ箱も）のリレーションの列のうち、from（前の「議事録」）を指す列のつなぐ先を to（今の「議事録」）にする
+// 前の値つきの set（列の並び cols）。片側の列（back の無い列）だけ（両側の列は相手の列が対なので替えない）→ 操作の並び（当てない）
+function tasksRelRepoint(db, from, to) {
+  const out = [];
+  for (const r of db.prepare(HOT_QUERIES.tasksDbsAll).all()) {
+    const a = parseOr(r.attrs);
+    if (!a || a.role !== 'tasks' || !isDbPage(a) || !Array.isArray(a.cols)) continue;
+    if (!a.cols.some((c) => isObj(c) && c.type === 'rel' && c.db === from && c.back === undefined)) continue;
+    out.push({ op: 'set', id: r.id, key: 'cols', value: a.cols.map((c) => (isObj(c) && c.type === 'rel' && c.db === from && c.back === undefined ? { ...c, db: to } : c)), old: a.cols });
+  }
+  return out;
+}
+// 操作のうち、列の並びを書き替えたデータベース（知らせる pageIds に足す）
+const colSetIds = (ops) => ops.filter((o) => o.op === 'set' && o.key === 'cols').map((o) => o.id);
 // 議事録たち（[{ id, ord }]）を「議事録」の子の末尾へ、渡した順に（並びの鍵は前から順に大きい）→ move の操作（当てない）
 function movesUnder(db, m, list) {
   let last = m.made ? null : (db.prepare(HOT_QUERIES.kidLastOrd).get(m.id) || {}).m || null;
@@ -783,7 +822,7 @@ function minutesGather(db, a, ctx) {
   if (tk) ops.push(tk);
   applyOps(db, ops);
   if (a.first === true) putMetaRow(db, 'minutes.gathered', JSON.stringify({ n: moves.length, at: ctx.now().toISOString() }));
-  return { ops, pageIds: ops.length ? [m.id, ...moves.map((o) => o.id), ...(tk ? [tk.id] : [])] : [], result: { moved: moves.length, skipped, created: Boolean(m.made), db: m.id, tasks: tk ? tk.id : null } };
+  return { ops, pageIds: ops.length ? [m.id, ...moves.map((o) => o.id), ...(tk ? [tk.id] : []), ...colSetIds(m.ops)] : [], result: { moved: moves.length, skipped, created: Boolean(m.made), db: m.id, tasks: tk ? tk.id : null } };
 }
 // 起動のとき（DB のプロセス）: 移す議事録があるか（移す前の控えを取るか・見回りの命令を送るかを決める。壊れた attrs のページは数えない）と、
 // 「議事録」データベースがもうあるか（初めての起動で、移す物も作る物も無ければ命令を送らない: 空の oplog の行を積まない）
@@ -1357,7 +1396,8 @@ function pageRestore(db, a, ctx) {
   if (me.parentId !== null && (!hostSeen || !rowBack)) ops.unshift(topMove(me));   // 見えない所（ゴミ箱・録音中の写しの親の下・無い親）に戻さない
   if (body) ops.push(...body);
   if (rowAt !== undefined) ops.push({ op: 'set', id: a.id, key: 'rowAt', value: undefined, old: rowAt });
-  const merge = minutesMergeOps(db, a.id);   // 0.17.0 点検 2（rv59 重要 3・R43）
+  // 0.17.0 点検 2（rv59 重要 3・R43）・点検 3（rv60 重要 4・R65）: 戻す組（restoreGroup）の全部について、役の印のある「議事録」「タスク管理」を見る
+  const merge = roleMergeOps(db, group);
   ops.push(...merge.ops);
   applyOps(db, ops);
   return { ops, pageIds: [...(body ? [a.id, me.parentId] : [a.id]), ...merge.pageIds], result: listPages(db) };
@@ -1366,7 +1406,16 @@ function pageRestore(db, a, ctx) {
 // 「議事録」があれば、戻す方の子の議事録（ゴミ箱の議事録も。録音中の写しは除く）を、同じ命令で今の方の子の末尾へ（会議の日付と始めた時刻の順）移し、戻す方は
 // 役の印を外したふつうのデータベースにする（印のある生きた「議事録」を1つに保つ: F203）。戻す方の列とビューは今の方へ写さない。議事録のセルは、今の方に同じ ID・
 // 同じ名前・同じ種類の列（参加者など。選択肢とリレーションの列を除く）があれば残し、同じ ID の違う列の値は外す（今の方の列に違う形の値を見せない）→ { ops, pageIds }
-function minutesMergeOps(db, id) {
+// 戻す組の全部の、役の印のあるデータベース（「議事録」・「タスク管理」）の移し（tails: 今の方の子の末尾の鍵。同じ組に2つあっても鍵を重ねない）→ { ops, pageIds }
+function roleMergeOps(db, group) {
+  const tails = new Map();
+  const ops = []; const pageIds = [];
+  for (const id of group) {
+    for (const m of [minutesMergeOps(db, id, tails), tasksMergeOps(db, id, tails)]) { ops.push(...m.ops); pageIds.push(...m.pageIds); }
+  }
+  return { ops, pageIds };
+}
+function minutesMergeOps(db, id, tails = new Map()) {
   const raw = parseOr((db.prepare('select attrs from blocks where id = ?').get(id) || {}).attrs);
   if (!raw || raw.role !== 'minutes' || !isDbPage(raw)) return { ops: [], pageIds: [] };
   const cur = minutesDbOf(db);
@@ -1382,7 +1431,7 @@ function minutesMergeOps(db, id) {
   const oldCols = new Map((Array.isArray(raw.cols) ? raw.cols : []).filter(isObj).map((c) => [c.id, c]));
   const curCols = new Map(cur.cols.map((c) => [c.id, c]));
   const SAME_OK = (o, n) => Boolean(o) && o.type === n.type && o.name === n.name && !['select', 'multi', 'status', 'rel'].includes(n.type);
-  let last = (db.prepare(HOT_QUERIES.kidLastOrd).get(cur.id) || {}).m || null;
+  let last = tails.has(cur.id) ? tails.get(cur.id) : (db.prepare(HOT_QUERIES.kidLastOrd).get(cur.id) || {}).m || null;
   for (const p of list) {
     last = appendKey(last);
     ops.push({ op: 'move', id: p.id, ord: last, old: p.ord, parent: cur.id, oldParent: id });
@@ -1391,7 +1440,52 @@ function minutesMergeOps(db, id) {
       if (n && !SAME_OK(oldCols.get(k), n)) ops.push({ op: 'set', id: p.id, key: `cell:${k}`, value: undefined, old: v });
     }
   }
-  return { ops, pageIds: [cur.id, ...list.map((p) => p.id)] };
+  tails.set(cur.id, last);
+  const repoint = tasksRelRepoint(db, id, cur.id);   // 0.17.0 点検 3（rv60 軽い 4・R72）: 古い方を指す「タスク管理」の「議事録」の列は今の方へ
+  ops.push(...repoint);
+  return { ops, pageIds: [cur.id, ...list.map((p) => p.id), ...colSetIds(repoint)] };
+}
+// 0.17.0 点検 3（rv60 重要 4・R65。2026-11-15 の持ち主の答え「議事録と同じく今の方へ移す（おすすめ）」）: ゴミ箱から戻す「タスク管理」（役の印）のほかに、生きている
+// 「タスク管理」があれば、戻す方の行（ゴミ箱の行も。テンプレートの行は戻す方に残す）を、同じ命令で今の方の行の末尾へ（並びの鍵の順）移し、番号（no）は今の方の
+// 続きに振り直し、戻す方は役の印を外したふつうのデータベースにする（R43 と同じ形）。戻す方の列とビューは写さない。行のセルは、今の方に同じ ID・同じ名前・
+// 同じ種類の列があり、値が今の方でも同じ意味のとき（選択肢は同じ ID で同じ名前の選択肢・リレーションは今の方の列のつなぐ先の行）だけ残し、
+// 同じ ID の違う列の値は外す（前の値つきの set）。今の方に無い ID の値は残す（どこにも出ない）→ { ops, pageIds }
+function tasksMergeOps(db, id, tails = new Map()) {
+  const raw = parseOr((db.prepare('select attrs from blocks where id = ?').get(id) || {}).attrs);
+  if (!raw || raw.role !== 'tasks' || !isDbPage(raw)) return { ops: [], pageIds: [] };
+  const cur = tasksDbOf(db);
+  if (!cur || cur.id === id) return { ops: [], pageIds: [] };
+  const ords = new Map(db.prepare(HOT_QUERIES.dbOrds).all(id).map((r) => [r.id, r.ord]));
+  const rows = db.prepare(HOT_QUERIES.dbAllRows).all(id).filter((r) => !tplAttrs(r.attrs)).map((r) => ({ ...r, ord: ords.get(r.id) || '' }))
+    .sort((x, y) => cmpStr(x.ord, y.ord) || cmpStr(x.id, y.id));
+  const live = rows.filter((r) => r.trashed_at === null || r.trashed_at === undefined).length;
+  if (db.prepare(HOT_QUERIES.dbRowCount).get(cur.id).c + live > LIMITS.dbRows) throw refuse('too-big');   // 1つのデータベースの行の上限（決めたこと 7）
+  const ops = [{ op: 'set', id, key: 'role', value: undefined, old: raw.role }];
+  const oldCols = new Map((Array.isArray(raw.cols) ? raw.cols : []).filter(isObj).map((c) => [c.id, c]));
+  const curCols = new Map(cur.cols.map((c) => [c.id, c]));
+  const optName = (c, o) => { const x = Array.isArray(c.opts) ? c.opts.find((y) => isObj(y) && y.id === o) : null; return x ? x.name : null; };
+  const relIn = (n, v) => (Array.isArray(v) ? v : []).every((x) => typeof x === 'string' && (db.prepare('select parent_id from blocks where id = ?').get(x) || {}).parent_id === n.db);
+  const keeps = (o, n, v) => {
+    if (!o || o.type !== n.type || o.name !== n.name) return false;
+    if (['select', 'multi', 'status'].includes(n.type)) return (Array.isArray(v) ? v : [v]).every((x) => optName(o, x) !== null && optName(o, x) === optName(n, x));
+    if (n.type === 'rel') return o.db === n.db || relIn(n, v);
+    return true;
+  };
+  let last = tails.has(cur.id) ? tails.get(cur.id) : (db.prepare(HOT_QUERIES.dbLastOrd).get(cur.id) || {}).m || null;
+  let no = Number.isSafeInteger(cur.attrs.nextNo) && cur.attrs.nextNo >= 1 ? cur.attrs.nextNo : 1;
+  for (const r of rows) {
+    last = appendKey(last);
+    const at = parseOr(r.attrs) || {};
+    ops.push({ op: 'move', id: r.id, ord: last, old: r.ord, parent: cur.id, oldParent: id }, { op: 'set', id: r.id, key: 'no', value: no, old: at.no });
+    no += 1;
+    for (const [k, v] of Object.entries(isObj(at.cells) ? at.cells : {})) {
+      const n = curCols.get(k);
+      if (n && !keeps(oldCols.get(k), n, v)) ops.push({ op: 'set', id: r.id, key: `cell:${k}`, value: undefined, old: v });
+    }
+  }
+  tails.set(cur.id, last);
+  if (rows.length) ops.push({ op: 'set', id: cur.id, key: 'nextNo', value: no, old: cur.attrs.nextNo });
+  return { ops, pageIds: [cur.id, id, ...rows.map((r) => r.id)] };
 }
 
 // 0.16.0 DX-2（決めたこと 44・R98 (1)・R102）: 行のまとまり（同じデータベース・同じ時刻に消した行）を、元の並びの鍵のまま戻す（1つの命令・oplog の1行。
@@ -1480,7 +1574,8 @@ function rowScope(db, rows) {
     if (r && r.type === 'row') {
       const d = byId.get(r.parent_id);
       const up = d ? page(d.id) : null;
-      const live = (r.trashed_at === null || r.trashed_at === undefined) && alive(d) && isDbPage(d.attrs) && !isLive(d.attrs) && (!up || up.live);
+      // 0.17.0 点検 3（rv60 軽い 7・R75）: テンプレートの行は生きていない行と同じ（中のページを一覧・検索・Claude に出さず、中にページを作らない: F202）
+      const live = (r.trashed_at === null || r.trashed_at === undefined) && !tplAttrs(r.attrs) && alive(d) && isDbPage(d.attrs) && !isLive(d.attrs) && (!up || up.live);
       info = { row: r.id, title: r.text, db: r.parent_id, dbTitle: d ? d.title : '', live };
     }
     rowsMemo.set(id, info);
@@ -1796,18 +1891,26 @@ const isMeetingRaw = (attrs) => attrs.kind === undefined && !isLive(attrs);
 // データベースの行を読む1か所（db.view・rel.find・dbDump。書く道の liveRow も同じ決まり）→ 行の生の形（HOT_QUERIES.dbRows の欄）の並び。
 // 生きている行（row）からテンプレートの行（attrs.tpl: RT-1）を外し、「議事録」データベースなら子の議事録のページ（ゴミ箱・録音中の写し・白紙のページと
 // データベースを除く）を page: true と要約の最初の要点 msum（一覧の1行の preview。一覧と同じ覚えた1行を使う）を付けて足す
+// 0.17.0 点検 3（rv60 重要 2・R69）: 表の行の2つの決まり（テンプレートの行を外す・「議事録」の子の生きた議事録のページ）を、数える所（dbRowCountOf）と分け合う
+const tplAttrs = (attrs) => typeof attrs === 'string' && attrs.includes('"tpl"') && (parseOr(attrs) || {}).tpl === true;
+const plainRowsOf = (db, d) => db.prepare(HOT_QUERIES.dbRows).all(d.id).filter((r) => !tplAttrs(r.attrs));
+const minutesPagesOf = (db, d) => (isMinutesDb(d) ? db.prepare(HOT_QUERIES.minutesKids).all(d.id).filter((r) => r.trashed_at === null && isMeetingRaw(JSON.parse(r.attrs || '{}'))) : []);
 function dbRowsOf(db, d) {
-  const out = db.prepare(HOT_QUERIES.dbRows).all(d.id).filter((r) => !(r.attrs.includes('"tpl"') && JSON.parse(r.attrs).tpl === true));
+  const out = plainRowsOf(db, d);
   if (isMinutesDb(d)) {
     const cache = cacheOf(db);
-    for (const r of db.prepare(HOT_QUERIES.minutesKids).all(d.id)) {
+    for (const r of minutesPagesOf(db, d)) {
       const attrs = JSON.parse(r.attrs || '{}');
-      if (r.trashed_at !== null || !isMeetingRaw(attrs)) continue;
       const e = entryFor(db, cache, { id: r.id, key: keyOfRow(r), attrs, parentId: d.id, ord: r.ord });
       out.push({ id: r.id, ord: r.ord, text: r.text, attrs: r.attrs, rev: r.rev, created_at: r.created_at, updated_at: r.updated_at, page: true, msum: e ? e.preview : '' });
     }
   }
   return out;
+}
+// 表と同じ数え方の行の数（db.get の rowCount・MCP の「データベース（行 n）」。無い・ゴミ箱のデータベースは 0）
+function dbRowCountOf(db, id) {
+  const d = dbOf(db, id);
+  return d ? plainRowsOf(db, d).length + minutesPagesOf(db, d).length : 0;
 }
 // そのデータベースの生きている行（書く命令はこの形に attrs と rev を足して使う）
 function liveRow(db, d, id) {
@@ -2038,7 +2141,8 @@ function todoToTask(db, a, ctx) {
   if (!b || b.type !== 'todo' || !String(b.text || '').trim()) throw refuse('bad-args');
   if (typeof b.task === 'string' && b.task) {
     const r = db.prepare(HOT_QUERIES.dbRow).get(b.task);
-    if (r && r.type === 'row') return { ops: [], pageIds: [], result: { id: b.task, db: r.parent_id } };
+    // 0.17.0 点検 3（rv60 軽い 2・R71）: 生きている行（データベースも生きている）だけを「もうある」とする。ゴミ箱なら新しく作り、印を書き替える
+    if (r && r.type === 'row' && r.trashed_at === null && dbOf(db, r.parent_id)) return { ops: [], pageIds: [], result: { id: b.task, db: r.parent_id } };
   }
   const ops = [];
   let d = tasksDbOf(db);
@@ -2172,7 +2276,7 @@ function dbGetOf(db, id, linked) {
   const d = dbOf(db, id);
   if (!d) return null;
   const views = linked === undefined ? d.views : linkedOf(db, d.id, linked).views;
-  const out = { id, title: d.title, cols: d.cols, views: views.map((v) => normView(d, v)), rowCount: db.prepare(HOT_QUERIES.dbRowCount).get(id).c };
+  const out = { id, title: d.title, cols: d.cols, views: views.map((v) => normView(d, v)), rowCount: dbRowCountOf(db, id) };   // 0.17.0 点検 3（rv60 重要 2・R69）: 表と同じ数え方
   if (typeof d.attrs.icon === 'string' && d.attrs.icon) out.icon = d.attrs.icon;
   if (d.attrs.locked === true) out.locked = true;   // 0.17.0 LK-1（決めたこと 73）
   if (d.attrs.role === 'tasks') out.tasks = true;   // 0.17.0 TK-1（決めたこと 62）: 担当の候補の先頭に「自分」
@@ -2371,6 +2475,8 @@ function tplInfo(db, d) {
   for (const v of d.views) defaults[v.id] = typeof per[v.id] === 'string' && (per[v.id] === '' || ids.has(per[v.id])) ? per[v.id] : base;
   return { list, base, defaults };
 }
+// 0.17.0 点検 3（rv60 軽い 2・R71）: 写した行（子孫も）から［タスクにする］の印を外す（block.duplicate・blocks.duplicate。copyBodyOps と同じ考え）
+function dropTaskMarks(list) { for (const b of BT.flattenBlocks(list)) delete b.task; }
 // 本文のブロックを写す操作（ブロックの ID は新しく作り、子ページの行・リンクドビューの行とその下は写さない。ToDo の［タスクにする］の印は外す）
 function copyBodyOps(db, ctx, fromId, toId) {
   const rows = db.prepare(HOT_QUERIES.pageBlocks).all(fromId, fromId);
@@ -2397,7 +2503,9 @@ function tplRoom(db, d) {
 function tplRowOps(db, a, ctx, d, src, asTpl) {
   const id = newRowId(db, ctx.now);
   const who = whoOf(ctx);
-  const live = new Set(d.cols.filter((c) => !c.gone && c.type !== 'title' && DM.COLS[c.type] && DM.COLS[c.type].writable).map((c) => c.id));
+  // 0.17.0 点検 3（rv60 重要 3・R70）: 両側のリレーション（back のある列・自分への列1つ）の値は写さない（相手の行に作った行が入らず、片側だけになる）
+  const twoSided = (c) => c.type === 'rel' && (c.back !== undefined || c.db === d.id);
+  const live = new Set(d.cols.filter((c) => !c.gone && c.type !== 'title' && DM.COLS[c.type] && DM.COLS[c.type].writable && !twoSided(c)).map((c) => c.id));
   const from = src ? (parseOr(src.attrs) || {}).cells : null;
   const cells = {};
   if (isObj(from)) for (const [k, v] of Object.entries(from)) if (live.has(k)) cells[k] = structuredClone(v);
@@ -2532,6 +2640,9 @@ function relEdit(db, a, ctx, add) {
     putId(me, col.id, id);
     if (bcol) putId(o, bcol.id, a.id);
   }
+  // 0.17.0 点検 3（rv60 重要 3・R70。F202）: テンプレートの行へはつながない。テンプレートは両側のリレーション（自分への列1つも）の値を持たない
+  //（相手の行のセルにテンプレートが入り、相手の表と Claude の答えに出る）。片側の列はテンプレートでも書ける。外すのは今どおり
+  if (add && [...staged.values()].some((e) => e.r.attrs.tpl === true && (e !== me || bcol))) throw refuse('bad-args');
   let added = null;
   if (add && a.title !== undefined) {
     if (isMinutesDb(t)) throw refuse('bad-args');   // 0.17.0 TK-1（rv59 軽い 6・決めたこと 52・53）: 「議事録」にふつうの行を作らない
@@ -2651,6 +2762,7 @@ function colAdd(db, a) {
   const t = a.type !== 'rel' ? null : a.target === d.id ? d : mustDb(db, a.target);
   const self = t === d;
   if (d.cols.length + (a.both && self ? 2 : 1) > LIMITS.dbCols || (a.both && !self && t.cols.length >= LIMITS.dbCols)) throw refuse('bad-args');
+  if (a.both && !self && isLockedDb(db, t.id)) throw refuse('bad-args');   // 0.17.0 点検 3（rv60 重要 1・R68）: ロック中の相手に対の列を足さない（決めたこと 74）
   let col;
   try { col = DM.newCol(a.type, a.name, d.cols); } catch (_) { throw refuse('bad-args'); }
   if (t) col = { ...col, db: t.id };
@@ -2769,6 +2881,7 @@ function colRemove(db, a) {
   // 0.16.0 DR-1（決めたこと 36）: 両側のリレーションの片方を消すと、相手の列は片側のリレーションに戻る（相手の値は消さない。同じ命令で Ctrl+Z も一緒）
   const peer = col.type === 'rel' ? relPeer(db, d, col, true) : null;
   if (peer && peer.bcol && peer.bcol !== col) {
+    if (peer.t !== d && isLockedDb(db, peer.t.id)) throw refuse('bad-args');   // 0.17.0 点検 3（rv60 重要 1・R68）: ロック中の相手の列（back）を書き換えない
     const t = peer.t === d ? { ...d, attrs: { ...d.attrs, cols: ops[0].value }, cols: ops[0].value } : peer.t;
     const lone = { ...peer.bcol };
     delete lone.back;
@@ -2968,6 +3081,8 @@ function dbRevert(db, a, ctx, fwd) {
   if (!same) throw refuse('stale');   // 後で変わったセル・行（決めたこと 48）
   // 0.17.0 LK-1（決めたこと 74）: ロック中は、列（両側のリレーションの相手も）の形を戻さない（ロックの前の列の歩みも。行とセルの歩みは戻す）
   if (back.some((o) => o.op === 'set' && o.key === 'cols' && isLockedDb(db, o.id))) throw refuse('stale');
+  // 0.17.0 点検 3（rv60 軽い 5・R73）: ロック中は、テンプレートを作る歩み（tpl.add・tpl.dup のやり直し）も戻さない（決めたこと 69・74）
+  if (isLockedDb(db, a.pageId) && back.some((o) => o.op === 'add' && isObj(o.row) && (isObj(o.row.attrs) ? o.row.attrs.tpl === true : tplAttrs(o.row.attrs)))) throw refuse('stale');
   // 戻すと消える行（足した行）に本文があれば戻さない（本文を親の無い行にしない）
   // 0.17.0 RT-1: 同じ歩みで足した本文（テンプレートから写した本文）は、同じ歩みで消えるので数えない
   const goneNow = new Set(back.filter((o) => o.op === 'trash' && isObj(o.old)).map((o) => o.id));
@@ -3393,6 +3508,7 @@ const DEFS = {
         if (after !== '' && !BT.locate(p.blocks, after)) throw refuse('bad-args');
         const copy = { ...clone(l.b), id: blockId };
         if (Array.isArray(copy.children)) copy.children = dropSubRows(copy.children);   // 子孫の子ページの行も写さない
+        dropTaskMarks([copy]);   // 0.17.0 点検 3（rv60 軽い 2・R71）: ［タスクにする］の印は写さない（1つのタスクを2つの ToDo が指さない）
         const used = new Set([blockId]);
         for (const d of BT.flattenBlocks(copy.children)) {
           let nid = newBlockId(db, ctx.now);
@@ -3514,6 +3630,7 @@ const DEFS = {
         // 0.15.0 PR-1（決めたこと 52・BQ13 (a)）: 子ページの行は写さない（子孫も）。子ページの行だけなら bad-args
         const keep = dropSubRows(roots.map((b) => clone(b)));
         if (!keep.length) throw refuse('bad-args');
+        dropTaskMarks(keep);   // 0.17.0 点検 3（rv60 軽い 2・R71）: ［タスクにする］の印は写さない
         const copies = keep.map((b) => {
           const c = b;
           for (const d of BT.flattenBlocks([c])) d.id = freshId(db, ctx, used);
@@ -3566,6 +3683,7 @@ const DEFS = {
       keepStoredLook(was.page, page);   // 0.15.0 PL-2: アイコンと見た目も保存してあるまま
       keepStoredCells(was.page, page);   // 0.17.0 MG-1: 「議事録」の列の値も
       if (!Array.isArray(page.blocks)) page.blocks = [];
+      keepTaskMarks(was.page, page);   // 0.17.0 点検 3（rv60 軽い 3・R67）: 作り直した同じ文の ToDo に［タスクにする］の印を引き継ぐ
       const ops = saveOps(was, page, ctx.now);
       applyOps(db, ops);
       return { ops, pageIds: [page.id], result: readPage(db, page.id) };
@@ -3646,7 +3764,8 @@ const DEFS = {
     dupResult: DUP['rows.setCell'] },
   'row.move': { roles: ['app'], write: true, args: { db: 'id', id: 'id', afterId: 'idOrEmpty' }, pageOf: dbOfArgs, run: rowMove, dupResult: DUP['row.move'] },
   'rows.trash': { roles: ['app'], write: true, args: { db: 'id', ids: 'ids' }, pageOf: dbOfArgs, run: rowsTrash,
-    dupResult: (_db, _a, row) => ({ trashed: JSON.parse(row.ops || '[]').length }) },
+    // 0.17.0 点検 3（rv60 軽い 6・R74）: 1回目の答えと同じ数（表の行だけ: そのデータベースの直の子。議事録の子孫のページは数えない）
+    dupResult: (db, a, row) => ({ trashed: JSON.parse(row.ops || '[]').filter((o) => o && o.op === 'trash' && (db.prepare('select parent_id from blocks where id = ?').get(o.id) || {}).parent_id === a.db).length }) },
   'rows.paste': { roles: ['app'], write: true, args: { db: 'id', viewId: 'id', at: 'cellRef', grid: 'pasteGrid' }, pageOf: dbOfArgs, run: rowsPaste, dupResult: DUP['rows.paste'] },
   'col.add': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', type: 'colType', name: 'short?', after: 'idOrEmpty?', target: 'id?', both: 'bool?' }, pageOf: dbOfArgs, run: colAdd, dupResult: DUP['col.add'] },
   'col.rename': { roles: ['app'], write: true, lockBlocked: true, args: { db: 'id', col: 'id', name: 'short' }, pageOf: dbOfArgs, run: colRename, dupResult: dupCol },
@@ -3671,4 +3790,4 @@ const lockGuard = (run) => (db, a, ctx) => { if (isLockedDb(db, lockTargetOf(a))
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v.lockBlocked ? { ...v, run: lockGuard(v.run) } : v)]))));
 
-module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump };
+module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump, dbRowCountOf };
