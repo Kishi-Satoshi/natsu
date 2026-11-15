@@ -165,3 +165,90 @@ test('MG-3（決めたこと 56）: sideSection.sectionRows の pin（「議事�
     }
   }
 });
+
+// ---------------------------------------------------------------- MG-4（決めたこと 52・53・56・F198）: 「議事録」データベースの画面
+const dbRowIds = (l) => $(l, 'pDb').querySelectorAll('.dbrow').map((r) => r.dataset.id);
+const cellIn = (l, rowId, colId) => $(l, 'pDb').querySelectorAll('.dbrow').find((r) => r.dataset.id === rowId).querySelectorAll('.dbcell').find((c) => c.dataset.col === colId);
+const AUTO = '議事録から自動で入ります';
+
+test('MG-4・F198: 「議事録」の表に議事録の行（日時の新しい順）・日付と作成者と要約のセルは灰色で「議事録から自動で入ります」・［＋ 新しい議事録］で録音の前のページ・「···」の［サブアイテム］は灰色・行を押すと議事録のページ（［AI 要約］の形）とパンくず「議事録 / 題名」', T, async () => {
+  let prepared = 0;
+  const l = await realApp({ before: (call) => minutesSeed(call), returns: { meetingPrepare: () => { prepared += 1; return { ok: false }; }, meetingStatus: () => ({ active: false }) } });
+  try {
+    const { M } = l.made;
+    await open(l, M);
+    assert.deepStrictEqual(dbRowIds(l), ['pm2', 'pm1'], '議事録の行が日時の新しい順でない');
+    const cols = l.call('db.get', { id: M }).cols;
+    for (const c of cols) {
+      const cell = cellIn(l, 'pm1', c.id);
+      const auto = ['mdate', 'cby', 'msum'].includes(c.type);
+      assert.strictEqual(cell.classList.contains('dbauto'), auto, `${c.name} の灰色`);
+      assert.strictEqual(cell.title === AUTO, auto, `${c.name} の吹き出し`);
+    }
+    const add = $(l, 'pDb').querySelector('.dbadd');
+    assert.strictEqual(add.textContent, '＋ 新しい議事録');
+    await clickEl(l, add);
+    assert.strictEqual(prepared, 1, '［＋ 新しい議事録］で録音の前のページを開かない');
+    assert.deepStrictEqual(l.called('rowAdd'), [], '［＋ 新しい議事録］でふつうの行を作った');
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    const sub = moreItem(l, 'サブアイテム');
+    assert.ok(sub && sub.getAttribute('aria-disabled') === 'true', '「議事録」の［サブアイテム］が灰色でない');
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    // 行のメニューの［開く］で議事録のページ（今のタブ）
+    $(l, 'pDb').querySelectorAll('.dbrow').find((r) => r.dataset.id === 'pm1').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(20);
+    await clickEl(l, l.document.querySelector('.dbrowmenu').querySelectorAll('.mitem').find((b) => b.textContent === '開く'), 200);
+    assert.ok(!$(l, 'pageWrap').classList.contains('blank') && !$(l, 'pageWrap').classList.contains('row') && !$(l, 'pageWrap').classList.contains('db'), '議事録のページの形でない');
+    assert.ok(!$(l, 'paneBtnNote').hidden && $(l, 'paneBtnNote').textContent === 'AI 要約');
+    const crumbs = $(l, 'crumb').children.filter((e) => e.dataset && e.dataset.crumb === 'up').map((e) => e.dataset.pid);
+    assert.deepStrictEqual(crumbs, [M], 'パンくずが「議事録 / 題名」でない');
+    const ti = l.document.querySelector('.tabitem.active .ti');
+    assert.strictEqual(ti && ti.getAttribute('data-icon'), 'ic:mic', 'タブのアイコンが議事録の既定（マイク）でない（行のページの扱い）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MG-4（決めたこと 56）: 議事録の無い「議事録」の表には、空のときの文（「議事録はありません」と［＋ 新しい議事録］の案内）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    call('meeting.finalize', { pageId: 'pm1', page: MEET('pm1', '2026-11-10T01:30:00.000Z', '2026-11-10'), segments: [] }, 'main');
+    const M = call('pages.list', {}).find((p) => p.minutes).id;
+    call('page.delete', { id: 'pm1' });
+    return { M };
+  } });
+  try {
+    await open(l, l.made.M);
+    const e = $(l, 'pDb').querySelector('.dbempty');
+    assert.ok(e, '空のときの文が無い');
+    assert.strictEqual(e.textContent, '議事録はありません［＋ 新しい議事録］で会議を録音すると、要約と文字起こしが作られます。');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- TK-1（決めたこと 60〜62・65・F200）
+test('TK-1・F200: サイドバーは「議事録」の下に「タスク管理」・▸ を開くとビューの行「すべて」「マイタスク」「期限順」・「マイタスク」の行で開く・担当の候補の先頭が「自分」', T, async () => {
+  const l = await realApp({ before: (call) => {
+    minutesSeed(call);
+    const g = call('minutes.gather', { first: true }, 'main');
+    call('row.add', { db: g.tasks, title: '見積もり' });   // タスクの題名（D77 の外）
+    call('page.create', {});   // 「タスク管理」より後に作った白紙のページ（固定が無ければ上に並ぶ）
+    return { M: g.db, K: g.tasks };
+  } });
+  try {
+    const { M, K } = l.made;
+    const ids = $(l, 'plist').querySelectorAll('.pitem').map((r) => r.dataset.pid).filter(Boolean);
+    assert.deepStrictEqual(ids.slice(0, 2), [M, K], '「タスク管理」が「議事録」の下でない');
+    sideRow(l, K).querySelector('.pi').dispatchEvent({ type: 'click' }); await l.drain(80);
+    const views = $(l, 'plist').querySelectorAll('.pview').filter((v) => String(v.dataset.vkey).startsWith(`${K}/`));
+    assert.deepStrictEqual(views.map((v) => v.textContent), ['•すべて', '•マイタスク', '•期限順']);
+    await clickEl(l, views[1], 300);
+    const tab = $(l, 'pDb').querySelectorAll('.dbtab').find((b) => b.getAttribute('aria-selected') === 'true');
+    assert.ok(tab && tab.textContent.includes('マイタスク'), '「マイタスク」で開かない');
+    // 担当の候補（「すべて」のビューで担当のセルを書く）
+    await clickEl(l, $(l, 'pDb').querySelectorAll('.dbtab').find((b) => b.textContent.includes('すべて')), 200);
+    const who = l.call('db.get', { id: K }).cols.find((c) => c.name === '担当').id;
+    const cell = $(l, 'pDb').querySelectorAll('.dbrow')[0].querySelectorAll('.dbcell').find((c) => c.dataset.col === who);
+    await clickEl(l, cell, 40); await clickEl(l, cell, 80);
+    const opts = $(l, 'pDb').querySelectorAll('.dbpicklist .dbopt');
+    assert.ok(opts.length && opts[0].textContent.includes('自分'), `担当の候補の先頭が「自分」でない: ${opts.map((o) => o.textContent)}`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

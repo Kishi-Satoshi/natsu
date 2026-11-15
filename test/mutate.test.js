@@ -1687,6 +1687,10 @@ const IDS_170 = [
   'mg-rows-trash-kids', 'mg-cells-pages', 'mg-restore-merge', 'mg-restore-role', 'mg-restore-cells', 'mg-paste-rows', 'mg-paste-add', 'mg-sweep-restore',   // 点検 2（rv59）の直しで足した行
   // 0.17.0 MG-3 で作った行（表の行の順に。mg-mcp-same は MG-2 で前倒し: R40。mg-search-place・mg-ui-move-out は R53 で足した）
   'mg-tree-hide', 'mg-db-undeletable', 'mg-no-move-out', 'mg-mcp-same', 'mg-dump-rows', 'mg-side-top', 'mg-search-place', 'mg-ui-move-out',
+  // 0.17.0 MG-4 で作った行（表の行の順に。mg-auto-grey 以下は R54 で足した）
+  'mg-new-meeting', 'mg-auto-grey', 'mg-open-page', 'mg-sub-off', 'mg-empty-text', 'mg-first-notice',
+  // 0.17.0 TK-1 で作った行（表の行の順に。tk-pin・tk-rel-title は R55 で足した）
+  'tk-role-one', 'tk-me-cand', 'tk-mytask-me', 'tk-mytask-done', 'tk-pin', 'tk-rel-title', 'tk-rel-oneside',
   // 0.17.0 LK-1 で作った行（表の行の順に。lc-ui-del 以下は R52 で足した）
   'lc-delete', 'lc-cols', 'lc-menu', 'lc-rows-ok', 'lc-minutes-start', 'lc-ui-del', 'lc-ui-plus', 'lc-undo-cols', 'lc-paste-opts',
 ];
@@ -1704,7 +1708,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.strictEqual(new Set(IDS_170).size, IDS_170.length, 'IDS_170 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
-  assert.strictEqual(rows.length, 162, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 29・sw- 12・mg- 37・tk- 11・rt- 8・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2 を足した）が読めない');
+  assert.strictEqual(rows.length, 169, '計画の 0.17.0 の表（ig- 25・iv- 31・pd- 29・sw- 12・mg- 42・tk- 13・rt- 8・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2 を足した）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');

@@ -255,6 +255,9 @@ const NOTICE = {
   skipped: (n) => `壊れているか形が合わなかったため、${n} 件のファイルを移せませんでした（元の場所にそのまま残しています）。ほかの議事録はそのまま使えます。`,
   migrateFailed: '議事録を新しい保存の形に移せませんでした。元のファイルはそのまま残っています。録音は下書きとして保存を続けます。NaTsu を終了して、もう一度起動してください（起動のときにもう一度移します）。',
   reimported: (n) => `古い版で保存された議事録 ${n} 件を取り込みました。`,
+  // 0.17.0 MG-4（計画 docs/plans/2026-11-13-170.md の「画面の文」・TQ14 の (a)）: 最初の起動の議事録の移し替え（DB の startup.minutes）
+  minutesGathered: (n) => `議事録を『議事録』のデータベースにまとめました（${n} 件）。`,
+  minutesFailed: '議事録をデータベースにまとめられませんでした。次に起動したときに、もう一度行います。',
   restored: (at) => `議事録の保存が壊れていたため、${at} の控えから戻しました。それより後の変更が抜けているかもしれません。壊れたファイルは natsu.db.broken-… として残しています。`,
   dbNewer: 'この議事録の保存は、新しい版の NaTsu で作られています。この版では読むだけにします（変更は保存されません）。新しい版の NaTsu を入れ直してください。',
   dbNetwork: '保存先がネットワークの場所にあるため、少し遅いが安全な書き方に切り替えました。',
@@ -386,6 +389,9 @@ async function noticeDbStartup() {
     const skip = n(st.reimport, 'broken') + n(st.reimport, 'badShape');
     if (st.reimport.skippedChanged && skip) laterNotice(NOTICE.skipped(skip));
   }
+  // 0.17.0 MG-4（TQ14 の (a)）: 移し替えは最初の起動の1回だけ（first は移し替えた起動だけ真）。控えが取れずに移さなかった起動は、次の起動でやり直すことを知らせる
+  if (st.minutes && st.minutes.failed) laterNotice(NOTICE.minutesFailed);
+  else if (st.minutes && st.minutes.first && n(st.minutes, 'moved') > 0) laterNotice(NOTICE.minutesGathered(n(st.minutes, 'moved')));
   if (s.state === 'newer') laterNotice(NOTICE.dbNewer);
   if (s.journal === 'delete') laterNotice(NOTICE.dbNetwork);
 }

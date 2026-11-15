@@ -191,6 +191,21 @@ const OPEN_DB_SELECT = OPEN_DB_AT(`cell(2, 'c2').click();`);
 const OPEN_DB_DATE = OPEN_DB_AT(`cell(0, 'c4').click();`);
 // 0.16.0 DV-3: リスト（開くだけ）・絞り込みの窓（⚙ →［絞り込み］）・グループ（開くだけ）・タブの「他 n 件」と今のタブのメニュー
 const OPEN_DB_PLAIN = OPEN_DB_AT('');
+// 0.17.0 MG-4: サイドバーのいちばん上の「議事録」を開く（表の行が議事録・読む列が灰色）。サイドバーの「議事録」の ▸ を開いてビューの行を見せる
+const OPEN_MINUTES_DB = OPEN_DB_AT(`if (document.querySelector('#plist .pitem').dataset.pid !== 'pm0') throw new Error('「議事録」がいちばん上でない');
+  if (!document.querySelector('#pDb .dbcell.dbauto')) throw new Error('読む列が灰色でない');`);
+const OPEN_SIDE_MINUTES = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  await w(300);
+  const row = document.querySelector('#plist .pitem');
+  if (!row || row.dataset.pid !== 'pm0') throw new Error('「議事録」がいちばん上でない');
+  if ([...document.querySelectorAll('#plist .pitem')].some((e) => ['p1', 'p2', 'p3'].includes(e.dataset.pid))) throw new Error('議事録がサイドバーに出た');
+  row.querySelector('.pi').click();
+  await w(200);
+  return 1;
+})()`;
+// 0.17.0 TK-1: いちばん上の「タスク管理」を開く（ビュー「マイタスク」）
+const OPEN_TASKS_DB = OPEN_DB_AT(`if (document.querySelector('#plist .pitem').dataset.pid !== 'pk0') throw new Error('「タスク管理」がいちばん上でない');`);
 // 0.17.0 LK-1: ロック中のデータベースを開いて「···」を開く（灰色の［削除］）。印と［削除］が無ければ投げて「撮れない」の NG にする
 const OPEN_DB_LOCKED = OPEN_DB_AT(`if (document.getElementById('pLock').hidden) throw new Error('「ロック中」が無い');
   document.getElementById('pMore').click();
@@ -711,6 +726,12 @@ const SCREENS = [
   { name: 'sidebar-db-views-dark', page: 'app', theme: 'dark', get answers() { return sideViewsAnswers(); }, act: OPEN_SIDE_VIEWS },
   // 0.17.0 LK-1（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: ロック中のデータベース（題名の右の「ロック中」・「···」の灰色の［削除］）
   { name: 'db-locked-light', page: 'app', theme: 'light', get answers() { return lockedAnswers(); }, act: OPEN_DB_LOCKED },
+  // 0.17.0 MG-4（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 「議事録」データベースの表（5列・ロック中の印・日時の新しい順）と、サイドバーのいちばん上の「議事録」の行（移し替えた形）
+  { name: 'minutes-db-light', page: 'app', theme: 'light', get answers() { return minutesAnswers(); }, act: OPEN_MINUTES_DB },
+  { name: 'minutes-db-dark', page: 'app', theme: 'dark', get answers() { return minutesAnswers(); }, act: OPEN_MINUTES_DB },
+  { name: 'sidebar-minutes-light', page: 'app', theme: 'light', get answers() { return minutesAnswers(); }, act: OPEN_SIDE_MINUTES },
+  // 0.17.0 TK-1（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: 「タスク管理」の「マイタスク」（担当に「自分」・完了でない・期限の順）
+  { name: 'tasks-db-light', page: 'app', theme: 'light', get answers() { return tasksAnswers(); }, act: OPEN_TASKS_DB },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -1109,6 +1130,51 @@ function sideViewsAnswers() {
   const views = [v1, { ...v1, id: 'v2', name: '一覧', layout: 'list' }, { ...v1, id: 'v3', name: '担当別' }];
   const list = a['koeApp.pagesSearch'].map((p) => (p.id === 'pd1' ? { ...p, views: views.map((v) => ({ id: v.id, name: v.name, type: v.layout })) } : p));
   return { ...a, 'koeApp.pagesSearch': list, 'koeApp.dbGet': { ...g, views } };
+}
+
+/** 0.17.0 MG-4: 移し替えた形（「議事録」データベース pm0 がいちばん上・見本の議事録3つはその子で inMinutes・白紙のページ1つ） */
+function minutesAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const cols = [{ id: 'title', name: '名前', type: 'title' }, { id: 'c1', name: '日付', type: 'mdate' }, { id: 'c2', name: '作成者', type: 'cby' }, { id: 'c3', name: '参加者', type: 'person' }, { id: 'c4', name: '要約', type: 'msum' }];
+  const view = { id: 'v1', name: 'すべて', layout: 'table', props: cols.map((c) => ({ col: c.id, show: true, wrap: false })), sort: [{ col: 'c1', dir: 'desc' }], filter: null, group: null, agg: {} };
+  const page = { id: 'pm0', kind: 'database', role: 'minutes', locked: true, title: '議事録', date: '2026-10-01', memo: '', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: at, blocks: [] };
+  const SUMS = ['来週までに見積もりの案を三つ用意する', '発注の段取りを担当ごとに決め直す', ''];
+  const WHO = [['佐藤', '鈴木'], ['高橋'], []];
+  const rows = LIST.map((p, i) => ({ id: p.id, ord: `a${i}`, title: p.title, createdAt: p.createdAt, updatedAt: p.updatedAt, by: { c: 'me' }, page: true,
+    cells: WHO[i].length ? { c3: WHO[i] } : {}, mdate: { start: p.date, time: p.createdAt.slice(11, 16) }, ...(SUMS[i] ? { msum: SUMS[i] } : {}), depth: 0, hasKids: false }));
+  const db = { id: 'pm0', title: '議事録', date: page.date, durationSec: 0, createdAt: page.createdAt, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'database', minutes: true, locked: true,
+    views: [{ id: 'v1', name: 'すべて', type: 'table' }] };
+  const blank = { id: 'pb9', kind: 'blank', title: '来月の計画', date: '2026-10-18', durationSec: 0, createdAt: '2026-10-18T00:00:00.000Z', updatedAt: '2026-10-18T00:00:00.000Z', meetingType: '', hasSummary: false, parentId: null, ord: 'i' };
+  return {
+    'koeApp.pagesSearch': [db, blank, ...LIST.map((p, i) => ({ ...p, parentId: 'pm0', ord: `a${i}`, inMinutes: true }))], 'koeApp.pageGet': { page, segments: [] },
+    'koeApp.dbGet': { id: 'pm0', title: '議事録', cols, views: [view], rowCount: 0, locked: true, minutes: true },
+    'koeApp.dbView': { total: rows.length, shown: rows.length, rows, groups: null, agg: {}, sig: '1.3.minutes' },
+  };
+}
+
+/** 0.17.0 TK-1: 「タスク管理」pk0（ステータス・担当・期限・優先度・議事録）を「マイタスク」のビューで（担当に「自分」・完了でない・期限の順の3行） */
+function tasksAnswers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const cols = [{ id: 'title', name: '名前', type: 'title' },
+    { id: 'c1', name: 'ステータス', type: 'status', opts: [{ id: 'o1', name: '未着手', color: 'default' }, { id: 'o2', name: '進行中', color: 'blue' }, { id: 'o3', name: '完了', color: 'green' }], groups: { todo: ['o1'], doing: ['o2'], done: ['o3'] } },
+    { id: 'c2', name: '担当', type: 'person' }, { id: 'c3', name: '期限', type: 'date' },
+    { id: 'c4', name: '優先度', type: 'select', opts: [{ id: 'o4', name: '高', color: 'red' }, { id: 'o5', name: '中', color: 'yellow' }, { id: 'o6', name: '低', color: 'gray' }] },
+    { id: 'c5', name: '議事録', type: 'rel', db: 'pm0' }];
+  const props = cols.map((c) => ({ col: c.id, show: true, wrap: false }));
+  const views = [{ id: 'v2', name: 'マイタスク', layout: 'table', props, sort: [{ col: 'c3', dir: 'asc' }], filter: { op: 'and', items: [{ col: 'c2', cmp: 'contains', value: '自分' }, { col: 'c1', cmp: 'none', value: ['o3'] }] }, group: null, agg: {} },
+    { id: 'v1', name: 'すべて', layout: 'table', props, sort: [], filter: null, group: null, agg: {} },
+    { id: 'v3', name: '期限順', layout: 'table', props, sort: [{ col: 'c3', dir: 'asc' }], filter: { op: 'and', items: [{ col: 'c1', cmp: 'none', value: ['o3'] }] }, group: null, agg: {} }];
+  const page = { id: 'pk0', kind: 'database', role: 'tasks', title: 'タスク管理', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks: [] };
+  const R = [['見積もりの案を三つ用意する', 'o2', '2026-10-20', 'o4', ['p1']], ['発注の段取りを決める', 'o1', '2026-10-23', 'o5', ['p2']], ['請求書の形を確かめる', 'o1', '2026-10-28', 'o6', []]];
+  const rows = R.map(([title, s, due, pr, rel], i) => ({ id: `rk${i + 1}`, ord: `a${i}`, title, createdAt: at, updatedAt: at, by: { c: 'me', u: 'me' }, no: i + 1,
+    cells: { c1: s, c2: ['自分'], c3: { start: due }, c4: pr, ...(rel.length ? { c5: rel } : {}) }, depth: 0, hasKids: false }));
+  const db = { id: 'pk0', title: 'タスク管理', date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: false, parentId: null, ord: 'i', kind: 'database', tasks: true,
+    views: views.map((v) => ({ id: v.id, name: v.name, type: 'table' })) };
+  return {
+    'koeApp.pagesSearch': [db, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] },
+    'koeApp.dbGet': { id: 'pk0', title: 'タスク管理', cols, views, rowCount: 3, tasks: true },
+    'koeApp.dbView': { total: 3, shown: 3, rows, groups: null, agg: {}, rel: { p1: { title: LIST[0].title }, p2: { title: LIST[1].title } }, sig: '1.3.tasks' },
+  };
 }
 
 /** 0.17.0 LK-1: dbAnswers の「案件の一覧」をロックした形（ページ・一覧の行・db.get の locked） */

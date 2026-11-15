@@ -67,7 +67,8 @@ test('ST7・RF10: 子が落ちたら 0.5 秒後に起こし直し、返事の無
     assert.strictEqual(d.peek().oplogCount('m:title:000001'), 1, '送り直しで2回効いた');
     await c.call('db.status', {});
     assert.strictEqual(d.peek().getPage(d.ids[0]).memo, '後から送った', '返事を待たない書き込みを送り直さなかったか、送った順のまま送り直していない');
-    assert.strictEqual(d.peek().oplogCount(), rowsBefore + 3, '送り直しを別の tx で送り、2回効いた');   // 計画から足した確かめ
+    // 0.17.0 TK-1（計画 docs/plans/2026-11-13-170.md の決めたこと 60・R55）で意図して直した: 最初の起動の minutes.gather（「タスク管理」を作る）の1行も数える（前は 3）
+    assert.strictEqual(d.peek().oplogCount(), rowsBefore + 4, '送り直しを別の tx で送り、2回効いた');   // 計画から足した確かめ
   } finally { await c.close({ timeoutMs: 2000 }); d.done(); }
 });
 

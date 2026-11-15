@@ -228,7 +228,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     try {
       const first = getMeta('minutes.gathered') === undefined;
       const st = C.minutesState(db);
-      if (!st.pending && (!first || st.hasDb)) {
+      if (!st.pending && (!first || (st.hasDb && st.hasTasks))) {   // 0.17.0 TK-1: 最初の起動で「タスク管理」が無ければ作る
         if (first) setMeta('minutes.gathered', JSON.stringify({ n: 0, at: now().toISOString() }));
         return { first, moved: 0, skipped: 0, created: false, db: null };
       }

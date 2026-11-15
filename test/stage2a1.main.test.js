@@ -497,3 +497,11 @@ test('D7: 新しい版の NaTsu で作られた DB は読むだけで開き、�
   assert.strictEqual(out.notices.filter((n) => n.startsWith('この議事録の保存は、新しい版の NaTsu で作られています。')).length, 1, JSON.stringify(out.notices));
   assert.strictEqual(out.pages.length, 1);
 });
+
+// 0.17.0 MG-4（計画 docs/plans/2026-11-13-170.md の「画面の文」・TQ14 の (a)・F193）: 最初の起動で議事録を「議事録」データベースへ移したら、知らせを1回（数つき）
+test('MG-4（TQ14）: 0.16.0 までの議事録がある DB の最初の起動で「議事録を『議事録』のデータベースにまとめました（n 件）。」を1回。移し替えの数は取り込んだ議事録も数える', { timeout: sceneTimeout(30000) }, () => {
+  const out = runScene('reimport-after-migrate');
+  assert.deepStrictEqual(out.notices.filter((n) => n.startsWith('議事録を『議事録』のデータベースにまとめました')), ['議事録を『議事録』のデータベースにまとめました（3 件）。'], JSON.stringify(out.notices));
+  assert.ok(!out.notices.some((n) => n.startsWith('議事録をデータベースにまとめられませんでした')), JSON.stringify(out.notices));
+  assert.ok(read('src/main.js').includes("if (st.minutes && st.minutes.failed) laterNotice(NOTICE.minutesFailed);"), '控えが取れなかった起動の知らせが無い');
+});

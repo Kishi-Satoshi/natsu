@@ -209,7 +209,7 @@ test('MG-2・F193: 移し替え（最上位の締めた議事録 300 だけが�
   const before = new Map([...ids, nested, gone, blank, otherDb, 'pl1'].map((id) => [id, { cols: pageCols(db, id), body: bodyOf(db, id), place: { ...db.prepare('select parent_id, ord from blocks where id = ?').get(id) } }]));
   const seq0 = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
   const r = ok(gather(db), 'minutes.gather');
-  assert.deepStrictEqual({ ...r.result, db: undefined }, { moved: 300, skipped: 0, created: true, db: undefined });
+  assert.deepStrictEqual({ ...r.result, db: undefined, tasks: undefined }, { moved: 300, skipped: 0, created: true, db: undefined, tasks: undefined });   // TK-1 で tasks（作った「タスク管理」）を足した
   const dbs = minutesDbs(db);
   assert.strictEqual(dbs.length, 1, '「議事録」データベースが1つでない');
   const M = dbs[0];
@@ -725,7 +725,65 @@ test('MG-3・F198: 一覧の行は「議事録」データベースに minutes�
   ok(call(db, 'page.move', { id: kid, parentId: 'ps1' }), '議事録の子ページを戻せない');
   ok(call(db, 'page.move', { id: 'ps2', parentId: '' }), '白紙のページの中の議事録を動かせない');
   assert.strictEqual(call(db, 'page.delete', { id: M }).code, 'bad-args', 'ロック中の「議事録」を消した');
+  // MG-4（決めたこと 52）: 「議事録」はロックを外してもサブアイテムを使えない・行を足す貼り付けは断る（rv59 軽い 5）
+  ok(call(db, 'db.setLock', { db: M, on: false }), 'db.setLock');
+  assert.strictEqual(call(db, 'db.setSub', { db: M, on: true }).code, 'bad-args', '「議事録」にサブアイテムを入れた');
+  ok(call(db, 'db.setLock', { db: M, on: true }), 'db.setLock');
   ok(call(db, 'page.delete', { id: 'ps1' }), 'page.delete');
   ok(call(db, 'page.restore', { id: 'ps1' }), 'page.restore');
   assert.deepStrictEqual([parentOf(db, 'ps1'), parentOf(db, kid), trashedAt(db, kid)], [M, 'ps1', null]);
+}));
+
+// ---------------------------------------------------------------- TK-1（決めたこと 60〜62・65・F200・F203）: 「タスク管理」データベースとマイタスク
+const tasksDbs = (db) => db.prepare("select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, 'tasks') > 0").all()
+  .filter((r) => { try { return JSON.parse(r.attrs).role === 'tasks'; } catch (_) { return false; } }).map((r) => r.id);
+test('TK-1・F200・F203: 最初の移し替えと同じトランザクションで「タスク管理」が1つ（列 ステータス・担当・期限・優先度・議事録（「議事録」への片側のリレーション）・ビュー すべて・マイタスク・期限順）。二度目は作らない・消しても見回りで作り直さない', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pt0', 0);
+  const seq0 = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
+  const g = ok(gather(db), 'minutes.gather');
+  const T1 = tasksDbs(db);
+  assert.strictEqual(T1.length, 1, '「タスク管理」が1つでない');
+  const K = T1[0];
+  assert.strictEqual(g.result.tasks, K);
+  assert.strictEqual(db.prepare('select count(*) c from oplog where seq > ?').get(seq0).c, 1, '別のトランザクションで作った');
+  const a = attrsOf(db, K);
+  const M = g.result.db;
+  assert.deepStrictEqual([db.prepare('select text, parent_id from blocks where id = ?').get(K).text, a.kind, a.role, a.locked], ['タスク管理', 'database', 'tasks', undefined]);
+  assert.deepStrictEqual(a.cols.map((c) => [c.name, c.type]), [['名前', 'title'], ['ステータス', 'status'], ['担当', 'person'], ['期限', 'date'], ['優先度', 'select'], ['議事録', 'rel']]);
+  const st = a.cols[1]; const pr = a.cols[4]; const rel = a.cols[5];
+  assert.deepStrictEqual(st.opts.map((o) => o.name), ['未着手', '進行中', '完了']);
+  assert.deepStrictEqual(pr.opts.map((o) => o.name), ['高', '中', '低']);
+  assert.deepStrictEqual([rel.db, rel.back], [M, undefined], '「議事録」への片側のリレーションでない');
+  assert.ok(attrsOf(db, M).cols.every((c) => c.type !== 'rel'), '「議事録」の側に列を作った（TQ2b）');
+  assert.deepStrictEqual(a.views.map((v) => v.name), ['すべて', 'マイタスク', '期限順']);
+  for (const v of a.views) assert.deepStrictEqual(DV.normalizeView(v, a.cols).view, v, `${v.name} のビューの形が照らしで変わる`);
+  // 二度目の移し替え・見回りでは作らない。消した後も見回りでは作らない（作り直すのは［タスクにする］: TK-2）
+  oldMeeting(t, 'pt1', 1);
+  ok(gather(db, {}), '見回り');
+  assert.deepStrictEqual(tasksDbs(db), [K]);
+  ok(call(db, 'page.delete', { id: K }), 'page.delete');
+  oldMeeting(t, 'pt2', 2);
+  ok(gather(db, {}), '見回り');
+  assert.deepStrictEqual(tasksDbs(db), [], '消した「タスク管理」を見回りで作り直した');
+}));
+
+test('TK-1・F200: 「マイタスク」は担当に「自分」があり完了でない行を期限の順に・「期限順」は完了を除いて期限の順。「議事録」へのリレーションの［新しい行を作ってつなぐ］は断る（rv59 軽い 6）', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pt0', 0);
+  const g = ok(gather(db), 'minutes.gather');
+  const K = g.result.tasks;
+  const a = attrsOf(db, K);
+  const [, st, who, due] = a.cols;
+  const add = (title, cells) => ok(call(db, 'row.add', { db: K, title, cells }), 'row.add').result.id;   // タスクの題名（D77 の外）
+  const r1 = add('見積もり', { [st.id]: 'o1', [who.id]: ['自分'], [due.id]: { start: '2026-11-20' } });
+  const r2 = add('発注', { [st.id]: 'o3', [who.id]: ['自分'], [due.id]: { start: '2026-11-18' } });
+  const r3 = add('検収', { [st.id]: 'o2', [who.id]: ['メンバー甲'], [due.id]: { start: '2026-11-17' } });
+  const r4 = add('請求', { [who.id]: ['自分', 'メンバー乙'], [due.id]: { start: '2026-11-19' } });
+  const r5 = add('段取り', { [who.id]: ['自分'] });
+  const ids = (v) => ok(call(db, 'db.view', { id: K, viewId: v.id, from: 0, count: 50 }), 'db.view').result.rows.map((r) => r.id);
+  assert.deepStrictEqual(ids(a.views[1]), [r4, r1, r5], 'マイタスク');
+  assert.deepStrictEqual(ids(a.views[2]), [r3, r4, r1, r5], '期限順');
+  assert.strictEqual(ids(a.views[0]).length, 5);
+  assert.ok(r2);
+  assert.strictEqual(call(db, 'rel.link', { db: K, id: r1, col: a.cols[5].id, ids: [], title: '新しい会議' }).code, 'bad-args', '「議事録」にふつうの行を作った');   // 題名（D77 の外: 断る）
+  ok(call(db, 'rel.link', { db: K, id: r1, col: a.cols[5].id, ids: ['pt0'] }), '議事録をつなげない');
 }));

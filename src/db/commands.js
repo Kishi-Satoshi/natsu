@@ -102,6 +102,7 @@ const HOT_QUERIES = Object.freeze({
   // 役の印のある「議事録」データベースの候補（同じ理由で字だけで絞って JS で照らす）・その子の並びの鍵の末尾
   topPages: "select id, ord, attrs, created_at from blocks where type = 'page' and parent_id is null and trashed_at is null",
   minutesDbs: "select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, '\"minutes\"') > 0 order by created_at, id",
+  tasksDbs: "select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, '\"tasks\"') > 0 order by created_at, id",   // 0.17.0 TK-1
   kidLastOrd: "select max(ord) as m from blocks where parent_id = ? and type in ('page', 'row')",
   // 0.16.0 DX-2（決めたこと 44）: ゴミ箱の行（［ゴミ箱］の窓のまとまり）と、1つのまとまり（同じデータベース・同じ時刻）の行
   trashedRows: "select id, parent_id, ord, text, trashed_at from blocks where type = 'row' and trashed_at is not null",
@@ -305,6 +306,7 @@ function listedRows(db) {
   // 0.17.0 MG-3（決めたこと 56）: 「議事録」データベース（役の印）に minutes、その子孫（議事録と議事録の子ページ）に inMinutes（画面はサイドバーの木と
   // ライブラリに出さず、「議事録」の1行をいちばん上に固定する）。MCP の答えは shownOf が別に作る（ここの印を読まない: 決めたこと 57）
   const mins = new Set(out.filter((r) => r.attrs.role === 'minutes' && isDbPage(r.attrs)).map((r) => r.id));
+  for (const r of out) if (r.attrs.role === 'tasks' && isDbPage(r.attrs)) r.tasks = true;   // 0.17.0 TK-1（決めたこと 65）: 「議事録」の下に固定
   if (mins.size) {
     const byId = new Map(out.map((r) => [r.id, r]));
     for (const r of out) {
@@ -345,6 +347,7 @@ function withTree(e, row) {
     e.views = viewRowsOf(row.attrs.views);   // 0.17.0 SV-1（決めたこと 36）: サイドバーのビューの行（データベースの行だけ）
     if (row.attrs.locked === true) e.locked = true;   // 0.17.0 LK-1（決めたこと 74）: サイドバーの行のメニュー（名前を変える・移動先…を出さない）
     if (row.minutes) e.minutes = true;   // 0.17.0 MG-3（決めたこと 56）: 「議事録」データベース（サイドバーのいちばん上に固定）
+    if (row.tasks) e.tasks = true;   // 0.17.0 TK-1（決めたこと 65）: 「タスク管理」（「議事録」の下に固定）
   }
   if (row.attrs && typeof row.attrs.icon === 'string' && row.attrs.icon) e.icon = row.attrs.icon;
   if (row.inRow) e.inRow = { ...row.inRow };   // 0.16.0 R97: データベースの行の中のページ（一番近い行・その題名・データベース・その題名）
@@ -707,6 +710,31 @@ function newMinutesDb(db, ctx) {
     views: [{ ...DV.defaultView('v1', 'table', cols, MINUTES_VIEW), sort: [{ col: 'c1', dir: 'desc' }] }], nextNo: 1, createdAt: at.toISOString(), updatedAt: at.toISOString() };
   return { op: 'add', id, row: { ...pageRow(page, { ord: PT.TOP_ORD }), parent_id: null } };
 }
+// 0.17.0 TK-1（決めたこと 60〜62）: 「タスク管理」データベース（役の印 attrs.role 'tasks' の1つ。消せる・ロックしない）。列は 名前・ステータス・担当・期限・
+// 優先度・議事録（「議事録」への片側のリレーション: TQ2b）、ビューは すべて・マイタスク（担当に「自分」・完了でない・期限の昇順）・期限順（完了を除く・期限の昇順）
+const TASKS_TITLE = 'タスク管理';   // 画面の文
+const TASKS_TAIL = 0x2d7b0e6;   // 36 進で 5 字（「議事録」と同じ時刻に作っても ID が重ならない）
+const tasksCols = (minutesId) => [{ ...TITLE_COL }, { id: 'c1', name: 'ステータス', type: 'status', ...DM.COLS.status.defaults() }, { id: 'c2', name: '担当', type: 'person' },
+  { id: 'c3', name: '期限', type: 'date' }, { id: 'c4', name: '優先度', type: 'select', opts: [{ id: 'o4', name: '高', color: 'red' }, { id: 'o5', name: '中', color: 'yellow' }, { id: 'o6', name: '低', color: 'gray' }] },
+  { id: 'c5', name: '議事録', type: 'rel', db: minutesId }];
+const ME = '自分';   // 画面の文（担当の「自分」: 0.16.0 の作成者の列の字と同じ。D129）
+function tasksDbOf(db) {
+  const ids = db.prepare(HOT_QUERIES.tasksDbs).all().filter((r) => { const a = parseOr(r.attrs); return Boolean(a) && a.role === 'tasks' && isDbPage(a); }).map((r) => r.id);
+  return ids.length ? dbOf(db, ids[0]) : null;
+}
+function newTasksDb(db, ctx, minutesId) {
+  let first = true;
+  const id = newPageId(db, ctx.now, () => (first ? ((first = false), TASKS_TAIL) : randU32()));
+  const at = ctx.now();
+  const cols = tasksCols(minutesId);
+  const base = (vid, name) => DV.defaultView(vid, 'table', cols, name);
+  const dueAsc = [{ col: 'c3', dir: 'asc' }];
+  const notDone = { col: 'c1', cmp: 'none', value: ['o3'] };
+  const views = [base('v1', 'すべて'), { ...base('v2', 'マイタスク'), filter: { op: 'and', items: [{ col: 'c2', cmp: 'contains', value: ME }, notDone] }, sort: dueAsc },
+    { ...base('v3', '期限順'), filter: { op: 'and', items: [notDone] }, sort: dueAsc }];
+  const page = { id, title: TASKS_TITLE, kind: 'database', role: 'tasks', date: localDate(at), memo: '', blocks: [], cols, views, nextNo: 1, createdAt: at.toISOString(), updatedAt: at.toISOString() };
+  return { op: 'add', id, row: { ...pageRow(page, { ord: PT.TOP_ORD }), parent_id: null } };
+}
 // 「議事録」データベース（無ければ make のときだけ作る操作を返す。当てるのは呼び手が、ほかの操作と一緒に1回だけ: T4b の rev の上がり方）
 // → { id, ops（作る add | []）, made（作った ID | null） } | null。meta の minutes.db を印に合わせる（同じトランザクション）
 function minutesDbFor(db, ctx, make) {
@@ -749,15 +777,19 @@ function minutesGather(db, a, ctx) {
   top.sort((x, y) => cmpStr(x.key, y.key));
   const moves = movesUnder(db, m, top);
   const ops = [...m.ops, ...moves];
+  // 0.17.0 TK-1（決めたこと 60）: 最初の移し替えと同じトランザクションで「タスク管理」も（無ければ。見回りでは作らない: 消した後は［タスクにする］が作り直す）
+  const tk = a.first === true && !tasksDbOf(db) ? newTasksDb(db, ctx, m.id) : null;
+  if (tk) ops.push(tk);
   applyOps(db, ops);
   if (a.first === true) putMetaRow(db, 'minutes.gathered', JSON.stringify({ n: moves.length, at: ctx.now().toISOString() }));
-  return { ops, pageIds: ops.length ? [m.id, ...moves.map((o) => o.id)] : [], result: { moved: moves.length, skipped, created: Boolean(m.made), db: m.id } };
+  return { ops, pageIds: ops.length ? [m.id, ...moves.map((o) => o.id), ...(tk ? [tk.id] : [])] : [], result: { moved: moves.length, skipped, created: Boolean(m.made), db: m.id, tasks: tk ? tk.id : null } };
 }
 // 起動のとき（DB のプロセス）: 移す議事録があるか（移す前の控えを取るか・見回りの命令を送るかを決める。壊れた attrs のページは数えない）と、
 // 「議事録」データベースがもうあるか（初めての起動で、移す物も作る物も無ければ命令を送らない: 空の oplog の行を積まない）
 const minutesState = (db) => ({
   pending: db.prepare(HOT_QUERIES.topPages).all().some((r) => { const a = parseOr(r.attrs); return Boolean(a) && isMeetingRaw(a); }),
   hasDb: Boolean(minutesDbOf(db)),
+  hasTasks: Boolean(tasksDbOf(db)),   // 0.17.0 TK-1: 最初の起動で「タスク管理」が無ければ、移す物が無くても命令を送る
 });
 
 // 送り直しの答え: 書いた操作に、ページの行を足したか会議の印を書き換えた操作があれば「作った・上書きした」（already: false）
@@ -1734,6 +1766,7 @@ function rowView(r) {
   if (Number.isSafeInteger(attrs.no)) out.no = attrs.no;
   if (typeof attrs.icon === 'string' && attrs.icon) out.icon = attrs.icon;
   if (r.page) {   // 0.17.0 MG-1（決めたこと 50）: 「議事録」データベースの議事録の行。作成者はいつも「自分」・日付と要約は議事録から読む
+    out.page = true;   // 0.17.0 MG-4（決めたこと 52）: 画面は議事録のページとして開く（行のページにしない）
     out.by = { c: 'me' };
     const md = meetingDay(attrs.date, r.created_at);
     if (md) out.mdate = md;
@@ -2069,6 +2102,8 @@ function dbGetOf(db, id, linked) {
   const out = { id, title: d.title, cols: d.cols, views: views.map((v) => normView(d, v)), rowCount: db.prepare(HOT_QUERIES.dbRowCount).get(id).c };
   if (typeof d.attrs.icon === 'string' && d.attrs.icon) out.icon = d.attrs.icon;
   if (d.attrs.locked === true) out.locked = true;   // 0.17.0 LK-1（決めたこと 73）
+  if (d.attrs.role === 'tasks') out.tasks = true;   // 0.17.0 TK-1（決めたこと 62）: 担当の候補の先頭に「自分」
+  if (isMinutesDb(d)) out.minutes = true;   // 0.17.0 MG-4（決めたこと 52・53）: 「議事録」データベースの表（［＋ 新しい議事録］・読む列の灰色・空のときの文）
   const sub = subOf(d);   // 0.16.0 DR-1 直し2（rv51 I2・R108）: 木にしているときだけ（列が消えている・互いを指していないなら無い）
   if (sub) out.sub = sub;
   return out;
@@ -2311,6 +2346,7 @@ function relEdit(db, a, ctx, add) {
   }
   let added = null;
   if (add && a.title !== undefined) {
+    if (isMinutesDb(t)) throw refuse('bad-args');   // 0.17.0 TK-1（rv59 軽い 6・決めたこと 52・53）: 「議事録」にふつうの行を作らない
     if (db.prepare(HOT_QUERIES.dbRowCount).get(t.id).c >= LIMITS.dbRows) throw refuse('too-big');
     added = newRowId(db, ctx.now);
     const no = Number.isSafeInteger(t.attrs.nextNo) && t.attrs.nextNo > 0 ? t.attrs.nextNo : 1;
@@ -2360,6 +2396,7 @@ function relEdit(db, a, ctx, add) {
 // 外すと attrs.sub だけ消して列は残す）→ { sub? }
 function dbSetSub(db, a) {
   const d = mustDb(db, a.db);
+  if (isMinutesDb(d)) throw refuse('bad-args');   // 0.17.0 MG-4（決めたこと 52）: 「議事録」はサブアイテムを使えない（ロックを外しても）
   const now = subOf(d);
   if (a.on && now) return { ops: [], pageIds: [], result: { sub: now } };
   if (!a.on) {

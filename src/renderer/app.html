@@ -537,6 +537,9 @@
   .dbdatecheck { display: flex; align-items: center; gap: 4px; font-size: 13px; }
   .dbadd { border: 0; background: none; color: var(--muted); font: inherit; font-size: 14px; padding: 6px 8px; cursor: pointer; border-radius: 6px; }
   .dbadd:hover { background: var(--hover); }
+  /* 0.17.0 MG-4（決めたこと 50・52）: 「議事録」の表の、議事録から自動で入る列（日付・作成者・要約）のセルと、議事録の無いときの文 */
+  .dbcell.dbauto { color: var(--muted); }
+  .dbempty { padding: 24px 8px; color: var(--muted); font-size: 14px; }
   .dbadd:focus-visible { outline: 2px solid var(--accent); }
   #pageWrap.blank .mblock { border-color: transparent; }
   #pTitle[data-ph]:empty::before { content: attr(data-ph); color: var(--muted); }
@@ -3626,10 +3629,11 @@
       const at = editedOf(tree);
       const order = (ids) => (edited ? orderBy(ids, (a, b) => at(b) - at(a)) : ids);
       const limit = opts && SHOW_STEPS.includes(opts.show) ? opts.show : 0;
-      // 0.17.0 MG-3（決めたこと 56）: pin（「議事録」データベース）はいちばん上の段の頭に固定（並べ替えと表示の数のどちらでも先頭）
-      const pin = opts && typeof opts.pin === 'string' ? opts.pin : '';
+      // 0.17.0 MG-3（決めたこと 56）: pin（「議事録」データベース。TK-1 の決めたこと 65 で「タスク管理」も: 並び）はいちばん上の段の頭に、渡した順で固定
+      // （並べ替えと表示の数のどちらでも先頭）
       const sorted = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
-      const roots = pin && sorted.includes(pin) ? [pin, ...sorted.filter((id) => id !== pin)] : sorted;
+      const pins = (Array.isArray(opts && opts.pin) ? opts.pin : [opts && opts.pin]).filter((id) => typeof id === 'string' && id && sorted.includes(id));
+      const roots = pins.length ? [...pins, ...sorted.filter((id) => !pins.includes(id))] : sorted;
       const shown = limit ? roots.slice(0, limit) : roots;
       const out = [];
       const seen = new Set();
@@ -6001,10 +6005,11 @@
     return flatOf;
   }
   const minutesIdNow = () => { const m = pages.find((p) => p && p.minutes === true); return m ? m.id : ''; };
+  const tasksIdNow = () => { const m = pages.find((p) => p && p.tasks === true); return m ? m.id : ''; };   // 0.17.0 TK-1（決めたこと 65）
   // 「議事録」データベースの子の議事録か（中の議事録は外へ出さない: 決めたこと 54。議事録の子ページは今どおり動かせる）
   const inMinutesDb = (id) => { const p = pages.find((x) => x && x.id === id); const m = minutesIdNow(); return Boolean(p && m && p.parentId === m); };
   // 見えている行（閉じた行の子は出さない: F115）。0.15.1 PS-2（決めたこと 23）: 並べ替え（手動・最終更新）と表示の数（いちばん上の段だけ数える）を当てる
-  const treeView = () => sideSectionView.sectionRows(treeNow(), treeOpen, { ...privSt, pin: minutesIdNow() });   // 0.17.0 MG-3: 「議事録」はいちばん上   // 0.15.1 PS-2 直し（R42）: 描くときは行と出していない数を1回で
+  const treeView = () => sideSectionView.sectionRows(treeNow(), treeOpen, { ...privSt, pin: [minutesIdNow(), tasksIdNow()] });   // 0.17.0 MG-3: 「議事録」はいちばん上（TK-1: その下に「タスク管理」）   // 0.15.1 PS-2 直し（R42）: 描くときは行と出していない数を1回で
   const treeRows = () => treeView().rows;
   // 0.17.0 SV-2（決めたこと 37〜42）: サイドバーの木だけは、開いたデータベースの下にビューの行（ライブラリ・選ぶ並び・引っ張りの落とす所は treeRows のページの行だけ）。
   // 行の鍵はページの行がページの ID、ビューの行が '<データベースの ID>/<ビューの ID>'（ページの ID に / は無い）
@@ -7700,6 +7705,7 @@
       if (dbp) {   // 0.16.0 DR-1（決めたこと 37）: データベースの［サブアイテム］（入れる・外す。印は表の列とビューを読んだ後に dbPaint が付ける）
         const sb = mk(DB_SUB, () => dbSubSet(!(dbPageSt() && dbPageSt().id === curId && dbPageSt().info && dbPageSt().info.sub)), false, true);
         sb.setAttribute('role', 'menuitemcheckbox'); sb.dataset.sub = '1';
+        if (curPage.role === 'minutes') { sb.setAttribute('aria-disabled', 'true'); sb.classList.add('off'); sb.onclick = () => setMoreOpen(false); }   // 0.17.0 MG-4（決めたこと 52）: 「議事録」はサブアイテムを使えない（灰色）
         sb.setAttribute('aria-checked', dbPageSt() && dbPageSt().id === curId && dbPageSt().info && dbPageSt().info.sub ? 'true' : 'false');
       }
       if (!rowp && !(dbp && curPage.locked === true) && !inMinutesDb(curId)) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.17.0 LK-1: ロック中は出さない   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
@@ -11808,8 +11814,8 @@
     box.appendChild(sc);
     const add = document.createElement('button');
     add.type = 'button'; add.className = 'dbadd';
-    add.textContent = '＋ 新しい行';
-    add.onclick = () => dbAddRow(null);
+    add.textContent = st.info.minutes ? DB_MIN_NEW : '＋ 新しい行';
+    add.onclick = () => (st.info.minutes ? openReady() : dbAddRow(null));   // 0.17.0 MG-4（決めたこと 53）
     box.appendChild(add);
     st.parts = { tabs, bar, sc, grid, head, all, top, body, bottom, foot };
     if (st.key === 'page') for (const b of $('pMenu').querySelectorAll('.mitem')) if (b.dataset.sub === '1') b.setAttribute('aria-checked', st.info.sub ? 'true' : 'false');   // 0.16.0 DR-1: ［サブアイテム］の印
@@ -11828,6 +11834,14 @@
     if (!st || !st.parts) return;
     if (st.editing) { st.dirty = true; return; }
     const p = st.parts;
+    if (p.empty) { if (p.empty.parentNode) p.empty.parentNode.removeChild(p.empty); p.empty = null; }
+    if (st.info && st.info.minutes && st.total === 0 && !st.q) {   // 0.17.0 MG-4（決めたこと 56）: 議事録の無い「議事録」（今のサイドバーの空のときの文）
+      p.empty = document.createElement('div');
+      p.empty.className = 'dbempty';
+      const big = document.createElement('div'); big.className = 'big'; big.textContent = '議事録はありません';
+      p.empty.append(big, '［＋ 新しい議事録］で会議を録音すると、要約と文字起こしが作られます。');
+      p.sc.insertBefore(p.empty, p.foot);
+    }
     const a = document.activeElement;
     const hadFocus = Boolean(a) && (a === p.grid || isIn(a, p.body));
     const cols = dbColsOf(st);
@@ -11908,6 +11922,7 @@
       const on = Boolean(st.sel && st.sel.row === row.id && st.sel.col === c.col.id);
       cell.setAttribute('aria-selected', on ? 'true' : 'false');
       if (!dbWritable(c.col) && !dbRelCol(c.col)) cell.setAttribute('aria-readonly', 'true');   // 0.16.0 DR-1: リレーションは選びの窓で書く
+      if (st.info.minutes && DB_MIN_AUTO.includes(c.col.type)) { cell.classList.add('dbauto'); cell.title = DB_MIN_AUTO_TIP; }   // 0.17.0 MG-4（決めたこと 50・52）
       cell.tabIndex = on ? 0 : -1;
       dbCellFill(st, cell, c.col, row);
       cell.onclick = () => dbCellClick(row.id, c.col.id);
@@ -11920,6 +11935,12 @@
     el.oncontextmenu = (ev) => { if (ev && typeof ev.preventDefault === 'function') ev.preventDefault(); dbRowMenu(row.id, dbCellEl(row.id, 'title') || el); };   // 0.16.0 DV-4: 行の右クリックで行のメニュー
     return el;
   }
+  // 0.17.0 MG-4（計画 docs/plans/2026-11-13-170.md の決めたこと 50〜53・56・F198）: 「議事録」データベースの表。日付・作成者・要約の列は議事録から自動で入る（灰色・吹き出し）。
+  // ［＋ 新しい行］は［＋ 新しい議事録］（録音の前のページ: サイドバーと同じ）。議事録の行は議事録のページとして開く（行のページにしない）。議事録が無ければ空のときの文
+  const DB_ME = '自分';   // 0.17.0 TK-1（決めたこと 62。画面の文「担当の候補の先頭「自分」」・0.16.0 の作成者の列の字と同じ）
+  const DB_MIN_AUTO = ['mdate', 'cby', 'msum'];
+  const DB_MIN_AUTO_TIP = '議事録から自動で入ります';
+  const DB_MIN_NEW = '＋ 新しい議事録';
   const dbRowName = (row) => dbModelView.fmtCell({ id: 'title', name: '', type: 'title' }, dbModelView.cellValue(row, { id: 'title', type: 'title' }), {});
   // 0.16.0 DV-3（決めたこと 21・V-T14）: 下の集計は列ごとのボタン。押すと集計の選び（列のメニューの［集計 ▸］と同じ）。空の欄は「集計」。リストには出さない
   function dbPaintFoot(st, cols) {
@@ -12401,7 +12422,8 @@
     const st = dbSt;
     if (!st || !rowId) return null;
     dbMenuClose();
-    rowPages.set(rowId, st.id);
+    const known = st.known && st.known.get(rowId);
+    if (!(known && known.page)) rowPages.set(rowId, st.id);   // 0.17.0 MG-4（決めたこと 52）: 議事録の行は議事録のページ（行のページにしない）
     return openPageTab(rowId, { newTab: Boolean(newTab) });
   }
   // 行のメニュー（anchor の下に置き、Esc で anchor へ戻る）
@@ -13928,6 +13950,7 @@
     const names = () => {   // ユーザー: 今の値・このデータベースで使った名前（読んだ行）・議事録の ToDo の担当の名前（決めたこと 12・TR5・R66）
       const out = [];
       const add = (n) => { if (typeof n === 'string' && n && !out.includes(n)) out.push(n); };
+      if (st.info && st.info.tasks) add(DB_ME);   // 0.17.0 TK-1（決めたこと 62）: 「タスク管理」の担当の候補の先頭は決まった値「自分」
       for (const n of val) add(n);
       for (const r of st.known.values()) { const v = r.cells && r.cells[col.id]; if (Array.isArray(v)) v.forEach(add); }
       for (const p of people) add(p.name);
