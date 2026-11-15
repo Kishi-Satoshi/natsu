@@ -160,8 +160,11 @@ function mcpDb({ only = SEED_NAMES } = {}) {
     ids.personal = 'pp1';
   }
   close();
+  // 0.17.0 MG-3（決めたこと 54）: 議事録を 0.17.0 の前の形（最上位）に戻す。0.17.0 の締めは議事録を「議事録」データベースの子にし、中の議事録は page.move で
+  // 外へ出せないので、ページの中へ動かした議事録（0.16.0 までに動かした・TQ1 で移さない物）の種は、これで最上位にしてから page.move で動かす
+  const asOld = (id) => { open().prepare("update blocks set parent_id = null, ord = 'i' where id = ? and type = 'page'").run(id); };
   return {
-    dir, dataDir, file, ids, open, call, close,
+    dir, dataDir, file, ids, open, call, close, asOld,
     done() { close(); fs.rmSync(dir, { recursive: true, force: true }); },
   };
 }

@@ -37,6 +37,7 @@ function treeSeed() {
   m.call('app', 'block.update', { pageId: kid, blockId: k1, patch: { text: '中の本文の指示の確かめ' } });
   const k2 = m.call('app', 'block.insert', { pageId: kid, afterBlockId: k1, type: 'todo' }).blockId;
   m.call('app', 'block.update', { pageId: kid, blockId: k2, patch: { text: '中の確かめを済ませる' } });
+  m.asOld('pm1');   // 0.17.0 MG-3（決めたこと 54）で意図して直した: 0.16.0 までに動かした議事録（「議事録」の中の議事録は page.move で外へ出せない）
   m.call('app', 'page.move', { id: 'pm1', parentId: kid });
   m.close();
   return { m, top, kid };

@@ -2786,7 +2786,7 @@
   function crumbUpsOf(id, names, depth = 0) {
     const p = crumbPage(id);
     if (!p) return [];
-    if (!p.inRow || depth > 20) return pageTreeView.crumbsOf(treeNow(), id);
+    if (!p.inRow || depth > 20) return pageTreeView.crumbsOf(p.inMinutes ? treeAll() : treeNow(), id);   // 0.17.0 MG-3: 「議事録」の中は「議事録 / 題名」
     const r = p.inRow;
     const mids = [];
     const seen = new Set([id]);
@@ -3626,7 +3626,10 @@
       const at = editedOf(tree);
       const order = (ids) => (edited ? orderBy(ids, (a, b) => at(b) - at(a)) : ids);
       const limit = opts && SHOW_STEPS.includes(opts.show) ? opts.show : 0;
-      const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
+      // 0.17.0 MG-3（決めたこと 56）: pin（「議事録」データベース）はいちばん上の段の頭に固定（並べ替えと表示の数のどちらでも先頭）
+      const pin = opts && typeof opts.pin === 'string' ? opts.pin : '';
+      const sorted = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
+      const roots = pin && sorted.includes(pin) ? [pin, ...sorted.filter((id) => id !== pin)] : sorted;
       const shown = limit ? roots.slice(0, limit) : roots;
       const out = [];
       const seen = new Set();
@@ -5980,13 +5983,28 @@
   function treeNow() {
     if (treeFor !== pages) {
       // 0.16.0 R97（M14）: データベースの行の中のページ（一覧の inRow）はサイドバーの木に入れない（行の本文の 📄 の行とパンくずから開く）
-      treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string' && !p.inRow).map(treeRowOf));
+      // 0.17.0 MG-3（決めたこと 56）: 「議事録」データベースの中（一覧の inMinutes: 議事録と議事録の子ページ）も入れない（「議事録」の表と議事録の頭から開く）
+      treeOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string' && !p.inRow && !p.inMinutes).map(treeRowOf));
       treeFor = pages;
     }
     return treeOf;
   }
+  // 0.17.0 MG-3: 「議事録」の中のページのパンくず（「議事録 / 題名」: 決めたこと 52）と検索の場所（「議事録」を付けない: 決めたこと 57）に使う木。
+  // treeAll は行の中のページだけを外した木、treeFlat はさらに「議事録」データベースそのものを外した木（議事録が最上位になる: 移す前と同じ場所の文）
+  let allOf = null; let allFor = null; let flatOf = null; let flatFor = null;
+  function treeAll() {
+    if (allFor !== pages) { allOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string' && !p.inRow).map(treeRowOf)); allFor = pages; }
+    return allOf;
+  }
+  function treeFlat() {
+    if (flatFor !== pages) { flatOf = pageTreeView.pageTree(pages.filter((p) => p && typeof p.id === 'string' && !p.inRow && !p.minutes).map(treeRowOf)); flatFor = pages; }
+    return flatOf;
+  }
+  const minutesIdNow = () => { const m = pages.find((p) => p && p.minutes === true); return m ? m.id : ''; };
+  // 「議事録」データベースの子の議事録か（中の議事録は外へ出さない: 決めたこと 54。議事録の子ページは今どおり動かせる）
+  const inMinutesDb = (id) => { const p = pages.find((x) => x && x.id === id); const m = minutesIdNow(); return Boolean(p && m && p.parentId === m); };
   // 見えている行（閉じた行の子は出さない: F115）。0.15.1 PS-2（決めたこと 23）: 並べ替え（手動・最終更新）と表示の数（いちばん上の段だけ数える）を当てる
-  const treeView = () => sideSectionView.sectionRows(treeNow(), treeOpen, privSt);   // 0.15.1 PS-2 直し（R42）: 描くときは行と出していない数を1回で
+  const treeView = () => sideSectionView.sectionRows(treeNow(), treeOpen, { ...privSt, pin: minutesIdNow() });   // 0.17.0 MG-3: 「議事録」はいちばん上   // 0.15.1 PS-2 直し（R42）: 描くときは行と出していない数を1回で
   const treeRows = () => treeView().rows;
   // 0.17.0 SV-2（決めたこと 37〜42）: サイドバーの木だけは、開いたデータベースの下にビューの行（ライブラリ・選ぶ並び・引っ張りの落とす所は treeRows のページの行だけ）。
   // 行の鍵はページの行がページの ID、ビューの行が '<データベースの ID>/<ビューの ID>'（ページの ID に / は無い）
@@ -7076,7 +7094,8 @@
   // 0.15.0 PH-7（決めたこと 33・F122）: 検索の結果の場所の文（根から親まで。題名は一覧の行の1行の題名・5 段まで: pageTreeView.placeText）。最上位は ''
   function searchPlace(id) {
     if (!crumbPage(id)) return '';
-    return pageTreeView.placeText(treeNow(), (x) => oneLine((crumbPage(x) || {}).title), id);
+    const p = pages.find((x) => x && x.id === id);
+    return pageTreeView.placeText(p && p.inMinutes ? treeFlat() : treeNow(), (x) => oneLine((crumbPage(x) || {}).title), id);   // 0.17.0 MG-3（決めたこと 57）
   }
   // 検索の窓の結果は2行（🎙️・題名、灰色の日付・長さ・要約なし・タイプ）と抜粋
   function renderResults() {
@@ -7683,7 +7702,7 @@
         sb.setAttribute('role', 'menuitemcheckbox'); sb.dataset.sub = '1';
         sb.setAttribute('aria-checked', dbPageSt() && dbPageSt().id === curId && dbPageSt().info && dbPageSt().info.sub ? 'true' : 'false');
       }
-      if (!rowp && !(dbp && curPage.locked === true)) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.17.0 LK-1: ロック中は出さない   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
+      if (!rowp && !(dbp && curPage.locked === true) && !inMinutesDb(curId)) mk('移動先…', () => openMovePop(curId, { from: $('pMore') }), false, true);   // 0.17.0 LK-1: ロック中は出さない   // 0.15.0 PH-5（決めたこと 22・24）: 録音中の写しは動かせない（DV-4: 行はデータベースの外へ動かさない: R90）
       lookMenuItems(mk);   // 0.15.0 PL-3（決めたこと 40）: 見た目（議事録にも白紙のページにも。録音中の写しには出さない: R71）
     }
     const delBtn = mk('削除', () => (rowp ? rowPageTrash() : deletePageFlow(curId)), false, true);   // 0.16.0 DV-4（R90）: 行は確かめずに rows.trash へ

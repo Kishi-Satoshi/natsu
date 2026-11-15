@@ -97,7 +97,10 @@ function sectionRows(tree, open, opts = {}) {
   const at = editedOf(tree);
   const order = (ids) => (edited ? orderBy(ids, (a, b) => at(b) - at(a)) : ids);
   const limit = opts && SHOW_STEPS.includes(opts.show) ? opts.show : 0;
-  const roots = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
+  // 0.17.0 MG-3（決めたこと 56）: pin（「議事録」データベース）はいちばん上の段の頭に固定（並べ替えと表示の数のどちらでも先頭）
+  const pin = opts && typeof opts.pin === 'string' ? opts.pin : '';
+  const sorted = order(tree && Array.isArray(tree.roots) ? tree.roots : []);
+  const roots = pin && sorted.includes(pin) ? [pin, ...sorted.filter((id) => id !== pin)] : sorted;
   const shown = limit ? roots.slice(0, limit) : roots;
   const out = [];
   const seen = new Set();

@@ -7,6 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { realApp } = require('./helpers/realapp');
+const { titleAt } = require('./helpers/titles');
 
 const T = { timeout: 60000 };
 const fmt = (e) => `${e.constructor.name}: ${e.message}`;
@@ -93,4 +94,74 @@ test('LK-1・F204: 「ロック中」を押すと［ロックを外す］→ 外
     assert.deepStrictEqual(l.called('editRevert'), []);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- MG-3（決めたこと 54〜57・F197・F198）
+const palLines = (l) => $(l, 'palList').querySelectorAll('.pitem').map((e) => [e.dataset.pid, e.querySelector('.m').textContent]);
+const MEET = (id, at, date) => ({ title: titleAt(at), date, createdAt: at, blocks: [{ id: `${id}h`, type: 'heading', text: '要点' }, { id: `${id}b`, type: 'bullet', text: '予算の案を作る' }] });
+function minutesSeed(call) {
+  call('meeting.finalize', { pageId: 'pm1', page: MEET('pm1', '2026-11-10T01:30:00.000Z', '2026-11-10'), segments: [] }, 'main');
+  call('meeting.finalize', { pageId: 'pm2', page: MEET('pm2', '2026-11-11T02:00:00.000Z', '2026-11-11'), segments: [] }, 'main');
+  const M = call('pages.list', {}).find((p) => p.minutes).id;
+  const kid = call('page.create', { parentId: 'pm1' }).id;
+  call('page.setTitle', { id: kid, title: '会議の宿題' });   // 白紙のページの題名（D77 の外）
+  const blank = call('page.create', {}).id;
+  call('page.setTitle', { id: blank, title: '計画' });   // 白紙のページの題名（D77 の外）
+  return { M, kid, blank };
+}
+
+test('MG-3・F198: 議事録と議事録の子ページはサイドバーの木とライブラリに出ず、「議事録」データベースの行がいちばん上（後で作ったページより上）。中の議事録の「···」に［移動先…］が無い（議事録の子ページにはある）', T, async () => {
+  const l = await realApp({ before: (call) => minutesSeed(call) });
+  try {
+    const { M, kid, blank } = l.made;
+    const ids = () => $(l, 'plist').querySelectorAll('.pitem').map((r) => r.dataset.pid).filter(Boolean);
+    assert.strictEqual(ids()[0], M, '「議事録」の行がいちばん上でない');
+    assert.ok(ids().includes(blank));
+    for (const id of ['pm1', 'pm2', kid]) assert.ok(!ids().includes(id), `${id} がサイドバーの木に出た`);
+    sideRow(l, M).querySelector('.pi').dispatchEvent({ type: 'click' }); await l.drain(80);   // 「議事録」の ▸ を開く（下はビューの行だけ）
+    assert.ok($(l, 'plist').querySelectorAll('.pview').length >= 1, '前提: 「議事録」の ▸ を開けない');
+    for (const id of ['pm1', 'pm2', kid]) assert.ok(!ids().includes(id), `${id} が「議事録」の ▸ の下に出た`);
+    $(l, 'privLib').dispatchEvent({ type: 'click' }); await l.drain(80);
+    const lib = $(l, 'libRows') ? $(l, 'libRows').querySelectorAll('[data-pid]').map((r) => r.dataset.pid) : [];
+    for (const id of ['pm1', 'pm2', kid]) assert.ok(!lib.includes(id), `${id} がライブラリに出た`);
+    await open(l, 'pm1');
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    assert.ok(!moreItem(l, '移動先…'), '中の議事録に［移動先…］が出た');
+    await open(l, kid);
+    $(l, 'pMore').dispatchEvent({ type: 'click' }); await l.drain(20);
+    assert.ok(moreItem(l, '移動先…'), '議事録の子ページに［移動先…］が無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MG-3・F197: 検索の窓の2行目は、議事録は今と同じ文（場所を付けない）・議事録の子ページは「場所: 議事録の題名」（「議事録」を付けない）', T, async () => {
+  const l = await realApp({ before: (call) => minutesSeed(call) });
+  try {
+    const { kid } = l.made;
+    $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain(80);
+    const got = new Map(palLines(l));
+    const t1 = l.call('page.get', { id: 'pm1' }).page.title;
+    assert.ok(got.has('pm1') && !got.get('pm1').includes('場所:'), `議事録に場所を付けた: ${got.get('pm1')}`);
+    assert.ok(String(got.get(kid)).startsWith(`場所: ${t1} ・ `), `議事録の子ページの場所: ${got.get(kid)}`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('MG-3（決めたこと 56）: sideSection.sectionRows の pin（「議事録」）は、手動・最終更新のどちらの並べ替えでも、表示の数を絞っても、いちばん上の段の頭。画面の写しも同じ答え', () => {
+  const SS = require('../src/sideSection');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const PT = require('../src/pageTree');
+  const at = (d) => `2026-11-${d}T00:00:00.000Z`;
+  const tree = PT.pageTree([{ id: 'pa', parentId: null, ord: 'i', createdAt: at(10), updatedAt: at(10) }, { id: 'pM', parentId: null, ord: 'i', createdAt: at('01'), updatedAt: at('01') },
+    { id: 'pb', parentId: null, ord: 'i', createdAt: at(12), updatedAt: at(12) }]);
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.html'), 'utf8');
+  const seg = html.slice(html.indexOf('  // ---- sideSection の写し'), html.indexOf('  // ---- sideSection の写しはここまで'));
+  const app = new Function(`${seg}\nreturn sideSectionView;`)();   // eslint-disable-line no-new-func
+  for (const o of [{}, { sort: 'edited' }, { show: 5 }]) {
+    for (const S of [SS, app]) {
+      assert.deepStrictEqual(S.sectionRows(tree, new Set(), { ...o, pin: 'pM' }).rows.map((r) => r.id), ['pM', 'pb', 'pa'], JSON.stringify(o));
+      assert.deepStrictEqual(S.sectionRows(tree, new Set(), o).rows.map((r) => r.id), ['pb', 'pa', 'pM'], '前提: pin が無ければ今の並び');
+    }
+  }
 });

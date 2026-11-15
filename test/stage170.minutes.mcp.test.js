@@ -47,3 +47,30 @@ test('MG-2・F197: MCP の6つの道具の答えは、議事録を「議事録�
     assert.deepStrictEqual(after, ask(), '「議事録」データベースに入れると Claude の答えが変わった');
   } finally { m.done(); }
 });
+
+test('MG-3・F197: Claude が「議事録」データベースそのものを読む（get_meeting の ID）と、議事録の題名の行を返す（わざと変える所: 0.16.0 では空の表）。議事録の子ページの場所は移す前と同じ（「議事録」を付けない）', { timeout: 60000 }, () => {
+  const m = mcpDb({ only: ['plain1', 'plain2'] });
+  try {
+    const kid = m.call('app', 'page.create', { parentId: m.ids.plain1 }).id;
+    m.call('app', 'page.setTitle', { id: kid, title: '会議の宿題' });   // 白紙のページの題名（D77 の外）
+    m.close();
+    const raw = new sqlite.DatabaseSync(m.file);
+    let M;
+    let titles;
+    try {
+      M = raw.prepare("select id from blocks where type = 'page' and instr(attrs, '\"minutes\"') > 0").all().map((r) => r.id).find((id) => JSON.parse(raw.prepare('select attrs from blocks where id = ?').get(id).attrs).role === 'minutes');
+      titles = [m.ids.plain1, m.ids.plain2].map((id) => raw.prepare('select text from blocks where id = ?').get(id).text);
+    } finally { raw.close(); }
+    const c = (name, args = {}) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text;
+    const dump = c('get_meeting', { id: M });
+    for (const t of titles) assert.ok(dump.includes(t), `「議事録」データベースの答えに議事録「${t}」が無い`);
+    const after = c('get_meeting', { id: kid });
+    assert.ok(after.includes(`場所: ${titles[0]}`) && !after.includes('場所: 議事録'), after.split('\n').slice(0, 4).join(' | '));
+    const w = new sqlite.DatabaseSync(m.file);
+    try {
+      w.prepare("update blocks set parent_id = null where parent_id = ? and type = 'page'").run(M);
+      w.prepare('delete from blocks where id = ?').run(M);
+    } finally { w.close(); }
+    assert.strictEqual(c('get_meeting', { id: kid }), after, '議事録の子ページの答えが移す前と違う');
+  } finally { m.done(); }
+});

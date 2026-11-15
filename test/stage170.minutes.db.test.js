@@ -706,3 +706,26 @@ test('LK-1・lc-minutes-start（決めたこと 76・77）: 「議事録」は�
   const V160 = require(path.join(__dirname, 'fixtures', 'v160', 'dbView.js'));
   assert.doesNotThrow(() => V160.normalizeView(row.attrs.views[0], row.attrs.cols));
 }));
+
+// ---------------------------------------------------------------- MG-3（決めたこと 54〜57・F197・F198）: サイドバー・検索・Claude・移動と削除の断り
+test('MG-3・F198: 一覧の行は「議事録」データベースに minutes・その子孫（議事録と議事録の子ページ）に inMinutes の印（ほかの行は1字も同じ）。中の議事録は page.move で外へ出さない（議事録の子ページと、白紙のページの中の議事録は今どおり動かせる）。「議事録」はロック中は消せない。ゴミ箱から戻すと「議事録」に戻る', T, () => withDb((db) => {
+  meeting(db, 'ps1');
+  const M = minutesDbs(db)[0];
+  const kid = ok(call(db, 'page.create', { parentId: 'ps1' }), 'page.create').result.id;
+  const blank = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  meeting(db, 'ps2', { at: '2026-11-11T02:00:00.000Z', date: '2026-11-11' });
+  under(db, 'ps2', blank, 'b1');   // 白紙のページの中の議事録（TQ1: 移さない物）
+  const list = listOf(db);
+  const by = new Map(list.map((p) => [p.id, p]));
+  assert.deepStrictEqual([by.get(M).minutes, by.get(M).inMinutes, by.get('ps1').inMinutes, by.get(kid).inMinutes], [true, undefined, true, true]);
+  assert.deepStrictEqual([by.get(blank).inMinutes, by.get('ps2').inMinutes, by.get(blank).minutes], [undefined, undefined, undefined], '「議事録」の外の行に印');
+  for (const [where, to] of [['最上位', ''], ['白紙のページ', blank]]) assert.strictEqual(call(db, 'page.move', { id: 'ps1', parentId: to }).code, 'bad-args', `中の議事録を${where}へ出した`);
+  assert.strictEqual(parentOf(db, 'ps1'), M);
+  ok(call(db, 'page.move', { id: kid, parentId: blank }), '議事録の子ページを動かせない');
+  ok(call(db, 'page.move', { id: kid, parentId: 'ps1' }), '議事録の子ページを戻せない');
+  ok(call(db, 'page.move', { id: 'ps2', parentId: '' }), '白紙のページの中の議事録を動かせない');
+  assert.strictEqual(call(db, 'page.delete', { id: M }).code, 'bad-args', 'ロック中の「議事録」を消した');
+  ok(call(db, 'page.delete', { id: 'ps1' }), 'page.delete');
+  ok(call(db, 'page.restore', { id: 'ps1' }), 'page.restore');
+  assert.deepStrictEqual([parentOf(db, 'ps1'), parentOf(db, kid), trashedAt(db, kid)], [M, 'ps1', null]);
+}));

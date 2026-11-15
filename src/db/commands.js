@@ -302,6 +302,20 @@ function listedRows(db) {
   // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の中の子ページ（と子孫）は、行が生きている間だけ一覧に出し、一番近い行の印 inRow を付ける
   // （画面はサイドバーの木に出さない）。行かデータベースをゴミ箱へ入れると見えなくなる（ページには書かない: 決めたこと 28）
   for (const r of out) if (trashUp.has(r.id)) r.trashKid = true;
+  // 0.17.0 MG-3（決めたこと 56）: 「議事録」データベース（役の印）に minutes、その子孫（議事録と議事録の子ページ）に inMinutes（画面はサイドバーの木と
+  // ライブラリに出さず、「議事録」の1行をいちばん上に固定する）。MCP の答えは shownOf が別に作る（ここの印を読まない: 決めたこと 57）
+  const mins = new Set(out.filter((r) => r.attrs.role === 'minutes' && isDbPage(r.attrs)).map((r) => r.id));
+  if (mins.size) {
+    const byId = new Map(out.map((r) => [r.id, r]));
+    for (const r of out) {
+      if (mins.has(r.id)) { r.minutes = true; continue; }
+      for (let up = r.parentId, seen = 0; up && seen < 1000; seen += 1) {
+        if (mins.has(up)) { r.inMinutes = true; break; }
+        const u = byId.get(up);
+        up = u ? u.parentId : null;
+      }
+    }
+  }
   const scope = rowScope(db, out);
   return out.filter((r) => {
     const s = scope.page(r.id);
@@ -330,9 +344,11 @@ function withTree(e, row) {
     e.kind = 'database';   // 0.16.0 DR-1: リレーションの列のつなぐ先を選ぶ窓（DX-1 のサイドバーの 🗃️ も）
     e.views = viewRowsOf(row.attrs.views);   // 0.17.0 SV-1（決めたこと 36）: サイドバーのビューの行（データベースの行だけ）
     if (row.attrs.locked === true) e.locked = true;   // 0.17.0 LK-1（決めたこと 74）: サイドバーの行のメニュー（名前を変える・移動先…を出さない）
+    if (row.minutes) e.minutes = true;   // 0.17.0 MG-3（決めたこと 56）: 「議事録」データベース（サイドバーのいちばん上に固定）
   }
   if (row.attrs && typeof row.attrs.icon === 'string' && row.attrs.icon) e.icon = row.attrs.icon;
   if (row.inRow) e.inRow = { ...row.inRow };   // 0.16.0 R97: データベースの行の中のページ（一番近い行・その題名・データベース・その題名）
+  if (row.inMinutes) e.inMinutes = true;   // 0.17.0 MG-3（決めたこと 56）: 「議事録」データベースの中（サイドバーの木とライブラリに出さない）
   return e;
 }
 
@@ -1110,6 +1126,8 @@ function pageMove(db, a, ctx) {
   const mine = scope.page(a.id);
   if (mine && !mine.live) throw refuse('bad-args');
   const to = a.parentId || null;
+  // 0.17.0 MG-3（決めたこと 54・IR18）: 「議事録」データベースの中の議事録は外へ出さない（議事録の子ページ・白紙のページの中の議事録は今どおり）
+  if (me.parentId !== null && isMinutesDb(dbOf(db, me.parentId))) throw refuse('bad-args');
   const toRow = to !== null && !tree.byId.has(to);
   if (toRow) {
     const ri = scope.row(to);

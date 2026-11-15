@@ -32,6 +32,7 @@ function blankSeed() {
   m.call('app', 'block.update', { pageId: top, blockId: t1, patch: { text: 'ひな形の段取り表を作る' } });
   const kid = m.call('app', 'page.create', { parentId: top }).id;
   m.call('app', 'page.setTitle', { id: kid, title: '中のページ' });   // 白紙のページの題名（D77 の会議の題名でない）
+  m.asOld('pm1');   // 0.17.0 MG-3（決めたこと 54）で意図して直した: 0.16.0 までに動かした議事録（「議事録」の中の議事録は page.move で外へ出せない）
   m.call('app', 'page.move', { id: 'pm1', parentId: kid });
   return { m, top, kid };
 }
