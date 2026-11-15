@@ -316,6 +316,86 @@ test('TK-3・F201: 検索の窓の［アクション］には、タスクにし�
   } finally { l.done(); }
 });
 
+// ---------------------------------------------------------------- 点検 3 の後の問い 4（2026-11-15 の持ち主の答え「押したら作り直す（おすすめ）」・R81・R82）
+const markOf = (l, pid, bid) => l.call('page.get', { id: pid }).page.blocks.find((b) => b.id === bid).task;
+test('問い 4・R82: ゴミ箱に入ったタスクの［タスクを開く］は、行を開かずに［タスクにする］と同じに作り直す（todo.toTask の1回・知らせ「タスクにしました（Ctrl+Z で戻せます）」・新しい行に印）。生きているタスクは今どおり開く', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const at = '2026-11-12T01:00:00.000Z';
+    call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [
+      { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false }, { id: 'pw1t1', type: 'todo', text: '資料を集める', checked: false }] }, segments: [] }, 'main');
+    const K = call('minutes.gather', { first: true }, 'main').tasks;
+    const gone = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }).id;
+    const live = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t1' }).id;
+    call('rows.trash', { db: K, ids: [gone] });
+    return { K, gone, live };
+  } });
+  try {
+    const { gone, live } = l.made;
+    await open(l, 'pw1');
+    const b0 = taskBtnOf(l, 'pw1t0');
+    assert.ok(b0 && b0.textContent === 'タスクを開く', '印のある ToDo が［タスクを開く］でない');
+    await clickEl(l, b0, 400);
+    assert.deepStrictEqual(l.called('todoToTask').map((c) => c.args), [['pw1', 'pw1t0']], 'ゴミ箱のタスクの［タスクを開く］で作り直さない');
+    assert.strictEqual($(l, 'toast').textContent, 'タスクにしました（Ctrl+Z で戻せます）');
+    const now = markOf(l, 'pw1', 'pw1t0');
+    assert.ok(now && now !== gone, '印が新しい行を指さない');
+    assert.strictEqual(l.db.prepare('select trashed_at from blocks where id = ?').get(now).trashed_at, null, '新しい行が生きていない');
+    assert.strictEqual(l.document.querySelector('.tabitem.active').dataset.key, 'page:pw1', 'ゴミ箱の行のページへ移った');
+    // 生きているタスクは今どおり開く（作り直さない）
+    await clickEl(l, taskBtnOf(l, 'pw1t1'), 400);
+    assert.strictEqual(l.called('todoToTask').length, 1, '生きているタスクを作り直した');
+    assert.strictEqual(l.document.querySelector('.tabitem.active').dataset.key, `page:${live}`, '生きているタスクを開かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('問い 4・R82: 「タスク管理」データベースがゴミ箱なら、行が生きていても［タスクを開く］は作り直す（todo.toTask と同じ「生きている」の見方: R71）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const at = '2026-11-12T01:00:00.000Z';
+    call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [
+      { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false }] }, segments: [] }, 'main');
+    const K = call('minutes.gather', { first: true }, 'main').tasks;
+    const row = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }).id;
+    call('page.delete', { id: K });
+    return { K, row };
+  } });
+  try {
+    const { row } = l.made;
+    assert.strictEqual(l.db.prepare('select trashed_at from blocks where id = ?').get(row).trashed_at, null, '前提: 行そのものは生きている');
+    await open(l, 'pw1');
+    await clickEl(l, taskBtnOf(l, 'pw1t0'), 400);
+    assert.deepStrictEqual(l.called('todoToTask').map((c) => c.args), [['pw1', 'pw1t0']], 'ゴミ箱のデータベースの行の［タスクを開く］で作り直さない');
+    assert.strictEqual($(l, 'toast').textContent, 'タスクにしました（Ctrl+Z で戻せます）');
+    assert.notStrictEqual(markOf(l, 'pw1', 'pw1t0'), row, '印が新しい行を指さない');
+    assert.strictEqual(l.document.querySelector('.tabitem.active').dataset.key, 'page:pw1', 'ゴミ箱のデータベースの行のページへ移った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('問い 4・R82: 検索の窓の［アクション］の［タスクを開く］も、消えたタスク（行が無い）なら同じに作り直す（todo.toTask の1回・同じ知らせ）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const at = '2026-11-12T01:00:00.000Z';
+    call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [
+      { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false }] }, segments: [] }, 'main');
+    call('minutes.gather', { first: true }, 'main');
+    return { row: call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }).id };
+  }, returns: { pagesActionView: (o) => l.call('pages.actionView', o || {}) } });
+  try {
+    l.db.prepare('delete from blocks where id = ?').run(l.made.row);   // ゴミ箱から消えた行（完全に消した後）
+    $(l, 'sideSearch').dispatchEvent({ type: 'click' }); await l.drain();
+    $(l, 'fltActions').dispatchEvent({ type: 'click' }); await l.drain();
+    const b = $(l, 'palList').querySelectorAll('.actrow').find((r) => r.textContent.includes('見積もりを出す')).querySelector('.totask');
+    assert.ok(b && b.textContent === 'タスクを開く');
+    await clickEl(l, b, 400);
+    assert.deepStrictEqual(l.called('todoToTask').map((c) => c.args), [['pw1', 'pw1t0']], '消えたタスクの［タスクを開く］で作り直さない');
+    assert.strictEqual($(l, 'toast').textContent, 'タスクにしました（Ctrl+Z で戻せます）');
+    const now = markOf(l, 'pw1', 'pw1t0');
+    assert.ok(now && now !== l.made.row && l.db.prepare('select trashed_at from blocks where id = ?').get(now).trashed_at === null, '印が生きている新しい行を指さない');
+    assert.notStrictEqual((l.document.querySelector('.tabitem.active') || { dataset: {} }).dataset.key, `page:${l.made.row}`, '消えた行のページへ移った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 // ---------------------------------------------------------------- RT-2（決めたこと 67・68・F202）: 行のテンプレートの画面
 const tplMenu = (l) => l.document.querySelector('.dbtplmenu');
 const tplRows = (l) => (tplMenu(l) ? tplMenu(l).querySelectorAll('.dbtplrow') : []);

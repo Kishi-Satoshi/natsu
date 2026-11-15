@@ -3318,7 +3318,7 @@
       const tb = document.createElement('button');
       tb.type = 'button'; tb.className = 'totask has';
       tb.textContent = TASK_OPEN; tb.setAttribute('aria-label', `『${String(x.text || '')}』のタスクを開く`);
-      tb.onclick = () => { closePalette(); openTask(x.task); };
+      tb.onclick = () => { closePalette(); openTask(x.task, { id: x.blockId }, x.pageId); };
       el.appendChild(tb);
     }
     return el;
@@ -16118,7 +16118,7 @@
     tb.type = 'button'; tb.className = 'totask' + (has ? ' has' : '');   // 担当と期限の札（.atag）とは別の物
     tb.textContent = has ? TASK_OPEN : TASK_MAKE;
     tb.setAttribute('aria-label', has ? `『${t}』のタスクを開く` : `『${t}』をタスクにする`);
-    const run = () => (has ? openTask(b.task) : makeTask(b));
+    const run = () => (has ? openTask(b.task, b) : makeTask(b));
     tb.onclick = run;
     tb.onkeydown = (ev) => {
       if (imeEnter(ev)) { if (typeof ev.preventDefault === 'function') ev.preventDefault(); return; }
@@ -16126,9 +16126,8 @@
     };
     return tb;
   }
-  async function makeTask(b) {
-    if (taskBusy || !curPage) return;
-    const pid = curId;
+  async function makeTask(b, pid = curId) {
+    if (taskBusy || !pid) return;
     taskBusy = true;
     try {
       try { await inFlight(window.koeApp.todoToTask(pid, b.id)); }
@@ -16138,7 +16137,12 @@
       if (curId === pid) await openPage(pid);
     } finally { taskBusy = false; }
   }
-  function openTask(rowId) {
+  // 点検 3 の後の問い 4（2026-11-15 の持ち主の答え「押したら作り直す（おすすめ）」・R82）: 行を開けない（行がゴミ箱・消えた・データベースが生きていない）
+  // ときは、［タスクにする］と同じに作り直す（todo.toTask は生きている行なら作らない: R71）。読めないとき（DB の口の失敗）は今までどおり開く
+  async function openTask(rowId, b, pid) {
+    let r;
+    try { r = await window.koeApp.pageGet(rowId); } catch (_) { r = undefined; }
+    if (r !== undefined && !(r && r.page && typeof r.db === 'string' && pages.some((p) => p && p.id === r.db))) return makeTask(b, pid);
     const k = tasksIdNow();
     if (k) rowPages.set(rowId, k);
     return openPageTab(rowId, { newTab: false });

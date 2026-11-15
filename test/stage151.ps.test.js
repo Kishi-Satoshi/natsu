@@ -1218,7 +1218,10 @@ test('PS-5・F160: どの記事にも、README の「画面の使い方」にも
   }
   assert.ok(readmeScreens().includes('見出し「プライベート」'), 'README の画面の使い方にプライベートの見出しが無い');
   const mcp = fs.readFileSync(path.join(ROOT, 'help', 'articles', 'start', 'claude-mcp.md'), 'utf8');
-  assert.ok(mcp.includes('［···］ から ［ページを選ぶ］'), 'Claude の記事が［ページを選ぶ］を案内しない');
+  // 0.17.0（計画 docs/plans/2026-11-13-170.md の R81・M19。2026-11-15 の持ち主の答え「今直す（おすすめ）」）で意図して直した: 議事録はサイドバーの木に出ない
+  // （「議事録」データベースの行。決めたこと 56）ので、いくつもの会議のリンクは「議事録」の表の行のチェックと［リンクを写す］で写す（承認の案の字のまま）
+  assert.ok(!mcp.includes('［···］ から ［ページを選ぶ］'), 'Claude の記事が使えない［ページを選ぶ］の手順を案内する');
+  assert.ok(mcp.includes('- いくつもの会議を渡すときは、「議事録」の表で行の頭のチェックを入れ、［リンクを写す］ を押します。\n'), 'Claude の記事に「議事録」の表から写す手順が無い');
 });
 
 test('PS-5・D124・D125: find/page-tree.md に節 #private・#rename・#library。並べ替え・表示・ページを選ぶ・もっと見る・名前を変える（Ctrl+Shift+R・変換確定の Enter・Esc・Tab と窓の切り替え・空は元の名前・無題は空から: R43）・ライブラリ（↗・名前の順・探す・新しいページ）。名前の順は五十音と言い切らない（R36）', T, () => {
