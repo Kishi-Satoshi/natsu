@@ -45,3 +45,46 @@ test('NX-1・F205: メモの命令（src/memoDoc.js の memoEdit）の block.spl
   r = MD.memoEdit(doc, 'block.split', { blockId: 'm2', text: 'メモ', at: 2, inside: true }, { next: 10 });
   assert.deepStrictEqual(at(r.doc, 'm2').b.children.map((b) => [b.type, b.text]), [['paragraph', '']]);
 });
+
+// ---------------------------------------------------------------- NX-2（決めたこと 80・81・F206・F207）
+test('NX-2・F206: backspaceAtStart の表（型 × 段 0・1・2 × last × inCallout。決めたこと 80・違いの行 X-17・X-18・X-31・D-09〜D-11・T-06・B-24）', () => {
+  const B = (b, depth, last, inCallout) => E.backspaceAtStart(b, { depth, last, inCallout });
+  const all = (fn) => { for (const depth of [0, 1, 2]) for (const last of [true, false]) for (const inCallout of [true, false]) fn(depth, last, inCallout); };
+  // 箇条書き・ToDo・番号付き・トグル・引用は、段にかかわらず先にテキストに戻す
+  for (const type of ['bullet', 'todo', 'numbered', 'toggle', 'quote']) all((d, l, c) => assert.strictEqual(B({ type }, d, l, c), 'revert', `${type} ${d} ${l} ${c}`));
+  // トグル見出しは段・開け閉めにかかわらず、ふつうの見出しへ（S2・U1・U7）
+  for (const level of [1, 2, 3]) for (const open of [true, false]) all((d, l, c) => assert.strictEqual(B({ type: 'heading', level, toggle: true, open }, d, l, c), 'untoggle', `th${level} ${open} ${d} ${l} ${c}`));
+  // 見出し（トグルでない・段の無い古い見出しも）・コールアウト・テキスト（知らない型はテキストの見た目）
+  for (const b of [{ type: 'heading', level: 1 }, { type: 'heading', level: 3 }, { type: 'heading' }, { type: 'callout' }, { type: 'paragraph' }, {}, { type: 'video' }]) {
+    all((d, l, c) => {
+      const want = d > 0 && l && !c ? 'outdent' : 'merge';   // 最上位はつなぐ・字下げした最後の子は1段戻す・後ろに兄弟があればつなぐ・コールアウトの中はつなぐ
+      assert.strictEqual(B(b, d, l, c), want, `${JSON.stringify(b)} ${d} ${l} ${c}`);
+    });
+  }
+  // 渡さなければ最上位（今の呼び方の形）
+  assert.strictEqual(E.backspaceAtStart({ type: 'heading', level: 2 }), 'merge');
+  assert.strictEqual(E.backspaceAtStart({ type: 'bullet' }, { depth: 1 }), 'revert');
+  assert.strictEqual(E.backspaceAtStart({ type: 'divider' }), 'revert', '区切り線は今のまま');
+});
+
+test('NX-2・F207: liftOut は行を外し、その子を同じ所に元の順で並べる（子の欄は1字も変えない）。mergeKids は無い', () => {
+  const kids = [{ id: 'k1', type: 'todo', text: 'やる', task: 'r1', cites: ['s1'], assignee: '担当A', due: '2026-11-30', checked: true }, { id: 'k2', type: 'toggle', text: '開', open: false, children: [{ id: 'g', type: 'paragraph', text: '孫' }] }];
+  const list = [{ id: 'a', type: 'paragraph', text: 'a' }, { id: 'b', type: 'paragraph', text: 'b', children: structuredClone(kids) }, { id: 'c', type: 'paragraph', text: 'c' }];
+  const out = BT.liftOut(list, 1);
+  assert.deepStrictEqual(list.map((x) => x.id), ['a', 'k1', 'k2', 'c']);
+  assert.deepStrictEqual(list.slice(1, 3), kids, '子の欄が変わった');
+  assert.deepStrictEqual(out.map((x) => x.id), ['k1', 'k2']);
+  const one = [{ id: 'x', type: 'paragraph', text: '' }];
+  assert.deepStrictEqual(BT.liftOut(one, 0), []);
+  assert.deepStrictEqual(one, [], '子の無い行も外す');
+  assert.strictEqual(BT.mergeKids, undefined, 'mergeKids が残っている（決めたこと 81）');
+});
+
+test('NX-2・F207: メモの命令（memoEdit）の block.merge も、消える行の子は消えた行の所に1段上がって並ぶ（つないだ先の子にならない）', () => {
+  const doc = [{ id: 'm1', type: 'toggle', text: '親', citeState: 'manual', children: [{ id: 'm2', type: 'paragraph', text: '中', citeState: 'manual' }] },
+    { id: 'm3', type: 'paragraph', text: 'つなぐ', citeState: 'manual', children: [{ id: 'm4', type: 'todo', text: 'やる', checked: true, citeState: 'manual' }, { id: 'm5', type: 'paragraph', text: '二', citeState: 'manual' }] }];
+  const r = MD.memoEdit(doc, 'block.merge', { blockId: 'm3', text: 'つなぐ', intoId: 'm2' }, { next: 10 });
+  assert.deepStrictEqual(r.doc.map((b) => b.id), ['m1', 'm4', 'm5']);
+  assert.deepStrictEqual(r.doc[0].children.map((b) => [b.id, b.text]), [['m2', '中つなぐ']]);
+  assert.deepStrictEqual([r.doc[1].type, r.doc[1].checked], ['todo', true]);
+});

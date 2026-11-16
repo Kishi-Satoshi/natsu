@@ -248,7 +248,7 @@ const GONE_130 = ['v-drag-index'];
 // 0.17.0 第4部（計画 docs/plans/2026-11-13-170.md の「前の答えを替えたので外す前の版の変異（GONE_170）」）: 持ち主の NQ1「編集と表のキーを直す（おすすめ）」で
 // 前の版の答え（0.13.0 EQ5 (a)・EQ6 (a)・EQ16 (a)、0.13.1 EQ6）を替えたので、前の形を守る変異を一覧から外した（守っていた所は nx- の行が引き継ぐ）。
 // 前の版の IDS（IDS_130・IDS_131）と前の版の計画の表は書き換えず、照らしが飛ばす（GONE_130 と同じ形）。NX の各タスクで外すたびに足す
-const GONE_170 = ['ed-enter-type'];
+const GONE_170 = ['ed-enter-type', 'ed-bs-revert', 'edn-merge-kids', 'edn-bs-outdent'];
 test('G3: 0.10.0 LS-1・LS-2 で外した変異（オフラインモードの会議の要約を手元へ回す・手元の llama の要約の道）は一覧に無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2, ...GONE_LS3, ...GONE_130].filter((id) => ids.has(id)), []);
@@ -1732,8 +1732,9 @@ const IDS_170 = [
   'tk-open-remake', 'tk-open-db-live', 'tk-open-acts',
   // 0.17.0 R81 で手順を確かめたときに出た問い（2026-11-15 の持ち主の答え。問い 5 の 1・M20・R85）で足した行
   'mg-ui-ref-minutes',
-  // 0.17.0 Task NX-1（第4部。表の行の順に）
-  'nx-enter-heading', 'nx-enter-copy', 'nx-enter-callout',
+  // 0.17.0 Task NX-1〜（第4部。計画の「第4部・第5部の変異」の nx- の表の行の順に、作ったタスクの行だけ: R89）
+  'nx-enter-heading', 'nx-enter-copy', 'nx-bs-heading', 'nx-bs-revert-first', 'nx-bs-last-outdent', 'nx-bs-mid-merge', 'nx-bs-copy', 'nx-bs-wire',
+  'nx-lift-kids', 'nx-lift-order', 'nx-lift-copy', 'nx-bs-heading-last', 'nx-bs-untoggle', 'nx-bs-callout', 'nx-bs-callout-kid', 'nx-enter-callout',
   // 0.17.0 Task NB-6（第5部。計画の「第4部・第5部の変異」の nb- の表の行の順に）。第4部の nx- は表で nb- より前なので、NX の各タスクでこの前に足す
   'nb-q-answer', 'nb-q-unchecked', 'nb-count-q', 'nb-count-total', 'nb-source-ob', 'nb-x-row', 'nb-ob-item', 'nb-k25-source', 'nb-source-ob2', 'nb-ob2-item', 'nb-x-new',
 ];

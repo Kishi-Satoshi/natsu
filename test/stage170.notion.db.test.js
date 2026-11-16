@@ -96,3 +96,62 @@ test('NX-1（S12・B-26・OQ3「今のままチェックなし（おすすめ）
     assert.deepStrictEqual([l.b.checked, l.b.assignee, l.b.task], [true, '担当A', 'r1'], '元の ToDo が変わった');
   });
 }, { blocks: samplePage('pa1').page.blocks.map((b) => (b.id === 'b4' ? { ...b, checked: true, task: 'r1' } : b)) }));
+
+// ---------------------------------------------------------------- NX-2（決めたこと 80・81・F207）
+const KIDS = () => [
+  { id: 'k1', type: 'todo', text: 'k1の文', checked: true, assignee: '担当A', due: '2026-11-30', dueRaw: '11月末', cites: ['s2'], citeState: 'linked', task: 'r1' },
+  { id: 'k2', type: 'toggle', text: 'k2の文', open: false, citeState: 'manual', cites: [], children: [kid('g')] },
+];
+const MERGE_TREE = () => [kid('a', { children: [kid('a1')] }), kid('b', { children: KIDS() }), { id: 'h', type: 'heading', level: 2, text: '見出し', citeState: 'manual', cites: [] }, kid('c', { children: [kid('c1')] }), kid('z')];
+test('NX-2・F207: 子を持つ行を上に見えている行（前の兄弟の深い子孫）につなぐ → 子は消えた行の所に元の順で1段上がって並び、つないだ先の子にならない。子の欄は1字も同じ・edit.revert の1回で戻る', T, () => withDb((db) => {
+  const was = structuredClone(KIDS());
+  once(db, 'block.merge', { blockId: 'b', text: 'bの文', intoId: 'a1' }, (p) => {
+    assert.deepStrictEqual(p.blocks.map((x) => x.id), ['a', 'k1', 'k2', 'h', 'c', 'z'], '子が消えた行の所に並ばない');
+    assert.deepStrictEqual(find(p, 'a').b.children.map((x) => [x.id, x.text, (x.children || []).length]), [['a1', 'a1の文bの文', 0]], 'つないだ先の子になった');
+    const keep = (x) => ({ id: x.id, type: x.type, text: x.text, checked: x.checked, assignee: x.assignee, due: x.due, dueRaw: x.dueRaw, cites: x.cites, task: x.task, open: x.open, kids: (x.children || []).map((g) => g.id) });
+    assert.deepStrictEqual([find(p, 'k1').b, find(p, 'k2').b].map(keep), was.map(keep), '子の欄が変わった');
+  });
+  // つないだ先がトグルでない見出し（子を持てない）でも同じ
+  once(db, 'block.merge', { blockId: 'c', text: 'cの文', intoId: 'h' }, (p) => {
+    assert.deepStrictEqual(p.blocks.map((x) => x.id), ['a', 'b', 'h', 'c1', 'z']);
+    assert.strictEqual(find(p, 'h').b.text, '見出しcの文');
+  });
+  // 先が子を持つ行（前の兄弟そのもの）でも、子はつないだ先の子にならない
+  once(db, 'block.merge', { blockId: 'b', text: 'bの文', intoId: 'a' }, (p) => {
+    assert.deepStrictEqual(p.blocks.map((x) => x.id), ['a', 'k1', 'k2', 'h', 'c', 'z']);
+    assert.deepStrictEqual(find(p, 'a').b.children.map((x) => x.id), ['a1']);
+  });
+}, { blocks: MERGE_TREE() }));
+
+test('NX-2・F207（S3・D-10）: 字下げした最初の子を親につなぐ → 後ろの兄弟は親の子のまま。つなぐ子の子は親の子の同じ所に並ぶ', T, () => withDb((db) => {
+  once(db, 'block.merge', { blockId: 'k', text: 'kの文', intoId: 'P' }, (p) => {
+    assert.deepStrictEqual([find(p, 'P').b.text, find(p, 'P').b.children.map((x) => x.id)], ['Pの文kの文', ['kk', 'k2', 'k3']]);
+  });
+}, { blocks: [kid('P', { children: [kid('k', { children: [kid('kk')] }), kid('k2'), kid('k3')] }), kid('z')] }));
+
+test('NX-2・F207・T4b: block.merge（子のある行）を含む oplog を控えに前へ当て直すと今の表と同じ、後ろへ全部当てると種の表に戻る', T, () => {
+  const { applyOps } = require('../src/db/ops');
+  const t = tmpDb(); const u = tmpDb(); const v = tmpDb();
+  try {
+    const { db } = t.open();
+    const { db: copy } = u.open();
+    const { page, segments } = samplePage('pa1');
+    t.seed({ ...page, blocks: MERGE_TREE() }, segments);
+    u.seed({ ...page, blocks: MERGE_TREE() }, segments);
+    const seq0 = db.prepare('select coalesce(max(seq), 0) as s from oplog').get().s;
+    for (const [cmd, args] of [['block.merge', { pageId: 'pa1', blockId: 'b', text: 'bの文', intoId: 'a1' }], ['block.merge', { pageId: 'pa1', blockId: 'c', text: 'cの文', intoId: 'h' }]]) {
+      const r = call(db, cmd, args); assert.strictEqual(r.ok, true, `${cmd} ${r.code}`);
+    }
+    copy.exec('BEGIN IMMEDIATE');
+    for (const r of db.prepare('select ops from oplog where seq > ? order by seq').all(seq0)) applyOps(copy, JSON.parse(r.ops), 'forward');
+    copy.exec('COMMIT');
+    const dump = (d) => d.prepare('select id, type, page_id, parent_id, ord, text, rich, attrs, fold, rev, trashed_at from blocks order by id').all().map((r) => ({ ...r }));
+    assert.deepStrictEqual(dump(copy), dump(db));
+    db.exec('BEGIN IMMEDIATE');
+    for (const r of db.prepare('select ops from oplog where seq > ? order by seq desc').all(seq0)) applyOps(db, JSON.parse(r.ops), 'backward');
+    db.exec('COMMIT');
+    const o = v.open(); v.seed({ ...page, blocks: MERGE_TREE() }, segments);
+    const keep = (rows) => rows.map((r) => ({ ...r, rev: 0 }));
+    assert.deepStrictEqual(keep(dump(db)), keep(dump(o.db)), '後ろへ全部当てても種の表に戻らない');
+  } finally { t.done(); u.done(); v.done(); }
+});

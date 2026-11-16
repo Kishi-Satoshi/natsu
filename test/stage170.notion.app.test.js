@@ -139,3 +139,104 @@ test('NX-1（S12・B-26・OQ3「今のままチェックなし（おすすめ）
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- NX-2（決めたこと 80・81・F206・F207）
+test('NX-2・F206: 画面の写し backspaceAtStartView は src/blockEdit.js の backspaceAtStart と同じ答え（全部の型 × 段 × last × inCallout）', () => {
+  const head = HTML.slice(HTML.indexOf('  const TYPED_VIEW = '), HTML.indexOf('\n', HTML.indexOf('  const TYPED_VIEW = ')) + 1);
+  const app = new Function(`${head}${fnApp('isTypedView')}\n${fnApp('backspaceAtStartView')}\nreturn backspaceAtStartView;`)();   // eslint-disable-line no-new-func
+  const blocks = [null, {}, { type: 'paragraph' }, { type: 'video' }, { type: 'divider' }, { type: 'subpage', page: 'pk1' }, { type: 'dbview' }, { type: 'callout' }, { type: 'quote' }, { type: 'toggle' },
+    { type: 'bullet' }, { type: 'todo' }, { type: 'numbered' }, { type: 'heading' }, { type: 'heading', level: 1 }, { type: 'heading', level: 3, toggle: true }, { type: 'heading', level: 2, toggle: true, open: false }];
+  for (const b of blocks) for (const depth of [0, 1, 2]) for (const last of [true, false]) for (const inCallout of [true, false]) {
+    assert.strictEqual(app(b, { depth, last, inCallout }), E.backspaceAtStart(b, { depth, last, inCallout }), `${JSON.stringify(b)} ${depth} ${last} ${inCallout}`);
+  }
+  assert.strictEqual(app({ type: 'heading', level: 2 }), E.backspaceAtStart({ type: 'heading', level: 2 }), '引数を渡さないとき');
+});
+
+const H2 = (id, text, o = {}) => ({ id, type: 'heading', level: 2, text, citeState: 'manual', cites: [], ...o });
+test('NX-2・F206（S1・S2・S5・X-17・D-09・T-06・B-24）: 見出し・トグル見出し・コールアウトの頭の Backspace', T, async () => {
+  const l = await openNote([kid('x'), H2('h', '見出し'),
+    { id: 't', type: 'toggle', text: 'トグル', open: true, citeState: 'manual', cites: [], children: [kid('t1'), H2('th', '中の見出し')] },
+    H2('tg', 'トグル見出し', { toggle: true, open: true, children: [kid('g1'), kid('g2')] }),
+    { id: 'c', type: 'callout', icon: '💡', text: 'お知らせ', citeState: 'manual', cites: [] }, kid('z')]);
+  try {
+    // 最上位の見出し: テキストに戻さず1回でつなぐ（blockTurnInto を送らない）
+    await press(l, typeIn(l, 'h', '見出し', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', 'h', '見出し', 'x']]);
+    assert.strictEqual(BT.locate(pageOf(l).blocks, 'x').b.text, 'xの文見出し');
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'x'));
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'x')), [3, 3], 'カーソルが上の行のつないだ所でない');
+    // トグルの最後の子の見出し: 1回目は見出しのまま1段戻り、2回目でつなぐ（S1）
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'th', '中の見出し', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'th', 'out']]);
+    assert.deepStrictEqual([BT.locate(pageOf(l).blocks, 'th').b.type, BT.locate(pageOf(l).blocks, 'th').parent], ['heading', null], '見出しのまま1段戻らない');
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'th', '中の見出し', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l).map((c) => c.slice(0, 3)), [['blockMerge', 'pa1', 'th']], '2回目でつながない');
+    // 開いたトグル見出し: 1回目でふつうの見出しになり、中の行は後ろへ（S2）・2回目でつなぐ
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'tg', 'トグル見出し', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'tg', 'heading', 2]]);
+    let p = pageOf(l);
+    const i = p.blocks.findIndex((b) => b.id === 'tg');
+    assert.deepStrictEqual([p.blocks[i].toggle, p.blocks[i].children || [], p.blocks.slice(i + 1, i + 3).map((b) => b.id)], [undefined, [], ['g1', 'g2']], 'トグル見出しの中の行が後ろに並ばない');
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'tg', 'トグル見出し', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l).map((c) => c.slice(0, 3)), [['blockMerge', 'pa1', 'tg']]);
+    // コールアウトの頭: 1回でつなぐ（S5）
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'c', 'お知らせ', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l).map((c) => c.slice(0, 3)), [['blockMerge', 'pa1', 'c']]);
+    p = pageOf(l);
+    assert.ok(!p.blocks.some((b) => b.id === 'c'), 'コールアウトが残った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-2・F206（S5・B-24）: コールアウトの末尾の Enter でできた空の子の Backspace → blockMerge で行が消え、カーソルはコールアウトの字の末', T, async () => {
+  const l = await openNote([kid('x'), { id: 'c', type: 'callout', icon: '💡', text: 'お知らせ', citeState: 'manual', cites: [] }, kid('z')]);
+  try {
+    await press(l, typeIn(l, 'c', 'お知らせ'), 'Enter');
+    const nid = BT.locate(pageOf(l).blocks, 'c').b.children[0].id;
+    l.calls.length = 0;
+    await press(l, typeIn(l, nid, '', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', nid, '', 'c']], '空の子が1段戻った・つながない');
+    const c = BT.locate(pageOf(l).blocks, 'c').b;
+    assert.deepStrictEqual([c.text, (c.children || []).length], ['お知らせ', 0]);
+    assert.strictEqual(l.document.activeElement, txtOf(l, 'c'));
+    assert.deepStrictEqual(l.caret.get(txtOf(l, 'c')), [4, 4]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-2・F206（X-18・D-10・D-11）: 字下げした箇条書きはテキスト → 1段戻す → つなぐ の順。字下げしたテキストは、最後の子なら1段戻し、後ろに兄弟があれば上に見えている行につなぐ', T, async () => {
+  const l = await openNote([kid('P', { children: [kid('a', { children: [kid('a1')] }), kid('m'), { id: 'lb', type: 'bullet', text: '最後', citeState: 'manual', cites: [] }] }), kid('z')]);
+  try {
+    // 真ん中の子のテキスト: 上に見えている行（a1）につなぐ（S4）
+    await press(l, typeIn(l, 'm', 'mの文', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l), [['blockMerge', 'pa1', 'm', 'mの文', 'a1']]);
+    // 最後の子の箇条書き: テキストに戻す → 1段戻す → つなぐ
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'lb', '最後', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'lb', 'paragraph']]);
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'lb', '最後', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'lb', 'out']]);
+    l.calls.length = 0;
+    await press(l, typeIn(l, 'lb', '最後', 0), 'Backspace');
+    assert.deepStrictEqual(sent(l).map((c) => c.slice(0, 3)), [['blockMerge', 'pa1', 'lb']]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-2・F207: 画面のメモの欄の写し（memoDocView）の block.merge は src/memoDoc.js と同じ答えで、消える行の子は消えた行の所に1段上がって並ぶ', () => {
+  const app = memoView();
+  const doc = [{ id: 'm1', type: 'toggle', text: '親', citeState: 'manual', children: [{ id: 'm2', type: 'paragraph', text: '中', citeState: 'manual' }] },
+    { id: 'm3', type: 'paragraph', text: 'つなぐ', citeState: 'manual', children: [{ id: 'm4', type: 'todo', text: 'やる', checked: true, citeState: 'manual' }, { id: 'm5', type: 'paragraph', text: '二', citeState: 'manual', children: [{ id: 'm6', type: 'paragraph', text: '孫', citeState: 'manual' }] }] },
+    { id: 'm7', type: 'heading', level: 2, text: '見出し', citeState: 'manual' }, { id: 'm8', type: 'paragraph', text: '下', citeState: 'manual', children: [{ id: 'm9', type: 'paragraph', text: '下の子', citeState: 'manual' }] }];
+  for (const [blockId, text, intoId] of [['m3', 'つなぐ', 'm2'], ['m3', 'つなぐ', 'm1'], ['m8', '下', 'm7'], ['m8', '下', undefined], ['m5', '二', 'm4']]) {
+    sameMemo(app, doc, 'block.merge', { blockId, text, ...(intoId ? { intoId } : {}) });
+  }
+  const r = app.memoEdit(doc, 'block.merge', { blockId: 'm3', text: 'つなぐ', intoId: 'm2' }, { next: 40 });
+  assert.deepStrictEqual(r.doc.map((b) => b.id), ['m1', 'm4', 'm5', 'm7', 'm8'], '写しの子が消えた行の所に並ばない');
+});

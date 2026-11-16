@@ -153,10 +153,12 @@ test('ED-1: nextTypeOnEnter・backspaceAtStart の表', () => {
   }
   for (const t of ['paragraph', 'quote', 'callout', 'divider', 'video']) assert.deepStrictEqual(N({ type: t }), { type: 'paragraph' }, t);
   assert.deepStrictEqual(N({ type: 'paragraph' }, true), { type: 'paragraph' }, '空のテキストは今どおり分ける');
+  // 0.17.0 NX-2（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 80・81・計画の違いの行 X-17〜X-19。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 見出しとコールアウトは
+  // テキストに戻さず最上位ではつなぐ・字下げした型の付いた行は先にテキストに戻す（全部の場合は test/stage170.notion.lib.test.js の NX-2）。意図「型の付いた行の頭はまずテキスト」は残す
   const B = (b, depth) => E.backspaceAtStart(b, { depth });
-  for (const t of ['heading', 'bullet', 'todo', 'numbered', 'quote', 'callout', 'divider']) assert.strictEqual(B({ type: t }), 'revert', t);
-  for (const t of ['paragraph', 'video']) assert.strictEqual(B({ type: t }), 'merge', t);
-  assert.strictEqual(B({ type: 'bullet' }, 1), 'outdent');
+  for (const t of ['bullet', 'todo', 'numbered', 'quote', 'divider']) assert.strictEqual(B({ type: t }), 'revert', t);
+  for (const t of ['paragraph', 'video', 'heading', 'callout']) assert.strictEqual(B({ type: t }), 'merge', t);
+  assert.strictEqual(B({ type: 'bullet' }, 1), 'revert');
 });
 
 // ---------------------------------------------------------------- 番号（F50）

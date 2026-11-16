@@ -275,7 +275,9 @@ test('ED-4・点検2: AI の見出しの頭で Backspace（テキストに戻る
       let t = txtOf(l, 'h2');
       t.focus();
       l.caret.set(t, 0);
-      l.key({ key: 'Backspace' }, t);
+      // 0.17.0 NX-2（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 80・81・計画の違いの行 X-17〜X-19。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 見出しの頭の Backspace は
+      // テキストに戻さず上の行につなぐので、テキストに戻す手は Ctrl+Shift+0（意図「AI の見出しをテキストにして戻すと並びと［コピー］が前と同じ」は残す）
+      l.key({ key: ')', code: 'Digit0', ctrlKey: true, shiftKey: true }, t);
       await l.drain();
       assert.deepStrictEqual([l.page().blocks[2].type, l.page().blocks[2].citeState], ['paragraph', 'manual']);
       assert.notDeepStrictEqual(rowsOf(l).map((e) => e.dataset.id), order0, 'テキストにしたのに並びが同じ（見本の作りの誤り）');

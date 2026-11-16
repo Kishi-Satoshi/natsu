@@ -164,10 +164,17 @@ function nextTypeOnEnter(block, { empty = false, depth = 0, open = true } = {}) 
   }
   return { type: 'paragraph' };   // 0.17.0 NX-1（決めたこと 78・計画の違いの行 X-16）: 見出し・引用・コールアウト・テキストの後はテキスト
 }
-// 行頭の Backspace → 'revert'（型の付いた行はテキストに戻す）・'merge'（テキストの行は前とつなぐ）・'outdent'（0.13.1 の字下げ）
-function backspaceAtStart(block, { depth = 0 } = {}) {
-  if (depth > 0) return 'outdent';
-  return isTyped(block) ? 'revert' : 'merge';
+// 行頭の Backspace（0.17.0 NX-2。決めたこと 80・計画の違いの行 X-17・X-18・X-31。画面の backRow は写しの backspaceAtStartView で同じ決まりを読む）
+// → 'revert'（テキストに戻す）・'untoggle'（トグル見出しを同じ段のふつうの見出しに）・'merge'（上に見えている行につなぐ）・'outdent'（1段戻す）。
+// depth は段・last は同じ親の中で後ろに兄弟が無いか・inCallout は親の行がコールアウトか
+const BS_REVERT = ['bullet', 'todo', 'numbered', 'toggle', 'quote'];
+const BS_JOIN = ['paragraph', 'heading', 'callout'];
+function backspaceAtStart(block, { depth = 0, last = false, inCallout = false } = {}) {
+  const r = typeOf(block);
+  if (BS_REVERT.includes(r.key)) return 'revert';   // 段にかかわらず先にテキストに戻す
+  if (r.key === 'heading' && r.toggle === true) return 'untoggle';   // 中の行は後ろに並ぶ（turnMovesKids）
+  if (BS_JOIN.includes(r.key)) return depth > 0 && last && !inCallout ? 'outdent' : 'merge';   // 型は戻さない
+  return 'revert';   // 区切り線・子ページの行・リンクドビュー（画面は backRow の前の決まりで扱う）
 }
 
 // ---------------------------------------------------------------- 番号（F50）

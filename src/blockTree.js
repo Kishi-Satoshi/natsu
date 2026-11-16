@@ -170,13 +170,14 @@ function numberLabelsTree(blocks) {
   return out;
 }
 
-// ---------------------------------------------------------------- 結合と変換の子（EQ6 (a)・EQ16 (a)・NR10）
-// 結合で消す行の子 kids を、つないだ先 target（locate の答え）の子の末尾へ。target が子を持てない型なら、target のすぐ後ろに兄弟として並べる
-function mergeKids(target, kids) {
-  const list = Array.isArray(kids) ? kids : [];
-  if (!list.length || !target) return;
-  if (kidsCan(target.b)) { if (!Array.isArray(target.b.children)) target.b.children = []; target.b.children.push(...list); return; }
-  target.list.splice(target.index + 1, 0, ...list);
+// ---------------------------------------------------------------- 結合と変換の子（EQ16 (a)・NR10。0.17.0 NX-2: 結合の子は liftOut）
+// 0.17.0 NX-2（決めたこと 81・計画の違いの行 X-19）: 結合で消す行 list[index] を外し、その子を同じ所（同じ親の同じ並び）に元の順で並べる
+// （子の段は1つ上がる。つないだ先の型は見ない）→ 並べた子の並び。子の欄は変えない
+function liftOut(list, index) {
+  const b = list[index];
+  const kids = kidsOf(b);
+  list.splice(index, 1, ...kids);
+  return kids;
 }
 // list[index] の子を外へ出して、その行のすぐ後ろに元の順で兄弟として並べる → 出した子の並び
 function kidsOut(list, index) {
@@ -216,5 +217,5 @@ function dropSpot(rows, idx, shift, o = {}) {
 module.exports = {
   VIEW_KEYS, isToggle, isOpenStored, kidsCan, aiSectionHead,
   buildTree, flattenBlocks, walk, locate, within, canIndent, indentPlan, spotOf,
-  visibleOrder, numberLabelsTree, mergeKids, kidsOut, turnMovesKids, dropSpot,
+  visibleOrder, numberLabelsTree, liftOut, kidsOut, turnMovesKids, dropSpot,
 };

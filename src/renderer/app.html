@@ -9868,11 +9868,11 @@
         go(blocks);
         return out;
       },
-      mergeKids(target, kids) {
-        const list = Array.isArray(kids) ? kids : [];
-        if (!list.length || !target) return;
-        if (kidsCanView(target.b)) { if (!Array.isArray(target.b.children)) target.b.children = []; target.b.children.push(...list); return; }
-        target.list.splice(target.index + 1, 0, ...list);
+      liftOut(list, index) {
+        const b = list[index];
+        const kids = b && Array.isArray(b.children) ? b.children : [];
+        list.splice(index, 1, ...kids);
+        return kids;
       },
       kidsOut(list, index) {
         const b = list[index];
@@ -10359,9 +10359,7 @@
           const tail = Array.isArray(b.rich) && RT.plainOf(b.rich) === a.text ? b.rich : [{ t: a.text }];
           if (Array.isArray(prev.rich) || Array.isArray(b.rich)) putRich(prev, blockEdit.joinRich(Array.isArray(prev.rich) ? prev.rich : [{ t: String(prev.text || '') }], tail));
           if (a.text) prev.text = String(prev.text || '') + a.text;
-          const kids = Array.isArray(b.children) ? b.children : [];
-          l.list.splice(l.index, 1);
-          BT.mergeKids(BT.locate(d, prev.id), kids);
+          BT.liftOut(l.list, l.index);   // 0.17.0 NX-2（決めたこと 81）: 子は消えた行の所に1段上がって並ぶ
           return { blockId: prev.id, at };
         } },
       'block.turnInto': { args: { blockId: 'id', type: 'blockType', level: 'level?', toggle: 'bool?' },
@@ -14749,11 +14747,23 @@
     if (!out && el._b === b) { b.text = was; if (marked) b.rich = wasRich; if (boxOfKey(pid)) { if (marked) paintRich(txt, rich); else txt.textContent = text; } }
     return out;
   }
-  // 行頭の Backspace（EQ6 (a)）: 型の付いた行はテキストに戻す。テキストの行は今の文ごと前の行につなぐ（block.merge の1つの命令）
+  // 行頭の Backspace の決まり（src/blockEdit.js の backspaceAtStart の写し。0.17.0 NX-2・決めたこと 80。NX-2 の「写しは同じ」のテストが答えを照らす）
+  function backspaceAtStartView(b, { depth = 0, last = false, inCallout = false } = {}) {
+    const t = b && typeof b === 'object' && (TYPED_VIEW.includes(b.type) || b.type === 'dbview') ? b.type : 'paragraph';
+    if (['bullet', 'todo', 'numbered', 'toggle', 'quote'].includes(t)) return 'revert';
+    if (t === 'heading' && b.toggle === true) return 'untoggle';
+    if (t === 'paragraph' || t === 'heading' || t === 'callout') return depth > 0 && last && !inCallout ? 'outdent' : 'merge';
+    return 'revert';
+  }
+  // 行頭の Backspace（0.17.0 NX-2。決めたこと 80・計画の違いの行 X-17・X-18・X-31）: backspaceAtStartView の答えで、1段戻す・テキストに戻す・
+  // トグル見出しをふつうの見出しに戻す・今の文ごと上に見えている行につなぐ（block.merge）のどれか1つの命令を送る
   async function backRow(el) {
     const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
-    if (rowDepth(el) > 0) return indentRow(el, 'out');   // 0.13.1 EQ6 (a): 字下げされた行は、まず1段戻す（型も文も変えない）
-    if (isTypedView(b)) return turnRow(el, 'paragraph', undefined, 0);
+    const at = locate(blocksOfKey(pid), b.id);
+    const act = backspaceAtStartView(b, { depth: rowDepth(el), last: Boolean(at) && at.index === at.list.length - 1, inCallout: Boolean(at && at.parent && at.parent.type === 'callout') });
+    if (act === 'outdent') return indentRow(el, 'out');   // 型も文も変えない
+    if (act === 'revert') return turnRow(el, 'paragraph', undefined, 0);
+    if (act === 'untoggle') return turnRow(el, 'heading', headingLevel(b), 0);   // 中の行は1段上がって後ろに並ぶ（turnMovesKids）
     // 0.13.1 TQ1（持ち主の答え「画面で上に見えている行（おすすめ）」）: 画面で上に見えている行につなぐ。頭の行はつなぐ先が無い
     const rows = editRows(rowsBoxOf(el));
     const i = rows.indexOf(el);

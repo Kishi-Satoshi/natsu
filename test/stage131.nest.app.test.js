@@ -289,13 +289,20 @@ test('NE-4a・EQ5 (a)・EQ6 (a): 字下げされた空の箇条書きで Enter �
     assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'e1', 'out']], '空の子の箇条書きの Enter が字下げを先に戻さない（edn-enter-outdent）');
     assert.strictEqual(rowOf(l, 'e1').dataset.depth, '0');
     assert.strictEqual(l.page().blocks.find((b) => b.id === 'e1').type, 'bullet');
+    // 0.17.0 NX-2（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 80・81・計画の違いの行 X-17〜X-19。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた:
+    // 字下げした型の付いた行（ToDo）の頭の Backspace は、先にテキストに戻し、もう一度で（最後の子なので）1段戻す（前は先に1段戻した: edn-bs-outdent は GONE_170）
     l.calls.length = 0;
     t = at(l, 'a21');
     press(l, t, 'Backspace');
     await l.drain();
-    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'a21', 'out']], '字下げされた行の頭の Backspace が字下げを先に戻さない（edn-bs-outdent）');
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'a21', 'paragraph']], '字下げされた ToDo の頭の Backspace が先にテキストに戻さない');
+    l.calls.length = 0;
+    t = at(l, 'a21');
+    press(l, t, 'Backspace');
+    await l.drain();
+    assert.deepStrictEqual(sent(l), [['blockIndent', 'pa1', 'a21', 'out']], '字下げされた最後の子のテキストの頭の Backspace が1段戻さない');
     const a21 = BT.locate(l.page().blocks, 'a21');
-    assert.deepStrictEqual([a21.b.type, a21.b.text, a21.depth], ['todo', 'a21の文', 1]);
+    assert.deepStrictEqual([a21.b.type, a21.b.text, a21.depth], ['paragraph', 'a21の文', 1]);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

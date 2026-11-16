@@ -153,17 +153,17 @@ test('NE-1・TQ4: isOpenStored は open の無いトグルを開いた形にす�
 });
 
 // ---------------------------------------------------------------- 結合と変換の子（EQ6 (a)・EQ16 (a)・NR10）
-test('NE-1・EQ6 (a): mergeKids は結合した行の子をつないだ先の子の末尾へ。つないだ先がトグルでない見出しなら後ろの兄弟へ', () => {
+// 0.17.0 NX-2（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 80・81・計画の違いの行 X-17〜X-19。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 前は mergeKids（結合した行の子をつないだ先の子の末尾へ）。
+// 0.17.0 からは liftOut（消える行の子は、その行のあった所に1段上がって並ぶ。つないだ先の型は見ない）。意図「結合しても子は消えない・順は変わらない」は残す
+test('NE-1・EQ6 (a)（0.17.0 NX-2 で意図して変えた）: liftOut は結合で消える行の子を、その行のあった所に元の順で並べる（つないだ先の子にならない）', () => {
   let b = tree([['a', 'bullet', {}, [['a1']]], ['x', 'paragraph', {}, [['x1'], ['x2']]]]);
-  let kids = b[1].children; b.splice(1, 1);
-  BT.mergeKids(BT.locate(b, 'a1'), kids);
-  assert.deepStrictEqual(shape(b), [['a', [['a1', ['x1', 'x2']]]]]);
+  BT.liftOut(b, 1);
+  assert.deepStrictEqual(shape(b), [['a', ['a1']], 'x1', 'x2']);
   b = tree([['h', 'heading', { level: 2 }], ['y'], ['x', 'paragraph', {}, [['x1'], ['x2']]]]);
-  kids = b[2].children; b.splice(2, 1);
-  BT.mergeKids(BT.locate(b, 'h'), kids);
-  assert.deepStrictEqual(shape(b), ['h', 'x1', 'x2', 'y']);
-  b = tree([['p']]);
-  BT.mergeKids(BT.locate(b, 'p'), []);
+  BT.liftOut(b, 2);
+  assert.deepStrictEqual(shape(b), ['h', 'y', 'x1', 'x2']);
+  b = tree([['p'], ['q']]);
+  BT.liftOut(b, 1);
   assert.deepStrictEqual(shape(b), ['p']);
 });
 

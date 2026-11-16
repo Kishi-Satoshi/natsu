@@ -246,12 +246,13 @@ test('NE-2・TQ1: merge の intoId は画面で上に見えている行（つな
   assert.deepStrictEqual([r.result.blockId, r.result.at], ['a3', 'a3の文'.length]);
   const p = get(db);
   assert.strictEqual(find(p, 'a3').b.text, 'a3の文下の行');
-  assert.deepStrictEqual(shape(p.blocks), ['h1', ['a', ['a1', ['a2', ['a21']], ['a3', ['x1', 'x2']]]], 'p'], '子がつないだ先の子の末尾に入らない（EQ6 (a)）');
+  // 0.17.0 NX-2（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 80・81・計画の違いの行 X-17〜X-19。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 子は、つないだ先の子の末尾でなく、消えた行の所に1段上がって並ぶ（liftOut）
+  assert.deepStrictEqual(shape(p.blocks), ['h1', ['a', ['a1', ['a2', ['a21']], 'a3']], 'x1', 'x2', 'p'], '子が消えた行の所に並ばない（決めたこと 81）');
   assert.strictEqual(find(p, 'x'), null);
-  // つないだ先が子を持てない見出しなら、子は見出しのすぐ後ろの兄弟
+  // つないだ先が子を持てない見出しでも同じ（消えた行の所に並ぶ）
   const h = call(db, 'block.merge', { pageId: 'pa1', blockId: 'a', text: '親の行の要点を書いた長めの文です', intoId: 'h1' });
   assert.strictEqual(h.ok, true, h.code);
-  assert.deepStrictEqual(shape(get(db).blocks).slice(0, 4), ['h1', 'a1', ['a2', ['a21']], ['a3', ['x1', 'x2']]]);
+  assert.deepStrictEqual(shape(get(db).blocks).slice(0, 4), ['h1', 'a1', ['a2', ['a21']], 'a3']);
   // intoId が無ければ平らにした保存の順の前の行（p の前は x2）
   const f = call(db, 'block.merge', { pageId: 'pa1', blockId: 'p', text: '本文' });
   assert.strictEqual(f.ok, true, f.code);

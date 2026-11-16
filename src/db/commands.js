@@ -3470,9 +3470,7 @@ const DEFS = {
         const tail = Array.isArray(b.rich) && RT.plainOf(b.rich) === a.text ? b.rich : [{ t: a.text }];   // 今の行の飾りを捨てない（0.14.0 EB-2）
         if (Array.isArray(prev.rich) || Array.isArray(b.rich)) putRich(prev, blockEdit.joinRich(Array.isArray(prev.rich) ? prev.rich : [{ t: String(prev.text || '') }], tail));
         if (a.text) retext(prev, String(prev.text || '') + a.text);
-        const kids = Array.isArray(b.children) ? b.children : [];
-        l.list.splice(l.index, 1);
-        BT.mergeKids(BT.locate(p.blocks, prev.id), kids);
+        BT.liftOut(l.list, l.index);   // 0.17.0 NX-2（決めたこと 81）: 子は消えた行の所に1段上がって並ぶ
         res = { blockId: prev.id, at };
         return true;
       }, { summary: true });

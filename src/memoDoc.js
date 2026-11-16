@@ -376,9 +376,7 @@ const CMDS = Object.freeze(Object.assign(Object.create(null), {
       const tail = Array.isArray(b.rich) && RT.plainOf(b.rich) === a.text ? b.rich : [{ t: a.text }];
       if (Array.isArray(prev.rich) || Array.isArray(b.rich)) putRich(prev, blockEdit.joinRich(Array.isArray(prev.rich) ? prev.rich : [{ t: String(prev.text || '') }], tail));
       if (a.text) prev.text = String(prev.text || '') + a.text;
-      const kids = Array.isArray(b.children) ? b.children : [];
-      l.list.splice(l.index, 1);
-      BT.mergeKids(BT.locate(d, prev.id), kids);
+      BT.liftOut(l.list, l.index);   // 0.17.0 NX-2（決めたこと 81）: 子は消えた行の所に1段上がって並ぶ
       return { blockId: prev.id, at };
     } },
   'block.turnInto': { args: { blockId: 'id', type: 'blockType', level: 'level?', toggle: 'bool?' },
