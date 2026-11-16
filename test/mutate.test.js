@@ -245,6 +245,10 @@ const GONE_LS3 = ['lib-estimate-tokens', 'lib-fold-notes'];
 // 0.13.0 ED-6（計画 docs/plans/2026-10-24-130.md の「意図して変えるテスト」。計画は Task G で外すとしたが、ED-6 で直しの行そのものが無くなるので
 // 同じ commit で外した: Ruling R27）: 0.11.0 の v-drag-index（落とした所を画面の番号で送る）。落とした所は afterId で送り、ed-drop-index が同じ失敗を見る
 const GONE_130 = ['v-drag-index'];
+// 0.17.0 第4部（計画 docs/plans/2026-11-13-170.md の「前の答えを替えたので外す前の版の変異（GONE_170）」）: 持ち主の NQ1「編集と表のキーを直す（おすすめ）」で
+// 前の版の答え（0.13.0 EQ5 (a)・EQ6 (a)・EQ16 (a)、0.13.1 EQ6）を替えたので、前の形を守る変異を一覧から外した（守っていた所は nx- の行が引き継ぐ）。
+// 前の版の IDS（IDS_130・IDS_131）と前の版の計画の表は書き換えず、照らしが飛ばす（GONE_130 と同じ形）。NX の各タスクで外すたびに足す
+const GONE_170 = ['ed-enter-type'];
 test('G3: 0.10.0 LS-1・LS-2 で外した変異（オフラインモードの会議の要約を手元へ回す・手元の llama の要約の道）は一覧に無い', { timeout: 5000 }, () => {
   const ids = new Set(MUTANTS.map((m) => m.id));
   assert.deepStrictEqual([...GONE_LS1, ...GONE_LS2, ...GONE_LS3, ...GONE_130].filter((id) => ids.has(id)), []);
@@ -1099,7 +1103,7 @@ const IDS_130 = [
 ];
 test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも計画の「変異確認」の表にある。ed-・rdy-・clk- の変異は IDS_130 にある。どれも決まったテストのファイルを持ち、why が 0.13.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
-  assert.deepStrictEqual(IDS_130.filter((id) => !byId.has(id)), [], 'IDS_130 の変異が一覧に無い');
+  assert.deepStrictEqual(IDS_130.filter((id) => !byId.has(id) && !GONE_170.includes(id)), [], 'IDS_130 の変異が一覧に無い');   // 0.17.0 NX-1 で意図して変えた: GONE_170 は飛ばす
   assert.strictEqual(new Set(IDS_130).size, IDS_130.length, 'IDS_130 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^(ed|rdy|clk)-/.test(m.id) && !IDS_130.includes(m.id)).map((m) => m.id), [], 'IDS_130 に無い ed-・rdy-・clk- の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-24-130.md'), 'utf8');
@@ -1110,7 +1114,7 @@ test('G3・0.13.0: 0.13.0 の変異が一覧にそろい、IDS_130 はどれも�
   assert.strictEqual(rows.length, 92, '計画の 0.13.0 の表（ed- 61・rdy- 25・clk- 6）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_130.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
-  for (const id of IDS_130) {
+  for (const id of IDS_130.filter((x) => !GONE_170.includes(x))) {   // 0.17.0 NX-1 で意図して変えた: GONE_170 は飛ばす
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.0 '), `${id}: why`);
@@ -1179,7 +1183,7 @@ const IDS_131 = [
 ];
 test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも計画の「変異確認」の表にある。edn- の変異は IDS_131 にある。どれも決まったテストのファイルを持ち、why が 0.13.1 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
-  assert.deepStrictEqual(IDS_131.filter((id) => !byId.has(id)), [], 'IDS_131 の変異が一覧に無い');
+  assert.deepStrictEqual(IDS_131.filter((id) => !byId.has(id) && !GONE_170.includes(id)), [], 'IDS_131 の変異が一覧に無い');   // 0.17.0 NX で意図して変えた: GONE_170 は飛ばす
   assert.strictEqual(new Set(IDS_131).size, IDS_131.length, 'IDS_131 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => /^edn-/.test(m.id) && !IDS_131.includes(m.id)).map((m) => m.id), [], 'IDS_131 に無い edn- の変異がある');
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-10-27-131.md'), 'utf8');
@@ -1190,7 +1194,7 @@ test('G3・0.13.1: 0.13.1 の変異が一覧にそろい、IDS_131 はどれも�
   assert.strictEqual(rows.length, 48, '計画の 0.13.1 の表（edn- 48）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_131.filter((id) => !rows.includes(id)), [], '計画の「変異確認」の表に無い変異');
-  for (const id of IDS_131) {
+  for (const id of IDS_131.filter((x) => !GONE_170.includes(x))) {   // 0.17.0 NX で意図して変えた: GONE_170 は飛ばす
     const m = byId.get(id);
     assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.13.1 '), `${id}: why`);
@@ -1654,6 +1658,19 @@ test('G3・0.15.1: GONE_151 の変異は一覧にも、どの版の IDS にも�
   assert.deepStrictEqual([...inTable].sort(), [...GONE_151].sort(), 'GONE_151 が計画の「前の版の変異の片付け」の表とちょうど同じでない');
   assert.strictEqual(GONE_151.length, 70);
 });
+test('G3・0.17.0 第4部: GONE_170 の変異は一覧に無く、どれも計画の「前の答えを替えたので外す前の版の変異（GONE_170）」の段にあり、前の版の IDS（IDS_130・IDS_131）にある', { timeout: 5000 }, () => {
+  const ids = new Set(MUTANTS.map((m) => m.id));
+  assert.deepStrictEqual(GONE_170.filter((id) => ids.has(id)), [], '外した変異が一覧に残っている');
+  assert.strictEqual(new Set(GONE_170).size, GONE_170.length, 'GONE_170 に重なり');
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-13-170.md'), 'utf8');
+  const at = plan.indexOf('**前の答えを替えたので外す前の版の変異（`GONE_170`）:**');
+  assert.ok(at > 0, '計画に GONE_170 の段が無い');
+  const para = plan.slice(at, plan.indexOf('\n', at));
+  for (const id of GONE_170) {
+    assert.ok(para.includes(`\`${id}\``), `${id} が計画の GONE_170 の段に無い`);
+    assert.ok(IDS_130.includes(id) || IDS_131.includes(id), `${id} が前の版の IDS に無い`);
+  }
+});
 // 0.17.0（計画 docs/plans/2026-11-13-170.md の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc- の表）: アイコンの表と照らし（ig-）・アイコンの画面（iv-）・
 // ページをデータベースにする（pd-）・サイドバーのビューの行（sw-）・議事録をデータベースに（mg-）・タスク（tk-）・行のテンプレート（rt-）・データベースのロック（lc-）。
 // タスクを作るたびに、作ったタスクの行を表の行の順で足す（R1: 作っている間は「表の行の順に並んだ一部」。全部がそろったら表とちょうど同じかを見る）。Task G の前半で表の全部とちょうど同じにそろえた（R83）
@@ -1715,6 +1732,8 @@ const IDS_170 = [
   'tk-open-remake', 'tk-open-db-live', 'tk-open-acts',
   // 0.17.0 R81 で手順を確かめたときに出た問い（2026-11-15 の持ち主の答え。問い 5 の 1・M20・R85）で足した行
   'mg-ui-ref-minutes',
+  // 0.17.0 Task NX-1（第4部。表の行の順に）
+  'nx-enter-heading', 'nx-enter-copy', 'nx-enter-callout',
   // 0.17.0 Task NB-6（第5部。計画の「第4部・第5部の変異」の nb- の表の行の順に）。第4部の nx- は表で nb- より前なので、NX の各タスクでこの前に足す
   'nb-q-answer', 'nb-q-unchecked', 'nb-count-q', 'nb-count-total', 'nb-source-ob', 'nb-x-row', 'nb-ob-item', 'nb-k25-source', 'nb-source-ob2', 'nb-ob2-item', 'nb-x-new',
 ];

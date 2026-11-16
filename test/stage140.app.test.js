@@ -1997,7 +1997,8 @@ test('EK-3・BQ31・BQ32（2026-10-30 の持ち主の答え）: 開いたトグ�
     await l.drain();
     const a2 = pastes(l)[2];
     assert.deepStrictEqual([a2[1], a2[3], a2.length], ['hd', 3, 5], '子の無い見出しで afterId か inside を送った');
-    assert.deepStrictEqual(l.page().blocks.slice(2, 6).map((b) => `${b.type}:${b.text}`), ['heading:見出し', 'paragraph:上一', 'paragraph:上二', 'bullet:の文']);
+    // 0.17.0 NX-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 78・notion-behavior の X-16。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 見出しの後ろの文はテキスト（BQ32 の「Enter と同じ」のまま。前は箇条書き）
+    assert.deepStrictEqual(l.page().blocks.slice(2, 6).map((b) => `${b.type}:${b.text}`), ['heading:見出し', 'paragraph:上一', 'paragraph:上二', 'paragraph:の文']);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

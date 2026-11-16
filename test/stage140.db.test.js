@@ -898,7 +898,8 @@ test('EK-2・BQ31（2026-10-30 の持ち主の答え）: 子の見えている�
 test('EK-2・BQ32（2026-10-30 の持ち主の答え）: 文の途中で貼った後ろの文の行の型は Enter と同じ（nextTypeOnEnter: 見出し → 箇条書き・引用とコールアウト → テキスト・閉じたトグル → トグル・ToDo は済んでいない ToDo）', T, () => withDb((db) => {
   // [型, 段, トグル, チェック]
   const want = {
-    h: ['bullet'], q: ['paragraph'], co: ['paragraph'], tc: ['toggle'], th: ['heading', 3, true], td: ['todo', undefined, undefined, false], n: ['numbered'], p: ['paragraph'], bu: ['bullet'],
+    h: ['paragraph'], q: ['paragraph'],   // 0.17.0 NX-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 78・notion-behavior の X-16。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた（BQ32 の「Enter と同じにする」は残る: 前は見出し → 箇条書き）
+    co: ['paragraph'], tc: ['toggle'], th: ['heading', 3, true], td: ['todo', undefined, undefined, false], n: ['numbered'], p: ['paragraph'], bu: ['bullet'],
   };
   for (const [id, w] of Object.entries(want)) {
     const r = paste(db, { blockId: id, rich: [run1(`${id}の行の文です`)], at: id.length + 1, blocks: [P('paragraph', `${id}に貼った`)] });

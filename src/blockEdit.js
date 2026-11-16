@@ -151,7 +151,7 @@ function recentCheck(v) {
 
 // ---------------------------------------------------------------- Enter と Backspace（EQ5 (a)・EQ6 (a)）
 const LIST_KEYS = ['bullet', 'todo', 'numbered'];
-// Enter で分けた後ろの行の型 → { type, level?, toggle? }。空のリストの Enter は 'revert'（テキストに戻す）。
+// Enter で分けた後ろの行の型 → { type, level?, toggle? }。空のリストの Enter は 'revert'（テキストに戻す）。0.17.0 NX-1: トグルでない見出しの後はテキスト（X-16）。
 // 0.13.1: 字下げされた空のリストは 'outdent'（EQ5 (a)。先に1段戻す）。トグルは open（見えている開け閉め）で決める（TQ3: 開いていれば
 // 最初の子のテキスト、閉じていれば子の後ろの兄弟で同じ型。トグル見出しは同じ段のトグル見出し: 計画の Ruling NR25）
 function nextTypeOnEnter(block, { empty = false, depth = 0, open = true } = {}) {
@@ -162,8 +162,7 @@ function nextTypeOnEnter(block, { empty = false, depth = 0, open = true } = {}) 
     if (open) return { type: 'paragraph' };
     return r.key === 'toggle' ? { type: 'toggle' } : { type: 'heading', level: r.level, toggle: true };
   }
-  if (r.key === 'heading') return { type: 'bullet' };
-  return { type: 'paragraph' };
+  return { type: 'paragraph' };   // 0.17.0 NX-1（決めたこと 78・計画の違いの行 X-16）: 見出し・引用・コールアウト・テキストの後はテキスト
 }
 // 行頭の Backspace → 'revert'（型の付いた行はテキストに戻す）・'merge'（テキストの行は前とつなぐ）・'outdent'（0.13.1 の字下げ）
 function backspaceAtStart(block, { depth = 0 } = {}) {

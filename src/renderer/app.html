@@ -9788,7 +9788,6 @@
           if (open) return { type: 'paragraph' };
           return key === 'toggle' ? { type: 'toggle' } : { type: 'heading', level: headingLevel(b), toggle: true };
         }
-        if (key === 'heading') return { type: 'bullet' };
         return { type: 'paragraph' };
       },
       splitRich(rich, at) {
@@ -14742,7 +14741,8 @@
     if (top && rowDepth(el) > 0) { const l = locate(blocksOfKey(pid), b.id); afterId = l && l.index > 0 ? l.list[l.index - 1].id : ''; }
     else if (top) { for (let j = i - 1; j >= 0; j--) if (rowDepth(rows[j]) === 0) { afterId = rows[j].dataset.id; break; } }
     // 0.13.1 TQ3（持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）: 子が見えている行では、新しい行は最初の子
-    const inside = !top && kidsShown(b);
+    // 0.17.0 NX-1（決めたこと 78・計画の違いの行 X-31・B-24）: コールアウトの Enter は、子が無くても最初の子（文の途中も・子のあるときも）
+    const inside = !top && (kidsShown(b) || b.type === 'callout');
     const args = top ? [pid, b.id, text, at, afterId] : inside ? [pid, b.id, text, at, undefined, true] : [pid, b.id, text, at];
     if (marked) { while (args.length < 6) args.push(undefined); args.push(rich); }
     const out = await editAnswer(pid, () => rowApi(pid).blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));

@@ -144,8 +144,9 @@ test('ED-1・F52: recentAdd・recentCheck の表（新しい順・3つまで・�
 // ---------------------------------------------------------------- Enter と Backspace（EQ5 (a)・EQ6 (a)）
 test('ED-1: nextTypeOnEnter・backspaceAtStart の表', () => {
   const N = (b, empty) => E.nextTypeOnEnter(b, { empty });
-  assert.deepStrictEqual(N({ type: 'heading', level: 1 }), { type: 'bullet' });
-  assert.deepStrictEqual(N({ type: 'heading' }), { type: 'bullet' });
+  // 0.17.0 NX-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 78・notion-behavior の X-16。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 見出しの後は箇条書きでなくテキスト（意図「リストは同じ型・空のリストはテキストへ」は下に残る）
+  assert.deepStrictEqual(N({ type: 'heading', level: 1 }), { type: 'paragraph' });
+  assert.deepStrictEqual(N({ type: 'heading' }), { type: 'paragraph' });
   for (const t of ['bullet', 'todo', 'numbered']) {
     assert.deepStrictEqual(N({ type: t }), { type: t }, t);
     assert.strictEqual(N({ type: t }, true), 'revert', `空の ${t}`);

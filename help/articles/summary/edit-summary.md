@@ -1,7 +1,7 @@
 ---
 title: 要約を書き直す
 description: 要約とメモの行を1行ずつ書き直す。/ のメニュー・行頭の記法・文字の飾りとリンクと色・貼り付け・行を選ぶ・元に戻す・＋ と ⠿・入れ子とトグル・近道と、作り直すと戻ること
-updated: 2026-11-15
+updated: 2026-11-16
 sources: src/renderer/app.html, src/blockEdit.js, src/blockTree.js, src/richText.js, src/pasteConvert.js, src/undoBook.js, src/memoDoc.js, src/shortcuts.js, src/db/commands.js, src/winstate.js, src/preload.js
 related: summary/how-summaries, summary/citations, settings/hotkeys
 ---
@@ -11,7 +11,7 @@ related: summary/how-summaries, summary/citations, settings/hotkeys
 
 ## 行を分ける・つなぐ {#rows}
 
-- **[[Enter]]:** カーソルの所で行を2つに分けます。後ろの行は同じ型です（見出しの後は箇条書き、引用とコールアウトの後はテキスト）。空の箇条書き・ToDo・番号付きで押すと、テキストの行に戻ります。
+- **[[Enter]]:** カーソルの所で行を2つに分けます。後ろの行は同じ型です（見出しと引用の後はテキスト）。コールアウトの中で押すと、コールアウトの中にテキストの行ができます。空の箇条書き・ToDo・番号付きで押すと、テキストの行に戻ります。
 - **[[Shift+Enter]]:** 行を分けずに、行の中で改行します。
 - **行の頭で [[Backspace]]:** 見出し・箇条書きなど型の付いた行は、まずテキストの行に戻します。テキストの行は、すぐ上の行の終わりにつなぎます。
 - **行の頭で [[↑]]・行の終わりで [[↓]]:** 上・下の行へ移ります。

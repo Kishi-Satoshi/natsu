@@ -41,9 +41,10 @@ test('ED-2・F40: block.split は送られた text で分け、前を今の行�
   const by = (id) => r.result.page.blocks.find((b) => b.id === id);
   assert.deepStrictEqual([by('b2').text, by(nb).text], ['画面で打った', '途中の文です']);
   assert.strictEqual(by(nb).type, 'bullet');
-  // 見出しの後ろは箇条書き（EQ5 (a)）・ToDo の後ろは ToDo（担当・期限を持たない）
+  // 見出しの後ろはテキスト・ToDo の後ろは ToDo（担当・期限を持たない）
+  // 0.17.0 NX-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 78・notion-behavior の X-16。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 前は見出しの後ろが箇条書き（EQ5 (a)）
   const h = call(db, 'block.split', { pageId: 'pa1', blockId: 'b1', text: '決めたこと', at: 5 });
-  assert.strictEqual(h.result.page.blocks.find((b) => b.id === h.result.blockId).type, 'bullet');
+  assert.strictEqual(h.result.page.blocks.find((b) => b.id === h.result.blockId).type, 'paragraph');
   const td = call(db, 'block.split', { pageId: 'pa1', blockId: 'b4', text: '見積書を月末までに先方へ送る', at: 3 });
   const tn = td.result.page.blocks.find((b) => b.id === td.result.blockId);
   assert.deepStrictEqual([tn.type, tn.text, tn.assignee, tn.due, tn.dueRaw, tn.checked], ['todo', 'を月末までに先方へ送る', undefined, undefined, undefined, false]);
@@ -102,10 +103,11 @@ test('ED-2・点検1: 文のある行の頭（at 0）で block.split → 上に�
   assert.strictEqual(ids.indexOf(nb.id), ids.indexOf('b4') - 1, '足した行が今の行の上に無い');
   assert.deepStrictEqual([nb.type, nb.text, nb.checked, nb.citeState, nb.cites, nb.assignee], ['todo', '', false, 'manual', [], undefined]);
   assert.deepStrictEqual(keep(r.result.page.blocks.find((b) => b.id === 'b4')), keep(was));
-  // 見出しの頭: 上に足す行は EQ5 (a) の型（箇条書き）。見出しはそのまま
+  // 見出しの頭: 上に足す行はテキスト（R37 の形のまま、型は Enter と同じ）。見出しはそのまま
+  // 0.17.0 NX-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 78・notion-behavior の X-16。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 前は上の行が箇条書き（EQ5 (a)・R37）。意図「上に空の行を足し、見出しはそのまま」は残す
   const h = call(db, 'block.split', { pageId: 'pa1', blockId: 'b1', text: '決めたこと', at: 0 });
   const hb = h.result.page.blocks;
-  assert.deepStrictEqual([hb[0].id === h.result.blockId, hb[0].type, hb[0].text], [true, 'bullet', '']);
+  assert.deepStrictEqual([hb[0].id === h.result.blockId, hb[0].type, hb[0].text], [true, 'paragraph', '']);
   assert.deepStrictEqual([hb[1].id, hb[1].type, hb[1].text, hb[1].citeState], ['b1', 'heading', '決めたこと', undefined]);
   // 空の行の at 0 は今どおり、下に足す
   const e = call(db, 'block.split', { pageId: 'pa1', blockId: h.result.blockId, text: '', at: 0 });

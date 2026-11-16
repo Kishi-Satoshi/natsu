@@ -276,7 +276,8 @@ test('NE-1・EQ5 (a): nextTypeOnEnter は字下げされた空の箇条書き・
   assert.deepStrictEqual(N({ type: 'toggle' }, { open: false }), { type: 'toggle' }, '閉じたトグルの後はトグル');
   assert.deepStrictEqual(N({ type: 'heading', toggle: true, level: 1 }, { open: true }), { type: 'paragraph' });
   assert.deepStrictEqual(N({ type: 'heading', toggle: true, level: 3 }, { open: false }), { type: 'heading', level: 3, toggle: true }, '閉じたトグル見出しの後は同じ段のトグル見出し（NR25）');
-  assert.deepStrictEqual(N({ type: 'heading', level: 1 }, { open: false }), { type: 'bullet' }, '見出しは EQ5 (a) のまま');
+  // 0.17.0 NX-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 78・notion-behavior の X-16。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: トグルでない見出しの後はテキスト（開け閉めにかかわらず）
+  assert.deepStrictEqual(N({ type: 'heading', level: 1 }, { open: false }), { type: 'paragraph' }, '見出しの後はテキスト（X-16）');
   assert.deepStrictEqual(N({ type: 'bullet' }, { open: true }), { type: 'bullet' }, '子の見える箇条書きの最初の子は箇条書き');
 });
 
