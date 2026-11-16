@@ -933,3 +933,76 @@ test('RT-1・F202: 既定（データベースの既定・ビューごとの既�
   assert.strictEqual(def('v1'), A, 'Ctrl+Z で既定が戻らない');
   assert.ok(s2.tx);
 }));
+
+// ---------------------------------------------------------------- NX-7（第4部・第6版。決めたこと 95・F216・計画の R66・notion-behavior の N-30）
+// ロックしたデータベースを入れた親のページは、今どおり確かめなしで一緒にゴミ箱へ入り、一緒に戻る（2026-11-16 の Notion の画面と同じ）。コードは変えない
+const trashedOf = (db, id) => (db.prepare('select trashed_at from blocks where id = ?').get(id) || {}).trashed_at;
+const oplogCount = (db) => db.prepare('select count(*) as c from oplog').get().c;
+// データベースの行は、データベースと一緒にゴミ箱の中にある（行そのものの印は付けず、データベースの中に残る: 0.16.0 のゴミ箱の形のまま）
+const rowsKept = (db, D, rows) => { for (const r of rows) assert.deepStrictEqual([db.prepare('select parent_id from blocks where id = ?').get(r).parent_id, trashedOf(db, r)], [D, null], `行 ${r} がデータベースの中に無い`); };
+const snap = (db) => JSON.stringify(db.prepare('select id, parent_id, ord, attrs, trashed_at from blocks order by id').all());
+function lockedDbIn(db, parentId) {
+  const D = ok(call(db, 'db.create', { parentId }), 'db.create').result.id;
+  ok(call(db, 'db.setTitle', { db: D, title: '名簿' }), 'db.setTitle');   // データベースの題名（D77 の外）
+  const rows = ['一行目', '二行目'].map((t) => ok(call(db, 'row.add', { db: D, title: t }), 'row.add').result.id);   // 行の題名（D77 の外）
+  ok(call(db, 'db.setLock', { db: D, on: true }), 'db.setLock');
+  return { D, rows };
+}
+test('NX-7・F216: ロックしたデータベースを中に持つ白紙のページの page.delete は断られず、親・データベース・行が oplog の1行で一緒にゴミ箱へ（ロック中のまま）。page.restore で一緒に戻る。途中のデータベースそのものの page.delete は bad-args で何も変えない', T, () => withDb((db) => {
+  const P = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  const { D, rows } = lockedDbIn(db, P);
+  // 途中に断られるはずの頼みを混ぜる（記録した試作の読み）
+  const before = snap(db); const n0 = oplogCount(db);
+  const no = call(db, 'page.delete', { id: D });
+  assert.deepStrictEqual([no.ok, no.code], [false, 'bad-args'], 'ロックしたデータベースそのものを消せた（lc-delete）');
+  assert.strictEqual(snap(db), before, '断った後に何か変わった');
+  assert.strictEqual(oplogCount(db), n0, '断った命令が oplog に残った');
+  const r = ok(call(db, 'page.delete', { id: P }), '親のページの page.delete');
+  assert.strictEqual(oplogCount(db), n0 + 1, '親を消す命令が oplog の1行でない');
+  for (const id of [P, D]) assert.ok(trashedOf(db, id), `${id} がゴミ箱に入らない`);
+  rowsKept(db, D, rows);
+  assert.strictEqual(attrsOf(db, D).locked, true, 'ゴミ箱の中でロックが外れた');
+  ok(call(db, 'page.restore', { id: P }), 'page.restore');
+  for (const id of [P, D]) assert.strictEqual(trashedOf(db, id), null, `${id} が親と一緒に戻らない`);
+  rowsKept(db, D, rows);
+  assert.strictEqual(attrsOf(db, D).locked, true, '戻したときにロックが外れた');
+  const U = require('../src/undoBook');
+  assert.strictEqual(U.UNDO_CMDS.has('page.delete'), false, 'page.delete が Ctrl+Z の歩みに入った（今どおりゴミ箱の［戻す］で戻す）');
+  assert.ok(r.ok);
+}));
+
+test('NX-7・F216: 本文の子ページの行ごと（block.remove・blocks.remove）でも、ロックしたデータベースを入れた子ページは一緒にゴミ箱へ入り、戻すと一緒に戻る', T, () => withDb((db) => {
+  for (const cmd of ['block.remove', 'blocks.remove']) {
+    const P = ok(call(db, 'page.create', {}), 'page.create').result.id;
+    const C = ok(call(db, 'page.create', { parentId: P }), 'page.create（子）').result.id;
+    const { D, rows } = lockedDbIn(db, C);
+    const sub = ok(call(db, 'page.get', { id: P }), 'page.get').result.page.blocks.find((b) => b.type === 'subpage' && b.page === C);
+    assert.ok(sub, '前提: 親の本文に子ページの行が無い');
+    const n0 = oplogCount(db);
+    ok(call(db, cmd, cmd === 'block.remove' ? { pageId: P, blockId: sub.id } : { pageId: P, ids: [sub.id] }), cmd);
+    assert.strictEqual(oplogCount(db), n0 + 1, `${cmd} が oplog の1行でない`);
+    for (const id of [C, D]) assert.ok(trashedOf(db, id), `${cmd}: ${id} がゴミ箱に入らない`);
+  rowsKept(db, D, rows);
+    assert.strictEqual(attrsOf(db, D).locked, true);
+    ok(call(db, 'page.restore', { id: C }), 'page.restore');
+    for (const id of [C, D]) assert.strictEqual(trashedOf(db, id), null, `${cmd}: ${id} が一緒に戻らない`);
+  rowsKept(db, D, rows);
+    assert.strictEqual(attrsOf(db, D).locked, true);
+  }
+}));
+
+test('NX-7・F216: 「議事録」の行ごと（rows.trash）でも、ロックしたデータベースを入れた議事録のページは一緒にゴミ箱へ入り、戻すと一緒に戻る', T, () => withDb((db) => {
+  const M = minutesDb(db);
+  const a = meeting(db, 'pm1'); under(db, a, M);
+  const { D, rows } = lockedDbIn(db, a);
+  const n0 = oplogCount(db);
+  ok(call(db, 'rows.trash', { db: M, ids: [a] }), 'rows.trash');
+  assert.strictEqual(oplogCount(db), n0 + 1, 'rows.trash が oplog の1行でない');
+  for (const id of [a, D]) assert.ok(trashedOf(db, id), `${id} がゴミ箱に入らない`);
+  rowsKept(db, D, rows);
+  assert.strictEqual(attrsOf(db, D).locked, true);
+  ok(call(db, 'page.restore', { id: a }), 'page.restore');
+  for (const id of [a, D]) assert.strictEqual(trashedOf(db, id), null, `${id} が一緒に戻らない`);
+  rowsKept(db, D, rows);
+  assert.strictEqual(attrsOf(db, D).locked, true);
+}));

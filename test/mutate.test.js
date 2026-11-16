@@ -1738,13 +1738,13 @@ const IDS_170 = [
   'nx-turn-divider-many', 'nx-toggle-kids-stay', 'nx-heading-kids-out', 'nx-toggle-copy', 'nx-esc-save', 'nx-esc-bad-num', 'nx-esc-once', 'nx-rp-esc-save',
   'nx-esc-row', 'nx-esc-row-focus', 'nx-esc-clear', 'nx-tab-edit-next', 'nx-tab-edit-prev', 'nx-tab-edit-save', 'nx-shortcut-esc', 'nx-help-enter',
   'nx-help-ctrla', 'nx-bs-heading-last', 'nx-bs-untoggle', 'nx-bs-callout', 'nx-bs-callout-kid', 'nx-enter-callout', 'nx-ctrla-empty', 'nx-click-clear',
-  'nx-date-esc', 'nx-help-bs',
+  'nx-date-esc', 'nx-help-bs', 'nx-r66-parent-trash',
   // 0.17.0 Task NB-6（第5部。計画の「第4部・第5部の変異」の nb- の表の行の順に）。第4部の nx- は表で nb- より前なので、NX の各タスクでこの前に足す
   'nb-q-answer', 'nb-q-unchecked', 'nb-count-q', 'nb-count-total', 'nb-source-ob', 'nb-x-row', 'nb-ob-item', 'nb-k25-source', 'nb-source-ob2', 'nb-ob2-item', 'nb-x-new',
 ];
 // 0.17.0 Task NB-6（計画の「第4部・第5部の変異」: 頭 nx-・nb- を足す）で意図して直した: 第4部・第5部の頭を 0.17.0 の頭に足した
 const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc|nx|nb)-/;
-const PREFIX_170_LATE = /^(nx|nb)-/;   // 第4部・第5部（第5版・第6版で足した頭。作っている間は表の行の順に並んだ一部: R89）
+const PREFIX_170_LATE = /^(nx|nb)-/;   // 第4部・第5部（第5版・第6版で足した頭: R89）
 function planRows170() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-13-170.md'), 'utf8');
   const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
@@ -1769,9 +1769,10 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');
   // 0.17.0 Task G の前半（R83）で意図して直した: 前は作ったタスクの行だけの「表の行の順に並んだ一部」を見ていた（R1）。点検 3 の後の問い 4（R82）までで
   // 表の 202 行が全部そろったので、表の全部とちょうど同じかを見る（0.15.0 の R78・0.16.0 の R127 と同じ）
-  // 0.17.0 Task NB-6（R89）で意図して直した: 第4部・第5部（nx-・nb-）は作っている間「表の行の順に並んだ一部」（R2 と同じ）で、第1部〜第3部の行は今どおり全部ある。
-  // 全部がそろう NX-7 で、また表の全部とちょうど同じかを見る形に戻す
-  assert.deepStrictEqual(IDS_170.filter((id) => !PREFIX_170_LATE.test(id)), rows.filter((id) => !PREFIX_170_LATE.test(id)), 'IDS_170 が計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc- の行とちょうど同じでない');
+  // 0.17.0 Task NB-6（R89）で、第4部・第5部を作っている間は「表の行の順に並んだ一部」にしていた。NX-7 で nx- 43・nb- 11 が全部そろったので、
+  // 表の全部（257 行）とちょうど同じかを見る形に戻した（R89・R96）
+  assert.deepStrictEqual(IDS_170, rows, 'IDS_170 が計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc-・nx-・nb- の行とちょうど同じでない');
+  assert.strictEqual(IDS_170.length, 257);
   // 前の版の頭の照らしに当たらない・前の版の IDS に 0.17.0 の頭が無い
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/, /^(nd|ps|lb|gv)-/, /^(mt|qm|v|v5)-/, /^i-/, /^rv-/]) {
     assert.deepStrictEqual(IDS_170.filter((id) => re.test(id)), [], `${re} に当たる 0.17.0 の id`);
