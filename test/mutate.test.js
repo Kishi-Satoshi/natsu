@@ -1715,14 +1715,18 @@ const IDS_170 = [
   'tk-open-remake', 'tk-open-db-live', 'tk-open-acts',
   // 0.17.0 R81 で手順を確かめたときに出た問い（2026-11-15 の持ち主の答え。問い 5 の 1・M20・R85）で足した行
   'mg-ui-ref-minutes',
+  // 0.17.0 Task NB-6（第5部。計画の「第4部・第5部の変異」の nb- の表の行の順に）。第4部の nx- は表で nb- より前なので、NX の各タスクでこの前に足す
+  'nb-q-answer', 'nb-q-unchecked', 'nb-count-q', 'nb-count-total', 'nb-source-ob', 'nb-x-row', 'nb-ob-item', 'nb-k25-source', 'nb-source-ob2', 'nb-ob2-item', 'nb-x-new',
 ];
-const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc)-/;
+// 0.17.0 Task NB-6（計画の「第4部・第5部の変異」: 頭 nx-・nb- を足す）で意図して直した: 第4部・第5部の頭を 0.17.0 の頭に足した
+const PREFIX_170 = /^(ig|iv|pd|sw|mg|tk|rt|lc|nx|nb)-/;
+const PREFIX_170_LATE = /^(nx|nb)-/;   // 第4部・第5部（第5版・第6版で足した頭。作っている間は表の行の順に並んだ一部: R89）
 function planRows170() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-13-170.md'), 'utf8');
   const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
   assert.ok(at > 0, '計画の「変異の表」の節が無い');
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
-  return [...table.matchAll(/^\| ((?:ig|iv|pd|sw|mg|tk|rt|lc)-[A-Za-z0-9-]*) \|/gm)].map((m) => m[1]);   // ig-setIcon-icon は大文字を含む
+  return [...table.matchAll(/^\| ((?:ig|iv|pd|sw|mg|tk|rt|lc|nx|nb)-[A-Za-z0-9-]*) \|/gm)].map((m) => m[1]);   // ig-setIcon-icon は大文字を含む
 }
 test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc- の行とちょうど同じ（行の順。R1・R83）。その頭の変異は IDS_170 にある。どれも決まったテストのファイルを持ち、why が 0.17.0 で始まる', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
@@ -1731,13 +1735,19 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_170.test(m.id) && !IDS_170.includes(m.id)).map((m) => m.id), [], 'IDS_170 に無い 0.17.0 の頭の変異がある');
   const rows = planRows170();
   // 問い 5 の 1（R85）で mg- 1 を足して 203 行に意図して直した
-  assert.strictEqual(rows.length, 203, '計画の 0.17.0 の表（ig- 25・iv- 32・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1 の rv58 の直しで iv- 1・pd- 8、MG-2 の直し（R42）で mg- 2、点検 2 の rv59 の直しで pd- 4・mg- 8、LK-1（R52）で lc- 4、MG-3（R53）で mg- 2、MG-4（R54）で mg- 5、TK-1（R55）で tk- 2、TK-3（R57）で tk- 1、RT-2（R59）で rt- 4、IV-2（R60）で iv- 1、点検 3 の rv60 の直し（R64〜R77）で lc- 5・mg- 4・rt- 5・tk- 10、点検 3 の後の問い 4（R82）で tk- 3、問い 5 の 1（R85）で mg- 1 を足した）が読めない');
+  // 0.17.0 Task NB-6（計画の「意図して変えるテスト」の IDS_170・PREFIX_170・planRows170 の行）で意図して直した: 第4部・第5部の nx- 43・nb- 11 を足して 257 行
+  // （OQ1〜OQ3 はどれも (a): 2026-11-16 の持ち主の答え）
+  assert.strictEqual(rows.length, 257, '計画の 0.17.0 の表（第1部〜第3部の 203 行と、第4部・第5部の nx- 43・nb- 11）が読めない');
+  assert.strictEqual(rows.filter((id) => !PREFIX_170_LATE.test(id)).length, 203, '計画の第1部〜第3部の表（ig- 25・iv- 32・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1〜3 と問い 4・5 の直しで足した数を含む）が読めない');
+  assert.deepStrictEqual([['nx', 43], ['nb', 11]].map(([k]) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]), [['nx', 43], ['nb', 11]], '計画の第4部・第5部の表の数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');
   // 0.17.0 Task G の前半（R83）で意図して直した: 前は作ったタスクの行だけの「表の行の順に並んだ一部」を見ていた（R1）。点検 3 の後の問い 4（R82）までで
   // 表の 202 行が全部そろったので、表の全部とちょうど同じかを見る（0.15.0 の R78・0.16.0 の R127 と同じ）
-  assert.deepStrictEqual(IDS_170, rows, 'IDS_170 が計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc- の行とちょうど同じでない');
+  // 0.17.0 Task NB-6（R89）で意図して直した: 第4部・第5部（nx-・nb-）は作っている間「表の行の順に並んだ一部」（R2 と同じ）で、第1部〜第3部の行は今どおり全部ある。
+  // 全部がそろう NX-7 で、また表の全部とちょうど同じかを見る形に戻す
+  assert.deepStrictEqual(IDS_170.filter((id) => !PREFIX_170_LATE.test(id)), rows.filter((id) => !PREFIX_170_LATE.test(id)), 'IDS_170 が計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc- の行とちょうど同じでない');
   // 前の版の頭の照らしに当たらない・前の版の IDS に 0.17.0 の頭が無い
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/, /^(nd|ps|lb|gv)-/, /^(mt|qm|v|v5)-/, /^i-/, /^rv-/]) {
     assert.deepStrictEqual(IDS_170.filter((id) => re.test(id)), [], `${re} に当たる 0.17.0 の id`);
