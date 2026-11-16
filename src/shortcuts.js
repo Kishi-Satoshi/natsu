@@ -42,7 +42,7 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Ctrl+Shift+7', what: '行をトグルにする', where: '要約の行を直しているとき', codes: ['Ctrl+Shift+Digit7'] },
   // 0.14.0 の行の選び（E9）
   { keys: 'Esc', what: '行を選ぶ（もう一度押すと選びを外して ⠿ へ）', where: '要約の行を直しているとき', codes: [] },
-  { keys: 'Ctrl+A', what: '行の文字を全部選ぶ（もう一度押すとその行を選び、さらにもう一度でページの行を全部選ぶ）', where: '要約の行を直しているとき', codes: [] },
+  { keys: 'Ctrl+A', what: '行の文字を全部選ぶ（もう一度押すとページの行を全部選ぶ）', where: '要約の行を直しているとき', codes: [] },
   { keys: '↑・↓', what: '選ぶ行を替える', where: '要約の行を選んでいるとき', codes: [] },
   { keys: 'Shift+↑・Shift+↓', what: '選ぶ行を広げる・狭める', where: '要約の行を選んでいるとき', codes: [] },
   { keys: 'Backspace・Delete', what: '選んだ行を消す', where: '要約の行を選んでいるとき', codes: [] },

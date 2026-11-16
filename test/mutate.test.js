@@ -1734,7 +1734,8 @@ const IDS_170 = [
   'mg-ui-ref-minutes',
   // 0.17.0 Task NX-1〜（第4部。計画の「第4部・第5部の変異」の nx- の表の行の順に、作ったタスクの行だけ: R89）
   'nx-enter-heading', 'nx-enter-copy', 'nx-bs-heading', 'nx-bs-revert-first', 'nx-bs-last-outdent', 'nx-bs-mid-merge', 'nx-bs-copy', 'nx-bs-wire',
-  'nx-lift-kids', 'nx-lift-order', 'nx-lift-copy', 'nx-bs-heading-last', 'nx-bs-untoggle', 'nx-bs-callout', 'nx-bs-callout-kid', 'nx-enter-callout',
+  'nx-lift-kids', 'nx-lift-order', 'nx-lift-copy', 'nx-ctrla-all', 'nx-ctrla-first', 'nx-ctrla-box', 'nx-shortcut-ctrla', 'nx-bs-heading-last',
+  'nx-bs-untoggle', 'nx-bs-callout', 'nx-bs-callout-kid', 'nx-enter-callout', 'nx-ctrla-empty',
   // 0.17.0 Task NB-6（第5部。計画の「第4部・第5部の変異」の nb- の表の行の順に）。第4部の nx- は表で nb- より前なので、NX の各タスクでこの前に足す
   'nb-q-answer', 'nb-q-unchecked', 'nb-count-q', 'nb-count-total', 'nb-source-ob', 'nb-x-row', 'nb-ob-item', 'nb-k25-source', 'nb-source-ob2', 'nb-ob2-item', 'nb-x-new',
 ];

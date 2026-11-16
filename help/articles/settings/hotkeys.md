@@ -1,7 +1,7 @@
 ---
 title: ホットキー
 description: 議事録のホットキーを変える。ほかのアプリと重なったとき。NaTsu の窓の中だけで効くキー（Ctrl+W・要約とメモの行の近道・データベースの表のキー）の一覧
-updated: 2026-11-13
+updated: 2026-11-16
 sources: README.md, src/renderer/app.html, src/main.js, src/mainlib.js, src/settings.js, src/shortcuts.js
 related: dictation/dictation, summary/edit-summary, record/start-stop
 ---
@@ -77,7 +77,7 @@ NaTsu の窓が前にあるときだけ効くキーです。同じ一覧は ［�
 | [[Ctrl+Alt+T]] | ページのトグルをまとめて開く・閉じる |
 | [[Ctrl+Shift+7]] | 行をトグルにする |
 | [[Esc]] | 行を選ぶ（もう一度押すと選びを外して ⠿ へ） |
-| [[Ctrl+A]] | 行の文字を全部選ぶ（もう一度押すとその行を選び、さらにもう一度でページの行を全部選ぶ） |
+| [[Ctrl+A]] | 行の文字を全部選ぶ（もう一度押すとページの行を全部選ぶ） |
 
 ### 要約の行を選んでいるとき
 

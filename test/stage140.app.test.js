@@ -2290,15 +2290,17 @@ test('EK-4（R21）: Ctrl+A は1回目は行の文字（既定のまま）・文
     let t = typeIn(l, 'p2', '二の行', 1);
     assert.strictEqual(l.key(A, t).defaultPrevented, false, '1回目の Ctrl+A を止めた');
     assert.deepStrictEqual(selIds(l), []);
+    // 0.17.0 NX-3（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 82・計画の違いの行 X-20・P-08。NQ1「編集と表のキーを直す（おすすめ）」）で
+    // 意図して変えた: その行だけを選ぶ段を無くし、文字が全部選ばれた行の Ctrl+A と空の行の1回目の Ctrl+A でページの行を全部選ぶ（前は R21 の3段。意図「1回目は既定・選んでいる間は全部」は残す）
     t = typeIn(l, 'p2', '二の行', 0, 3);
     assert.strictEqual(l.key(A, t).defaultPrevented, true);
-    assert.deepStrictEqual(selIds(l), ['p2'], '文字が全部選ばれた行の Ctrl+A で行を選ばない');
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'p3', 'tg', 'p4', 'e'], '文字が全部選ばれた行の Ctrl+A でページの行を全部選ばない');
     assert.strictEqual(boxKey(l, A).defaultPrevented, true);
     assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'p3', 'tg', 'p4', 'e'], 'もう1回の Ctrl+A で全部の行を選ばない');
     boxKey(l, { key: 'Escape' });
     t = typeIn(l, 'e', '');
     l.key(A, t);
-    assert.deepStrictEqual(selIds(l), ['e'], '空の行の Ctrl+A で行を選ばない');
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 'p3', 'tg', 'p4', 'e'], '空の行の Ctrl+A の1回目でページの行を全部選ばない（S6）');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

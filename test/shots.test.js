@@ -1362,7 +1362,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 NX-1（決めたこと 78）: メモの写しの見出しの後をテキストに・コールアウトの Enter は最初の子（<script> の中だけ。撮る画面の種はどれも見出し・コールアウトで Enter を押さない。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 2e6e54e7…）
   // 0.17.0 NX-2（決めたこと 80・81）: 行頭の Backspace の決まりを写し backspaceAtStartView に・つないだ行の子は liftOut（<script> の中だけ。撮る画面の種はどれも Backspace を押さない。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 448209d8…）
   // 0.17.0 NX-2 の続き: 写しの注釈の字だけ（見た目は変わらない）。値を今の app.html に合わせた（前の値は f31d8577…）
-  assert.strictEqual(sha, '1642f1da47cbf827d9d2c3f6da77331054db5a4c789a07bde14f04fc1d59867a',
+  // 0.17.0 NX-3（決めたこと 82）: Ctrl+A の2回目（空の行は1回目）でその欄の行を全部選ぶ（<script> の中）と、近道の表の Ctrl+A の字（KQ5 の承認の字）。見える字が変わるのは設定の近道の表（settings-shortcuts-light・settings-shortcuts-db-light: KQ6 で持ち主が見る）で、アプリの画面はどれも RETAKE_170。値を今の app.html に合わせた（前の値は 1642f1da…）
+  assert.strictEqual(sha, '6127f5fe75f9ddac057d9acd632a9e84071949e652718228a620b9e5ea1a4c86',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -2240,7 +2240,7 @@
     { keys: 'Ctrl+Shift+7', what: '行をトグルにする', where: '要約の行を直しているとき', codes: ['Ctrl+Shift+Digit7'] },
     // 0.14.0 の行の選び（E9）
     { keys: 'Esc', what: '行を選ぶ（もう一度押すと選びを外して ⠿ へ）', where: '要約の行を直しているとき', codes: [] },
-    { keys: 'Ctrl+A', what: '行の文字を全部選ぶ（もう一度押すとその行を選び、さらにもう一度でページの行を全部選ぶ）', where: '要約の行を直しているとき', codes: [] },
+    { keys: 'Ctrl+A', what: '行の文字を全部選ぶ（もう一度押すとページの行を全部選ぶ）', where: '要約の行を直しているとき', codes: [] },
     { keys: '↑・↓', what: '選ぶ行を替える', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Shift+↑・Shift+↓', what: '選ぶ行を広げる・狭める', where: '要約の行を選んでいるとき', codes: [] },
     { keys: 'Backspace・Delete', what: '選んだ行を消す', where: '要約の行を選んでいるとき', codes: [] },
@@ -14887,10 +14887,11 @@
       if (ev.key === 'Tab' && !mod) { ev.preventDefault(); indentRow(el, ev.shiftKey ? 'out' : 'in'); return; }
       // 0.14.0 EK-4（R64 (5)・K-11。0.13.1 NR17 の「Esc で ⠿ へ」を替えた: P7）: Esc で文を確定し、この行を選ぶ（もう1回 Esc で ⠿ へ: selExit）
       if (ev.key === 'Escape' && !mod) { ev.preventDefault(); selRowStart(el); return; }
-      // 0.14.0 EK-4（R21）: Ctrl+A は1回目は行の文字を全部選ぶ（既定のまま）。文字が全部選ばれている・空の行で押すと、その行を選ぶ（もう1回で全部の行: selKey）
+      // 0.17.0 NX-3（決めたこと 82・計画の違いの行 X-20・P-08。0.14.0 R21 の3段を替えた）: Ctrl+A は1回目は行の文字を全部選ぶ（既定のまま）。
+      // 文字が全部選ばれている・空の行で押すと、その欄の行を全部選ぶ（その行だけを選ぶ段は無い）
       if (ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey && ev.code === 'KeyA') {
         const r = caretRange(txt); const n = txt.textContent.length;
-        if (n === 0 || (r && r[0] === 0 && r[1] === n)) { ev.preventDefault(); selRowStart(el); }
+        if (n === 0 || (r && r[0] === 0 && r[1] === n)) { ev.preventDefault(); selAllStart(el); }
         return;
       }
       if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); }   // 行の中の改行（命令は送らない）
@@ -15215,10 +15216,16 @@
     blockSel = null;
     selPaint();
   }
-  // 行の中の Esc（R64 (5)・K-11）と Ctrl+A（R21）: 打った文を保存してから、その行を選ぶ
+  // 行の中の Esc（R64 (5)・K-11）: 打った文を保存してから、その行を選ぶ
   function selRowStart(el) {
     if (typeof el._txt._commit === 'function') el._txt._commit(keyOfEl(el));
     selSet([el.dataset.id], el.dataset.id, el.dataset.id, keyOfEl(el));
+  }
+  // 0.17.0 NX-3（決めたこと 82）: 行の中の Ctrl+A の2回目（空の行は1回目）。打った文を保存してから、その欄の行を全部選ぶ（ほかの欄の行は選ばない）
+  function selAllStart(el) {
+    const k = keyOfEl(el);
+    if (typeof el._txt._commit === 'function') el._txt._commit(k);
+    selSet(selRows(k).map((e) => e.dataset.id), el.dataset.id, el.dataset.id, k);
   }
   // 選んでいて Esc（R64 (4)・G2）: 選びを外し、フォーカスは選んでいた最初の行の ⠿ へ（そこから 0.13.1 の ⠿ の受け口: Tab で欄の外・Shift+Tab で欄のタブ・Esc で行の文へ）
   function selExit() {

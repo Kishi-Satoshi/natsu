@@ -240,3 +240,51 @@ test('NX-2・F207: 画面のメモの欄の写し（memoDocView）の block.merg
   const r = app.memoEdit(doc, 'block.merge', { blockId: 'm3', text: 'つなぐ', intoId: 'm2' }, { next: 40 });
   assert.deepStrictEqual(r.doc.map((b) => b.id), ['m1', 'm4', 'm5', 'm7', 'm8'], '写しの子が消えた行の所に並ばない');
 });
+
+// ---------------------------------------------------------------- NX-3（決めたこと 82・F208・計画の違いの行 X-20・P-08）
+const selIds = (l, box = 'pNote') => $(l, box).querySelectorAll('.blk').filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.id);
+const CTRL_A = { key: 'a', code: 'KeyA', ctrlKey: true };
+test('NX-3・F208: Ctrl+A の1回目は既定（止めない・行を選ばない）・文字が全部選ばれた行で押すと、その欄の全部の行・空の行は1回目で全部の行（S6）・選んでいる間は今どおり全部', T, async () => {
+  const l = await openNote([kid('p1'), kid('p2'), { id: 't', type: 'toggle', text: 'トグル', open: true, citeState: 'manual', cites: [], children: [kid('t1')] }, kid('e', { text: '' })]);
+  try {
+    let t = typeIn(l, 'p2', 'p2の文', 1);
+    assert.strictEqual(l.key(CTRL_A, t).defaultPrevented, false, '1回目の Ctrl+A を止めた');
+    assert.deepStrictEqual(selIds(l), []);
+    t = txtOf(l, 'p2'); t.focus(); l.caret.set(t, 0, 4);
+    assert.strictEqual(l.key(CTRL_A, t).defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 't', 't1', 'e'], '文字が全部選ばれた行の Ctrl+A でページの行を全部選ばない（その行だけの段が残る）');
+    assert.strictEqual(l.key(CTRL_A, $(l, 'pNote')).defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 't', 't1', 'e'], '選んでいる間の Ctrl+A');
+    l.key({ key: 'Escape' }, $(l, 'pNote'));
+    t = typeIn(l, 'e', '', 0);
+    assert.strictEqual(l.key(CTRL_A, t).defaultPrevented, true);
+    assert.deepStrictEqual(selIds(l), ['p1', 'p2', 't', 't1', 'e'], '空の行の Ctrl+A の1回目でページの行を全部選ばない（S6・P-08）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-3・F208: メモの欄の行で Ctrl+A → メモの欄の行だけを全部選ぶ（要約の欄の行は選ばない）', T, async () => {
+  const l = await realApp({ seed: (t) => { const { page, segments } = samplePage('pa1'); t.seed({ ...page, blocks: [kid('p1'), kid('p2')], memo: '■ 目的\n売上の確認\n' }, segments); } });
+  try {
+    l.fire('onPageOpen', 'pa1'); await l.drain(120);
+    $(l, 'paneBtnMemo').onclick(); await l.drain();
+    const box = $(l, 'pMemo').querySelector('.memorows');
+    const rows = box.querySelectorAll('.blk');
+    assert.ok(rows.length >= 2, '前提: メモの欄に行が無い');
+    const t = rows[rows.length - 1].querySelector('.txt');
+    t.focus(); l.caret.set(t, 0, t.textContent.length);
+    assert.strictEqual(l.key(CTRL_A, t).defaultPrevented, true);
+    assert.deepStrictEqual(box.querySelectorAll('.blk').filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.dataset.id), rows.map((e) => e.dataset.id), 'メモの欄の行を全部選ばない');
+    assert.deepStrictEqual(selIds(l), [], '要約の欄の行まで選んだ');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-3・F208（KQ5・OQ7）: 近道の表の Ctrl+A の行は承認の字で、ヘルプの文は「2回目はページの行を全部」と空の行の1文', () => {
+  const S = require('../src/shortcuts.js');
+  const rows = (S.SHORTCUTS || S).filter((r) => r.keys === 'Ctrl+A' && r.where === '要約の行を直しているとき');
+  assert.deepStrictEqual(rows.map((r) => r.what), ['行の文字を全部選ぶ（もう一度押すとページの行を全部選ぶ）']);
+  const help = fs.readFileSync(path.join(__dirname, '..', 'help', 'articles', 'summary', 'edit-summary.md'), 'utf8');
+  assert.ok(help.includes('- 行の中の [[Ctrl+A]] は、1回目は行の文字を全部、2回目はページの行を全部選びます。空の行では、1回目でページの行を全部選びます。'), 'ヘルプの Ctrl+A の文が承認の字でない');
+  assert.ok(!help.includes('2回目はその行を'), 'ヘルプに前の Ctrl+A の字が残る');
+});
