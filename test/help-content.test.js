@@ -1451,7 +1451,8 @@ test('0.17.0 Task G: 設計書の版の表の 0.17.0 の欄・節「利用者が
   assert.ok(!d.includes('アイコンは絵文字か自作の SVG。'), '全体を通して守ることに前のアイコンの文が残る');
   // 版の表の 0.17.0 の欄（直しの案 2）。後ろの版はずらさない
   const ver = d.split('\n').find((l) => l.startsWith('| 版 | 0.1.0'));
-  assert.ok(ver.includes('| 0.17.0（テンプレートとタスク管理: `docs/plans/2026-11-13-170.md`。D113（と、アイコンの版・データベースの作り方とサイドバーのビューの行: D140〜。2026-11-13 の持ち主の答え IQ1）。') && ver.includes('D140〜D152） | 0.18.0（MCP の書く道具と残り。'), '版の表の 0.17.0 の欄に計画と D140〜D152 が無い');
+  // 0.17.0 Task NX-6（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・設計書の直しの案 9・11）で意図して直した: 版の表の 0.17.0 の欄に「（と、実機との違いの直し: D153〜D158。…）」を足し、末を D158 までにした
+  assert.ok(ver.includes('| 0.17.0（テンプレートとタスク管理: `docs/plans/2026-11-13-170.md`。D113（と、アイコンの版・データベースの作り方とサイドバーのビューの行: D140〜。2026-11-13 の持ち主の答え IQ1）') && ver.includes('D140〜D158） | 0.18.0（MCP の書く道具と残り。'), '版の表の 0.17.0 の欄に計画と D140〜D158 が無い');
   assert.ok(ver.includes('| 0.19.0（配布用の公開リポジトリと Electron の入れ替え: D101〜D104） | 1.0.0 |'), '後ろの版がずれた');
   // 0.17.0 の節: D140〜D152 がちょうど1つずつ、0.16.0 の節と「作り方」の間に並ぶ
   const h = '## 利用者が決めたこと（アイコンの版・データベースの作り方・テンプレートとタスク管理。2026-11-09〜11-15）';
@@ -1459,7 +1460,8 @@ test('0.17.0 Task G: 設計書の版の表の 0.17.0 の欄・節「利用者が
   assert.ok(at > 0, `設計書に節「${h}」が無い`);
   const sec = d.slice(at, d.indexOf('\n## ', at + 5));
   const ids = [...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]);
-  assert.deepStrictEqual(ids, Array.from({ length: 13 }, (_, i) => `D${140 + i}`), '0.17.0 の節の D の行が D140〜D152 でない');
+  // 0.17.0 Task NX-6（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・設計書の直しの案 9・11）で意図して直した: 第4部の D153〜D158 を足して 19 行（意図「0.17.0 の節の D の行がちょうど1つずつ並ぶ」は残す）
+  assert.deepStrictEqual(ids, Array.from({ length: 19 }, (_, i) => `D${140 + i}`), '0.17.0 の節の D の行が D140〜D158 でない');
   for (const id of ids) assert.strictEqual(d.split('\n').filter((l) => l.startsWith(`| ${id} |`)).length, 1, `設計書に ${id} の行が1つでない`);
   assert.ok(d.indexOf('\n| D139 |') < at && at < d.indexOf('\n## 作り方（Superpowers の進め方。'), '0.17.0 の節が D139 の後と「作り方」の間に無い');
   // 持ち主の言葉（「…（おすすめ）」と、おすすめと違う答え・頼みの言葉）は計画にある字のまま
@@ -1621,4 +1623,38 @@ test('0.17.0 Task NB-1・F215: 前の版の行を壊さない（0.15.0〜0.17.0 
   }
   const c22 = nb.slice(nb.indexOf('\n## 22. '), nb.indexOf('\n---\n\n## 項目の数\n'));
   assert.strictEqual(h(c22), '528c544f5b6515271523d5dcb810bbc663fb627478f8bcbb52cabc26d1158219', '22章の字が変わった（R66 の「確かめていないこと」の字も消さない）');
+});
+
+// ---------------------------------------------------------------- 0.17.0 Task NX-6（第4部。計画 docs/plans/2026-11-13-170.md の「設計書の直しの案」9〜11・F214）
+test('0.17.0 Task NX-6: 設計書の D153〜D158（持ち主の言葉は計画の字のまま）・E4・E10 の書き添え・版の表の 0.17.0 の欄、notion-behavior の違いの行の 0.17.0 の形、ヘルプの記事に前の決まりの字が無い', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const plan = read('docs/plans/2026-11-13-170.md');
+  const rowOf = (text, k) => { const xs = text.split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.strictEqual(xs.length, 1, `${k} の行が1つでない`); return xs[0]; };
+  const h = '## 利用者が決めたこと（アイコンの版・データベースの作り方・テンプレートとタスク管理。2026-11-09〜11-15）';
+  const at = d.indexOf(`\n${h}\n`);
+  const sec = d.slice(at, d.indexOf('\n## ', at + 5));
+  for (let n = 153; n <= 158; n += 1) {
+    const r = rowOf(sec, `D${n}`);
+    assert.ok(r.includes('NQ1「編集と表のキーを直す（おすすめ）」') && r.includes('「0.17.0 にその直しも入れる」'), `D${n} に持ち主の言葉が無い`);
+  }
+  for (const [k, w] of [['D153', '決めたこと 78・79'], ['D154', '決めたこと 80'], ['D155', '決めたこと 81'], ['D156', '決めたこと 82'], ['D157', '決めたこと 83・84'], ['D158', '決めたこと 85〜87']]) assert.ok(rowOf(sec, k).includes(w), `${k} に計画の ${w} が無い`);
+  assert.ok(rowOf(sec, 'D153').includes('コールアウトの末尾の Enter') && rowOf(sec, 'D158').includes('OQ1') && rowOf(sec, 'D158').includes('OQ2'), 'D153・D158 に第6版の答えが無い');
+  for (const q of ['NQ1「編集と表のキーを直す（おすすめ）」', '「0.17.0 にその直しも入れる」']) assert.ok(plan.includes(q), `計画に ${q} が無い`);
+  assert.ok(rowOf(d, 'E4').endsWith('2026-11-15・11-16 の持ち主の答えと Notion の画面の確かめ）** |') && rowOf(d, 'E4').includes('D154・D155: 0.17.0 から'), 'E4 に D154・D155 の書き添えが無い');
+  assert.ok(rowOf(d, 'E4').includes('D153: 見出しの後はテキスト・コールアウトの末尾の Enter は中にテキストの行'), 'E4 に D153 の書き添えが無い');
+  assert.ok(rowOf(d, 'E10').endsWith('**（D157: トグルをテキストに変えても子は中に残る）** |'), 'E10 に D157 の書き添えが無い');
+  const ver = d.split('\n').find((l) => l.startsWith('| 版 | 0.1.0'));
+  assert.ok(ver.includes('2026-11-13 の持ち主の答え IQ1）（と、実機との違いの直し: D153〜D158。2026-11-15 の持ち主の答え）。') && ver.includes('D140〜D158） | 0.18.0（MCP の書く道具と残り。'), '版の表の 0.17.0 の欄に実機との違いの直しが無い');
+  const nb = read('docs/plans/notion-behavior.md');
+  for (const [k, ds] of [['X-16', 'D153'], ['X-17', 'D154'], ['X-18', 'D154'], ['X-19', 'D155'], ['X-20', 'D156'], ['X-21', 'D157'], ['X-22', 'D157'], ['X-24', 'D158'], ['X-25', 'D158'], ['X-26', 'D158'], ['X-31', 'D153・D154'], ['X-32', 'D158'], ['X-33', 'D158'], ['X-34', 'D153']]) {
+    assert.ok(rowOf(nb, k).includes(`（0.17.0 の形: 設計書 ${ds}）`), `notion-behavior の ${k} に 0.17.0 の形（${ds}）が無い`);
+  }
+  for (const f of ['summary/edit-summary', 'settings/hotkeys', 'find/database']) {
+    const t = read(`help/articles/${f}.md`);
+    for (const old of ['見出しの後は箇条書き', '2回目はその行を', '書いた文字を捨てる', '区切り線は選べません', '区切り線にできません', 'もう一度押すとその行を選び']) assert.ok(!t.includes(old), `${f} に前の決まりの字「${old}」が残る`);
+  }
+  const es = read('help/articles/summary/edit-summary.md');
+  assert.ok(es.includes('箇条書き・ToDo・番号付き・トグル・引用は、まずテキストの行に戻します。トグル見出しは、まずふつうの見出しに戻し、中の行はその下に並びます。見出し・コールアウト・テキストの行は、すぐ上の行の終わりにつなぎます。'), 'edit-summary の Backspace の文が OQ6 の承認の字でない');
+  assert.ok(es.includes('後ろの行は同じ型です（見出しと引用の後はテキスト）。コールアウトの中で押すと、コールアウトの中にテキストの行ができます。'), 'edit-summary の Enter の文が OQ5 の承認の字でない');
+  assert.ok(es.includes('1回目は行の文字を全部、2回目はページの行を全部選びます。空の行では、1回目でページの行を全部選びます。'), 'edit-summary の Ctrl+A の文が OQ7 の承認の字でない');
 });
