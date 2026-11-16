@@ -989,8 +989,8 @@ test('EK-2・R65: blocks.turnInto の区切り線は文のある行か子のあ�
   const p = call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['t', 'x'], type: 'paragraph' });
   assert.strictEqual(p.ok, true, p.code);
   const page = get(db);
-  assert.deepStrictEqual([find(page, 't').b.type, kidIds(page, 't'), find(page, 'tc').parent, find(page, 'x').b.type], ['paragraph', [], null, 'paragraph']);
-  assert.strictEqual(find(page, 't').list[find(page, 't').index + 1].id, 'tc', 'トグルの子が後ろに出ない');
+  // 0.17.0 NX-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 83・84・計画の違いの行 X-21・X-22。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: トグルをテキストにしても子は中に残る（区切り線の断りは今のまま）
+  assert.deepStrictEqual([find(page, 't').b.type, kidIds(page, 't'), find(page, 'tc').parent.id, find(page, 'x').b.type], ['paragraph', ['tc'], 't', 'paragraph'], 'トグルの子が中に残らない');
   const h = call(db, 'blocks.turnInto', { pageId: 'pa1', ids: ['a', 'y'], type: 'heading', level: 3 });
   assert.strictEqual(h.ok, true, h.code);
   assert.deepStrictEqual([find(get(db), 'a').b.level, kidIds(get(db), 'a'), find(get(db), 'a1').parent], [3, [], null], '見出しにした行の子が後ろに出ない');

@@ -88,3 +88,29 @@ test('NX-2・F207: メモの命令（memoEdit）の block.merge も、消える�
   assert.deepStrictEqual(r.doc[0].children.map((b) => [b.id, b.text]), [['m2', '中つなぐ']]);
   assert.deepStrictEqual([r.doc[1].type, r.doc[1].checked], ['todo', true]);
 });
+
+// ---------------------------------------------------------------- NX-4（決めたこと 83・84・F210）
+test('NX-4・F210: turnMovesKids の表（トグル・トグル見出し → テキストは子を残す・→ トグルでない見出しは外へ・ほかの子を持てる型は残す・区切り線は外へ: 計画の違いの行 X-22・B-25）', () => {
+  const M = (b, to) => BT.turnMovesKids(b, to);
+  const tog = { type: 'toggle' }; const th = { type: 'heading', level: 2, toggle: true };
+  for (const b of [tog, th]) {
+    assert.strictEqual(M(b, { type: 'paragraph' }), false, `${JSON.stringify(b)} → テキスト`);
+    assert.strictEqual(M(b, { type: 'heading', level: 1 }), true, `${JSON.stringify(b)} → 見出し`);
+    assert.strictEqual(M(b, { type: 'heading', level: 3, toggle: true }), false, `${JSON.stringify(b)} → トグル見出し`);
+    for (const t of ['bullet', 'todo', 'numbered', 'quote', 'callout', 'toggle']) assert.strictEqual(M(b, { type: t }), false, `${JSON.stringify(b)} → ${t}`);
+    assert.strictEqual(M(b, { type: 'divider' }), true);
+  }
+  assert.strictEqual(M({ type: 'bullet' }, { type: 'numbered' }), false);
+  assert.strictEqual(M({ type: 'paragraph' }, { type: 'heading', level: 2 }), true);
+});
+
+test('NX-4・F210: メモの命令（memoEdit）の block.turnInto・blocks.turnInto も、トグルをテキストにすると子は中に残り、見出しにすると外へ', () => {
+  const doc = [{ id: 'm1', type: 'toggle', text: '親', citeState: 'manual', children: [{ id: 'm2', type: 'paragraph', text: '中', citeState: 'manual' }] },
+    { id: 'm3', type: 'heading', level: 1, toggle: true, text: '見出し', citeState: 'manual', children: [{ id: 'm4', type: 'paragraph', text: '中二', citeState: 'manual' }] }];
+  let r = MD.memoEdit(doc, 'block.turnInto', { blockId: 'm1', type: 'paragraph' }, { next: 10 });
+  assert.deepStrictEqual([r.doc[0].type, r.doc[0].children.map((b) => b.id), r.doc.map((b) => b.id)], ['paragraph', ['m2'], ['m1', 'm3']]);
+  r = MD.memoEdit(doc, 'blocks.turnInto', { ids: ['m1', 'm3'], type: 'paragraph' }, { next: 10 });
+  assert.deepStrictEqual(r.doc.map((b) => [b.id, b.type, (b.children || []).map((k) => k.id)]), [['m1', 'paragraph', ['m2']], ['m3', 'paragraph', ['m4']]]);
+  r = MD.memoEdit(doc, 'block.turnInto', { blockId: 'm3', type: 'heading', level: 1 }, { next: 10 });
+  assert.deepStrictEqual(r.doc.map((b) => b.id), ['m1', 'm3', 'm4'], 'トグル見出しを見出しにしても子が外へ出ない');
+});

@@ -9883,7 +9883,6 @@
         return kids;
       },
       turnMovesKids(b, to) {
-        if (isToggleView(b) && to.type === 'paragraph') return true;
         return !kidsCanView(to);
       },
     });
@@ -15649,12 +15648,10 @@
     if (!m.sub) {
       const sub = document.createElement('div');
       sub.className = 'blockmenu sub'; sub.setAttribute('role', 'menu'); sub.setAttribute('aria-label', '変換');
-      const many = (m.ids || [m.el.dataset.id]).map((id) => (m.ids ? (locate(blocksOfKey(keyOfEl(m.el)), id) || {}).b : m.el._b)).filter(Boolean);
-      const hasText = m.ids ? many.some((b) => String(b.text ?? '').trim() !== '') : m.el._txt.textContent.trim() !== '';
-      const hasKids = many.some((b) => Array.isArray(b.children) && b.children.length > 0);   // 0.13.1 NR7（EQ16 (a)）: 子のある行も区切り線にできない（EK-4: 選んだ行のどれか1つでも）
+      // 0.17.0 NX-4（決めたこと 83・計画の違いの行 X-21・B-22）: ［変換 ▸］に区切り線は並べない（1行・選んだ行とも。区切り線は / のメニュー・--- ・貼り付けで作る）
       for (const r of SLASH_ROWS) {
-        const off = r.key !== 'divider' ? '' : hasText ? '文のある行は区切り線にできません' : hasKids ? '中に行のある行は区切り線にできません' : '';
-        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id, off });
+        if (r.key === 'divider') continue;
+        menuItem(sub, r.label, () => blockMenuDo('turn', r), { key: r.id });
       }
       m.box.appendChild(sub);
       if (typeof sub.scrollIntoView === 'function') sub.scrollIntoView({ block: 'nearest' });

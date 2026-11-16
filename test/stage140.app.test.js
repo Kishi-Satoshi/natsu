@@ -2187,11 +2187,10 @@ test('EK-4（決めたこと 30・G4）: 選んで Ctrl+D・Ctrl+Shift+↓・Ctr
     assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args), [['pa1', ['p2', 'p3'], 'red']]);
     assert.deepStrictEqual(['p2', 'p3', 'p1'].map((id) => rowOf(l, id).getAttribute('data-bcolor')), ['red', 'red', null]);
     assert.strictEqual(l.steps.length, n + 5, 'どの操作も1歩でない');
-    // ［変換 ▸］の区切り線は、文のある行を選んでいれば灰色
+    // 0.17.0 NX-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 83・84・計画の違いの行 X-21・X-22。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 選んだ行の［変換 ▸］に区切り線は無い（前は文のある行を選んでいれば灰色）
     boxKey(l, { key: '/', code: 'Slash', ctrlKey: true });
     $(l, 'pNote').querySelector('.blockmenu').querySelectorAll('.mitem').find((x) => x.textContent === '変換 ▸').onclick();
-    const d = $(l, 'pNote').querySelectorAll('.blockmenu.sub .mitem').find((x) => x.dataset.key === 'divider');
-    assert.strictEqual(d.getAttribute('aria-disabled'), 'true');
+    assert.strictEqual($(l, 'pNote').querySelectorAll('.blockmenu.sub .mitem').filter((x) => x.dataset.key === 'divider').length, 0, '選んだ行の［変換 ▸］に区切り線がある');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

@@ -292,7 +292,8 @@ test('NE-2・NR7・NR10: 子のある行を区切り線に → bad-args。トグ
   const r = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 't', type: 'paragraph' });
   assert.strictEqual(r.ok, true, r.code);
   assert.strictEqual(oplogN(db), n0 + 1);
-  assert.deepStrictEqual(shape(get(db).blocks).slice(2, 4), ['t', 't1'], 'トグルをテキストに戻して子が下に並ばない（EQ16 (a)）');
+  // 0.17.0 NX-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 83・84・計画の違いの行 X-21・X-22。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: トグルをテキストに戻しても子は中に残る
+  assert.deepStrictEqual(shape(get(db).blocks).slice(2, 3), [['t', ['t1']]], 'トグルをテキストに戻して子が中に残らない（決めたこと 84）');
   const th = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'th', type: 'heading', level: 2 });
   assert.strictEqual(th.ok, true, th.code);
   const p = get(db);

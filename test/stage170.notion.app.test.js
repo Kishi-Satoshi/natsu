@@ -288,3 +288,61 @@ test('NX-3・F208（KQ5・OQ7）: 近道の表の Ctrl+A の行は承認の字�
   assert.ok(help.includes('- 行の中の [[Ctrl+A]] は、1回目は行の文字を全部、2回目はページの行を全部選びます。空の行では、1回目でページの行を全部選びます。'), 'ヘルプの Ctrl+A の文が承認の字でない');
   assert.ok(!help.includes('2回目はその行を'), 'ヘルプに前の Ctrl+A の字が残る');
 });
+
+// ---------------------------------------------------------------- NX-4（決めたこと 83・84・F209・F210）
+const menuBox = (l) => $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => !x.classList.contains('sub')) || null;
+const subBox = (l) => $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => x.classList.contains('sub')) || null;
+test('NX-4・F209（X-21・B-22）: ［変換 ▸］（⠿・Ctrl+/・選んだ行の Ctrl+/）に区切り線が無い。ほかの項目と並びは今のまま。/ のメニューの区切り線は今どおり', T, async () => {
+  const l = await openNote([kid('p', { type: 'bullet' }), kid('e', { text: '' }), kid('q')]);
+  try {
+    const want = E.MENU_ROWS.filter((r) => r.key !== 'divider').map((r) => r.label);
+    // 1行（文のある行・空の行のどちらも）
+    for (const id of ['p', 'e']) {
+      const t = typeIn(l, id, id === 'e' ? '' : 'pの文');
+      l.key({ key: '/', code: 'Slash', ctrlKey: true }, t);
+      menuBox(l).querySelectorAll('.mitem')[2].onclick();
+      const sub = subBox(l);
+      assert.deepStrictEqual(sub.querySelectorAll('.mitem').map((x) => x.textContent), want, `${id}: ［変換 ▸］の並び`);
+      assert.ok(!sub.querySelectorAll('.mitem').some((x) => x.dataset.key === 'divider'), `${id}: ［変換 ▸］に区切り線がある`);
+      l.key({ key: 'Escape' }, l.document.activeElement); l.key({ key: 'Escape' }, l.document.activeElement);
+    }
+    // 選んだ行
+    const t = typeIn(l, 'q', 'qの文');
+    l.key({ key: 'Escape' }, t);
+    l.key({ key: 'ArrowUp', shiftKey: true }, $(l, 'pNote'));
+    l.key({ key: '/', code: 'Slash', ctrlKey: true }, $(l, 'pNote'));
+    menuBox(l).querySelectorAll('.mitem')[2].onclick();
+    assert.deepStrictEqual(subBox(l).querySelectorAll('.mitem').map((x) => x.textContent), want, '選んだ行の［変換 ▸］の並び');
+    l.key({ key: 'Escape' }, l.document.activeElement); l.key({ key: 'Escape' }, l.document.activeElement);
+    // / のメニューには今どおり区切り線がある
+    const e = typeIn(l, 'e', '/');
+    e.dispatchEvent({ type: 'input' });
+    assert.ok($(l, 'pNote').querySelector('.slashmenu').querySelectorAll('.sopt').some((o) => o.dataset.key === 'divider'), '/ のメニューから区切り線が消えた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-4・F210（X-22）: 子のあるトグルを［変換 ▸］でテキストに → blockTurnInto の1回で子は中に残って描かれる', T, async () => {
+  const l = await openNote([kid('x'), { id: 't', type: 'toggle', text: 'トグル', open: true, citeState: 'manual', cites: [], children: [kid('t1')] }, kid('z')]);
+  try {
+    const t = typeIn(l, 't', 'トグル');
+    l.key({ key: '/', code: 'Slash', ctrlKey: true }, t);
+    menuBox(l).querySelectorAll('.mitem')[2].onclick();
+    subBox(l).querySelectorAll('.mitem').find((x) => x.dataset.key === 'text').onclick();
+    await l.drain(80);
+    assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 't', 'paragraph']]);
+    const b = BT.locate(pageOf(l).blocks, 't').b;
+    assert.deepStrictEqual([b.type, b.children.map((k) => k.id)], ['paragraph', ['t1']]);
+    assert.strictEqual(rowOf(l, 't1').dataset.depth, '1', '子が中に描かれない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-4・F210: 画面のメモの欄の写し（memoDocView）の turnMovesKids も src/memoDoc.js と同じ答え（トグルをテキストにしても子は中に残る）', () => {
+  const app = memoView();
+  const doc = [{ id: 'm1', type: 'toggle', text: '親', citeState: 'manual', children: [{ id: 'm2', type: 'paragraph', text: '中', citeState: 'manual' }] },
+    { id: 'm3', type: 'heading', level: 1, toggle: true, text: '見出し', citeState: 'manual', children: [{ id: 'm4', type: 'paragraph', text: '中二', citeState: 'manual' }] }];
+  for (const [cmd, args] of [['block.turnInto', { blockId: 'm1', type: 'paragraph' }], ['block.turnInto', { blockId: 'm3', type: 'paragraph' }], ['block.turnInto', { blockId: 'm3', type: 'heading', level: 2 }],
+    ['blocks.turnInto', { ids: ['m1', 'm3'], type: 'paragraph' }], ['block.turnInto', { blockId: 'm1', type: 'bullet' }]]) sameMemo(app, doc, cmd, args);
+  assert.deepStrictEqual(app.memoEdit(doc, 'block.turnInto', { blockId: 'm1', type: 'paragraph' }, { next: 40 }).doc[0].children.map((b) => b.id), ['m2'], '写しのトグルの子が外へ出る');
+});

@@ -169,8 +169,9 @@ test('NE-1・EQ6 (a)（0.17.0 NX-2 で意図して変えた）: liftOut は結�
 
 test('NE-1・EQ16 (a)・NR10: トグルをテキストに・トグル見出しを見出しに変えると kidsOut で子がすぐ後ろに元の順で並ぶ。箇条書き → 番号付きでは子が残る', () => {
   const M = (b, to) => BT.turnMovesKids(b, to);
-  assert.strictEqual(M({ type: 'toggle' }, { type: 'paragraph' }), true, 'トグル → テキスト（EQ16 (a)）');
-  assert.strictEqual(M({ type: 'heading', toggle: true, level: 1 }, { type: 'paragraph' }), true, 'トグル見出し → テキスト');
+  // 0.17.0 NX-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 83・84・計画の違いの行 X-21・X-22。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: トグル・トグル見出しをテキストにしても子は残す（意図「子を持てない型へは外へ」は残す）
+  assert.strictEqual(M({ type: 'toggle' }, { type: 'paragraph' }), false, 'トグル → テキスト（子は中に残る）');
+  assert.strictEqual(M({ type: 'heading', toggle: true, level: 1 }, { type: 'paragraph' }), false, 'トグル見出し → テキスト（子は中に残る）');
   assert.strictEqual(M({ type: 'heading', toggle: true, level: 1 }, { type: 'heading', level: 1 }), true, 'トグル見出し → 見出し（子を持てない: NR10）');
   assert.strictEqual(M({ type: 'bullet' }, { type: 'heading', level: 2 }), true, '見出しへ');
   assert.strictEqual(M({ type: 'bullet' }, { type: 'numbered' }), false, '箇条書き → 番号付き');

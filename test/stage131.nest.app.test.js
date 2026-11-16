@@ -855,11 +855,12 @@ test('NE-4b・NR7: 子のある行の ⠿ の［変換 ▸］で区切り線は�
       const s = $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => x.classList.contains('sub'));
       return s.querySelectorAll('.mitem').find((x) => x.dataset.key === 'divider');
     };
+    // 0.17.0 NX-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 83・計画の違いの行 X-21。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: ［変換 ▸］に区切り線は無い（子のある行も、文も子も無い行も。区切り線の DB の断りは test/stage131.nest.db.test.js が見る）
     let d = sub('p');
-    assert.deepStrictEqual([d.getAttribute('aria-disabled'), d.title], ['true', '中に行のある行は区切り線にできません']);
+    assert.strictEqual(d, undefined, '子のある行の［変換 ▸］に区切り線がある');
     l.key({ key: 'Escape' }, l.document.activeElement); l.key({ key: 'Escape' }, l.document.activeElement);
     d = sub('q');
-    assert.strictEqual(d.getAttribute('aria-disabled'), null, '文も子も無い行の区切り線が灰色');
+    assert.strictEqual(d, undefined, '文も子も無い行の［変換 ▸］に区切り線がある');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

@@ -155,3 +155,28 @@ test('NX-2・F207・T4b: block.merge（子のある行）を含む oplog を控�
     assert.deepStrictEqual(keep(dump(db)), keep(dump(o.db)), '後ろへ全部当てても種の表に戻らない');
   } finally { t.done(); u.done(); v.done(); }
 });
+
+// ---------------------------------------------------------------- NX-4（決めたこと 83・84・F209・F210）
+const TOG = () => [kid('x'), { id: 't', type: 'toggle', text: 'トグル', open: true, citeState: 'manual', cites: [], children: [kid('t1'), kid('t2')] },
+  { id: 'th', type: 'heading', level: 2, toggle: true, text: 'トグル見出し', open: true, citeState: 'manual', cites: [], children: [kid('h1')] }, kid('z')];
+test('NX-4・F210（X-22・B-25）: トグル・トグル見出しをテキストにしても子は中に残る（block.turnInto・blocks.turnInto）。トグル見出しを見出しにすると子は外へ。どれも oplog の1行・edit.revert の1回で戻る', T, () => withDb((db) => {
+  once(db, 'block.turnInto', { blockId: 't', type: 'paragraph' }, (p) => {
+    assert.deepStrictEqual([find(p, 't').b.type, find(p, 't').b.children.map((b) => b.id), p.blocks.map((b) => b.id)], ['paragraph', ['t1', 't2'], ['x', 't', 'th', 'z']]);
+  });
+  once(db, 'block.turnInto', { blockId: 'th', type: 'paragraph' }, (p) => {
+    assert.deepStrictEqual([find(p, 'th').b.type, find(p, 'th').b.children.map((b) => b.id)], ['paragraph', ['h1']]);
+  });
+  once(db, 'blocks.turnInto', { ids: ['t', 'th'], type: 'paragraph' }, (p) => {
+    assert.deepStrictEqual(p.blocks.map((b) => [b.id, b.type, (b.children || []).map((k) => k.id)]), [['x', 'paragraph', []], ['t', 'paragraph', ['t1', 't2']], ['th', 'paragraph', ['h1']], ['z', 'paragraph', []]]);
+  });
+  once(db, 'block.turnInto', { blockId: 'th', type: 'heading', level: 2 }, (p) => {
+    assert.deepStrictEqual(p.blocks.map((b) => b.id), ['x', 't', 'th', 'h1', 'z'], 'トグル見出しを見出しにしても子が外へ出ない');
+  });
+}, { blocks: TOG() }));
+
+test('NX-4・F209: DB の区切り線の断り（文か子のある行は区切り線にできない）は今のまま（`---` の道が使う）', T, () => withDb((db) => {
+  for (const [cmd, args] of [['block.turnInto', { blockId: 'x', type: 'divider' }], ['block.turnInto', { blockId: 't', type: 'divider' }], ['blocks.turnInto', { ids: ['x', 'z'], type: 'divider' }]]) {
+    const r = call(db, cmd, { pageId: 'pa1', ...args });
+    assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], `${cmd} ${JSON.stringify(args)}`);
+  }
+}, { blocks: TOG() }));

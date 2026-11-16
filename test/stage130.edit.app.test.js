@@ -946,10 +946,9 @@ test('ED-6: Ctrl+/ で今の行のメニュー。↓↓ Enter で「変換」の
     menuKey(l, 'Enter');
     const sub = subOf(l);
     assert.ok(sub, '変換の中が開かない');
-    assert.deepStrictEqual(labelsOf(sub), E.MENU_ROWS.map((r) => r.label));   // （0.13.1 NE-1 で意図して変えた: 写しは MENU_ROWS。トグル見出し1〜3 は型の表の1行 th から作る: 計画 docs/plans/2026-10-27-131.md の NR5）
-    const div = itemsOf(sub).find((x) => x.dataset.key === 'divider');
-    assert.strictEqual(div.getAttribute('aria-disabled'), 'true');
-    assert.strictEqual(div.title, '文のある行は区切り線にできません');
+    // 0.17.0 NX-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 83・84・計画の違いの行 X-21・X-22。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: ［変換 ▸］に区切り線は無い（前は文のある行で灰色）
+    assert.deepStrictEqual(labelsOf(sub), E.MENU_ROWS.filter((r) => r.key !== 'divider').map((r) => r.label));   // （0.13.1 NE-1 で意図して変えた: 写しは MENU_ROWS。トグル見出し1〜3 は型の表の1行 th から作る: 計画 docs/plans/2026-10-27-131.md の NR5）
+    assert.strictEqual(itemsOf(sub).find((x) => x.dataset.key === 'divider'), undefined, '［変換 ▸］に区切り線がある');
     assert.strictEqual(l.document.activeElement, itemsOf(sub)[0]);
     menuKey(l, 'ArrowDown'); menuKey(l, 'ArrowDown');
     assert.strictEqual(l.document.activeElement.dataset.key, 'h2');
@@ -979,7 +978,8 @@ test('ED-6: メニューは ↑↓（回る）・Home・End・Esc（変換の中
     menuKey(l, 'ArrowRight');
     const sub = subOf(l);
     assert.ok(sub);
-    assert.strictEqual(itemsOf(sub).find((x) => x.dataset.key === 'divider').getAttribute('aria-disabled'), null);
+    // 0.17.0 NX-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 83・84・計画の違いの行 X-21・X-22。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 空の行でも［変換 ▸］に区切り線は無い（区切り線は / のメニューと --- で作る）
+    assert.strictEqual(itemsOf(sub).find((x) => x.dataset.key === 'divider'), undefined);
     menuKey(l, 'Escape');
     assert.strictEqual(subOf(l), null);
     assert.strictEqual(l.document.activeElement, it[2]);
