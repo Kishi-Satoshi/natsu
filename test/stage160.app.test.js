@@ -227,9 +227,12 @@ test('DV-1・F144: 表のキー（決めたこと 51）・変換確定の Enter 
     await press(l, editor(l), { key: 'Enter', keyCode: 229 });
     assert.ok(editor(l), '変換確定の Enter で書き手を閉じた');
     assert.deepStrictEqual(l.called('rowSetCell'), [], '変換確定の Enter でセルを決めた');
+    // 0.17.0 NX-5（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 85・86・計画の違いの行 X-24・X-25。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 書いている間の Esc は書いた文字を捨てずに決める。
+    // ここでは値を元に戻してから Esc で閉じる（同じ値は書かない。意図「Esc で書き手を閉じ、そのセルにフォーカス」は残す。Esc で決めるのは test/stage170.notion.app.test.js の NX-5）
+    editor(l).value = 'メモ 0';
     await press(l, editor(l), { key: 'Escape' });
     assert.ok(editor(l) === null, 'editor(l) が残っている');   // DOM を比べの答えに出さない（赤のとき大きな木を文字にしない: R28）
-    assert.strictEqual(cellOf(l, r0, l.c1).textContent, 'メモ 0', 'Esc で戻らない');
+    assert.strictEqual(cellOf(l, r0, l.c1).textContent, 'メモ 0', 'Esc で値が変わった');
     assert.ok(active(l) === cellOf(l, r0, l.c1), 'Esc の後にセルにフォーカスが無い');
     const at = () => { const a = active(l); return a && a.dataset ? [a.parentNode.dataset.id, a.dataset.col, a.getAttribute('aria-selected')] : null; };
     await press(l, active(l), { key: 'ArrowRight' }); assert.deepStrictEqual(at(), [r0, l.c2, 'true']);
@@ -262,10 +265,13 @@ test('DV-1・F144: 表のキー（決めたこと 51）・変換確定の Enter 
     l.fire('onPagesUpdated'); await l.drain(60);
     assert.ok(cellOf(l, r0, l.c1) !== was, '描き直していない（このテストの前提）');
     assert.ok(active(l) === cellOf(l, r0, l.c1), '描き直すとフォーカスが消えた');
-    // Esc で選びをやめる（フォーカスは表）
+    // 0.17.0 NX-5（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 85・86・計画の違いの行 X-24・X-25。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: セルの Esc はその行を選び（チェック）、もう一度で選びをやめる（フォーカスは表）
+    await press(l, active(l), { key: 'Escape' });
+    assert.strictEqual(box(l).querySelectorAll('.dbcell').filter((c) => c.getAttribute('aria-selected') === 'true').length, 0);
+    assert.ok(active(l) === dataRows(l).find((r) => r.dataset.id === r0).querySelector('.dbcheck'), 'セルの Esc の後にその行のチェックへ行かない');
     await press(l, active(l), { key: 'Escape' });
     assert.ok(active(l) === grid(l));
-    assert.strictEqual(box(l).querySelectorAll('.dbcell').filter((c) => c.getAttribute('aria-selected') === 'true').length, 0);
+    assert.strictEqual(dataRows(l).filter((r) => r.querySelector('.dbcheck').checked).length, 0);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -2148,8 +2154,12 @@ test('DV-4・vw-row-props: 行のページの列の値の並び（データベ�
     let inp = $(l, 'pProps').querySelector('.dbedit');
     assert.ok(inp && active(l) === inp, '文字の書き手が出ない');
     assert.deepStrictEqual([inp.value, inp.getAttribute('aria-label')], ['メモ 0', 'メモ']);
+    // 0.17.0 NX-5（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・M28・決めたこと 85・KQ3「表と行のページの文字の欄（おすすめ）」）で意図して変えた:
+    // 行のページの文字の列も Esc で書いた文字を決める（前は捨てた）。意図「Esc の後もフォーカスは値へ戻る」は残す
     inp.value = 'やめた'; await press(l, inp, { key: 'Escape' });
-    assert.deepStrictEqual([l.called('rowSetCell').length, propV(l, 'メモ').textContent], [0, 'メモ 0']);
+    assert.deepStrictEqual([l.called('rowSetCell').map((c) => c.args), propV(l, 'メモ').textContent], [[[l.id, r0, l.c1, 'やめた']], 'やめた']);
+    assert.ok(active(l) === propV(l, 'メモ'), 'Esc の後にフォーカスが値へ戻らない');
+    l.calls.length = 0;   // この後の書く命令の数は前と同じに数える
     await clickEl(l, propV(l, 'メモ'), 60);
     inp = $(l, 'pProps').querySelector('.dbedit');
     inp.value = '書き直した';

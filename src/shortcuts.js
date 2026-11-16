@@ -69,11 +69,11 @@ const SHORTCUTS = Object.freeze([
   { keys: 'Ctrl+Shift+R', what: 'ページの名前を変える', where: 'サイドバーのページの一覧（ライブラリの行でも）', codes: [] },
   // 0.16.0 DV-1 のデータベースの表（決めたこと 51）
   { keys: '↑・↓・←・→', what: 'セルを移る', where: 'データベースの表のセルを選んでいるとき', codes: [] },
-  { keys: 'Tab・Shift+Tab', what: '右・左のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Tab・Shift+Tab', what: '右・左のセルへ（行の末・頭では次・前の行へ。書いている間も）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Home・End', what: '行の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Home・Ctrl+End', what: '表の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Enter', what: 'セルを書く（書いている間は Enter で決める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
-  { keys: 'Esc', what: 'セルの選びをやめる（書いている間は、書いた文字を捨てる）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+  { keys: 'Esc', what: 'その行を選ぶ（もう一度押すと選びをやめる。書いている間は、書いた文字を決めてセルを選ぶ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Delete・Backspace', what: '選んだセルを空にする（書けるセルだけ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+C', what: '選んだセルの値を写す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
   { keys: 'Ctrl+V・Ctrl+Shift+V', what: '選んだセルに貼る（何行何列かは右下へ埋める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },

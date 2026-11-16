@@ -346,3 +346,262 @@ test('NX-4・F210: 画面のメモの欄の写し（memoDocView）の turnMovesK
     ['blocks.turnInto', { ids: ['m1', 'm3'], type: 'paragraph' }], ['block.turnInto', { blockId: 'm1', type: 'bullet' }]]) sameMemo(app, doc, cmd, args);
   assert.deepStrictEqual(app.memoEdit(doc, 'block.turnInto', { blockId: 'm1', type: 'paragraph' }, { next: 40 }).doc[0].children.map((b) => b.id), ['m2'], '写しのトグルの子が外へ出る');
 });
+
+// ---------------------------------------------------------------- NX-5（決めたこと 85〜87・F211〜F213・計画の違いの行 X-24〜X-26・X-32・X-33・V-T42〜V-T44・R-27）
+// データベースの題名・列の名前・行の題名は作った物（会議の題名でない: D77 の外）
+async function openTable() {
+  const l = await realApp({ before: (call) => {
+    const id = call('db.create', {}).id;
+    const c1 = call('col.add', { db: id, type: 'text', name: 'メモ' }).col.id;
+    const c2 = call('col.add', { db: id, type: 'number', name: '金額' }).col.id;
+    const c3 = call('col.add', { db: id, type: 'date', name: '期日' }).col.id;
+    const c4 = call('col.add', { db: id, type: 'select', name: '優先度' }).col.id;
+    const rows = ['見積もり', '発注', '検収'].map((ti, i) => call('row.add', { db: id, title: ti, cells: { [c1]: `メモ ${i}`, [c2]: (i + 1) * 100, [c3]: { start: `2026-11-0${i + 1}` } } }).id);
+    return { id, c1, c2, c3, c4, rows };
+  } });
+  l.fire('onPageOpen', l.made.id); await l.drain(120);
+  return l;
+}
+const tbox = (l) => $(l, 'pDb');
+const tgrid = (l) => tbox(l).querySelector('.dbgrid');
+const trows = (l) => tbox(l).querySelectorAll('.dbrow').filter((r) => r.dataset.id);
+const cellAt = (l, rowId, col) => trows(l).find((r) => r.dataset.id === rowId).querySelectorAll('.dbcell').find((c) => c.dataset.col === col);
+const checkOf = (l, rowId) => trows(l).find((r) => r.dataset.id === rowId).querySelector('.dbcheck');
+const editorOf = (l) => tbox(l).querySelector('.dbedit');
+const pickerOf = (l) => tbox(l).querySelector('.dbpick');
+const act = (l) => l.document.activeElement;
+const k = async (l, el, o) => { const ev = l.key(o, el); await l.drain(80); return ev; };
+const click = async (l, el, n = 80) => { el.dispatchEvent({ type: 'click' }); await l.drain(n); };
+const cellsOf = (l, id) => l.call('db.view', { id: l.made.id, viewId: 'v1', from: 0, count: 50 }).rows.find((r) => r.id === id).cells;
+const oplogN = (l) => l.db.prepare('select count(*) as c from oplog').get().c;
+const at = (l) => { const a = act(l); return a && a.dataset && a.dataset.col ? [a.parentNode.dataset.id, a.dataset.col] : null; };
+const bar = (l) => tbox(l).querySelector('.dbselcount');
+const checked = (l) => trows(l).filter((r) => r.querySelector('.dbcheck').checked).map((r) => r.dataset.id);
+
+test('NX-5・F211（X-24・S7）: 書いている間の Esc は rowSetCell の1回で書いた文字を決め、そのセルを選んだ形（最後の行の題名でも行を足さない）。同じ値は書かない・読めない数は一言で前の値・変換中の Esc は何もしない・blur でもう一度書かない', T, async () => {
+  const l = await openTable();
+  try {
+    const { id, c1, c2, rows: [r0,, r2] } = l.made;
+    await click(l, cellAt(l, r0, c1));
+    editorOf(l).value = 'かな';
+    await k(l, editorOf(l), { key: 'Escape', isComposing: true });
+    assert.ok(editorOf(l), '変換中の Esc で書き手を閉じた');
+    assert.deepStrictEqual(l.called('rowSetCell'), [], '変換中の Esc で書いた');
+    editorOf(l).value = '直した';
+    const n0 = oplogN(l);
+    const inp = editorOf(l);
+    await k(l, inp, { key: 'Escape' });
+    inp.dispatchEvent({ type: 'blur' }); await l.drain(40);
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args), [[id, r0, c1, '直した']], 'Esc で書いた文字を決めない（一度だけ）');
+    assert.strictEqual(oplogN(l), n0 + 1, 'Esc の後の blur で二度書いた');
+    assert.strictEqual(cellsOf(l, r0)[c1], '直した');
+    assert.ok(editorOf(l) === null, '書き手が残った');
+    assert.deepStrictEqual(at(l), [r0, c1], 'Esc の後にそのセルを選んだ形でない');
+    // 同じ値は書かない
+    await k(l, act(l), { key: 'Enter' });
+    await k(l, editorOf(l), { key: 'Escape' });
+    assert.strictEqual(l.called('rowSetCell').length, 1, '同じ値を書いた');
+    // 読めない数は一言で前の値のまま
+    await click(l, cellAt(l, r0, c2));
+    editorOf(l).value = '百';
+    await k(l, editorOf(l), { key: 'Escape' });
+    assert.strictEqual(l.called('rowSetCell').length, 1, '読めない数を書いた');
+    assert.strictEqual($(l, 'toast').textContent, 'この列の値として読めませんでした。');
+    assert.strictEqual(cellsOf(l, r0)[c2], 100);
+    // 最後の行の題名の Esc は行を足さない
+    await click(l, cellAt(l, r2, 'title'));
+    editorOf(l).value = '検収した';
+    await k(l, editorOf(l), { key: 'Escape' });
+    assert.deepStrictEqual([l.called('rowAdd').length, cellsOf(l, r2) && l.call('db.view', { id, viewId: 'v1', from: 0, count: 50 }).rows.length], [0, 3], '最後の行の題名の Esc で行を足した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-5・F211（KQ3・S7・V-T42）: 行のページの文字の列も、書いている間の Esc で書いた文字を決める（rowSetCell の1回・フォーカスは値へ戻る）', T, async () => {
+  const l = await openTable();
+  try {
+    const { id, c1, rows: [r0] } = l.made;
+    l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
+    const propV = (name) => $(l, 'pProps').querySelectorAll('.dbprop').find((p) => p.querySelector('.k').textContent === name).querySelector('.dbpropv');
+    await click(l, propV('メモ'));
+    const inp = $(l, 'pProps').querySelector('.dbedit');
+    inp.value = '行で直した';
+    await k(l, inp, { key: 'Escape' });
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args), [[id, r0, c1, '行で直した']], '行のページの Esc で書いた文字を決めない');
+    assert.strictEqual(propV('メモ').textContent, '行で直した');
+    assert.ok(act(l) === propV('メモ'), 'Esc の後にフォーカスが値へ戻らない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-5・F211（OQ2「Notion と同じく打った日付を入れる（おすすめ）」・S10・X-33・R-27）: 暦の Esc は、読める日付が前と違えば rowSetCell の1回で書く。同じ・空・読めなければ書かずに前の値のまま', T, async () => {
+  const l = await openTable();
+  try {
+    const { id, c3, rows: [r0, r1] } = l.made;
+    const by = (label) => pickerOf(l).querySelectorAll('input').find((i) => i.getAttribute('aria-label') === label);
+    await click(l, cellAt(l, r0, c3));
+    by('期日').value = '2026-11-20';
+    await k(l, by('期日'), { key: 'Escape' });
+    assert.ok(pickerOf(l) === null, '暦が閉じない');
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args), [[id, r0, c3, { start: '2026-11-20' }]], '暦の Esc で打った日付を決めない');
+    assert.deepStrictEqual(cellsOf(l, r0)[c3], { start: '2026-11-20' });
+    // 同じ値・空の欄は書かない（Esc で値を消さない）
+    await click(l, cellAt(l, r1, c3));
+    await k(l, by('期日'), { key: 'Escape' });
+    await click(l, cellAt(l, r1, c3));
+    by('期日').value = '';
+    await k(l, by('期日'), { key: 'Escape' });
+    assert.strictEqual(l.called('rowSetCell').length, 1, '同じ値か空の欄の Esc で書いた');
+    assert.deepStrictEqual(cellsOf(l, r1)[c3], { start: '2026-11-02' }, 'Esc で日付が消えた');
+    // 読めない（終わりが始まりより前）は書かない
+    await click(l, cellAt(l, r1, c3));
+    const [endBox] = pickerOf(l).querySelectorAll('.dbdatecheck input');
+    endBox.checked = true; endBox.dispatchEvent({ type: 'change' });
+    by('終わりの日').value = '2026-10-01';
+    await k(l, by('期日'), { key: 'Escape' });
+    assert.strictEqual(l.called('rowSetCell').length, 1, '読めない日付を書いた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-5・F212（X-25・S11・V-T44）: セルの Esc はその行だけにチェック（帯「1 行を選んでいます」・フォーカスはその行のチェック）、もう一度でチェックを全部外しフォーカスは表。別の行のセルを押すとチェックが外れる', T, async () => {
+  const l = await openTable();
+  try {
+    const { c1, rows: [r0, r1, r2] } = l.made;
+    // チェックを2つ入れてから別の行のセルを押す → チェックが外れ、帯が消える（S11）
+    for (const r of [r0, r1]) { const ck = checkOf(l, r); ck.checked = true; ck.onchange(); }
+    await l.drain(20);
+    assert.strictEqual(bar(l).textContent, '2 行を選んでいます');
+    await click(l, cellAt(l, r2, c1));
+    assert.deepStrictEqual(checked(l), [], '別の行のセルを押してもチェックが残った');
+    assert.ok(!bar(l) || tbox(l).querySelector('.dbselbar, .dbbar') === null || bar(l).parentNode.hidden, '帯が残った');
+    // 書いている → セル → その行 → 何も選ばない
+    editorOf(l).value = 'メモ 2';
+    await k(l, editorOf(l), { key: 'Escape' });
+    assert.deepStrictEqual(at(l), [r2, c1]);
+    await k(l, act(l), { key: 'Escape' });
+    assert.deepStrictEqual(checked(l), [r2], 'セルの Esc でその行にチェックが入らない');
+    assert.strictEqual(bar(l).textContent, '1 行を選んでいます');
+    assert.ok(act(l) === checkOf(l, r2), 'セルの Esc の後のフォーカスがその行のチェックでない');
+    assert.strictEqual(tbox(l).querySelectorAll('.dbcell').filter((c) => c.getAttribute('aria-selected') === 'true').length, 0, 'セルの選びが残った');
+    await k(l, act(l), { key: 'Escape' });
+    assert.deepStrictEqual(checked(l), [], '行を選んでいるときの Esc でチェックが残った');
+    assert.ok(act(l) === tgrid(l), 'チェックを外した後のフォーカスが表でない');
+    // キーボードでセルへ移ってチェックが残っているときのセルの Esc は、その行だけ（U8）
+    for (const r of [r0, r1]) { const ck = checkOf(l, r); ck.checked = true; ck.onchange(); }
+    await k(l, tgrid(l), { key: 'ArrowDown' });
+    assert.deepStrictEqual(checked(l), [r0, r1], 'キーボードでセルへ移るとチェックが外れた');
+    await k(l, act(l), { key: 'Escape' });
+    assert.deepStrictEqual(checked(l), [r0], 'セルの Esc がその行だけにしない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-5・F213（X-26・X-32・S9・V-T43・OQ1「今のまま表の外へ（おすすめ）」）: 書いている間の Tab は書いた文字を決めて、行の末では次の行の頭のセル・Shift+Tab は行の頭で前の行の末へ。選びの窓の Tab も同じ。表のいちばん頭では決めてそのセル。選んでいるときの表の末の Tab は今のまま表の外へ', T, async () => {
+  const l = await openTable();
+  try {
+    const { c2, c3, c4, rows: [r0, r1, r2] } = l.made;
+    // 書いている間の Tab（行の途中）は右のセル
+    await click(l, cellAt(l, r0, c2));
+    editorOf(l).value = '150';
+    await k(l, editorOf(l), { key: 'Tab' });
+    assert.deepStrictEqual(at(l), [r0, c3]);
+    // 行の末（優先度の選びの窓）の Tab → 次の行の頭
+    await click(l, cellAt(l, r0, c4));
+    assert.ok(pickerOf(l), '前提: 選びの窓が出ない');
+    await k(l, act(l), { key: 'Tab' });
+    assert.deepStrictEqual(at(l), [r1, 'title'], '選びの窓の行の末の Tab が次の行の頭へ行かない');
+    // 書いている間の行の頭の Shift+Tab → 前の行の末
+    await k(l, act(l), { key: 'Enter' });
+    editorOf(l).value = '発注した';
+    await k(l, editorOf(l), { key: 'Tab', shiftKey: true });
+    assert.deepStrictEqual(at(l), [r0, c4], '書いている間の行の頭の Shift+Tab が前の行の末へ行かない');
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args.slice(1, 4)), [[r0, c2, 150], [r1, 'title', '発注した']], '移る前に書いた文字を決めない');
+    // 書いている間の行の途中の Shift+Tab は左のセル（今のまま）
+    await click(l, cellAt(l, r1, c2));
+    editorOf(l).value = '250';
+    await k(l, editorOf(l), { key: 'Tab', shiftKey: true });
+    assert.deepStrictEqual(at(l), [r1, l.made.c1]);
+    // 表のいちばん頭のセル: 書いている間の Shift+Tab は決めてそのセル
+    await click(l, cellAt(l, r0, 'title'));
+    editorOf(l).value = '見積もりした';
+    await k(l, editorOf(l), { key: 'Tab', shiftKey: true });
+    assert.deepStrictEqual(at(l), [r0, 'title'], '表のいちばん頭のセルの Shift+Tab がそのセルにとどまらない');
+    assert.strictEqual(l.called('rowSetCell').at(-1).args[3], '見積もりした');
+    // 選んでいるときの表の末の Tab は今のまま（既定を止めない: 表の外の次の部品へ）
+    await k(l, act(l), { key: 'End', ctrlKey: true });
+    assert.deepStrictEqual(at(l), [r2, c4]);
+    const ev = await k(l, act(l), { key: 'Tab' });
+    assert.strictEqual(ev.defaultPrevented, false, '選んでいるときの表の末の Tab を止めた（OQ1 の (a) は今のまま）');
+    assert.strictEqual(l.called('rowAdd').length, 0);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-5・F213（S9）: 表のいちばん末のセルで書いている間の Tab は、書いた文字を決めてそのセルを選んだ形（行は増えない）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const id = call('db.create', {}).id;
+    const c1 = call('col.add', { db: id, type: 'text', name: 'メモ' }).col.id;
+    const rows = ['見積もり', '発注'].map((ti) => call('row.add', { db: id, title: ti }).id);
+    return { id, c1, rows };
+  } });
+  try {
+    l.fire('onPageOpen', l.made.id); await l.drain(120);
+    const { id, c1, rows: [, r1] } = l.made;
+    await click(l, cellAt(l, r1, c1));
+    editorOf(l).value = '末';
+    await k(l, editorOf(l), { key: 'Tab' });
+    assert.deepStrictEqual(at(l), [r1, c1], '表のいちばん末のセルの書いている間の Tab がそのセルにとどまらない');
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args), [[id, r1, c1, '末']]);
+    assert.strictEqual(l.called('rowAdd').length, 0, '行を足した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('NX-5・F214（KQ5・OQ8）: 近道の表の表の Esc・Tab の行は承認の字（src/shortcuts.js・設定の表・settings/hotkeys.md・find/database.md）', () => {
+  const S = require('../src/shortcuts.js');
+  const W = 'データベースの表のセルを選んでいるとき';
+  const what = (keys) => S.SHORTCUTS.filter((r) => r.keys === keys && r.where === W).map((r) => r.what);
+  assert.deepStrictEqual(what('Esc'), ['その行を選ぶ（もう一度押すと選びをやめる。書いている間は、書いた文字を決めてセルを選ぶ）']);
+  assert.deepStrictEqual(what('Tab・Shift+Tab'), ['右・左のセルへ（行の末・頭では次・前の行へ。書いている間も）']);
+  for (const f of ['settings/hotkeys.md', 'find/database.md']) {
+    const t = fs.readFileSync(path.join(__dirname, '..', 'help', 'articles', f), 'utf8');
+    assert.ok(t.includes('| [[Esc]] | その行を選ぶ（もう一度押すと選びをやめる。書いている間は、書いた文字を決めてセルを選ぶ） |') && t.includes('| [[Tab]]・[[Shift+Tab]] | 右・左のセルへ（行の末・頭では次・前の行へ。書いている間も） |'), `${f} の表が承認の字でない`);
+    assert.ok(!t.includes('書いた文字を捨てる'), `${f} に前の字が残る`);
+  }
+});
+
+test('NX-5・F211・F212・F213: 本文のインラインの表も同じ部品（書いている間の Esc で決める・セル → 行 → 選びなし・行の末の Tab で次の行の頭）', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const P = call('page.create', {}).id;
+    call('page.setTitle', { id: P, title: 'まとめの頁' });   // 白紙のページの題名（D77 の会議の題名でない）
+    const t1 = call('block.insert', { pageId: P, afterBlockId: '', type: 'paragraph' }).blockId;
+    const D = call('db.create', { parentId: P, inline: t1 }).id;
+    const c1 = call('col.add', { db: D, type: 'text', name: 'メモ' }).col.id;
+    const rows = ['見積もり', '発注'].map((ti) => call('row.add', { db: D, title: ti }).id);
+    return { P, t1, D, c1, rows };
+  } });
+  try {
+    const { P, D, c1, rows: [r0, r1] } = l.made;
+    l.fire('onPageOpen', P); await l.drain(300);
+    const host = $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === l.made.t1).querySelector('.dbhost');
+    assert.ok(host, '前提: インラインの表が無い');
+    const rowsIn = () => host.querySelectorAll('.dbrow').filter((r) => r.dataset.id);
+    const cell = (rowId, col) => rowsIn().find((r) => r.dataset.id === rowId).querySelectorAll('.dbcell').find((c) => c.dataset.col === col);
+    await click(l, cell(r0, c1));
+    host.querySelector('.dbedit').value = 'インライン';
+    await k(l, host.querySelector('.dbedit'), { key: 'Tab' });
+    assert.deepStrictEqual(l.called('rowSetCell').map((c) => c.args), [[D, r0, c1, 'インライン']]);
+    assert.ok(act(l) === cell(r1, 'title'), 'インラインの表で行の末の Tab が次の行の頭へ行かない');
+    await k(l, act(l), { key: 'Enter' });
+    host.querySelector('.dbedit').value = '発注した';
+    await k(l, host.querySelector('.dbedit'), { key: 'Escape' });
+    assert.deepStrictEqual(l.called('rowSetCell').at(-1).args, [D, r1, 'title', '発注した'], 'インラインの表で Esc が書いた文字を決めない');
+    assert.ok(act(l) === cell(r1, 'title'));
+    await k(l, act(l), { key: 'Escape' });
+    assert.deepStrictEqual(rowsIn().filter((r) => r.querySelector('.dbcheck').checked).map((r) => r.dataset.id), [r1], 'インラインの表のセルの Esc でその行を選ばない');
+    await k(l, act(l), { key: 'Escape' });
+    assert.deepStrictEqual(rowsIn().filter((r) => r.querySelector('.dbcheck').checked).length, 0);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

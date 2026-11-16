@@ -1,7 +1,7 @@
 ---
 title: データベース（表とリスト）
 description: 行と列でまとめるデータベース。作り方・表とリスト・ビュー（並べ替え・絞り込み・グループ）・列の種類・消した列・リレーション・サブアイテム・インラインの表とリンクドビュー・行のページ・表のキー・上限
-updated: 2026-11-15
+updated: 2026-11-16
 sources: src/renderer/app.html, src/db/commands.js, src/dbModel.js, src/dbView.js, src/db/validate.js, src/shortcuts.js
 related: find/page-tree, find/delete-and-backups, settings/hotkeys
 ---
@@ -146,11 +146,11 @@ related: find/page-tree, find/delete-and-backups, settings/hotkeys
 | キー | 動き |
 | --- | --- |
 | [[↑]]・[[↓]]・[[←]]・[[→]] | セルを移る |
-| [[Tab]]・[[Shift+Tab]] | 右・左のセルへ |
+| [[Tab]]・[[Shift+Tab]] | 右・左のセルへ（行の末・頭では次・前の行へ。書いている間も） |
 | [[Home]]・[[End]] | 行の頭・末のセルへ |
 | [[Ctrl+Home]]・[[Ctrl+End]] | 表の頭・末のセルへ |
 | [[Enter]] | セルを書く（書いている間は Enter で決める） |
-| [[Esc]] | セルの選びをやめる（書いている間は、書いた文字を捨てる） |
+| [[Esc]] | その行を選ぶ（もう一度押すと選びをやめる。書いている間は、書いた文字を決めてセルを選ぶ） |
 | [[Delete]]・[[Backspace]] | 選んだセルを空にする（書けるセルだけ） |
 | [[Ctrl+C]] | 選んだセルの値を写す |
 | [[Ctrl+V]]・[[Ctrl+Shift+V]] | 選んだセルに貼る（何行何列かは右下へ埋める） |

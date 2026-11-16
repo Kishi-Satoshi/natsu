@@ -2267,11 +2267,11 @@
     { keys: 'Ctrl+Shift+R', what: 'ページの名前を変える', where: 'サイドバーのページの一覧（ライブラリの行でも）', codes: [] },
     // 0.16.0 DV-1 のデータベースの表（決めたこと 51）
     { keys: '↑・↓・←・→', what: 'セルを移る', where: 'データベースの表のセルを選んでいるとき', codes: [] },
-    { keys: 'Tab・Shift+Tab', what: '右・左のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Tab・Shift+Tab', what: '右・左のセルへ（行の末・頭では次・前の行へ。書いている間も）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Home・End', what: '行の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Ctrl+Home・Ctrl+End', what: '表の頭・末のセルへ', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Enter', what: 'セルを書く（書いている間は Enter で決める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
-    { keys: 'Esc', what: 'セルの選びをやめる（書いている間は、書いた文字を捨てる）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
+    { keys: 'Esc', what: 'その行を選ぶ（もう一度押すと選びをやめる。書いている間は、書いた文字を決めてセルを選ぶ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Delete・Backspace', what: '選んだセルを空にする（書けるセルだけ）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Ctrl+C', what: '選んだセルの値を写す', where: 'データベースの表のセルを選んでいるとき', codes: [] },
     { keys: 'Ctrl+V・Ctrl+Shift+V', what: '選んだセルに貼る（何行何列かは右下へ埋める）', where: 'データベースの表のセルを選んでいるとき', codes: [] },
@@ -11990,6 +11990,7 @@
     ck.checked = st.checked.has(row.id);
     ck.setAttribute('aria-label', dbRowName(row));
     ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = dbAllOn(st); };
+    ck.onkeydown = (ev) => dbEscChecks(ev, st);   // 0.17.0 NX-5（決めたこと 86）: 行の頭のチェックの Esc
     lead.append(grip, ck);
     if (list) { const ic = iconEl(pageIconValue({ kind: 'row' }), ICON_ROW); ic.classList.add('dbicon'); lead.appendChild(ic); }   // 0.17.0 IV-1（決めたこと 21）: 行のページの既定（書類）
     el.appendChild(lead);
@@ -12267,9 +12268,33 @@
     const st = dbSt;
     if (!st || (st.editing && st.editing.row === rowId && st.editing.col === colId)) return;
     dbEditEnd(true);
+    if (st.checked.size) { st.checked = new Set(); dbPaintChecks(st); }   // 0.17.0 NX-5（決めたこと 86・計画の違いの行 X-25・V-T44）: セルを押すと行のチェックを全部外す
     dbSelect(rowId, colId);
     const col = st.info.cols.find((c) => c.id === colId);
     dbOpenWriter(rowId, colId);   // セルを押すと書き手（決めたこと 25。書けない種類は選ぶだけ。0.16.0 DV-2: 種類ごとの書き手・チェックは切り替え）
+  }
+  // 0.17.0 NX-5（決めたこと 86）: 行の頭のチェック・帯・全部のチェックを st.checked に合わせて描く
+  function dbPaintChecks(st) {
+    for (const ck of st.parts.body.querySelectorAll('.dbcheck')) ck.checked = st.checked.has(ck.parentNode.parentNode.dataset.id);
+    st.parts.all.checked = dbAllOn(st);
+    dbPaintBar(st);
+  }
+  // 0.17.0 NX-5（決めたこと 86・計画の違いの行 X-25・V-T44）: 選んだセルの Esc は、その行だけにチェックを入れた形（帯「1 行を選んでいます」）にし、
+  // セルの選びは外し、フォーカスはその行の頭のチェックへ（キーボードでセルへ移ってチェックが残っていても、その行だけに替える: U8）
+  function dbEscRow(st, rowId) {
+    st.checked = new Set([rowId]);
+    dbPaintChecks(st);
+    dbSelect(null);
+    for (const el of st.parts.body.querySelectorAll('.dbrow')) if (el.dataset.id === rowId) { const ck = el.querySelector('.dbcheck'); if (ck) ck.focus(); }
+  }
+  // 0.17.0 NX-5（決めたこと 86・計画の違いの行 X-25）: 行にチェックがあるとき（フォーカスが行の頭のチェック・表の上）の Esc は、チェックを全部外し、フォーカスは表
+  function dbEscChecks(ev, st = dbSt) {
+    if (!st || ev.key !== 'Escape' || !st.checked.size || imeEnter(ev)) return;
+    ev.preventDefault();
+    st.checked = new Set();
+    dbPaintChecks(st);
+    st.parts.grid.tabIndex = 0;
+    st.parts.grid.focus();
   }
   // 選んだセルのキー（決めたこと 51）
   function dbCellKey(ev, rowId, colId) {
@@ -12301,7 +12326,7 @@
     }
     if (k === 'Home') return ctrl ? go(0, 0) : go(ri, 0);
     if (k === 'End') return ctrl ? go(st.shown - 1, cols.length - 1) : go(ri, cols.length - 1);
-    if (k === 'Escape') { ev.preventDefault(); dbSelect(null); return; }
+    if (k === 'Escape') { ev.preventDefault(); dbEscRow(st, rowId); return; }   // 0.17.0 NX-5（決めたこと 86）: セル → その行 → 何も選ばない
     // 0.16.0 DV-4（決めたこと 51・R49・R90）: Space で行のページ（今のタブ）・Shift+F10 と ContextMenu で行のメニュー
     if (k === ' ' && !ctrl && !ev.altKey && !ev.shiftKey) { ev.preventDefault(); ev.stopPropagation(); dbOpenRow(rowId, false); return; }
     if ((k === 'F10' && ev.shiftKey && !ctrl && !ev.altKey) || k === 'ContextMenu') { ev.preventDefault(); ev.stopPropagation(); dbRowMenu(rowId, dbCellEl(rowId, colId)); return; }
@@ -12319,6 +12344,7 @@
   function dbGridKey(ev) {
     const st = dbSt;
     if (!st || ev.target !== st.parts.grid || imeEnter(ev)) return;
+    if (ev.key === 'Escape' && st.checked.size) { dbEscChecks(ev, st); return; }   // 0.17.0 NX-5（決めたこと 86）: 表の上の Esc
     const dir = undoKey(ev);
     if (dir) { ev.preventDefault(); dbUndo(dir); return; }
     if (ev.key === 'ArrowDown' || ev.key === 'Enter') { ev.preventDefault(); const c = dbColsOf(st)[0]; if (c) dbSelectAt(0, c.col.id); }
@@ -12364,7 +12390,8 @@
     inp.onkeydown = (ev) => {
       if (imeEnter(ev)) return;
       if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, 'enter'); return; }
-      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(false, 'stay'); return; }
+      // 0.17.0 NX-5（決めたこと 85・計画の違いの行 X-24）: Esc も Enter と同じく書いた文字を決めて、そのセルを選んだ形に戻る（行は足さない）
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, 'stay'); return; }
       if (ev.key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); ev.stopPropagation(); dbEditEnd(true, ev.shiftKey ? 'left' : 'right'); }   // DV-1 直し（rv44 F8）
     };
     inp.onblur = () => { if (dbUse(st) && st.editing && st.editing.inp === inp) dbEditEnd(true); };
@@ -12393,10 +12420,19 @@
     if (!dbUse(st)) return;
     if (!st.editing && st.dirty) { st.dirty = false; dbPaintRows(); }   // DV-1 直し（rv44 F2）: ほかのセルを書いている間は描き直しを待たせたまま（その書き手を閉じるときに描く）
     if (then === 'enter' && ed.col === 'title' && last) { await dbAddRow(ed.row); return; }   // 最後の行の題名で Enter: 次の行（決めたこと 24）
+    if (then) await dbEditMove(st, ed, then);
+  }
+  // 0.17.0 NX-5（決めたこと 87・計画の違いの行 X-26・V-T43）: 書き手（と選びの窓・暦）を閉じた後に選ぶセル。Tab（'right'）・Shift+Tab（'left'）は、
+  // 行の末・頭では次・前の行の頭・末のセルへ。表のいちばん末・頭のセルでは、そのセルを選んだ形（行は足さない）。ほかはそのセル
+  async function dbEditMove(st, ed, then) {
+    const cols = dbColsOf(st).map((c) => c.col.id);
     const ci = cols.indexOf(ed.col);
-    if (then === 'right' && ci < cols.length - 1) { dbSelect(ed.row, cols[ci + 1]); return; }
+    const ri = dbIndexOf(st, ed.row);
+    if (then === 'right' && ci >= 0 && ci < cols.length - 1) { dbSelect(ed.row, cols[ci + 1]); return; }
     if (then === 'left' && ci > 0) { dbSelect(ed.row, cols[ci - 1]); return; }
-    if (then) dbSelect(ed.row, ed.col);
+    if (then === 'right' && ci === cols.length - 1 && ri >= 0 && ri < st.shown - 1) { await dbSelectAt(ri + 1, cols[0]); return; }
+    if (then === 'left' && ci === 0 && ri > 0) { await dbSelectAt(ri - 1, cols[cols.length - 1]); return; }
+    dbSelect(ed.row, ed.col);
   }
   // ［＋ 新しい行］と最後の行の題名の Enter: 行を1つ足し（絞り込みの値を入れる: 決めたこと 24・R35）、その題名のセルを書く
   // 0.16.0 DV-3（決めたこと 24）: グループの［＋］は、そのグループの値（extra の cells・title）も入れる
@@ -12773,7 +12809,7 @@
       inp.onkeydown = (ev) => {
         if (imeEnter(ev)) return;
         if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); rpEditEnd(st, true); return; }
-        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); rpEditEnd(st, false); }
+        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); rpEditEnd(st, true); }   // 0.17.0 NX-5（決めたこと 85・KQ3・計画の違いの行 V-T42）: Esc も書いた文字を決める
       };
       inp.onblur = () => { if (st.editing === ed) rpEditEnd(st, true); };
       inp.focus();
@@ -14111,11 +14147,7 @@
     if (!dbUse(st)) return;
     if (st.dirty && !st.editing) { st.dirty = false; dbPaintRows(); }
     if (!then) return;
-    const cols = dbColsOf(st).map((c) => c.col.id);
-    const ci = cols.indexOf(ed.col);
-    if (then === 'right' && ci >= 0 && ci < cols.length - 1) { dbSelect(ed.row, cols[ci + 1]); return; }   // DV-2 直し（rv46 M1）: 選びの窓の Tab
-    if (then === 'left' && ci > 0) { dbSelect(ed.row, cols[ci - 1]); return; }
-    dbSelect(ed.row, ed.col);
+    await dbEditMove(st, ed, then);   // DV-2 直し（rv46 M1）: 選びの窓の Tab。0.17.0 NX-5: 行の末・頭では次・前の行へ（書き手と同じ）
   }
   // ［列の値を変える ▸］の、選択肢・ユーザー・日付・チェックの書き手（選んだ全部の行に rows.setCell の1回ずつ）
   function dbSetValueWriter(st, m, col) {
@@ -14320,7 +14352,16 @@
     if (ed) ed.commit = commit;
     const onKey = async (ev) => {
       if (imeEnter(ev)) return;
-      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close('stay'); return; }
+      // 0.17.0 NX-5（決めたこと 85・OQ2 の答え (a)・計画の違いの行 X-33）: Esc でも、読める日付が前と違えば書く。
+      // 始まりの日の欄が空・読めなければ書かずに前の値のまま閉じる（Esc で値を消さない・一言も出さない）
+      if (ev.key === 'Escape') {
+        ev.preventDefault(); ev.stopPropagation();
+        const { ok, next } = check();
+        if (ed) ed.commit = null;   // 閉じるときにもう一度書かない
+        close('stay');
+        if (ok && next && JSON.stringify(next) !== JSON.stringify(sameDay(value))) await write(next);
+        return;
+      }
       if (ev.key !== 'Enter') return;
       ev.preventDefault(); ev.stopPropagation();
       if (!check().ok) { toast(DB_UNREAD); return; }
