@@ -1496,8 +1496,8 @@ test('0.17.0 Task G: 設計書の版の表の 0.17.0 の欄・節「利用者が
   for (const k of ['N-27', 'V-T37', 'V-T38', 'X-14', 'X-15', 'CP', 'CD', 'DT', '22']) nrow(k);
   assert.ok(nrow('A-02').includes('（2026-11-14 の画面: SC-03。0.17.0 の形: 設計書 D140・D142）') && nrow('N-26').includes('SC-04') && nrow('N-25').includes('SC-07'), 'notion-behavior の A-02・N-25・N-26 に画面の動きの書き添えが無い');
   // 0.17.0 Task NB-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 93・94）で意図して直した: 第5部で実機（OB・OB2）の 29 項目と
-  // X-16〜X-34 を足したので、数の字を今の数にした（意図「項目の数が行と合う」は NB-1 の数えるテストが行を数えて引き継ぐ）
-  assert.ok(nb.includes('N 30・Q-S 12・A 10・V-T 44・R 27・J 25 で、**計 313 項目**') && nb.includes('SC 8 件') && nb.includes('X 34 件'), 'notion-behavior の項目の数が合わない');
+  // X-16〜X-34 を足し、NB-5 で X-35〜X-38 を足したので、数の字を今の数にした（意図「項目の数が行と合う」は NB-1 の数えるテストが行を数えて引き継ぐ）
+  assert.ok(nb.includes('N 30・Q-S 12・A 10・V-T 44・R 27・J 25 で、**計 313 項目**') && nb.includes('SC 8 件') && nb.includes('X 38 件'), 'notion-behavior の項目の数が合わない');
   // 計画: R83・今の状態
   assert.strictEqual(plan.split('\n').filter((l) => l.startsWith('- **R83（')).length, 1, '計画に R83 が1つでない');
   assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-15）: Task G の前半まで済んだ（R83）。'), '計画の頭の今の状態が Task G の前半でない');
@@ -1541,11 +1541,16 @@ test('0.17.0 Task NB-1・F215: 足した項目（OB の 16 項目がちょうど
   assert.deepStrictEqual(k25[k25.length - 2].split(', '), ['KB', 'OB'], 'K-25 の出典に OB が無い');
 });
 
-test('0.17.0 Task NB-1・F215: 違いの行（20章の X が X-01〜X-34 で、X-16〜X-30 は D1〜D15 と NQ1 の答え）', { timeout: 5000 }, () => {
+test('0.17.0 Task NB-1・F215: 違いの行（20章の X が X-01〜X-38 で、X-16〜X-30 は D1〜D15 と NQ1 の答え。NB-5 の X-35〜X-38 はまだ比べていなかった動きで、持ち主に問う）', { timeout: 5000 }, () => {
   const nb = nbDoc();
   const c20 = nb.slice(nb.indexOf('\n## 20. '), nb.indexOf('\n## 21. '));
   const xs = [...c20.matchAll(/^\| (X-\d+) \|/gm)].map((m) => m[1]);
-  assert.deepStrictEqual(xs, Array.from({ length: 34 }, (_, i) => `X-${String(i + 1).padStart(2, '0')}`), '20章の X の行が X-01〜X-34 でない');
+  // 0.17.0 Task NB-5 で X-35〜X-38 を足した（まだ比べていなかった Q-04・Q-05・Q-09・Q-17。Q-15 は同じだったので足さない）
+  assert.deepStrictEqual(xs, Array.from({ length: 38 }, (_, i) => `X-${String(i + 1).padStart(2, '0')}`), '20章の X の行が X-01〜X-38 でない');
+  for (const [id, q, code] of [['X-35', 'Q-04', '`TYPE_PAUSE_MS`'], ['X-36', 'Q-05', '`fromPlain`'], ['X-37', 'Q-09', '`stepRow`'], ['X-38', 'Q-17', '`app.html`']]) {
+    const row = nbRow(nb, id);
+    assert.ok(row.includes(`（${q}。`) && row.includes(code) && row.includes('持ち主に問う') && !row.includes('0.17.0 で直す'), `${id} に ${q}・今のコード・持ち主に問う、が無い（0.17.0 では直さない）`);
+  }
   for (let n = 1; n <= 15; n++) {
     const row = nbRow(nb, `X-${n + 15}`);
     assert.ok(row.includes(`（D${n}。`), `X-${n + 15} に D${n} が無い`);
