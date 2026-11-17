@@ -1366,7 +1366,8 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 NX-4（決めたこと 83・84）: ［変換 ▸］から区切り線を外し、灰色の title の2つの字も無くなる・写しの turnMovesKids（開いたメニューと <script> の中だけ。見た目が変わるのは ⠿ のメニューの画面 edit-block-menu-light: KQ6 で持ち主が見る。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 6127f5fe…）
   // 0.17.0 NX-5（決めたこと 85〜87）: 表の Esc（書いた文字を決める・セル → 行 → 選びなし）・セルを押すと行のチェックを外す・書いている間の Tab で次の行へ・暦の Esc（OQ2）・行のページの Esc（<script> の中）と、近道の表の Esc・Tab の字（KQ5 の承認の字）。見える字が変わるのは設定の近道の表（settings-shortcuts-db-light: KQ6 で持ち主が見る）で、アプリの画面はどれも RETAKE_170。値を今の app.html に合わせた（前の値は f82805a8…）
   // 0.17.0 NX-5 の続き: 注釈の字だけ（見た目は変わらない）。値を今の app.html に合わせた（前の値は 204a1a43…）
-  assert.strictEqual(sha, 'b9ccae1593147bdd3474513200c51def7a64639a59f1e58c709ce74f4f8e5933',
+  // 0.17.0 点検 4（rv61 重要 1・重要 2。計画の R98・R99）: コールアウトの貼り付け・/・＋ の置き場を Enter と同じ enterInside に・行の頭のチェックの Ctrl+Z・↑↓・Enter（dbCheckKey）（<script> の中だけ。新しい字は無く、撮る画面は変わらない。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は b9ccae15…）
+  assert.strictEqual(sha, '54be7e84efaec718ad846ccbce0317eb2e500699ceff03cc03203062de35992a',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

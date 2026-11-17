@@ -11990,7 +11990,7 @@
     ck.checked = st.checked.has(row.id);
     ck.setAttribute('aria-label', dbRowName(row));
     ck.onchange = () => { if (ck.checked) st.checked.add(row.id); else st.checked.delete(row.id); dbPaintBar(); st.parts.all.checked = dbAllOn(st); };
-    ck.onkeydown = (ev) => dbEscChecks(ev, st);   // 0.17.0 NX-5（決めたこと 86）: 行の頭のチェックの Esc
+    ck.onkeydown = (ev) => dbCheckKey(ev, st, row.id);   // 0.17.0 NX-5（決めたこと 86）: 行の頭のチェックの Esc。rv61 重要 2: Ctrl+Z・↑↓・Enter も
     lead.append(grip, ck);
     if (list) { const ic = iconEl(pageIconValue({ kind: 'row' }), ICON_ROW); ic.classList.add('dbicon'); lead.appendChild(ic); }   // 0.17.0 IV-1（決めたこと 21）: 行のページの既定（書類）
     el.appendChild(lead);
@@ -12295,6 +12295,21 @@
     dbPaintChecks(st);
     st.parts.grid.tabIndex = 0;
     st.parts.grid.focus();
+  }
+  // 0.17.0 rv61 重要 2: 行の頭のチェックのキー（セルの Esc で行を選んだ後のフォーカスの所）。Esc は dbEscChecks。Ctrl+Z・やり直しは表と同じ dbUndo
+  // （Esc で決めた字をすぐ戻せる）。↓・↑ は下・上の行の、Enter はその行の頭のセルを選ぶ（表の ↓・Enter が頭のセルを選ぶのと同じ。チェックは残す: U8）
+  function dbCheckKey(ev, st, rowId) {
+    if (!st || imeEnter(ev)) return;
+    if (ev.key === 'Escape') { dbEscChecks(ev, st); return; }
+    const dir = undoKey(ev);
+    if (dir) { ev.preventDefault(); dbUndo(dir); return; }
+    if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
+    const step = { ArrowDown: 1, ArrowUp: -1, Enter: 0 }[ev.key];
+    const c = dbColsOf(st)[0];
+    const ri = dbIndexOf(st, rowId);
+    if (step === undefined || !c || ri < 0) return;
+    ev.preventDefault();
+    dbSelectAt(ri + step, c.col.id);
   }
   // 選んだセルのキー（決めたこと 51）
   function dbCellKey(ev, rowId, colId) {
@@ -14613,7 +14628,7 @@
     return '';
   }
   // 行に分ける貼り付けは block.paste の1つの命令（1歩: 決めたこと 25）。今の行の文と飾りも一緒に送り、DB がカーソルの所で分ける。
-  // 文のある行の頭は分けずに上へ（afterId: BQ30 (a)）・子の見えている行は文の終わりでも途中でも最初の子（inside: R66・TQ3・BQ31）・空のテキストの行は最初の貼った行になる（R18。DB が決める）。
+  // 文のある行の頭は分けずに上へ（afterId: BQ30 (a)）・子の見えている行とコールアウトは文の終わりでも途中でも最初の子（inside: R66・TQ3・BQ31・enterInside）・空のテキストの行は最初の貼った行になる（R18。DB が決める）。
   // カーソルは最後に貼った行の終わり
   // 0.14.0 EK-6: 3つ目は NaTsu の中の音声入力の覚えた所 [始め, 終わり]（無ければ今のカーソル）
   async function pasteRows(el, blocks, spot) {
@@ -14628,7 +14643,7 @@
     const head = at === 0 && text !== '';
     const args = [pid, b.id, rich, at, blocks];
     if (head) args.push(pasteAboveId(el, b));
-    else if (kidsShown(b)) args.push(undefined, true);   // BQ31（2026-10-30）: 文の途中でも最初の子（Enter の inside と同じ）
+    else if (enterInside(b)) args.push(undefined, true);   // BQ31（2026-10-30）: 文の途中でも最初の子（Enter の inside と同じ。0.17.0 rv61 重要 1: コールアウトも）
     if (!pasteFits(args)) { toast(PASTE_TOO_BIG); return null; }   // EK-3 直し（R141）: 頼みの全部（今の行の飾りも）が 1MB を越えれば送らない
     // 答えを待つ間に blur の保存（_commit）が今の行の全部の文を重ねて送らないよう、画面は先に残る文にする（断られたら戻す: splitRow と同じ）
     const keep = head ? rich : sliceRich(rich, 0, at);
@@ -14716,6 +14731,11 @@
     if (!kidsCanView(b) || !openView(b)) return false;
     return isToggleView(b) || (Array.isArray(b.children) && b.children.length > 0);
   }
+  // Enter・貼り付け・/ の挿入・＋ で足す行の置き場（1か所）: 子が見えている行（TQ3）と、コールアウト（子が無くても: 0.17.0 NX-1・決めたこと 78・
+  // 計画の違いの行 X-31）は、新しい行を最初の子に作る（BQ31・NR22: 貼り付けと / と ＋ は Enter と同じ置き場。0.17.0 rv61 重要 1）
+  function enterInside(b) {
+    return kidsShown(b) || b.type === 'callout';
+  }
   // 字下げ（E10・EQ17 (a)）: in は前の兄弟の子の末尾へ・out は親のすぐ後ろへ。できないときは何もしない。打った文を先に保存（決めたこと 11）
   // 0.14.0 EB-3（決めたこと 2）: 1つの動作で送る命令（先に保存する打った文も）を1歩に
   function indentRow(el, dir) { return stepGroup(() => indentRowRun(el, dir)); }
@@ -14779,8 +14799,8 @@
     if (top && rowDepth(el) > 0) { const l = locate(blocksOfKey(pid), b.id); afterId = l && l.index > 0 ? l.list[l.index - 1].id : ''; }
     else if (top) { for (let j = i - 1; j >= 0; j--) if (rowDepth(rows[j]) === 0) { afterId = rows[j].dataset.id; break; } }
     // 0.13.1 TQ3（持ち主の答え「すぐ下に出し、トグルは開いて作る（おすすめ）」）: 子が見えている行では、新しい行は最初の子
-    // 0.17.0 NX-1（決めたこと 78・計画の違いの行 X-31・B-24）: コールアウトの Enter は、子が無くても最初の子（文の途中も・子のあるときも）
-    const inside = !top && (kidsShown(b) || b.type === 'callout');
+    // 0.17.0 NX-1（決めたこと 78・計画の違いの行 X-31・B-24）: コールアウトの Enter は、子が無くても最初の子（文の途中も・子のあるときも: enterInside）
+    const inside = !top && enterInside(b);
     const args = top ? [pid, b.id, text, at, afterId] : inside ? [pid, b.id, text, at, undefined, true] : [pid, b.id, text, at];
     if (marked) { while (args.length < 6) args.push(undefined); args.push(rich); }
     const out = await editAnswer(pid, () => rowApi(pid).blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
@@ -15139,9 +15159,9 @@
     setCaret(txt, s.start);
     slashRecent = recentAdd(slashRecent, it.id); saveUi({ slashRecent });
     const pid = keyOfEl(el);
-    // 0.13.1 NR22: 下に足す置き場は Enter と同じ（子が見えている行では最初の子: TQ3）。トグル見出しは toggle を送る
+    // 0.13.1 NR22: 下に足す置き場は Enter と同じ（子が見えている行とコールアウトでは最初の子: TQ3・enterInside）。トグル見出しは toggle を送る
     const below = (after) => {
-      const inside = kidsShown(b);
+      const inside = enterInside(b);
       const args = [pid, inside ? '' : after, row.key];
       if (row.level !== undefined || inside || row.toggle) args.push(row.level);
       if (inside || row.toggle) args.push(inside ? b.id : undefined);
@@ -15167,8 +15187,8 @@
   async function plusRowRun(el) {
     const pid = keyOfEl(el); const b = el._b;
     try { await el._txt._commit(pid); } catch (_) { /* 保存の失敗は _commit の答えで知らせる */ }
-    // 0.13.1 NR22: 子が見えている行では最初の子に足す（Enter と同じ置き場）
-    const out = await editAnswer(pid, () => (kidsShown(b) ? rowApi(pid).blockInsert(pid, '', 'paragraph', undefined, b.id) : rowApi(pid).blockInsert(pid, b.id, 'paragraph')),
+    // 0.13.1 NR22: 子が見えている行とコールアウトでは最初の子に足す（Enter と同じ置き場: enterInside）
+    const out = await editAnswer(pid, () => (enterInside(b) ? rowApi(pid).blockInsert(pid, '', 'paragraph', undefined, b.id) : rowApi(pid).blockInsert(pid, b.id, 'paragraph')),
       (x) => ({ focus: x.blockId, caret: 0 }));
     if (!out || !boxOfKey(pid)) return out;
     const ne = editRows(boxOfKey(pid)).find((e) => e.dataset.id === out.blockId);

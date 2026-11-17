@@ -1739,6 +1739,9 @@ const IDS_170 = [
   'nx-esc-row', 'nx-esc-row-focus', 'nx-esc-clear', 'nx-tab-edit-next', 'nx-tab-edit-prev', 'nx-tab-edit-save', 'nx-shortcut-esc', 'nx-help-enter',
   'nx-help-ctrla', 'nx-bs-heading-last', 'nx-bs-untoggle', 'nx-bs-callout', 'nx-bs-callout-kid', 'nx-enter-callout', 'nx-ctrla-empty', 'nx-click-clear',
   'nx-date-esc', 'nx-help-bs', 'nx-r66-parent-trash',
+  // 0.17.0 点検 4（rv61）の直しで足した行（表の行の順に。R98〜R100）
+  'nx-inside-paste', 'nx-inside-slash', 'nx-inside-plus', 'nx-ck-wire', 'nx-ck-undo', 'nx-ck-arrows', 'nx-ck-enter', 'nx-ck-mods',
+  'nx-grid-esc', 'nx-paint-all', 'nx-edit-move-gone',
   // 0.17.0 Task NB-6（第5部。計画の「第4部・第5部の変異」の nb- の表の行の順に）。第4部の nx- は表で nb- より前なので、NX の各タスクでこの前に足す
   'nb-q-answer', 'nb-q-unchecked', 'nb-count-q', 'nb-count-total', 'nb-source-ob', 'nb-x-row', 'nb-ob-item', 'nb-k25-source', 'nb-source-ob2', 'nb-ob2-item', 'nb-x-new',
 ];
@@ -1761,9 +1764,10 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   // 問い 5 の 1（R85）で mg- 1 を足して 203 行に意図して直した
   // 0.17.0 Task NB-6（計画の「意図して変えるテスト」の IDS_170・PREFIX_170・planRows170 の行）で意図して直した: 第4部・第5部の nx- 43・nb- 11 を足して 257 行
   // （OQ1〜OQ3 はどれも (a): 2026-11-16 の持ち主の答え）
-  assert.strictEqual(rows.length, 257, '計画の 0.17.0 の表（第1部〜第3部の 203 行と、第4部・第5部の nx- 43・nb- 11）が読めない');
+  // 0.17.0 点検 4（rv61。計画の R98〜R100）で意図して直した: 重要 1・重要 2・軽い 1 の nx- 11 を足して 268 行
+  assert.strictEqual(rows.length, 268, '計画の 0.17.0 の表（第1部〜第3部の 203 行と、第4部・第5部の nx- 54・nb- 11）が読めない');
   assert.strictEqual(rows.filter((id) => !PREFIX_170_LATE.test(id)).length, 203, '計画の第1部〜第3部の表（ig- 25・iv- 32・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1〜3 と問い 4・5 の直しで足した数を含む）が読めない');
-  assert.deepStrictEqual([['nx', 43], ['nb', 11]].map(([k]) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]), [['nx', 43], ['nb', 11]], '計画の第4部・第5部の表の数が違う');
+  assert.deepStrictEqual([['nx', 54], ['nb', 11]].map(([k]) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]), [['nx', 54], ['nb', 11]], '計画の第4部・第5部の表の数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_170, rows.filter((id) => IDS_170.includes(id)), 'IDS_170 が表の行の順でない');
@@ -1772,7 +1776,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   // 0.17.0 Task NB-6（R89）で、第4部・第5部を作っている間は「表の行の順に並んだ一部」にしていた。NX-7 で nx- 43・nb- 11 が全部そろったので、
   // 表の全部（257 行）とちょうど同じかを見る形に戻した（R89・R96）
   assert.deepStrictEqual(IDS_170, rows, 'IDS_170 が計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc-・nx-・nb- の行とちょうど同じでない');
-  assert.strictEqual(IDS_170.length, 257);
+  assert.strictEqual(IDS_170.length, 268);
   // 前の版の頭の照らしに当たらない・前の版の IDS に 0.17.0 の頭が無い
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/, /^(nd|ps|lb|gv)-/, /^(mt|qm|v|v5)-/, /^i-/, /^rv-/]) {
     assert.deepStrictEqual(IDS_170.filter((id) => re.test(id)), [], `${re} に当たる 0.17.0 の id`);

@@ -1499,7 +1499,8 @@ test('0.17.0 Task G: 設計書の版の表の 0.17.0 の欄・節「利用者が
   assert.ok(nrow('A-02').includes('（2026-11-14 の画面: SC-03。0.17.0 の形: 設計書 D140・D142）') && nrow('N-26').includes('SC-04') && nrow('N-25').includes('SC-07'), 'notion-behavior の A-02・N-25・N-26 に画面の動きの書き添えが無い');
   // 0.17.0 Task NB-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 93・94）で意図して直した: 第5部で実機（OB・OB2）の 29 項目と
   // X-16〜X-34 を足し、NB-5 で X-35〜X-38 を足したので、数の字を今の数にした（意図「項目の数が行と合う」は NB-1 の数えるテストが行を数えて引き継ぐ）
-  assert.ok(nb.includes('N 30・Q-S 12・A 10・V-T 44・R 27・J 25 で、**計 313 項目**') && nb.includes('SC 8 件') && nb.includes('X 38 件'), 'notion-behavior の項目の数が合わない');
+  // 0.17.0 点検 4（rv61 軽い 5・R101）で意図して直した: X-39 を足したので X の数の字を 39 にした（意図「項目の数が行と合う」は NB-1 の数えるテストが引き継ぐ）
+  assert.ok(nb.includes('N 30・Q-S 12・A 10・V-T 44・R 27・J 25 で、**計 313 項目**') && nb.includes('SC 8 件') && nb.includes('X 39 件'), 'notion-behavior の項目の数が合わない');
   // 計画: R83・今の状態
   assert.strictEqual(plan.split('\n').filter((l) => l.startsWith('- **R83（')).length, 1, '計画に R83 が1つでない');
   assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-15）: Task G の前半まで済んだ（R83）。'), '計画の頭の今の状態が Task G の前半でない');
@@ -1548,7 +1549,8 @@ test('0.17.0 Task NB-1・F215: 違いの行（20章の X が X-01〜X-38 で、X
   const c20 = nb.slice(nb.indexOf('\n## 20. '), nb.indexOf('\n## 21. '));
   const xs = [...c20.matchAll(/^\| (X-\d+) \|/gm)].map((m) => m[1]);
   // 0.17.0 Task NB-5 で X-35〜X-38 を足した（まだ比べていなかった Q-04・Q-05・Q-09・Q-17。Q-15 は同じだったので足さない）
-  assert.deepStrictEqual(xs, Array.from({ length: 38 }, (_, i) => `X-${String(i + 1).padStart(2, '0')}`), '20章の X の行が X-01〜X-38 でない');
+  // 0.17.0 点検 4（rv61 軽い 5・R101）で意図して直した: V-T44 の末の文の X-39 を足した（意図「20章の X が番号の順にそろう」は残す）
+  assert.deepStrictEqual(xs, Array.from({ length: 39 }, (_, i) => `X-${String(i + 1).padStart(2, '0')}`), '20章の X の行が X-01〜X-39 でない');
   for (const [id, q, code] of [['X-35', 'Q-04', '`TYPE_PAUSE_MS`'], ['X-36', 'Q-05', '`fromPlain`'], ['X-37', 'Q-09', '`stepRow`'], ['X-38', 'Q-17', '`app.html`']]) {
     const row = nbRow(nb, id);
     assert.ok(row.includes(`（${q}。`) && row.includes(code) && row.includes('持ち主に問う') && !row.includes('0.17.0 で直す'), `${id} に ${q}・今のコード・持ち主に問う、が無い（0.17.0 では直さない）`);
@@ -1655,6 +1657,41 @@ test('0.17.0 Task NX-6: 設計書の D153〜D158（持ち主の言葉は計画�
   }
   const es = read('help/articles/summary/edit-summary.md');
   assert.ok(es.includes('箇条書き・ToDo・番号付き・トグル・引用は、まずテキストの行に戻します。トグル見出しは、まずふつうの見出しに戻し、中の行はその下に並びます。見出し・コールアウト・テキストの行は、すぐ上の行の終わりにつなぎます。'), 'edit-summary の Backspace の文が OQ6 の承認の字でない');
-  assert.ok(es.includes('後ろの行は同じ型です（見出しと引用の後はテキスト）。コールアウトの中で押すと、コールアウトの中にテキストの行ができます。'), 'edit-summary の Enter の文が OQ5 の承認の字でない');
+  // 0.17.0 点検 4（rv61 軽い 6。計画 docs/plans/2026-11-13-170.md の R101）で意図して直した: 持ち主の答え「「文の途中や末尾で」と足す（おすすめ）」（2026-11-17）の字。
+  // 文のあるコールアウトの頭の Enter は上の外に空の行ができる（R37 の形）ので「中で押すと」を「文の途中や末尾で押すと」にした（意図「Enter の文が承認の字」は残す）
+  assert.ok(es.includes('後ろの行は同じ型です（見出しと引用の後はテキスト）。コールアウトの文の途中や末尾で押すと、コールアウトの中にテキストの行ができます。'), 'edit-summary の Enter の文が rv61 軽い 6 の承認の字でない');
+  assert.ok(!es.includes('コールアウトの中で押すと'), 'edit-summary に前の Enter の字が残る');
   assert.ok(es.includes('1回目は行の文字を全部、2回目はページの行を全部選びます。空の行では、1回目でページの行を全部選びます。'), 'edit-summary の Ctrl+A の文が OQ7 の承認の字でない');
+});
+
+// ---------------------------------------------------------------- 0.17.0 点検 4（rv61。計画 docs/plans/2026-11-13-170.md の R101・「問答の答え（2026-11-17。点検 4 の rv61 の問いと XQ1〜XQ4）」）
+test('0.17.0 点検 4（rv61 軽い 4・軽い 5・XQ1〜XQ4）: 設計書の D152 は R66 を確かめた形・D154 の題に決めたこと 96・後の版の D159〜D162（持ち主の言葉は計画の字のまま）、notion-behavior の X-39（V-T44 の末の文）と X-35〜X-38 の答え', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const plan = read('docs/plans/2026-11-13-170.md');
+  const nb = read('docs/plans/notion-behavior.md');
+  const rowOf = (text, k) => { const xs = text.split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.strictEqual(xs.length, 1, `${k} の行が1つでない`); return xs[0]; };
+  // 軽い 4
+  const d152 = rowOf(d, 'D152');
+  assert.ok(d152.includes('親ごとゴミ箱へ入る今の動き（計画の R66）は、2026-11-16 に確かめ、今の形のまま（D158 の後・決めたこと 95）') && !d152.includes('確かめるまで変えない'), 'D152 が R66 を確かめた形でない');
+  assert.ok(rowOf(d, 'D154').startsWith('| D154 | **行頭の Backspace の順は Notion の画面のとおり（確かめていない場面は NaTsu の決まり: 決めたこと 96）**（'), 'D154 の題に決めたこと 96 が無い');
+  // XQ1〜XQ4（後の版）: 0.17.0 の節の後・「作り方」の前の節に D159〜D162
+  const h = '## 利用者が決めたこと（後の版で Notion に合わせる編集の動きと検索の窓。2026-11-17）';
+  const at = d.indexOf(`\n${h}\n`);
+  assert.ok(at > d.indexOf('\n| D158 |') && at < d.indexOf('\n## 作り方（Superpowers の進め方。'), `設計書の節「${h}」が D158 の後・「作り方」の前に無い`);
+  const sec = d.slice(at, d.indexOf('\n## ', at + 5));
+  assert.deepStrictEqual([...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]), ['D159', 'D160', 'D161', 'D162'], '後の版の節の D の行が D159〜D162 でない');
+  const qa = plan.slice(plan.indexOf('\n## 問答の答え（2026-11-17。点検 4 の rv61 の問いと XQ1〜XQ4）\n'));
+  assert.ok(qa.length > 100 && qa.indexOf('\n## ', 5) > 0, '計画に「問答の答え（2026-11-17。…）」の節が無い');
+  const qsec = qa.slice(0, qa.indexOf('\n## ', 5));
+  for (const [k, xq, ans, x] of [['D159', 'XQ1', '「約 0.5 秒にする」', 'X-35'], ['D160', 'XQ2', '「Notion と同じ 1 つの文にする」', 'X-36'], ['D161', 'XQ3', '「後の版で Notion に合わせる（おすすめ）」', 'X-37'], ['D162', 'XQ4', '「開いたままにする（おすすめ）」', 'X-38']]) {
+    const r = rowOf(sec, k);
+    assert.ok(r.includes(`${xq}${ans}`) && r.includes(x) && r.includes('後の版'), `${k} に ${xq} の答え・${x}・後の版が無い`);
+    assert.ok(qsec.includes(ans), `計画の答えの節に ${xq} の答え ${ans} が無い`);
+    assert.ok(rowOf(nb, x).includes(`**（2026-11-17 の持ち主の答え: ${xq}${ans}）**`) && rowOf(nb, x).includes(`設計書 ${k}`), `notion-behavior の ${x} に ${xq} の答えが無い`);
+  }
+  for (const q of ['「Enter と同じく中に作る（おすすめ）」', '「「文の途中や末尾で」と足す（おすすめ）」']) assert.ok(qsec.includes(q), `計画の答えの節に rv61 の答え ${q} が無い`);
+  // 軽い 5: X-39（V-T44 の末の文）
+  const x39 = rowOf(nb, 'X-39');
+  assert.ok(x39.includes('V-T44') && x39.includes('`dbAddRow`') && x39.includes('後の版で持ち主に問う') && x39.endsWith(' | OB2 | 11a |'), 'X-39 に V-T44・今のコード・後の版で問う、が無い');
+  assert.ok(nb.includes('X 39 件'), '項目の数の X が 39 件でない');
 });
