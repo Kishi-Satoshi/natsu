@@ -518,6 +518,32 @@ test('IV-3: 画面の飾りだけの絵（設定・ゴミ箱・ライブラリ�
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
+// 決めたこと 97（2026-11-17 の持ち主の答え「0.17.0 で線のアイコンにする（おすすめ）」）: データベースの中の検索の欄の頭の 🔍 も画面の飾り（決めたこと 23 の並びから
+// 漏れていた）。サイドバーの［検索］と同じ ic:search の線の絵（IV-3 と同じ iconEl）。読み上げない・欄の手引きと読み上げの名前は今のまま
+test('IV-3（決めたこと 97）: データベースの中の検索の欄の頭の印が線のアイコン（サイドバーの［検索］と同じ ic:search・.pgi・svg・読み上げない・🔍 の字が無い）。欄の手引きと読み上げの名前は「この中を探す」のまま', T, async () => {
+  const l = await realApp((call) => {
+    const d = call('db.create', {}).id;
+    call('page.setTitle', { id: d, title: '備品' });   // データベースの題名（D77 の外）
+    for (const ti of ['机', '椅子', '棚']) call('row.add', { db: d, title: ti });   // 行の題名（D77 の外）。行が 3 以上で検索の欄が出る（0.16.0 決めたこと 22）
+    return { d };
+  });
+  try {
+    l.fire('onPageOpen', l.made.d); await l.drain(200);
+    const wrap = $(l, 'pDb').querySelector('.dbsearch');
+    assert.ok(wrap, '前提: 検索の欄が無い');
+    const glass = wrap.querySelector('.pgi');
+    assert.ok(glass, '検索の欄の頭が線のアイコンでない');
+    assert.strictEqual(glass.getAttribute('data-icon'), 'ic:search', '検索の欄の頭の印');
+    assert.strictEqual(glass.getAttribute('data-icon'), iconOf($(l, 'sideSearch').querySelector('.ic')), 'サイドバーの［検索］と違う絵');
+    assert.ok(glass.querySelector('svg'), '線の絵でない');
+    assert.strictEqual(glass.getAttribute('aria-hidden'), 'true', '印を読み上げる');
+    assert.ok(!wrap.textContent.includes('🔍'), '🔍 の字が残る');
+    const q = wrap.querySelector('input');
+    assert.deepStrictEqual([q.getAttribute('placeholder'), q.getAttribute('aria-label')], ['この中を探す', 'この中を探す'], '欄の手引きと読み上げの名前');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 // ---------------------------------------------------------------- IV-4（決めたこと 24・IQ8・F192）
 // コールアウトの印は画面だけ電球の線のアイコン（ic:lightbulb）。保存する値・文字の写し・MCP は 💡 のまま
 const CO = (id, text) => ({ id, type: 'callout', text, icon: '💡', citeState: 'manual' });

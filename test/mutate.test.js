@@ -1688,6 +1688,7 @@ const IDS_170 = [
   'iv-pop-first', 'iv-pop-tabkey', 'iv-pop-tabfocus', 'iv-pop-ime', 'iv-pop-query-keep', 'iv-pop-recent-kind', 'iv-pop-clear', 'iv-pop-cur', 'iv-pop-name', 'iv-pop-recent-load',
   // 0.17.0 IV-3 で作った行（表の行の順に）
   'iv-ui-side', 'iv-ui-props', 'iv-ui-lib',
+  'iv-ui-dbsearch',   // 0.17.0 Task G の後半（決めたこと 97・R102。2026-11-17 の持ち主の答え）で足した行
   // 0.17.0 PD-1 で作った行（表の行の順に）
   'pd-empty-text', 'pd-empty-kids', 'pd-empty-trashkid', 'pd-keep-title', 'pd-icon-off', 'pd-icon-undo', 'pd-keep-place', 'pd-kind-only-blank', 'pd-live', 'pd-same-shape',
   'pd-undo', 'pd-undo-rows', 'pd-parent-row',
@@ -1765,8 +1766,9 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   // 0.17.0 Task NB-6（計画の「意図して変えるテスト」の IDS_170・PREFIX_170・planRows170 の行）で意図して直した: 第4部・第5部の nx- 43・nb- 11 を足して 257 行
   // （OQ1〜OQ3 はどれも (a): 2026-11-16 の持ち主の答え）
   // 0.17.0 点検 4（rv61。計画の R98〜R100）で意図して直した: 重要 1・重要 2・軽い 1 の nx- 11 を足して 268 行
-  assert.strictEqual(rows.length, 268, '計画の 0.17.0 の表（第1部〜第3部の 203 行と、第4部・第5部の nx- 54・nb- 11）が読めない');
-  assert.strictEqual(rows.filter((id) => !PREFIX_170_LATE.test(id)).length, 203, '計画の第1部〜第3部の表（ig- 25・iv- 32・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1〜3 と問い 4・5 の直しで足した数を含む）が読めない');
+  // 0.17.0 Task G の後半（決めたこと 97・R102。2026-11-17 の持ち主の答え）で意図して直した: データベースの中の検索の欄の頭の iv- 1 を足して 269 行（第1部〜第3部は 204 行）
+  assert.strictEqual(rows.length, 269, '計画の 0.17.0 の表（第1部〜第3部の 204 行と、第4部・第5部の nx- 54・nb- 11）が読めない');
+  assert.strictEqual(rows.filter((id) => !PREFIX_170_LATE.test(id)).length, 204, '計画の第1部〜第3部の表（ig- 25・iv- 33・pd- 29・sw- 12・mg- 42・tk- 14・rt- 12・lc- 9。点検 1〜3 と問い 4・5 と Task G の後半の直しで足した数を含む）が読めない');
   assert.deepStrictEqual([['nx', 54], ['nb', 11]].map(([k]) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]), [['nx', 54], ['nb', 11]], '計画の第4部・第5部の表の数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_170.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
@@ -1776,7 +1778,7 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   // 0.17.0 Task NB-6（R89）で、第4部・第5部を作っている間は「表の行の順に並んだ一部」にしていた。NX-7 で nx- 43・nb- 11 が全部そろったので、
   // 表の全部（257 行）とちょうど同じかを見る形に戻した（R89・R96）
   assert.deepStrictEqual(IDS_170, rows, 'IDS_170 が計画の「変異の表」の ig-・iv-・pd-・sw-・mg-・tk-・rt-・lc-・nx-・nb- の行とちょうど同じでない');
-  assert.strictEqual(IDS_170.length, 268);
+  assert.strictEqual(IDS_170.length, 269);   // 0.17.0 Task G の後半（R102）で意図して直した: iv-ui-dbsearch を足した
   // 前の版の頭の照らしに当たらない・前の版の IDS に 0.17.0 の頭が無い
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/, /^(nd|ps|lb|gv)-/, /^(mt|qm|v|v5)-/, /^i-/, /^rv-/]) {
     assert.deepStrictEqual(IDS_170.filter((id) => re.test(id)), [], `${re} に当たる 0.17.0 の id`);

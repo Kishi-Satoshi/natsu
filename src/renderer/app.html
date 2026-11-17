@@ -13490,7 +13490,7 @@
     if (dbSearchOn(st)) {   // 決めたこと 22・V-T23: 行が 3 以上のとき（語があれば、行が減っても出したまま）
       const wrap = document.createElement('span');
       wrap.className = 'dbsearch';
-      const glass = document.createElement('span'); glass.setAttribute('aria-hidden', 'true'); glass.textContent = '🔍';
+      const glass = iconEl('ic:search', ICON_ROW);   // 0.17.0 決めたこと 97: 頭の印はサイドバーの［検索］と同じ線の絵（IV-3 の iconEl。読み上げない aria-hidden も iconEl が付ける）
       const q = document.createElement('input');
       q.type = 'text'; q.className = 'dbsearchq';
       q.setAttribute('placeholder', DB_SEARCH); q.setAttribute('aria-label', DB_SEARCH);
