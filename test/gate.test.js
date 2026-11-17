@@ -119,7 +119,9 @@ test('R121: ps1WriterCandidates は writeFileSync と .ps1 の字の両方があ
   assert.ok(want.length >= 1, '見本が無い（このテストの前提が崩れた）');
   assert.deepStrictEqual([...R.ps1WriterCandidates(null)].sort(), want.sort(), '作業ツリーの候補が1つずつ読んだときと違う');
   const head = R.ps1WriterCandidates('HEAD');
-  assert.ok(head.length >= 1 && head.every((f) => [cp.execFileSync('git', ['show', `HEAD:${f}`], { cwd: ROOT }).toString()].every((t) => t.includes('writeFileSync') && t.includes('.ps1'))), 'HEAD の候補に writeFileSync か .ps1 の無いファイルがある');
+  // 0.17.0 NX-7 の CI（run 43981672801）の直し: tools/mutants.js が 1 MiB を越え、execFileSync の既定の maxBuffer（1 MiB）で git show が ENOBUFS で落ちた。
+  // 読む物は risk.js の gitBuf と同じ 64 MiB まで受ける（意図「HEAD の候補はどれも writeFileSync と .ps1 の字がある」は変えない）
+  assert.ok(head.length >= 1 && head.every((f) => [cp.execFileSync('git', ['show', `HEAD:${f}`], { cwd: ROOT, maxBuffer: 64 << 20 }).toString()].every((t) => t.includes('writeFileSync') && t.includes('.ps1'))), 'HEAD の候補に writeFileSync か .ps1 の無いファイルがある');
   assert.ok(R.ps1WriterCandidates('INDEX').length >= 1, 'コミット予定の候補が無い');
   assert.ok(!head.includes('tools/write-ps1.js'), 'tools/write-ps1 を候補にした');
 });
