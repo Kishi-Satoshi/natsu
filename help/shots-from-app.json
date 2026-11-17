@@ -3,25 +3,25 @@
     {
       "name": "notes-tabs",
       "from": "test/shots/win32/notes-tabs-light.png",
-      "fromSha256": "zktfafPpWpwhiNwYzalnsTGJpiwt92HxbYgpHYRJ71M",
+      "fromSha256": "XWrSzVCB0D7FA8mWFrTpkzzR2vH3dU61dusPdGhX67E",
       "crop": null
     },
     {
       "name": "minutes",
       "from": "test/shots/win32/notes-page-light.png",
-      "fromSha256": "08NVaCuVesZsNvXZsnQ2lxzlN3ifM8YEovrzgc7wto4",
+      "fromSha256": "KThdnKChNEgtv6WbNPIUhjpQpj5OojoXQk4njA7nTuw",
       "crop": [300, 320, 760, 460]
     },
     {
       "name": "ready",
       "from": "test/shots/win32/live-ready-light.png",
-      "fromSha256": "2bgroIGUVk9qgHmBJVa8qPBS9S6IUpLO3ILuVbAQF3U",
+      "fromSha256": "hSYV-toC_QvzZbpDKVE9iWcs5OgY2YVDx9LuwRoaHV8",
       "crop": [300, 250, 780, 320]
     },
     {
       "name": "live",
       "from": "test/shots/win32/live-light.png",
-      "fromSha256": "Q3thrHMURQdodvdxAIMwpUeRvZlRoUakaWts1rN9WUA",
+      "fromSha256": "Qpe4DYuLohgYPAeOfRbUF5sDVLC0QDuEx4matwo_UJ0",
       "crop": [0, 0, 1060, 700]
     },
     {
@@ -39,43 +39,43 @@
     {
       "name": "status",
       "from": "test/shots/win32/live-banner-light.png",
-      "fromSha256": "nJuXGypOQZ_6W_zdRe5YpxhRR-IHMH8SmDw-FOxeevw",
+      "fromSha256": "fqK_JqnmvgMVBOZxEe5NVi6NARms0CDHde7tUE0Xs2g",
       "crop": [320, 388, 760, 115]
     },
     {
       "name": "offline",
       "from": "test/shots/win32/live-offline-light.png",
-      "fromSha256": "M3qGimwPkS0uD3zmQcm6oEpM1B5Xo1HDO31BBpGnq3c",
+      "fromSha256": "N5y53tMpK8xGjJzZgjPhj9QLZRd-njr_rPwLmZu-Ud8",
       "crop": [310, 388, 515, 125]
     },
     {
       "name": "login",
       "from": "test/shots/win32/settings-account-light.png",
-      "fromSha256": "TEh-wwk1HoT92Ibi9E1lof3e-w2KDXomI0Y6wR1S_ic",
+      "fromSha256": "6r-m2C3accHlcOXnfNs1r4nKCw9tG1vrMtfTjLpmb_k",
       "crop": [50, 40, 1020, 260]
     },
     {
       "name": "mcp",
       "from": "test/shots/win32/settings-mcp-light.png",
-      "fromSha256": "png7o7kPLIjvdlyVKOwjxMtWRqdUOQy_WM03U_FK3fQ",
+      "fromSha256": "CiTtfci92PMHTDll0nB8gE_vLwd13S1wKbPP47SvELk",
       "crop": [50, 40, 1020, 480]
     },
     {
       "name": "settings-summary",
       "from": "test/shots/win32/settings-summary-light.png",
-      "fromSha256": "png7o7kPLIjvdlyVKOwjxMtWRqdUOQy_WM03U_FK3fQ",
+      "fromSha256": "CiTtfci92PMHTDll0nB8gE_vLwd13S1wKbPP47SvELk",
       "crop": [50, 40, 1020, 280]
     },
     {
       "name": "settings-record",
       "from": "test/shots/win32/settings-record-light.png",
-      "fromSha256": "JL_bBOahJ2n26wHhkfGfPNNRYz7npv2GirBIiBWYjs0",
+      "fromSha256": "U4ZAnEAJsAiac50l33JTSlDEQLKSFI8PZybeMRF32wA",
       "crop": [50, 118, 1020, 512]
     },
     {
       "name": "ready-page",
       "from": "test/shots/win32/live-ready-light.png",
-      "fromSha256": "2bgroIGUVk9qgHmBJVa8qPBS9S6IUpLO3ILuVbAQF3U",
+      "fromSha256": "hSYV-toC_QvzZbpDKVE9iWcs5OgY2YVDx9LuwRoaHV8",
       "crop": [0, 0, 1060, 480]
     }
   ],

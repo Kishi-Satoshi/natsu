@@ -906,8 +906,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが絵文字から線のアイコン（ic:mic・ic:certification_with_seal・
 // ic:table_chart）になり、サイドバー・タブ・パンくず・ページの頭のどれかが写るアプリの画面は全部変わる見込み（設定の窓の画面も後ろにサイドバーが写る）。
 // 録音バーと会議の知らせのパネルの画面は変わらない（overlay.html は触らない）。基準にするのは Task G の前の1回（IQ12 の答えの手順。持ち主が目で見るのは新しい画面と選びの窓だけ）
-const RETAKE_170_APP = SCREENS.filter((s) => s.page === 'app').map((s) => s.name);
-const RETAKE = new Set([...RETAKE_170_APP]);
+// 0.17.0（版を 0.17.0 に上げる commit。Task G の後半: R103）: 持ち主が見比べ（新しい画面 14 枚・選びの窓の2枚・KQ6 の3枚の 19 枚）に「画面 OK（おすすめ）」（2026-11-17）と答え、
+// 持ち主が目で見ないほかの 127 枚は機械の確かめ（違いの所の一覧・はみ出し 0・揺れ 0・CSP の違反 0）で見たので、決めたこと 97 の直しの後の CI run 44186931475（af2de86）の
+// artifact 14374239081 の .after.png（146 枚: 違いのあった 132 枚と新しい 14 枚）をバイトのまま基準にし、空に戻した（基準は 235 枚）
+const RETAKE = new Set([]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

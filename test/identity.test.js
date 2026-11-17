@@ -66,9 +66,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.15.0 で意図して変えた: 版を 0.15.0 に（ページの階層・白紙のページの本文の子ページの行・子ごとのゴミ箱と戻す・新しいページの近道・ページのアイコンと絵文字・全幅・文字の大きさと書体。Electron は 44.9.0 のまま）
 // 0.15.1 で意図して変えた: 版を 0.15.1 に（音声入力をなくす・サイドバーのプライベートの見出しと行のメニューと名前を変える・ライブラリ・PC の中の文字起こしを GPU 版に。Electron は 44.9.0 のまま）
 // 0.16.0 で意図して変えた: 版を 0.16.0 に（データベース: 表とリスト・列の種類・ビュー・リレーション・サブアイテム・インラインとリンクドビュー。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.16.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.17.0 で意図して変えた: 版を 0.17.0 に（アイコンの版・データベースの作り方とサイドバーのビューの行・「議事録」データベース・タスク管理・行のテンプレート・ロック・実機との違いの直し。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.17.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.16.0');
+  assert.strictEqual(pkg.version, '0.17.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -244,13 +245,15 @@ test('OL9: CHANGELOG の 0.5.0 の節は、更新の前に Claude Code を入れ
 
 // 第1b回 Task C-3（G3）と第1b2回の「つなぎ」: README の使い方に、サイドバー・タブ・Ctrl+クリック・拡大・一時停止・覚えるもの（window-state.json）、
 // 検索の窓（［🔍 検索］・Ctrl+P）と［＋ 新しい議事録］を書く。古い言い方（「一覧から検索」「開いているタブの内容をコピー」）は残さない
+// 0.17.0 Task G の後半（計画 docs/plans/2026-11-13-170.md の 2026-11-17 の持ち主の答え 3「字だけにする（おすすめ）」・R104）で意図して変えた: 画面の［検索］の印は線のアイコンに
+// なった（IQ10・決めたこと 23）ので、README は［🔍 検索］でなく［検索］と書く（意図「検索の窓の開き方を書く」は同じ）
 test('第1b回 C-3: README は新しい画面の使い方（サイドバー・タブ・検索の窓・記録中のページ・一時停止・拡大・覚えるもの）を書く', () => {
-  for (const w of ['サイドバー', 'タブ', 'Ctrl+クリック', '拡大', '一時停止', 'window-state.json', '%LOCALAPPDATA%\\natsu', '［🔍 検索］', 'Ctrl+P', '［＋ 新しい議事録］',
+  for (const w of ['サイドバー', 'タブ', 'Ctrl+クリック', '拡大', '一時停止', 'window-state.json', '%LOCALAPPDATA%\\natsu', '［検索］', 'Ctrl+P', '［＋ 新しい議事録］',
     'Ctrl+Shift+P', 'Ctrl+\\', '200%', 'スリープ']) {
     assert.ok(readme.includes(w), `README に「${w}」が無い`);
   }
   assert.ok(!readme.includes('開いているタブの内容をコピー'), 'README に古い「開いているタブの内容をコピー」が残っている（「···」の［コピー］）');
-  assert.ok(!readme.includes('一覧から検索'), 'README に古い「一覧から検索」が残っている（［🔍 検索］の窓）');
+  assert.ok(!readme.includes('一覧から検索'), 'README に古い「一覧から検索」が残っている（［検索］の窓）');
 });
 
 // 第1b回 Task C-3: CHANGELOG の 0.6.0 の節。更新は［更新して再起動］で当たること・新しい画面・ログインのボタンと切れたときの文・鍵の確かめ・速さを、
@@ -298,8 +301,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.15.0 で意図して変えた: 版は 0.15.0（README の保存の説明は 0.7.0 のまま）
 // 0.15.1 で意図して変えた: 版は 0.15.1（README の保存の説明は 0.7.0 のまま）
 // 0.16.0 で意図して変えた: 版は 0.16.0（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.16.0');
+// 0.17.0 で意図して変えた: 版は 0.17.0（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.17.0');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -389,7 +393,8 @@ test('0.9.0: README・INSTALL に「設定タブ」「設定のタブ」の言�
     const named = [...t.matchAll(/［設定］→［([^］]+)］/g), ...t.matchAll(/［設定］の「([^」]+)」/g)].map((m) => m[1]);
     for (const n of named) assert.ok(SECS.includes(n), `${f} の［設定］の「${n}」が設定の項目の名前でない`);
   }
-  assert.ok(readme.includes('［⚙️ 設定］は、今のページの上に開きます。左の列で項目を選び、上の欄で設定の名前を探せます。Esc か × で閉じます。'), 'README に設定のポップアップの使い方が無い');
+  // 0.17.0 Task G の後半（2026-11-17 の持ち主の答え 3「字だけにする（おすすめ）」・R104）で意図して変えた: 画面の［設定］の印は線のアイコンになったので、README は［設定］と書く
+  assert.ok(readme.includes('［設定］は、今のページの上に開きます。左の列で項目を選び、上の欄で設定の名前を探せます。Esc か × で閉じます。'), 'README に設定のポップアップの使い方が無い');
 });
 
 test('0.9.0: README は録音バーの置き場所（8か所・吸い付く・左右の中央は縦・× で隠す・出し直し）と5つの点・相手の声の印を書き、引いた名前は画面にある', () => {
@@ -876,7 +881,7 @@ test('0.16.0: CHANGELOG の 0.16.0 の節（計画の下書きから移した）
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.16.0 （2026-11-13）'), 'CHANGELOG.md に「## natsu-v0.16.0 （2026-11-13）」の見出しが無い');
   assert.ok(cl.indexOf('## natsu-v0.16.0') < cl.indexOf('## natsu-v0.15.1'), '0.16.0 の節が 0.15.1 の節の上に無い');
-  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.16.0'), '0.16.0 の節が CHANGELOG の頭に無い');
+  // 0.17.0 で意図して変えた: CHANGELOG の頭は 0.17.0 の節になった（0.16.0 の節はそのすぐ下: 下の 0.17.0 のテスト）
   const sec = secOf(cl, '## natsu-v0.16.0');
   const plan = read('docs/plans/2026-11-04-160.md');
   const d = plan.indexOf('\n## CHANGELOG の 0.16.0 の節（下書き。DQ1〜DQ9 の答えを入れた。G で持ち主が読む言葉に直して移す）\n');
@@ -906,6 +911,53 @@ test('0.16.0: CHANGELOG の 0.16.0 の節（計画の下書きから移した）
   const titles = ['find/database', 'find/page-tree', 'find/search', 'find/delete-and-backups', 'settings/hotkeys', 'start/claude-mcp', 'start/overview'].map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
   assert.deepStrictEqual(titles, ['データベース（表とリスト）', 'ページの中のページ・白紙のページ', '議事録を探す', 'ページを消す・戻す・毎日の控え', 'ホットキー', 'Claude から議事録を読む（MCP）', 'NaTsu の全体像']);
   for (const t of titles) assert.ok(sec.includes(`「${t}」`), `0.16.0 の節にヘルプの記事「${t}」が無い`);
+});
+
+// 0.17.0（計画 docs/plans/2026-11-13-170.md の「CHANGELOG の節」。Task G の後半: R104）: 版を 0.17.0 に上げる commit で、2026-11-17 に持ち主が「このまま入れる（おすすめ）」と
+// 答えた下書き（計画の「CHANGELOG の節」とヘルプから作り直した字。第4部と点検 4 の行を足した物）の字のまま、日付つきの見出し（## natsu-v0.17.0 （2026-11-17））で
+// CHANGELOG.md の頭（0.16.0 の節の上）へ移した。計画には「移した」の1行だけを残す
+test('0.17.0: CHANGELOG の 0.17.0 の節（承認した下書きから移した）は日付つきの見出しで CHANGELOG の頭（0.16.0 の節の上）にあり、アイコン・［データベース］はページのいちばん下・ビューの行・「議事録」データベース・ロック・タスク管理・テンプレート・コールアウトの印・行の編集の直し・表のキー・ヘルプセンターを書き、計画の番号と下書きの印を写さず、引いた［…］は src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.17.0 （2026-11-17）'), 'CHANGELOG.md に「## natsu-v0.17.0 （2026-11-17）」の見出しが無い');
+  assert.ok(cl.indexOf('## natsu-v0.17.0') < cl.indexOf('## natsu-v0.16.0'), '0.17.0 の節が 0.16.0 の節の上に無い');
+  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.17.0'), '0.17.0 の節が CHANGELOG の頭に無い');
+  const sec = secOf(cl, '## natsu-v0.17.0');
+  const plan = read('docs/plans/2026-11-13-170.md');
+  const d = plan.indexOf('\n## CHANGELOG の節（下書き。答えを入れて G で持ち主が読む言葉に直して移す）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の節（下書き）」の見出しが無い');
+  const draft = plan.slice(d, plan.indexOf('\n## ', d + 2));
+  assert.ok(!draft.includes('デジタル庁のアイコン（足りない絵は Material Symbols）を足しました') && !draft.includes('書いている間の Esc は書いた文字を決めるようになりました'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());   // 見出しの次から
+  assert.strictEqual(body[0], 'アプリの中の［更新して再起動］で当てられます（インストーラーの入れ直しは要りません）。', '節の頭が［更新して再起動］の1行でない');
+  assert.ok(body[body.length - 1].startsWith('- ヘルプセンターに「「議事録」データベース」「タスク管理と行のテンプレート」の記事を足し、'), '節の末がヘルプセンターの1行でない');
+  assert.strictEqual(body.length, 18, '節の行の数が承認した下書き（頭の1行と 17 の箇条）と違う');
+  for (const w of ['**ページのアイコンに、デジタル庁のアイコンを足しました（足りない絵は Material Symbols）。**', '（議事録はマイク、白紙のページは書類、データベースは表）',
+    '本文が空の間、ページのいちばん下の［データベース］でデータベースにできます',   // RQ1 の答え（題名の下でなくページのいちばん下: M40）
+    'ビューが1行ずつ並び、押すとそのビューで開きます。', '**録音した議事録は、サイドバーのいちばん上の「議事録」データベースにまとまるようになりました。**', '移す前に控えを取ります',
+    '**データベースをロックできるようになりました**（ページの「···」の［データベースをロック］）', '**「タスク管理」データベースができました。**', '［タスクにする］', '「マイタスク」',
+    '（［＋ 新しい行］の横の ▾。', '画面では電球の線のアイコンになりました（写して貼ると 💡 のままです）', '「議事録」の表で行の頭のチェックを入れて［リンクを写す］を押します',
+    '**要約・メモ・白紙のページの行の編集を直しました。**', 'コールアウトの文の途中や末尾で Enter を押すと、コールアウトの中にテキストの行ができます。',   // rv61 軽い 6 の字（M41）
+    'トグル見出しならまずふつうの見出しに戻します', '2回目でページの行を全部選びます（空の行では1回目で）', '［変換 ▸］から区切り線を外しました',
+    '**データベースの表のキーを直しました。**', '（日付の欄で打ちかけた日付も入ります）',   // OQ2 の答え（M41）
+    'セル → 行 → 選びなし の順に外れます。', '別の行のセルを押すと、行のチェックは外れます。', 'Esc で行を選んだ後も、Ctrl+Z で元に戻せます。',
+    '［設定］の近道の一覧の Ctrl+A・Esc・Tab の行も、新しい動きに合わせました。']) {
+    assert.ok(sec.includes(w), `0.17.0 の節に「${w}」が無い`);
+  }
+  assert.ok(!sec.includes('題名の下'), '0.17.0 の節に「題名の下」の［データベース］がある（RQ1 の答えはページのいちばん下: M40）');
+  assert.ok(!/（R\d+）|OQ\d|KQ\d|<!--|承認|新・形/.test(sec), '0.17.0 の節に計画の番号か下書きの印がある');
+  assert.ok(!/notion/i.test(sec), '0.17.0 の節に参考にしたアプリの名前がある');
+  assert.ok(!/<[a-z]/i.test(sec), '0.17.0 の節に生の HTML がある');
+  // 引いた［…］はアプリにある
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.deepStrictEqual(names, ['更新して再起動', 'アイコン', '絵文字', '＋', 'データベース', 'データベースをロック', 'タスクにする', '＋ 新しい行', 'リンクを写す', '変換 ▸', '設定']);
+  for (const n of names) assert.ok(src.includes(n), `0.17.0 の節の［${n}］が src/ に無い`);
+  // 引いたヘルプの記事の題（ヘルプセンターの1行）
+  const files = ['find/minutes-db', 'find/tasks', 'find/page-look', 'find/database', 'summary/edit-summary', 'find/page-tree', 'find/search', 'find/delete-and-backups', 'record/start-stop', 'settings/hotkeys', 'start/claude-mcp', 'start/overview'];
+  const titles = files.map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
+  assert.deepStrictEqual(titles, ['「議事録」データベース', 'タスク管理と行のテンプレート', 'ページのアイコンと見た目', 'データベース（表とリスト）', '要約を書き直す', 'ページの中のページ・白紙のページ', '議事録を探す', 'ページを消す・戻す・毎日の控え', '録音を始める・止める', 'ホットキー', 'Claude から議事録を読む（MCP）', 'NaTsu の全体像']);
+  for (const t of titles) assert.ok(sec.includes(`「${t}」`), `0.17.0 の節にヘルプの記事「${t}」が無い`);
 });
 
 // ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）
