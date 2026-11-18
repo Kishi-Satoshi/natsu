@@ -503,21 +503,24 @@ test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース
       for (const id of dbIds) db.prepare(`update blocks set attrs = json_remove(json_set(attrs, '$.${to}', json_extract(attrs, '$.${from}')), '$.${from}') where id = ?`).run(id);
       db.exec('COMMIT');
     };
-    const timed = () => { const t0 = process.hrtime.bigint(); const r = call(db, 'pages.list', {}); return [Number(process.hrtime.bigint() - t0) / 1e6, r.result]; };
+    // R107（release の run 44250035465 の ci / test (windows-latest)）: 計るのは壁時計でなく、この手が使った CPU の時間（process.cpuUsage の user ＋ system。
+    // ほかのテストのファイルに機械を取られて、この手が走っていなかった間を数えない）。Windows の CPU の時間は約 15.6ms 刻みなので、1回でなく続けた 8 回の
+    // 合わせた時間を 8 で割った1回あたりの値（1回の一覧は 30〜50ms なので、刻みの誤りは 1 回あたり 2ms ほど。組の真ん中でさらに薄まる）
+    const LOOP = 8;
+    const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+    const timed = () => { const c0 = cpuMs(); let r; for (let i = 0; i < LOOP; i++) r = call(db, 'pages.list', {}); return [(cpuMs() - c0) / LOOP, r.result]; };
     const stray = (list) => list.filter((p) => Object.hasOwn(p, 'views') && p.kind !== 'database').map((p) => p.id);
-    // 2つを続けて計った組を 28 組（どちらも覚えた一覧の後で。はじめの 3 組は捨てる: JIT が温まる前）。組ごとに先に計る方を替える（時間とともに機械の混み方が
+    // 2つを続けて計った組を 13 組（どちらも覚えた一覧の後で。はじめの 2 組は捨てる: JIT が温まる前）。組ごとに先に計る方を替える（時間とともに機械の混み方が
     // 変わっても、どちらかに寄らない）。比べるのは組ごとの差（読む − 読まない × 1.1）の真ん中の値で、揺れの分の 2 ミリ秒は見逃す。R26 直し: 前はデータベース ↔
     // 白紙のページの種類を替えて比べていて、データベースの一覧の前からの重さまで数えていた（CI run 43585807076）。R41 直し: 前は2つのいちばん速い回どうしを
     // 比べていて、別の時に計った回どうしなので、ほかのテストのファイルと同時に走る機械の混み方が計る間に変わると外れた（CI run 43647892596 の mutate-3 の
-    // 元のままの確かめで 38.2ms と 32.7ms。手元で同じ形を3回計ると、いちばん速い回の差は 1 ミリ秒の中）
+    // 元のままの確かめで 38.2ms と 32.7ms。手元で同じ形を3回計ると、いちばん速い回の差は 1 ミリ秒の中）。R80 の「続けて計った3回のいちばん短い時間」は、
+    // R107 で CPU の時間にしたので外した（割り込まれた間はもう数えない。GC も一覧の仕事なので、8 回の合わせた時間で数える）
     const diffs = []; const read = []; const plain = [];
     const one = (want) => {
       if (want === 'plain') swap('views', 'vx');
-      timed();
-      // R80（ee30109 の run 43684065552 の mutate-1 の元のままの確かめ）: 1回の時間でなく、続けて計った3回のいちばん短い時間（ほかの手が割り込んだ回を数えない）
-      const runs = [timed(), timed(), timed()];
-      const ms = Math.min(...runs.map((x) => x[0]));
-      const list = runs[2][1];
+      call(db, 'pages.list', {});   // 欄の名前を替えた後の1回目（覚えた一覧を読み直す）は計らない
+      const [ms, list] = timed();
       if (want === 'plain') {
         assert.deepStrictEqual(list.filter((p) => Array.isArray(p.views) && p.views.length), list.filter((p) => p.id === made.id && p.views.length), '前提: ビューの欄の名前を替えても views がある');
         swap('vx', 'views');
@@ -525,12 +528,12 @@ test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース
       assert.deepStrictEqual(stray(list), [], 'データベースでない行に views を付けた');
       return ms;
     };
-    for (let k = 0; k < 28; k++) {
+    for (let k = 0; k < 13; k++) {
       let a; let b;
       if (k % 2 === 0) { a = one('read'); b = one('plain'); } else { b = one('plain'); a = one('read'); }
-      if (k >= 3) { read.push(a); plain.push(b); diffs.push(a - b * 1.1); }
+      if (k >= 2) { read.push(a); plain.push(b); diffs.push(a - b * 1.1); }
     }
     const mid = (xs) => [...xs].sort((x, y) => x - y)[xs.length >> 1];
-    assert.ok(mid(diffs) <= 2, `ビューを読む一覧が読まない一覧の 1.1 倍を超えた（組ごとの差の真ん中 ${mid(diffs).toFixed(1)}ms・真ん中の回 ${mid(read).toFixed(1)}ms と ${mid(plain).toFixed(1)}ms）`);
+    assert.ok(mid(diffs) <= 2, `ビューを読む一覧が読まない一覧の 1.1 倍を超えた（1回あたりの CPU の時間で、組ごとの差の真ん中 ${mid(diffs).toFixed(1)}ms・真ん中の回 ${mid(read).toFixed(1)}ms と ${mid(plain).toFixed(1)}ms）`);
   } finally { t.done(); }
 });
