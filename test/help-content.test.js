@@ -1728,7 +1728,11 @@ test('0.17.0 点検 4（rv61 軽い 4・軽い 5・XQ1〜XQ4）: 設計書の D1
   const at = d.indexOf(`\n${h}\n`);
   assert.ok(at > d.indexOf('\n| D158 |') && at < d.indexOf('\n## 作り方（Superpowers の進め方。'), `設計書の節「${h}」が D158 の後・「作り方」の前に無い`);
   const sec = d.slice(at, d.indexOf('\n## ', at + 5));
-  assert.deepStrictEqual([...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]), ['D159', 'D160', 'D161', 'D162'], '後の版の節の D の行が D159〜D162 でない');
+  // 0.18.0 の計画の初版（docs/plans/2026-11-18-180.md の「意図して変えるテスト」の末から2つ目の行）で意図して直した: 2026-11-18 の持ち主の答え
+  // 「0.18.0 に一緒に入れる」を D163 としてこの節に足した（D159〜D162 の行の末の書き添えを足しても、各行の XQ の答え・X の番号・「後の版」は残る: 下の for）
+  assert.deepStrictEqual([...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]), ['D159', 'D160', 'D161', 'D162', 'D163'], '後の版の節の D の行が D159〜D163 でない');
+  assert.ok(rowOf(sec, 'D163').includes('「0.18.0 に一緒に入れる」') && rowOf(sec, 'D163').includes('`docs/plans/2026-11-18-180.md`'), 'D163 に 2026-11-18 の答えと 0.18.0 の計画が無い');
+  for (const k of ['D159', 'D160', 'D161', 'D162']) assert.ok(rowOf(sec, k).endsWith('**（2026-11-18: 0.18.0 で作る: D163）** |'), `${k} に 0.18.0 の書き添えが無い`);
   const qa = plan.slice(plan.indexOf('\n## 問答の答え（2026-11-17。点検 4 の rv61 の問いと XQ1〜XQ4）\n'));
   assert.ok(qa.length > 100 && qa.indexOf('\n## ', 5) > 0, '計画に「問答の答え（2026-11-17。…）」の節が無い');
   const qsec = qa.slice(0, qa.indexOf('\n## ', 5));
