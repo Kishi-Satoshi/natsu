@@ -2217,11 +2217,13 @@
   let popSeries = null;   // 止めた押しの時と所 { at, x, y }（2回続けた押しの2回目を見分ける）
   const POP_DBL_MS = 500;   // 2回続けた押しの間（Windows の既定）
   const POP_DBL_PX = 4;     // 2回続けた押しと数える所のずれ
+  const POP_TAP_MS = 350;   // ペンとタッチの押しの印を、離した後も残す長さ（タップの click は離した後の時限 0 より後に来ることがある: R27）
   let popBlurring = false;   // 外の押しで窓の中の欄の blur を呼んでいる間（本物は blur で focusout が来る。窓の focusout の受け口は決めずに、帳面の close('outside') に任せる: R23）
   const popEat = (ev) => { ev.preventDefault(); ev.stopImmediatePropagation(); };
-  const popMine = (ev) => Boolean(popStop) && !(typeof ev.pointerId === 'number' && typeof popStop.id === 'number' && ev.pointerId !== popStop.id);
+  // ペンとタッチ（slow）の印の間の click は、押しの番号が違っても（-1 など）その押しの物と見る（R27）
+  const popMine = (ev) => Boolean(popStop) && ((popStop.slow && ev.type === 'click') || !(typeof ev.pointerId === 'number' && typeof popStop.id === 'number' && ev.pointerId !== popStop.id));
   function popStopEnd() { if (!popStop) return; clearTimeout(popStop.timer); popStop = null; }
-  function popStopOn(ev, maybe) { popStopEnd(); popStop = { id: ev.pointerId, timer: setTimeout(popStopEnd, 5000), maybe: maybe === true }; popSeries = { at: Date.now(), x: Number(ev.clientX) || 0, y: Number(ev.clientY) || 0 }; }
+  function popStopOn(ev, maybe) { popStopEnd(); popStop = { id: ev.pointerId, timer: setTimeout(popStopEnd, 5000), maybe: maybe === true, slow: typeof ev.pointerType === 'string' && ev.pointerType !== '' && ev.pointerType !== 'mouse' }; popSeries = { at: Date.now(), x: Number(ev.clientX) || 0, y: Number(ev.clientY) || 0 }; }
   const popNear = (ev) => Boolean(popSeries) && ev.button === 0 && ev.isPrimary !== false && Date.now() - popSeries.at <= POP_DBL_MS
     && Math.abs((Number(ev.clientX) || 0) - popSeries.x) <= POP_DBL_PX && Math.abs((Number(ev.clientY) || 0) - popSeries.y) <= POP_DBL_PX;
   const popField = (f) => Boolean(f) && (/^(input|textarea)$/i.test(f.tagName) || f.isContentEditable === true || f.contentEditable === 'true');
@@ -2249,7 +2251,8 @@
   function popAfter(ev) {
     if (!popMine(ev)) return;
     popEat(ev);
-    if (ev.type === 'pointerup' || ev.type === 'mouseup') { const s = popStop; clearTimeout(s.timer); s.timer = setTimeout(() => { if (popStop === s) popStop = null; }, 0); }
+    if (ev.type === 'pointerup' || ev.type === 'mouseup') { const s = popStop; clearTimeout(s.timer); s.timer = setTimeout(() => { if (popStop === s) popStop = null; }, s.slow ? POP_TAP_MS : 0); }
+    else if (ev.type === 'click' && popStop.slow) popStopEnd();   // ペンとタッチ: その押しの click が来たら外す（R27）
   }
   function popKey(ev) {
     if (ev.key !== 'Escape' || imeEnter(ev)) return;

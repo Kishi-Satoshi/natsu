@@ -350,6 +350,49 @@ test('OD-1・F227・F229: 止める印が残らない（click が来ない・poi
   } finally { l.done(); }
 });
 
+test('OD-1・F226（R27）: ペンとタッチの外の押しは、離した後も止める印を残し、その押しの click が来るか 350ms で外す（タップの click は離した後の時限 0 より後に来ることがある）。マウスは今どおり時限 0', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, rows } = l.made;
+    const cell = () => cellAt(l, rows[1], c1);
+    for (const [kind, clickId] of [['touch', 5], ['touch', -1], ['pen', 6]]) {
+      await clickEl(l, head(l, c1));
+      // 指を下ろして離す（pointerdown・pointerup）。時限 0 が過ぎてから、タップの mousedown・mouseup・click が来る
+      let r = l.press(cell(), { pointerType: kind, pointerId: 5, types: ['pointerdown', 'pointerup'], clientX: 120, clientY: 300 });
+      assert.deepStrictEqual(r.got, [], `${kind}: 外のタップの pointerdown・pointerup が届いた`);
+      assert.deepStrictEqual(pops(l).map((e) => e.className), [], `${kind}: 外のタップで閉じない`);
+      await l.clock.advance(0); await l.drain(20);
+      r = l.press(cell(), { pointerType: kind, pointerId: clickId, types: ['mousedown', 'mouseup', 'click'], clientX: 120, clientY: 300 });
+      await l.clock.advance(0); await l.drain(40);
+      assert.deepStrictEqual(r.got, [], `${kind}（click の番号 ${clickId}）: 時限 0 の後のタップの click が届いた（閉じて、押したセルも動く）`);
+      assert.deepStrictEqual(selCells(l).map((c) => c.dataset.col), [], `${kind}: タップしたセルが選ばれた`);
+      // click で印を外したので、次の押し（離れた所・マウス）は届く
+      r = await pressEl(l, $(l, 'pTitle'), { clientX: 600 });
+      assert.ok(r.got.includes('pointerdown') && r.got.includes('click'), `${kind}: タップの click の後の押しが届かない（印が残った）`);
+      $(l, 'pTitle').blur();
+      await l.clock.advance(600);
+    }
+    // click が来ないタップ（指を動かした・別の所で離した）: 350ms で外す
+    await clickEl(l, head(l, c1));
+    l.press(cell(), { pointerType: 'touch', pointerId: 5, types: ['pointerdown', 'pointerup'], clientX: 120, clientY: 300 });
+    await l.clock.advance(300); await l.drain(20);
+    let r = l.press($(l, 'pTitle'), { pointerType: 'touch', pointerId: 9, types: ['click'], clientX: 600 });
+    assert.deepStrictEqual(r.got, [], '350ms の内の click が届いた');
+    await l.clock.advance(400); await l.drain(20);
+    r = l.press($(l, 'pTitle'), { clientX: 600 });
+    await l.clock.advance(0); await l.drain(20);
+    assert.ok(r.got.includes('pointerdown') && r.got.includes('click'), '350ms の後も印が残った');
+    // マウスは今どおり: 離した後の時限 0 で外す（時限 0 の後の click は届く）
+    await l.clock.advance(600);
+    await clickEl(l, head(l, c1));
+    l.press(cell(), { types: ['pointerdown', 'mousedown', 'pointerup', 'mouseup'], clientX: 120, clientY: 300 });
+    await l.clock.advance(0); await l.drain(20);
+    r = l.press($(l, 'pTitle'), { types: ['click'], clientX: 600 });
+    assert.deepStrictEqual(r.got, ['click'], 'マウスの時限 0 の後の click を止めた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('OD-1・F227: 設定の窓の押しも止める（決めたこと 11。2026-11-21 の PQ171-6 の答え「ほかのメニューと同じ「閉じるだけ」」）: 絞り込みの窓を開いたまま別の行のセルを押すと、閉じるだけでセルは選ばれない', T, async () => {
   const l = await openDb();
   try {

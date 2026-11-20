@@ -467,7 +467,8 @@ function boot() {
 
 
     // ---- 0.17.1 OD-3（計画 docs/plans/2026-11-18-171.md の決めたこと 14・15〜21・F225）: 本物のマウスで、浮く窓の閉じ方と止め方を見る（撮らない確かめ）。
-    // 手ごとに本体の窓を開き直し（SH.DISMISS_STEPS）、押す所を測って sendInputEvent で押し（右・中・なぞる・2回続けた押し・取っ手の引っ張り・捲り棒）とキーを送り、
+    // 手ごとに本体の窓を開き直し（SH.DISMISS_STEPS）、押す所を測って sendInputEvent で押し（右・中・なぞる・2回続けた押し・取っ手の引っ張り・捲り棒。
+    // タップは DevTools の Input.dispatchTouchEvent: R27）とキーを送り、
     // 段ごとに SH.DISMISS_PROBE で形を読んで SH.judgeDismiss で照らす。NG なら「撮れない」と同じく終わりの番号を 1 にする。キーを受けるため、Tab の輪と同じく
     // DevTools の Emulation.setFocusEmulationEnabled でページがフォーカスを持つ扱いにする
     const pointOf = (wc, at) => within(wc.executeJavaScript(at === 'bar' ? `(() => {
@@ -490,6 +491,14 @@ function boot() {
     const mouse = async (wc, type, x, y, button = 'left', clickCount = 1, modifiers = []) => { wc.sendInputEvent({ type, x, y, button, clickCount, modifiers }); await wait(40); };
     const pressAt = async (wc, p, press) => {
       const b = press.button || 'left';
+      if (press.touch) {   // 0.17.1 直し（R27）: 本物のタップ（指を下ろして離す。click はタップの見分けから後で来る）
+        await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+        await wc.debugger.sendCommand('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: p.x, y: p.y }] });
+        await wait(40);
+        await wc.debugger.sendCommand('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await wait(400);   // タップの click と、ペンとタッチの止める印の 350ms が過ぎるまで
+        return;
+      }
       if (press.drag) {
         const x0 = press.drag.dx === 'across' ? p.l : p.x;
         const x1 = press.drag.dx === 'across' ? p.r : p.x + press.drag.dx;

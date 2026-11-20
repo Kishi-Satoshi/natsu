@@ -1925,6 +1925,10 @@ const DISMISS_STEPS = [
   { name: 'filter', screen: 'db-table-light', open: `document.querySelector('#pDb .dbsetbtn').click(); [...document.querySelectorAll('#pDb .dbmenu .mitem')].find((b) => b.textContent === '絞り込み').click();`,
     acts: [{ press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, sel: [] } }] },
   { name: 'pick', screen: 'db-table-light', open: `${DISMISS_CELL(2, 'c2')}.click();`, acts: [{ press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, selNot: ['r2:title'] } }] },
+  // 0.17.1 直し（R27。決めたこと 17: タッチの押しは左と同じ）: 本物のタップ（DevTools の Input.dispatchTouchEvent）。タップの click は離した後の時限 0 より
+  // 後に来ることがあるので、外のタップで閉じた後にタップしたセルが選ばれないかを見る。先に、窓が無いときのタップでセルが選ばれる（タップが届く）ことを見る
+  { name: 'ref-touch', screen: 'db-locked-light', open: '', acts: [{ press: { at: DISMISS_CELL(1, 'title'), touch: true }, want: { pops: 0, sel: ['r2:title'] } }] },
+  { name: 'touch', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_CELL(1, 'title'), touch: true }, want: { pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] } }] },
 ];
 /** 手の開く文（一覧のいちばん上のデータベースを開いてから then） */
 const dismissOpen = (then) => OPEN_DB_AT(then);
