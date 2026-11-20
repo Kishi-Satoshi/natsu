@@ -1896,6 +1896,89 @@ function exitCodeOf({ shots, compare, flaky = [], csp = [], perf = [], errors = 
   return n > 0 ? 0 : 1;
 }
 
+// ---------------------------------------------------------------- 0.17.1 OD-3（計画 docs/plans/2026-11-18-171.md の決めたこと 14・15〜21・F225〜F227・F229）
+// 本物のマウス（webContents.sendInputEvent）で、浮く窓の閉じ方と止め方を見る確かめ（撮らない。撮る画像は変えない）。手ごとに窓を開き直し、
+// 開く文（open。表を開いた後に走らせる）で窓を1つ開いてから、acts の押し（press: 押す所の文か 'bar'（表の捲り棒）・ボタン・回数・なぞる）とキーを順に送り、
+// 段ごとに DISMISS_PROBE で今の形を読んで、決めた形（want）と judgeDismiss で照らす
+const DISMISS_COLBTN = `[...document.querySelectorAll('#pDb .dbcolh')].find((h) => h.dataset.col === 'c3').querySelector('.dbcolbtn')`;
+const DISMISS_CELL = (row, col) => `[...document.querySelectorAll('#pDb .dbrow')][${row}].querySelector('.dbcell[data-col="${col}"]')`;
+const DISMISS_OPEN_COL = `${DISMISS_COLBTN}.click();`;
+const DISMISS_HEAD = `document.querySelector('.phead')`;
+const DISMISS_TITLE = `document.getElementById('pTitle')`;
+const DISMISS_LOCK = `document.getElementById('pLock')`;
+const DISMISS_STEPS = [
+  // 本物の押しが届くか（窓が無いときは押したセルが選ばれる。届かなければ、ほかの手の「閉じた」が確かめにならない）
+  { name: 'ref', screen: 'db-locked-light', open: '', acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: ['r2:c3'] } }] },
+  { name: 'head', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_HEAD }, want: { pops: 0 } }] },
+  { name: 'cell', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] } }] },
+  { name: 'title-z', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_TITLE }, keys: ['z'], want: { pops: 0, titleSame: true, focusNot: ['#pTitle'] } }] },
+  { name: 'lock', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_LOCK }, want: { pops: 0 } }, { press: { at: DISMISS_LOCK }, want: { pops: 1, lock: true } }] },
+  { name: 'right', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_CELL(1, 'title'), button: 'right' }, want: { pops: 0 } }] },
+  { name: 'middle', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_HEAD, button: 'middle' }, want: { pops: 1 } }] },
+  { name: 'drag-title', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_TITLE, drag: { dx: 'across' } }, want: { pops: 0, picked: '', titleSame: true } }] },
+  { name: 'grip', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: `document.getElementById('sideGrip')`, drag: { dx: 60 } }, want: { pops: 0, sideSame: true } }] },
+  { name: 'double', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_TITLE, clickCount: 2 }, want: { pops: 0, picked: '' } }] },
+  // 捲り棒の押し（決めたこと 20）: 窓の数だけを照らし、捲れたかは記録だけ。続けて押したセルが選ばれる（止める印が残らない）
+  { name: 'bar', screen: 'db-locked-light', bar: true, open: DISMISS_OPEN_COL, acts: [{ press: { at: 'bar' }, want: { pops: 0 } }, { press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: ['r2:c3'] } }] },
+  { name: 'tab-esc', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ keys: ['Tab', 'Escape'], want: { pops: 0, focus: '.dbcolbtn' } }] },
+  // 設定の窓も閉じるだけ（決めたこと 11。2026-11-21 の PQ171-6 の答え）
+  { name: 'filter', screen: 'db-table-light', open: `document.querySelector('#pDb .dbsetbtn').click(); [...document.querySelectorAll('#pDb .dbmenu .mitem')].find((b) => b.textContent === '絞り込み').click();`,
+    acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: [] } }] },
+  { name: 'pick', screen: 'db-table-light', open: `${DISMISS_CELL(2, 'c2')}.click();`, acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, selNot: ['r2:c3'] } }] },
+];
+/** 手の開く文（一覧のいちばん上のデータベースを開いてから then） */
+const dismissOpen = (then) => OPEN_DB_AT(then);
+/**
+ * 今の形を集める文 → { pops（見えている浮く窓の数）, sel（選んだセル「行:列」）, focus（#id か .クラス。body は ''）, lock（［ロックを外す］が開いているか）,
+ * title（題名の字）, picked（選んだ字）, sideW（サイドバーの幅）, page（開いているページの題名）, scrolled（表を捲った量） }
+ */
+const DISMISS_PROBE = `(() => {
+  const seen = (e) => e && e.isConnected && !e.hidden && e.getClientRects().length > 0;
+  const pops = [...document.querySelectorAll('.dbmenu, .dbpick, .lockmenu, .dbtplsub, .treemenu, .blockmenu, .slashmenu, #linkPop, #colorMenu, #pMenu, #privMenu')].filter(seen).length;
+  const sel = [...document.querySelectorAll('#pDb .dbcell[aria-selected="true"]')].map((c) => c.parentNode.dataset.id + ':' + c.dataset.col);
+  const a = document.activeElement;
+  const focus = !a || a === document.body || a === document.documentElement ? '' : a.id ? '#' + a.id : a.classList.length ? '.' + a.classList[0] : a.tagName.toLowerCase();
+  const sc = document.querySelector('#pDb .dbscroll');
+  const title = document.getElementById('pTitle').textContent;
+  return { pops, sel, focus, lock: Boolean(document.querySelector('.lockmenu')), title, picked: String(window.getSelection ? window.getSelection() : ''),
+    sideW: Math.round(document.querySelector('#side').getBoundingClientRect().width), page: title, scrolled: sc ? sc.scrollLeft + sc.scrollTop : 0 };
+})()`;
+/**
+ * 手の結果 [{ name, bar, phases: [{ want, got, base, none }] }] → { ok, bad（違った手の名前）, notes（参考）, why（違った所） }。
+ * 段ごとに窓の数（pops）と、want に書いた形（sel・selNot・focus・focusNot・lock・picked・titleSame・sideSame・pageSame）を照らす。
+ * 捲り棒の手（bar）の1段目は窓の数だけ（捲れたかは notes に記録だけ）。捲り棒が無ければ（none）参考で OK。測れなかった段（got が無い）は NG
+ */
+function judgeDismiss(steps) {
+  const bad = []; const notes = []; const why = [];
+  if (!Array.isArray(steps) || !steps.length) return { ok: false, bad: ['（手が無い）'], notes, why: ['手が無い'] };
+  for (const s of steps) {
+    const miss = [];
+    (s.phases || []).forEach((p, i) => {
+      const w = (p && p.want) || {}; const g = p && p.got; const b = (p && p.base) || {};
+      const at = `${i + 1} 段目`;
+      if (!g) {
+        if (s.bar && p && p.none) { notes.push(`${s.name}: ${p.none}（参考）`); return; }
+        miss.push(`${at}を測れなかった${p && p.none ? `（${p.none}）` : ''}`);
+        return;
+      }
+      if (g.pops !== w.pops) miss.push(`${at}の窓の数 ${g.pops}（${w.pops} のはず）`);
+      if (s.bar && i === 0) { notes.push(`${s.name}: 捲った ${Number(g.scrolled) || 0}px`); return; }
+      const sel = Array.isArray(g.sel) ? g.sel : [];
+      if (w.sel && sel.join(' ') !== w.sel.join(' ')) miss.push(`${at}の選んだセル ${sel.join(' ') || '（なし）'}（${w.sel.join(' ') || 'なし'} のはず）`);
+      if (w.selNot && w.selNot.some((x) => sel.includes(x))) miss.push(`${at}に ${w.selNot.filter((x) => sel.includes(x)).join(' ')} が選ばれた`);
+      if (w.focus !== undefined && g.focus !== w.focus) miss.push(`${at}のフォーカス ${g.focus || '（なし）'}（${w.focus} のはず）`);
+      if (w.focusNot && w.focusNot.some((x) => String(g.focus || '').startsWith(x))) miss.push(`${at}のフォーカスが ${g.focus} へ動いた`);
+      if (w.lock !== undefined && Boolean(g.lock) !== w.lock) miss.push(`${at}の［ロックを外す］が ${g.lock ? '開いている' : '無い'}`);
+      if (w.picked !== undefined && String(g.picked || '') !== w.picked) miss.push(`${at}に字が選ばれた（${g.picked}）`);
+      if (w.titleSame && g.title !== b.title) miss.push(`${at}の題名が「${g.title}」に変わった`);
+      if (w.sideSame && Math.abs((Number(g.sideW) || 0) - (Number(b.sideW) || 0)) >= 1) miss.push(`${at}のサイドバーの幅が ${b.sideW} から ${g.sideW} に変わった`);
+      if (w.pageSame && g.page !== b.page) miss.push(`${at}に「${g.page}」が開いた`);
+    });
+    if (miss.length) { bad.push(s.name); why.push(`${s.name}: ${miss.join('・')}`); }
+  }
+  return { ok: bad.length === 0, bad, notes, why };
+}
+
 // 窓の中の大きさを決めた大きさにする（作業域より大きい窓は、作るときに作業域まで縮められる: Windows の CI の 1024x768 の画面で
 // 1120x780 が 1024x720 になった）。直したら true
 function ensureContentSize(win, size) {
@@ -1909,6 +1992,7 @@ module.exports = {
   diffRegions, onlyIn, sideArea, retakeReport,   // 0.15.1 ND-5（WQ8）
   SIZE, OVERLAY_SIZE, SHOT_AREA, SCREENS, RETAKE, PERF, FIXED_NOW, TIME_ZONE, TOLERANCE, FREEZE_CSS, OVERFLOW_PROBE,
   WAVE_SPEECH, NUDGE_SIZE, NUDGE_PROBE, nudgeWindowFor, detectAnswers,
+  DISMISS_STEPS, DISMISS_PROBE, dismissOpen, judgeDismiss,   // 0.17.1 OD-3
   PANEL_PROBE, PANEL_PROBE_SCALES, PANEL_PROBE_STATES, judgePanel, panelWindowFor, shotSizeFor, watchdogMs,
   apiNamesOf, fixtures, liveAnswers, bigPage, bigListEntry, judgePair, PAINT_PROBE, judgePaintWait, compareAll, cspViolation, median, judgePerf, judgeOverflow, judgeFocus, judgeZoom,
   exitCodeOf, ensureContentSize,

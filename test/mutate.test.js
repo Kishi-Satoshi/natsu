@@ -1799,6 +1799,8 @@ const IDS_171 = [
   'od-date-save', 'od-input-save', 'od-input-once', 'od-panel-value', 'od-viewadd-none', 'od-ime-blur', 'od-esc-out', 'od-esc-ime', 'od-esc-idle',
   // 0.17.1 OD-2 で作った行（表の行の順に）
   'od-pmenu', 'od-tree', 'od-block', 'od-priv', 'od-crumb', 'od-slash', 'od-link', 'od-color', 'od-dbpick', 'od-nest', 'od-stop-parent', 'od-modal',
+  // 0.17.1 OD-3 で作った行
+  'od-probe-judge',
 ];
 function planRows171() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-18-171.md'), 'utf8');
