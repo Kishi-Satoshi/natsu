@@ -2189,6 +2189,79 @@
   // どの編集欄でも「確定して抜ける」にしてはいけない。
   const imeEnter = (ev) => ev.isComposing || ev.keyCode === 229;
 
+  // ---------------- 0.17.1（計画 docs/plans/2026-11-18-171.md の決めたこと 1〜7・11・15〜22）: 開いている浮く窓の帳面 ----------------
+  // 浮く窓（メニュー・選びの窓・設定の窓）は popPush で帳面に載せ、閉じる関数の頭で popDrop で外す。受け口は document の捕まえる段だけ:
+  //  - 外の押し（左と右。中の押しでは閉じない）: 帳面の窓を新しい順に全部閉じるだけで、その1回の押しは押した所に届けない（止める押し）。
+  //    窓の中の押しは、その窓より新しい窓（子）だけを閉じ、止めない。
+  //  - Esc: フォーカスがいちばん新しい窓の外にあれば、その窓を閉じて開いた部品へフォーカスを戻す（窓の中なら窓の受け口に任せる。変換中は何もしない）。
+  //  - 開くのは1つ: popPush は、新しい窓を中に持つ窓（親）のほかを閉じる。
+  // 帳面と止める印は窓のメモリだけ。この受け口は、ほかの document の捕まえる段の受け口より先に付ける（同じ段は付けた順に呼ばれる）
+  const popStack = [];   // 古い順。{ el, close(why, field), anchors, name }。why は 'outside'・'esc'・'other'・'modal'
+  const popIn = (n, el) => { for (let x = n; x; x = x.parentNode) if (x === el) return true; return false; };
+  const popLive = (el) => popIn(el, document.documentElement);
+  function popPrune() { for (let i = popStack.length - 1; i >= 0; i--) if (!popLive(popStack[i].el)) popStack.splice(i, 1); }   // 描き直しで木から外れた窓は黙って外す
+  function popDrop(el) { const i = popStack.findIndex((e) => e.el === el); if (i >= 0) popStack.splice(i, 1); }
+  function popPush(el, o = {}) {
+    if (!el) return;
+    popDrop(el);
+    popPrune();
+    for (const e of popStack.slice().reverse()) if (!popIn(el, e.el)) { popDrop(e.el); e.close('other'); }
+    popStack.push({ el, close: typeof o.close === 'function' ? o.close : () => {}, anchors: (o.anchors || []).filter(Boolean), name: o.name || '' });
+  }
+  function popCloseAll(why) { popPrune(); for (const e of popStack.splice(0).reverse()) e.close(why); }
+  // 止める押し（決めたこと 15〜17）: 外の押しで窓を閉じた押しの事象を、押した所のどの受け口よりも先に止める。離した後の時限 0（click・auxclick・
+  // contextmenu・dblclick はその前に届く）・pointercancel・窓のフォーカスが外れた・5 秒で外す。違う押しの番号（pointerId）の事象は止めない。
+  // 止めた押しに続く2回目（mousedown の detail が 2 以上）も止める
+  let popStop = null;   // { id, timer }
+  let popSeries = false;
+  const popEat = (ev) => { ev.preventDefault(); ev.stopImmediatePropagation(); };
+  const popMine = (ev) => Boolean(popStop) && !(typeof ev.pointerId === 'number' && typeof popStop.id === 'number' && ev.pointerId !== popStop.id);
+  function popStopEnd() { if (!popStop) return; clearTimeout(popStop.timer); popStop = null; }
+  function popStopOn(ev) { popStopEnd(); popStop = { id: ev.pointerId, timer: setTimeout(popStopEnd, 5000) }; popSeries = true; }
+  const popField = (f) => Boolean(f) && (/^(input|textarea)$/i.test(f.tagName) || f.isContentEditable === true || f.contentEditable === 'true');
+  function popDown(ev) {
+    if (popMine(ev)) { popEat(ev); return; }   // 止めた押しの mousedown
+    if (ev.button !== 0 && ev.button !== 2) return;   // 中の押し（と、ほかのボタン）では閉じない・止めない（決めたこと 17）
+    if (ev.type === 'mousedown' && ev.detail >= 2 && popSeries) { popStopOn(ev); popEat(ev); return; }
+    popPrune();
+    const t = ev.target;
+    let k = -1;   // 押した所を中に持つ、いちばん新しい窓
+    for (let i = popStack.length - 1; i >= 0; i--) if (popIn(t, popStack[i].el)) { k = i; break; }
+    const shut = popStack.splice(k + 1).reverse();
+    if (ev.type === 'mousedown') popSeries = false;
+    if (!shut.length) return;
+    if (k >= 0) { for (const e of shut) e.close('other'); return; }   // 窓の中の押し: 子だけを閉じ、押しは届ける（決めたこと 19）
+    const a = document.activeElement;   // 窓の中の欄の変換中の字を確定させてから閉じる（決めたこと 22）
+    const field = popField(a) && shut.some((e) => popIn(a, e.el)) ? a : null;
+    if (field) field.blur();
+    popStopOn(ev);
+    popEat(ev);
+    for (const e of shut) e.close('outside', field);
+  }
+  function popAfter(ev) {
+    if (!popMine(ev)) return;
+    popEat(ev);
+    if (ev.type === 'pointerup' || ev.type === 'mouseup') { const s = popStop; clearTimeout(s.timer); s.timer = setTimeout(() => { if (popStop === s) popStop = null; }, 0); }
+  }
+  function popKey(ev) {
+    if (ev.key !== 'Escape' || imeEnter(ev)) return;
+    popPrune();
+    const top = popStack[popStack.length - 1];
+    if (!top) return;
+    if (popIn(document.activeElement, top.el)) return;
+    ev.preventDefault(); ev.stopPropagation();
+    popStack.pop();
+    top.close('esc');
+    const back = top.anchors.find(popLive);
+    if (back) back.focus();
+  }
+  document.addEventListener('pointerdown', popDown, true);
+  document.addEventListener('mousedown', popDown, true);
+  for (const t of ['pointerup', 'mouseup', 'click', 'auxclick', 'contextmenu', 'dblclick', 'dragstart', 'selectstart']) document.addEventListener(t, popAfter, true);
+  document.addEventListener('pointercancel', popStopEnd, true);
+  document.addEventListener('keydown', popKey, true);
+  window.addEventListener('blur', popStopEnd);
+
   // ---------------- タブ ----------------
   // 中身の切り替え（section とサイドバーのボタンの active）。上のタブはこれと openPage を呼ぶ。
   // 0.9.0 U-1（調べた結果の 36）: 設定（#tabSettings・#tabBtnSettings）には触らない。設定のポップアップを開いている間に
@@ -7558,6 +7631,7 @@
   function lockMenuClose(back) {
     if (!lockMenu) return;
     const m = lockMenu; lockMenu = null;
+    popDrop(m);   // 0.17.1 OD-1
     if (m.parentNode) m.parentNode.removeChild(m);
     if (back) $('pLock').focus();
   }
@@ -7574,6 +7648,7 @@
     };
     $('pLock').parentNode.appendChild(box);
     lockMenu = box;
+    popPush(box, { close: () => lockMenuClose(), anchors: [$('pLock')], name: 'lock' });   // 0.17.1 OD-1（決めたこと 1・7。M2: 閉じ方が無かった）
     const first = box.querySelector('.mitem');
     if (first) first.focus();
   };
@@ -12103,6 +12178,7 @@
     st.host.appendChild(m);
     dbMenuPlace(m, anchor, st.host);
     st.menu = m;
+    dbPop(st, m, [anchor], 'dbtpl');   // 0.17.1 OD-1
     dbBind(st, m);
     const f = items()[0];
     if (f) f.focus();
@@ -12110,7 +12186,7 @@
   // テンプレートの［···］（t が null なら「空白のページ」）
   function dbTplSub(st, m, from, t) {
     const old = m.querySelector('.dbtplsub');
-    if (old) old.parentNode.removeChild(old);
+    if (old) { popDrop(old); old.parentNode.removeChild(old); }
     const sub = document.createElement('div');
     sub.className = 'dbtplsub'; sub.setAttribute('role', 'menu');
     const it = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'mitem'; b.setAttribute('role', 'menuitem'); b.tabIndex = -1; b.textContent = label; b.onclick = fn; sub.appendChild(b); return b; };
@@ -12121,6 +12197,7 @@
       it('削除', async () => { dbMenuClose(); if (await dbWrite(() => window.koeApp.tplRemove(st.id, t.id), undefined, st)) await dbTplAgain(st); });
     }
     from.parentNode.appendChild(sub);
+    popPush(sub, { close: () => { if (sub.parentNode) sub.parentNode.removeChild(sub); }, anchors: [from], name: 'dbtplsub' });   // 0.17.1 OD-2（決めたこと 4・19）: 子の窓（親の ▾ の窓は残る）
     const f = sub.querySelector('.mitem');
     if (f) f.focus();
   }
@@ -12142,6 +12219,7 @@
     st.host.appendChild(box);
     dbMenuPlace(box, st.parts && st.parts.sc ? st.parts.sc : st.host, st.host);
     st.menu = box;
+    dbPop(st, box, [anchor], 'dbtplask');   // 0.17.1 OD-1
     dbBind(st, box);
     all.focus();
   }
@@ -12534,7 +12612,18 @@
   // ［列の値を変える ▸］: 列を選び、値を書いて Enter で、選んだ全部の行のその列を同じ値に（rows.setCell の1回: 決めたこと 27）
   function dbMenuClose() {
     const st = dbSt;
-    if (st && st.menu) { if (st.menu.parentNode) st.menu.parentNode.removeChild(st.menu); st.menu = null; }
+    if (st && st.menu) { popDrop(st.menu); if (st.menu.parentNode) st.menu.parentNode.removeChild(st.menu); st.menu = null; }
+  }
+  // 0.17.1 OD-1（計画 docs/plans/2026-11-18-171.md の決めたこと 1・6）: 帳面から閉じるときは、その表を dbSt にして呼び、呼ぶ前の表に戻す
+  //（開こうとしている別の表の窓の作りを取り違えない）
+  function dbPopClose(st, fn) {
+    const was = dbSt;
+    if (!dbUse(st)) return;
+    try { fn(); } finally { if (was && was !== st && dbOnScreen(was)) dbSt = was; }
+  }
+  // 表のメニュー（st.menu）を帳面に載せる。閉じるのは、その窓がまだ st.menu のときだけ（描き直し・ほかのメニューで替わっていれば外すだけ）
+  function dbPop(st, m, anchors, name) {
+    popPush(m, { close: () => { if (st.menu === m) dbPopClose(st, dbMenuClose); else if (m.parentNode) m.parentNode.removeChild(m); }, anchors, name });
   }
   function dbSetMenu(from) {
     const st = dbSt;
@@ -12561,6 +12650,7 @@
     st.parts.bar.appendChild(m);
     dbMenuPlace(m, from, st.parts.bar);   // 0.16.0 直し（R129。rv57 軽い 2）: 選択の帯の下の CSS の置き場所でなく、見える所に収める
     st.menu = m;
+    dbPop(st, m, [from], 'dbset');   // 0.17.1 OD-1
     if (items.length) items[0].focus();
   }
   function dbSetValue(col) {
@@ -12851,13 +12941,16 @@
       if (!to || isIn(to, pop)) return;
       if (st.editing === ed) rpEditEnd(st, false);
     });
+    // 0.17.1 OD-1（決めたこと 6・7・18）: 帳面に載せる（表と同じ）。外の押しで閉じたときは、値へフォーカスを戻さない
+    popPush(pop, { close: (why) => { if (st.editing === ed) rpEditEnd(st, col.type === 'date', why === 'outside'); }, anchors: [v], name: 'rppick' });
   }
   // 書き手を閉じる（save: 1行の欄は打った値を、暦は決めた値を書く）。描き直して、その列の値へフォーカスを戻す
-  async function rpEditEnd(st, save) {
+  async function rpEditEnd(st, save, quiet) {
     const ed = st.editing;
     if (!ed) return;
     st.editing = null;
     if (ed.pick) {
+      popDrop(ed.pick);   // 0.17.1 OD-1
       if (ed.pick.parentNode) ed.pick.parentNode.removeChild(ed.pick);
       if (save && ed.commit) await ed.commit();
     } else {
@@ -12870,7 +12963,7 @@
     if (rpSt !== st || st.editing) return;
     rpPaint(st);
     const v = rpValEl(ed.col);
-    if (v) v.focus();
+    if (v && !quiet) v.focus();   // 0.17.1 OD-1（決めたこと 18）: 外の押しで閉じたときは戻さない
   }
   // 書く命令を送り、行と列を読み直して描く（断られたら一言。答えを返す）。歩みは命令の args.db でデータベースの歩み（表と同じ）
   async function rpWrite(st, send, bad) {
@@ -13181,6 +13274,7 @@
     st.host.appendChild(m);
     dbMenuPlace(m, anchor, st.host);   // 0.16.0 直し（R128）: 入れて中身を入れた後に置く（後から中身を足す所は置き直す）
     st.menu = m;
+    dbPop(st, m, [anchor], 'dbmenu');   // 0.17.1 OD-1（決めたこと 1・7）: 帳面に載せる（外の押しで閉じるだけ・開くのは1つ・Esc）
     dbBind(st, m);
     if (btns.length) btns[0].focus();
     return m;
@@ -13244,7 +13338,9 @@
     return v;
   }
   // メニューの中の1行の欄（名前・選択肢・接頭辞）。Enter で決める（変換確定の Enter は抜ける）・Esc でやめる
+  // 0.17.1 OD-1（決めたこと 6・22）: 外の押しで閉じるときは Enter と同じに決める（送るのは1回だけ。Esc は今どおりやめる）
   function dbMenuInput(anchor, label, value, onEnter) {
+    const st = dbSt;
     const m = dbMenuAt(anchor, [], 'dbcolmenu');
     const inp = document.createElement('input');
     inp.type = 'text'; inp.className = 'dbedit dbmenuinput';
@@ -13254,11 +13350,18 @@
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); dbMenuClose(); if (anchor) anchor.focus(); return; }
       if (ev.key !== 'Enter') return;
       ev.preventDefault(); ev.stopPropagation();
+      done();
+    };
+    let sent = false;
+    const done = () => {
+      if (sent) return;
+      sent = true;
       const v = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
       dbMenuClose();
       onEnter(v);
     };
     m.appendChild(inp);
+    popPush(m, { close: (why) => dbPopClose(st, () => (why === 'outside' ? done() : dbMenuClose())), anchors: [anchor], name: 'dbinput' });
     dbMenuPlace(m, anchor, dbSt.host);   // 0.16.0 直し（R128）: 欄を入れた大きさで置き直す
     inp.focus();
     return inp;
@@ -13825,7 +13928,7 @@
   // ---- 設定の窓（並べ替え・絞り込み・グループ・列の表示）。書いても閉じず、描き直しても残る（dbPaint が付け直す）
   function dbPanelClose() {
     const st = dbSt;
-    if (st && st.panel) { if (st.panel.el.parentNode) st.panel.el.parentNode.removeChild(st.panel.el); st.panel = null; }
+    if (st && st.panel) { popDrop(st.panel.el); if (st.panel.el.parentNode) st.panel.el.parentNode.removeChild(st.panel.el); st.panel = null; }
   }
   function dbPanelOpen(kind) {
     const st = dbSt;
@@ -13845,6 +13948,9 @@
       : kind === '列の表示' ? v.props.map((p) => ({ ...p })) : null;
     st.panel = { el, body, kind, viewId: st.viewId, draft };
     st.host.appendChild(el);
+    // 0.17.1 OD-1（決めたこと 6・11。2026-11-21 の PQ171-6 の答え）: 外の押しは、ほかのメニューと同じく閉じるだけ。値の欄に打ちかけた値は change と同じに書いてから閉じる
+    //（帳面が先に欄の blur を呼ぶ。本物は blur で change が来るので、書いた値と同じなら二度は書かない: dbFieldSent）
+    popPush(el, { close: (why, f) => dbPopClose(st, () => { if (why === 'outside' && f && isIn(f, el) && f.dataset.sent !== undefined && String(f.value) !== f.dataset.sent && typeof f.onchange === 'function') f.onchange(); dbPanelClose(); }), anchors: [st.parts && st.parts.gear], name: 'panel' });
     dbPanelPaint(st);
     const f = [...el.querySelectorAll('button, select, input')].find((x) => !x.disabled);   // DV-3 直し（rv48 F1）: NodeList に find は無い
     if (f) f.focus();
@@ -14014,7 +14120,9 @@
     if (kind === 'text' || kind === 'num' || kind === 'days' || kind === 'day') {
       const inp = field(kind === 'text' ? 'text' : kind === 'day' ? 'date' : 'number', col.name, c.value, `${k}v`);
       if (kind === 'days') { inp.min = '1'; inp.max = '3650'; }
+      inp.dataset.sent = inp.value;   // 0.17.1 OD-1: 書いた値（外の押しで閉じるときに、まだ書いていない打ちかけだけを書く）
       const commit = () => {
+        inp.dataset.sent = inp.value;
         const raw = String(inp.value).replace(/[\r\n\t]+/g, ' ').trim();
         if (kind === 'text' || kind === 'day') { if (raw) c.value = raw; else delete c.value; }
         else { const n = Number(raw); if (raw !== '' && Number.isFinite(n)) c.value = kind === 'days' ? Math.trunc(n) : n; else delete c.value; }
@@ -14153,10 +14261,13 @@
       if (!to || isIn(to, pop)) return;
       if (dbUse(st) && st.editing === ed) dbEditEnd(false);
     });
+    // 0.17.1 OD-1（決めたこと 6・7）: 帳面に載せる。外の押し・Esc で閉じるときは今の Esc と同じ（暦は打った日付を決め、選びの窓は書かない。セルは選ばない）
+    popPush(pop, { close: () => { if (st.editing === ed) dbPopClose(st, () => dbEditEnd(col.type === 'date')); }, anchors: [cell], name: 'pick' });
   }
   // 閉じる（選びの窓は選ぶたびに書いたので、ここでは書かない）。表を描き直し、セルを選ぶ（then: 'stay'・'right'・'left'）
   // DV-2 直し（rv46 I2・R82）: 暦は save のとき（ほかのセルを押す・暦の外へ動く・遠くへ捲る）に打った値を決めて書く（読めなければ書かずに一言）
   async function dbPickEnd(st, ed, then, save) {
+    popDrop(ed.pick);   // 0.17.1 OD-1
     if (ed.pick.parentNode) ed.pick.parentNode.removeChild(ed.pick);
     if (save && ed.commit) await ed.commit();
     if (!dbUse(st)) return;

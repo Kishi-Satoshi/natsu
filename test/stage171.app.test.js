@@ -1,0 +1,443 @@
+/* stage171.app.test.js — 0.17.1（計画 docs/plans/2026-11-18-171.md）の画面: 開いている浮く窓の帳面（popLayer）
+ *  OD-1（決めたこと 1〜7・11・15〜22・F217・F219・F221・F223・F226〜F229）: 帳面と止める押し、データベースの窓と［ロックを外す］を外の押しで閉じるだけにする
+ * 最小 DOM（helpers/simrun.js）の上で app.html の <script> を本当に走らせ、命令は本物の preload から一時の DB に本当に通す（helpers/realapp.js）。
+ * 押しは helpers/simrun.js の l.press（本物の順: 捕まえる段の document の受け口 → 押した部品から根まで → 泡の段の document の受け口）。
+ * データベースの題名・列の名前・行の題名は作った物（D77 の外）。
+ */
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const { realApp } = require('./helpers/realapp');
+
+const T = { timeout: 60000 };
+const fmt = (e) => `${e.constructor.name}: ${e.message}`;
+const $ = (l, id) => l.document.getElementById(id);
+const open = async (l, id) => { l.fire('onPageOpen', id); await l.drain(120); };
+const clickEl = async (l, el, n = 60) => { el.dispatchEvent({ type: 'click' }); await l.drain(n); };
+// 本物の順の押し。離した後の時限 0 まで進める（止める印を外す時: 決めたこと 16）
+const pressEl = async (l, el, o = {}) => { const r = l.press(el, o); await l.clock.advance(0); await l.drain(60); return r; };
+const box = (l) => $(l, 'pDb');
+const head = (l, col, host = box(l)) => host.querySelectorAll('.dbcolh').find((h) => h.dataset.col === col).querySelector('.dbcolbtn');
+const colMenu = (l) => l.document.querySelector('.dbcolmenu');
+const lockMenu = (l) => l.document.querySelector('.lockmenu');
+// 開いている浮く窓（データベースのメニュー・設定の窓・選びの窓と暦・［ロックを外す］）
+const pops = (l) => l.document.querySelectorAll('.dbmenu, .dbpick, .lockmenu, .dbtplsub');
+const itemIn = (el, label) => el.querySelectorAll('.mitem').find((b) => b.textContent === label);
+const rowEl = (l, id, host = box(l)) => host.querySelectorAll('.dbrow').find((r) => r.dataset.id === id);
+const cellAt = (l, id, col, host = box(l)) => rowEl(l, id, host).querySelectorAll('.dbcell').find((c) => c.dataset.col === col);
+const selCells = (l, host = box(l)) => host.querySelectorAll('.dbcell').filter((c) => c.getAttribute('aria-selected') === 'true');
+const sideRow = (l, id) => $(l, 'plist').querySelectorAll('.pitem').find((r) => r.dataset.pid === id);
+const tabEl = (l, name) => box(l).querySelectorAll('.dbtab').find((b) => b.textContent === name);
+const active = (l) => l.document.activeElement;
+
+// 見本: データベース「名簿」（テキスト・選択・日付の列と行3つ・テンプレート1つ・ビュー2つ）と、サイドバーのほかのページ「別紙」
+async function openDb(o = {}) {
+  const l = await realApp({ before: (call) => {
+    const D = call('db.create', {}).id;
+    call('db.setTitle', { db: D, title: '名簿' });   // データベースの題名（D77 の外）
+    const c1 = call('col.add', { db: D, type: 'text', name: '場所' }).col.id;   // 列の名前（試しの字）
+    const c2 = call('col.add', { db: D, type: 'select', name: '区分' }).col.id;
+    call('col.setOpts', { db: D, col: c2, opts: [{ id: 'o1', name: '甲', color: 'red' }, { id: 'o2', name: '乙', color: 'default' }] });
+    const c3 = call('col.add', { db: D, type: 'date', name: '期日' }).col.id;
+    const rows = ['一', '二', '三'].map((t) => call('row.add', { db: D, title: t, cells: { [c1]: `所${t}` } }).id);   // 行の題名（D77 の外）
+    call('view.add', { db: D, layout: 'table', name: '別表' });   // ビューの名前（試しの字）
+    call('tpl.add', { db: D, title: '見本' });   // テンプレートの題名（D77 の外）
+    const Q = call('db.create', {}).id;
+    call('db.setTitle', { db: Q, title: '別紙' });   // データベースの題名（D77 の外）
+    if (o.lock) call('db.setLock', { db: D, on: true });
+    return { D, c1, c2, c3, rows, Q };
+  } });
+  await open(l, l.made.D);
+  return l;
+}
+
+// ---------------------------------------------------------------- OD-1
+test('OD-1・F217: 持ち主の報告の形（2026-11-18）: ロック中の「議事録」で、列の見出しのメニューはページの頭を押すと閉じる。［ロックを外す］は題名を押すと閉じる', T, async () => {
+  const l = await openDb({ lock: true });
+  try {
+    const { c1 } = l.made;
+    await clickEl(l, head(l, c1));
+    assert.ok(colMenu(l), '前提: 列のメニューが開かない');
+    await pressEl(l, l.document.querySelector('.phead'));
+    assert.strictEqual(colMenu(l) === null, true, 'ページの頭を押しても列のメニューが残る');
+    await clickEl(l, $(l, 'pLock'));
+    assert.ok(lockMenu(l), '前提: ［ロックを外す］が開かない');
+    await pressEl(l, $(l, 'pTitle'));
+    assert.strictEqual(lockMenu(l) === null, true, '題名を押しても［ロックを外す］が残る');
+    assert.deepStrictEqual(l.called('dbSetLock'), [], '外の押しでロックを外した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F217: 窓ごとの表（監査の表の 1〜17・19）: どの窓も、窓の中の押しでは閉じず、外（ページの頭）の押しで閉じる', T, async () => {
+  const l = await openDb();
+  try {
+    const { D, c1, c2, c3, rows } = l.made;
+    const outside = () => l.document.querySelector('.phead');
+    const ck = (id) => rowEl(l, id).querySelector('.dbcheck');
+    const cases = [
+      ['列の見出しのメニュー', async () => clickEl(l, head(l, c1)), '.dbcolmenu'],
+      ['列の［種類 ▸］', async () => { await clickEl(l, head(l, c1)); await clickEl(l, itemIn(colMenu(l), '種類 ▸')); }, '.dbcolmenu'],
+      ['列の［名前を変える］の欄', async () => { await clickEl(l, head(l, c1)); await clickEl(l, itemIn(colMenu(l), '名前を変える')); }, '.dbcolmenu'],
+      ['列の［集計 ▸］', async () => { await clickEl(l, head(l, c1)); await clickEl(l, itemIn(colMenu(l), '集計 ▸')); }, '.dbmenu'],
+      ['ビューのタブのメニュー', async () => clickEl(l, tabEl(l, '表')), '.dbmenu'],
+      ['タブの［＋］', async () => clickEl(l, box(l).querySelector('.dbviewadd')), '.dbmenu'],
+      ['⚙ ビューの設定', async () => clickEl(l, box(l).querySelector('.dbsetbtn')), '.dbmenu'],
+      ['設定の窓（並べ替え）', async () => { await clickEl(l, box(l).querySelector('.dbsetbtn')); await clickEl(l, itemIn(box(l).querySelector('.dbmenu'), '並べ替え')); }, '.dbpanel'],
+      ['設定の窓（絞り込み）', async () => { await clickEl(l, box(l).querySelector('.dbsetbtn')); await clickEl(l, itemIn(box(l).querySelector('.dbmenu'), '絞り込み')); }, '.dbpanel'],
+      ['表の右端の［＋］', async () => clickEl(l, box(l).querySelector('.dbcoladd')), '.dbmenu'],
+      ['表の下の集計', async () => clickEl(l, box(l).querySelector('.dbaggbtn')), '.dbmenu'],
+      ['行のメニュー（右の押し）', async () => { rowEl(l, rows[0]).dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(40); }, '.dbrowmenu'],
+      ['［列の値を変える ▸］', async () => {
+        ck(rows[0]).checked = true; ck(rows[0]).dispatchEvent({ type: 'change' }); await l.drain(20);
+        await clickEl(l, box(l).querySelector('.dbselbar').querySelectorAll('button').find((b) => b.textContent === '列の値を変える ▸'));
+      }, '.dbselbar .dbmenu'],
+      ['［＋ 新しい行］の ▾', async () => clickEl(l, box(l).querySelector('.dbtplbtn')), '.dbtplmenu'],
+      ['▾ の［···］', async () => { await clickEl(l, box(l).querySelector('.dbtplbtn')); await clickEl(l, l.document.querySelector('.dbtplmore')); }, '.dbtplsub'],
+      ['［既定にする］の窓', async () => { await clickEl(l, box(l).querySelector('.dbtplbtn')); await clickEl(l, l.document.querySelector('.dbtplmore')); await clickEl(l, itemIn(l.document.querySelector('.dbtplsub'), '既定にする')); }, '.dbtplask'],
+      ['セルの選びの窓（選択）', async () => clickEl(l, cellAt(l, rows[0], c2)), '.dbpick'],
+      ['セルの暦（日付）', async () => clickEl(l, cellAt(l, rows[0], c3)), '.dbpick'],
+    ];
+    for (const [name, openIt, sel] of cases) {
+      await openIt();
+      const w = l.document.querySelector(sel);
+      assert.ok(w, `${name}: 前提: 開かない`);
+      // 閉じないはずの押し（窓の中の字の無い所）を先に混ぜる（持ち主の試作から参考にしたこと）
+      const r = await pressEl(l, w);
+      assert.ok(l.document.querySelector(sel), `${name}: 窓の中を押すと閉じた`);
+      assert.ok(r.got.includes('mousedown'), `${name}: 窓の中の押しが止まった`);
+      await pressEl(l, outside());
+      assert.deepStrictEqual(pops(l).map((e) => e.className), [], `${name}: 外を押しても残る`);
+    }
+    // 行のページの選びの窓（監査の表の 19）
+    await open(l, rows[0]);
+    await clickEl(l, $(l, `rpv-${c2}`));
+    const rp = $(l, 'pProps').querySelector('.dbpick');
+    assert.ok(rp, '前提: 行のページの選びの窓が開かない');
+    await pressEl(l, rp);
+    assert.ok($(l, 'pProps').querySelector('.dbpick'), '行のページの選びの窓: 窓の中を押すと閉じた');
+    await pressEl(l, l.document.querySelector('.phead'));
+    assert.strictEqual($(l, 'pProps').querySelector('.dbpick') === null, true, '行のページの選びの窓: 外を押しても残る');
+    assert.ok(active(l) !== $(l, `rpv-${c2}`), '行のページの選びの窓: 外の押しで閉じた後に値へフォーカスを戻した（決めたこと 18・R10）');
+    assert.ok(D);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F226: 閉じるだけ（MC-01）: 列のメニューを開いたまま押した所（別の行のセル・題名・サイドバーのページ・ビューのタブ・⚙）は、閉じるだけで動かない。もう一度押すと動く', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, rows, Q } = l.made;
+    const openMenu = async () => { await clickEl(l, head(l, c1)); assert.ok(colMenu(l), '前提: 列のメニューが開かない'); };
+    const quiet = (r, name) => {
+      assert.strictEqual(colMenu(l) === null, true, `${name}: 列のメニューが残る`);
+      assert.deepStrictEqual(r.got.filter((t) => ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].includes(t)), [], `${name}: 押した部品に事象が届いた`);
+      assert.ok(r.events.mousedown.defaultPrevented, `${name}: mousedown の既定（フォーカスの移り・字の選び）を止めない`);
+    };
+    // (a) 別の行のテキストのセル
+    await openMenu();
+    let r = await pressEl(l, cellAt(l, rows[1], c1));
+    quiet(r, '別の行のセル');
+    assert.deepStrictEqual(selCells(l), [], '別の行のセルが選ばれた');
+    assert.ok(active(l) !== cellAt(l, rows[1], c1) && active(l) !== head(l, c1), 'フォーカスがセルか開いた部品へ動いた（決めたこと 18）');
+    r = await pressEl(l, cellAt(l, rows[1], c1));
+    assert.ok(r.got.includes('click'), 'もう一度押してもセルに届かない');
+    assert.ok(box(l).querySelector('input.dbedit') || selCells(l).length === 1, 'もう一度押してもセルが選ばれない');
+    l.key({ key: 'Escape' }, active(l)); await l.drain(40);
+    l.key({ key: 'Escape' }, active(l)); await l.drain(40);
+    // (b) 題名
+    await openMenu();
+    r = await pressEl(l, $(l, 'pTitle'));
+    quiet(r, '題名');
+    assert.ok(active(l) !== $(l, 'pTitle'), '題名にフォーカスが移った（打った字が入る）');
+    const ev = l.key({ key: 'z' });
+    assert.strictEqual(ev.target === $(l, 'pTitle'), false, '押した後のキーが題名へ行く');
+    assert.strictEqual($(l, 'pTitle').textContent, '名簿');
+    // (c) サイドバーの別のページ
+    await openMenu();
+    r = await pressEl(l, sideRow(l, Q));
+    quiet(r, 'サイドバーのページ');
+    assert.strictEqual($(l, 'pTitle').textContent, '名簿', 'サイドバーのページが開いた');
+    // (d) ビューのタブ
+    await openMenu();
+    const vu = l.called('viewUpdate').length;
+    r = await pressEl(l, tabEl(l, '別表'));
+    quiet(r, 'ビューのタブ');
+    assert.strictEqual(tabEl(l, '表').getAttribute('aria-selected'), 'true', 'ビューが替わった');
+    assert.strictEqual(l.called('viewUpdate').length, vu);
+    // (e) ⚙
+    await openMenu();
+    r = await pressEl(l, box(l).querySelector('.dbsetbtn'));
+    quiet(r, '⚙');
+    assert.deepStrictEqual(pops(l).map((e) => e.className), [], '⚙ の窓が開いた');
+    // もう一度押すと動く
+    await pressEl(l, tabEl(l, '別表'));
+    assert.strictEqual(tabEl(l, '別表').getAttribute('aria-selected'), 'true', 'もう一度押してもビューが替わらない');
+    await pressEl(l, sideRow(l, Q));
+    assert.strictEqual($(l, 'pTitle').textContent, '別紙', 'もう一度押してもサイドバーのページが開かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F218: 開くのは1つ（MC-02）: 列のメニューを開いたまま「ロック中」を押すと閉じるだけ。もう一度で［ロックを外す］だけ。キーボードで列のメニューを開くと［ロックを外す］は閉じる。ページの2つの表でも1つ', T, async () => {
+  const l = await openDb({ lock: true });
+  try {
+    const { D, c1 } = l.made;
+    await clickEl(l, head(l, c1));
+    let r = await pressEl(l, $(l, 'pLock'));
+    assert.deepStrictEqual(pops(l).map((e) => e.className), [], '「ロック中」を押すと窓が残るか開く');
+    assert.ok(!r.got.includes('click'), '「ロック中」の click が届いた');
+    r = await pressEl(l, $(l, 'pLock'));
+    assert.deepStrictEqual(pops(l).map((e) => e.className), ['blockmenu lockmenu'], 'もう一度押しても［ロックを外す］だけにならない');
+    // キーボード（押しでない click）で列のメニューを開く
+    await clickEl(l, head(l, c1));
+    assert.deepStrictEqual(pops(l).map((e) => e.className), ['dbmenu dbcolmenu'], 'キーボードで開いた列のメニューと［ロックを外す］が並ぶ');
+    l.key({ key: 'Escape' }, colMenu(l)); await l.drain(40);
+    // ページの2つの表（同じデータベースのリンクドビュー2つ）
+    const P = l.call('page.create', {}).id;
+    l.call('page.setTitle', { id: P, title: 'まとめの頁' });   // 白紙のページの題名（D77 の外）
+    const b1 = l.call('block.insert', { pageId: P, afterBlockId: '', type: 'paragraph' }).blockId;
+    const v1 = l.call('block.insertDbView', { pageId: P, afterId: b1, db: D }).blockId;
+    l.call('block.insertDbView', { pageId: P, afterId: v1, db: D });
+    await open(l, P);
+    await l.drain(200);
+    const hosts = $(l, 'pNote').querySelectorAll('.dbhost');
+    assert.strictEqual(hosts.length, 2, '前提: 表が2つ無い');
+    await clickEl(l, head(l, c1, hosts[0]));
+    assert.ok(hosts[0].querySelector('.dbcolmenu'), '前提: 1つ目の表の列のメニューが開かない');
+    await pressEl(l, head(l, c1, hosts[1]));
+    assert.deepStrictEqual(pops(l).map((e) => e.className), [], 'もう1つの表の見出しを押すと窓が残るか開く');
+    await pressEl(l, head(l, c1, hosts[1]));
+    assert.ok(hosts[1].querySelector('.dbcolmenu') && !hosts[0].querySelector('.dbcolmenu'), 'もう一度押しても、2つ目の表の列のメニューだけにならない');
+    await clickEl(l, head(l, c1, hosts[0]));
+    assert.ok(hosts[0].querySelector('.dbcolmenu') && !hosts[1].querySelector('.dbcolmenu'), 'キーボードで開くと2つの表の列のメニューが並ぶ');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F219: 開いた部品の押し: 列の見出しのボタン・⚙（設定の窓）を押すと閉じるだけで開き直さない（click は届かない）。中の押しでは閉じない', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1 } = l.made;
+    await clickEl(l, head(l, c1));
+    let r = await pressEl(l, head(l, c1));
+    assert.strictEqual(colMenu(l) === null, true, '見出しを押すと閉じない（開き直した）');
+    assert.ok(!r.got.includes('click'), '見出しの click が届いた');
+    await clickEl(l, box(l).querySelector('.dbsetbtn'));
+    await clickEl(l, itemIn(box(l).querySelector('.dbmenu'), '絞り込み'));
+    assert.ok(box(l).querySelector('.dbpanel'), '前提: 設定の窓が開かない');
+    r = await pressEl(l, box(l).querySelector('.dbsetbtn'));
+    assert.deepStrictEqual(pops(l).map((e) => e.className), [], '⚙ を押すと設定の窓が残るか⚙の窓が開く');
+    assert.ok(!r.got.includes('click'), '⚙ の click が届いた');
+    // 中の押し（ボタン 1）
+    await clickEl(l, head(l, c1));
+    r = await pressEl(l, l.document.querySelector('.phead'), { button: 1 });
+    assert.ok(colMenu(l), '中の押しで閉じた');
+    assert.ok(r.got.includes('mousedown') && r.got.includes('auxclick'), '中の押しを止めた（自動の捲り・新しいタブで開くが効かない）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F226: 押し方: 右の押しは閉じるだけ（行のメニューは開かない）・中の押しは閉じない・2回続けた押しの2回目も止める', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, rows } = l.made;
+    await clickEl(l, head(l, c1));
+    let r = await pressEl(l, cellAt(l, rows[1], c1), { button: 2 });
+    assert.deepStrictEqual(pops(l).map((e) => e.className), [], '右の押しで閉じないか、行のメニューが開いた');
+    assert.ok(r.events.contextmenu && r.events.contextmenu.defaultPrevented && !r.got.includes('contextmenu'), '右の押しの contextmenu を止めない');
+    // 中の押し
+    await clickEl(l, head(l, c1));
+    r = await pressEl(l, cellAt(l, rows[1], c1), { button: 1 });
+    assert.ok(colMenu(l), '中の押しで閉じた');
+    assert.ok(r.got.includes('mousedown'), '中の押しが届かない');
+    l.key({ key: 'Escape' }, colMenu(l)); await l.drain(40);
+    // 2回続けた押し: 1回目は閉じるだけ、2回目（detail 2）も届かない
+    await clickEl(l, head(l, c1));
+    await pressEl(l, $(l, 'pTitle'));
+    r = await pressEl(l, $(l, 'pTitle'), { detail: 2 });
+    assert.deepStrictEqual(r.got.filter((t) => t !== 'pointerdown'), [], '2回目の押し（detail 2）が届いた');
+    assert.ok(r.events.mousedown.defaultPrevented && r.events.dblclick && !r.got.includes('dblclick'), '2回目の押しの既定・dblclick を止めない');
+    assert.ok(active(l) !== $(l, 'pTitle'), '2回目の押しで題名にフォーカスが移った');
+    r = await pressEl(l, $(l, 'pTitle'));
+    assert.ok(r.got.includes('mousedown') && r.got.includes('click'), 'その後の1回目の押しが届かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F227・F229: 止める印が残らない（click が来ない・pointercancel・窓のフォーカスが外れる・5 秒）。窓が無いときと、違う押しの番号は止めない', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1 } = l.made;
+    const title = () => $(l, 'pTitle');
+    const free = async (why) => {
+      const r = l.press(title());
+      await l.drain(20);
+      assert.deepStrictEqual(r.got, ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'], `${why}: 次の押しが届かない（止める印が残った）`);
+      assert.strictEqual(r.events.mousedown.defaultPrevented, false, `${why}: 窓が無いのに押しを止めた`);
+      await l.clock.advance(0);
+    };
+    await free('始め');
+    // 押したまま窓の外で離し、click が来ない（離した後の時限 0 で外す）
+    await clickEl(l, head(l, c1));
+    l.press(l.document.querySelector('.phead'), { types: ['pointerdown', 'mousedown'] });
+    l.press(box(l), { types: ['pointerup', 'mouseup'] });
+    await l.clock.advance(0); await l.drain(20);
+    await free('click が来ない');
+    // pointercancel
+    await clickEl(l, head(l, c1));
+    l.press(l.document.querySelector('.phead'), { types: ['pointerdown', 'mousedown', 'pointercancel'] });
+    await l.drain(20);
+    await free('pointercancel');
+    // 窓のフォーカスが外れる（ほかのアプリ・タイトルバー）
+    await clickEl(l, head(l, c1));
+    l.press(l.document.querySelector('.phead'), { types: ['pointerdown', 'mousedown'] });
+    l.blurWindow();
+    await l.drain(20);
+    await free('窓の blur');
+    // 5 秒
+    await clickEl(l, head(l, c1));
+    l.press(l.document.querySelector('.phead'), { types: ['pointerdown', 'mousedown'] });
+    await l.clock.advance(5000); await l.drain(20);
+    await free('5 秒');
+    // 止める印と違う押しの番号の事象は止めない（閉じない押しを混ぜる）
+    await clickEl(l, head(l, c1));
+    l.press(l.document.querySelector('.phead'), { types: ['pointerdown', 'mousedown'], pointerId: 1 });
+    const other = l.press(title(), { types: ['pointerup', 'click'], pointerId: 7 });
+    assert.deepStrictEqual(other.got, ['pointerup', 'click'], '違う押しの番号の事象を止めた');
+    await l.clock.advance(5000); await l.drain(20);
+    await free('違う番号の後');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F227: 設定の窓の押しも止める（決めたこと 11。2026-11-21 の PQ171-6 の答え「ほかのメニューと同じ「閉じるだけ」」）: 絞り込みの窓を開いたまま別の行のセルを押すと、閉じるだけでセルは選ばれない', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, rows } = l.made;
+    await clickEl(l, box(l).querySelector('.dbsetbtn'));
+    await clickEl(l, itemIn(box(l).querySelector('.dbmenu'), '絞り込み'));
+    assert.ok(box(l).querySelector('.dbpanel'), '前提: 設定の窓が開かない');
+    const r = await pressEl(l, cellAt(l, rows[2], c1));
+    assert.strictEqual(box(l).querySelector('.dbpanel') === null, true, '外を押しても設定の窓が残る');
+    assert.deepStrictEqual(r.got, [], '設定の窓を閉じた押しがセルに届いた');
+    assert.deepStrictEqual(selCells(l), [], 'セルが選ばれた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F221: 閉じ方は Esc と同じ: 暦は打った日付を書く・選びの窓は何も送らない・列の名前は1回だけ決める（空・同じなら送らない）・タブの［＋］の欄ではビューを作らない・絞り込みの値の欄は打ちかけを書く', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, c2, c3, rows } = l.made;
+    const outside = () => l.document.querySelector('.phead');
+    // 暦
+    await clickEl(l, cellAt(l, rows[0], c3));
+    const din = box(l).querySelector('.dbpick input');
+    assert.ok(din, '前提: 暦の欄が無い');
+    din.value = '2026-11-21';
+    din.dispatchEvent({ type: 'input' }); await l.drain(20);
+    const sc = l.called('rowSetCell').length;
+    await pressEl(l, outside());
+    assert.strictEqual(box(l).querySelector('.dbpick') === null, true, '暦が残る');
+    assert.deepStrictEqual(l.called('rowSetCell').slice(sc).map((c) => [c.args[1], c.args[2], c.args[3] && c.args[3].start]), [[rows[0], c3, '2026-11-21']], '暦の打った日付を1回書かない');
+    // 選びの窓
+    await clickEl(l, cellAt(l, rows[0], c2));
+    const before = l.calls.length;
+    await pressEl(l, outside());
+    assert.strictEqual(box(l).querySelector('.dbpick') === null, true, '選びの窓が残る');
+    assert.deepStrictEqual(l.calls.slice(before).filter((c) => /^(rowSetCell|rowsSetCell|colSetOpts)$/.test(c.method)), [], '選びの窓を外の押しで閉じたときに書いた');
+    // 列の名前（1行の欄）
+    const rename = async (text) => { await clickEl(l, head(l, c1)); await clickEl(l, itemIn(colMenu(l), '名前を変える')); const inp = colMenu(l).querySelector('input'); inp.value = text; return inp; };
+    let inp = await rename('置き場');
+    await pressEl(l, outside());
+    assert.strictEqual(colMenu(l) === null, true, '名前の欄が残る');
+    assert.deepStrictEqual(l.called('colRename').map((c) => c.args.slice(1)), [[c1, '置き場']], '外の押しで打った名前を決めない');
+    l.key({ key: 'Enter' }, inp); await l.drain(60);
+    assert.strictEqual(l.called('colRename').length, 1, '外の押しの後の Enter で2回送った');
+    inp = await rename('置き場');
+    await pressEl(l, outside());
+    inp = await rename('   ');
+    await pressEl(l, outside());
+    assert.strictEqual(l.called('colRename').length, 1, '同じ名前・空の名前を送った');
+    // タブの［＋］の名前の欄
+    await clickEl(l, box(l).querySelector('.dbviewadd'));
+    box(l).querySelector('.dbmenu input').value = '今週';
+    await pressEl(l, outside());
+    assert.deepStrictEqual(l.called('viewAdd'), [], 'タブの［＋］の欄の外の押しでビューを作った');
+    // 絞り込みの値の欄（change の前に外を押す）
+    await clickEl(l, box(l).querySelector('.dbsetbtn'));
+    await clickEl(l, itemIn(box(l).querySelector('.dbmenu'), '絞り込み'));
+    const pn = box(l).querySelector('.dbpanel');
+    const add = pn.querySelectorAll('button').find((b) => b.textContent.includes('条件を足す'));
+    assert.ok(add, '前提: ［条件を足す］が無い');
+    await clickEl(l, add, 160);
+    const vu = l.called('viewUpdate').length;
+    const val = box(l).querySelector('.dbpanel').querySelector('input.dbmenuinput');
+    assert.ok(val, '前提: 値の欄が無い');
+    val.focus();
+    val.value = '所二';
+    await pressEl(l, outside());
+    await l.drain(160);
+    assert.strictEqual(box(l).querySelector('.dbpanel') === null, true, '設定の窓が残る');
+    const ups = l.called('viewUpdate').slice(vu);
+    assert.strictEqual(ups.length, 1, `打ちかけの値を1回で書かない（${ups.length} 回）`);
+    assert.strictEqual(JSON.stringify(ups[0].args[2].filter).includes('所二'), true, '打ちかけの値が書かれていない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F228: 変換中の欄: 外の押しで閉じる前に欄の blur を呼び（変換中の字を確定させる）、送るのは1回', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, c3, rows } = l.made;
+    await clickEl(l, head(l, c1));
+    await clickEl(l, itemIn(colMenu(l), '名前を変える'));
+    const inp = colMenu(l).querySelector('input');
+    assert.ok(active(l) === inp, '前提: 名前の欄にフォーカスが無い');
+    inp.value = '置き場';
+    const at = [];
+    const blur = inp.blur;
+    inp.blur = function () { at.push(l.called('colRename').length); return blur.call(this); };
+    await pressEl(l, l.document.querySelector('.phead'));
+    assert.deepStrictEqual(at, [0], '名前を送る前に欄の blur を呼ばない');
+    assert.strictEqual(l.called('colRename').length, 1);
+    // 暦の欄（blur で今の focusout が決めても、書くのは1回）
+    await clickEl(l, cellAt(l, rows[1], c3));
+    const din = box(l).querySelector('.dbpick input');
+    din.focus();
+    din.value = '2026-11-22';
+    din.dispatchEvent({ type: 'input' }); await l.drain(20);
+    const sc = l.called('rowSetCell').length;
+    await pressEl(l, l.document.querySelector('.phead'));
+    assert.strictEqual(l.called('rowSetCell').length - sc, 1, '暦を2回書いたか書かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F223: Esc: フォーカスが窓の外でも閉じて開いた部品へ戻す。変換中の Esc では閉じない。窓が無いときの Esc は止めない（表の Esc の段のまま）', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, rows } = l.made;
+    await clickEl(l, head(l, c1));
+    $(l, 'pTitle').focus();
+    let ev = l.key({ key: 'Escape', isComposing: true }, $(l, 'pTitle')); await l.drain(20);
+    assert.ok(colMenu(l), '変換中の Esc で閉じた');
+    ev = l.key({ key: 'Escape' }, $(l, 'pTitle')); await l.drain(20);
+    assert.strictEqual(colMenu(l) === null, true, 'フォーカスが外にあると Esc で閉じない');
+    assert.ok(ev.defaultPrevented, '窓を閉じた Esc を止めない');
+    assert.ok(active(l) === head(l, c1), 'Esc の後に開いた部品へフォーカスが戻らない');
+    // 窓が無いときの Esc は帳面が止めない（document の受け口だけを呼ぶ形で、既定を止めない）
+    assert.deepStrictEqual(pops(l).map((e) => e.className), []);
+    ev = l.key({ key: 'Escape' }); await l.drain(20);
+    assert.strictEqual(ev.defaultPrevented, false, '窓が無いのに Esc を止めた');
+    // 窓が無いときのセルの Esc（0.17.0 NX-5 の段）は今のまま
+    await clickEl(l, cellAt(l, rows[0], 'title'));
+    l.key({ key: 'Escape' }, active(l)); await l.drain(40);
+    const cell = selCells(l)[0];
+    assert.ok(cell, '前提: セルが選ばれていない');
+    ev = l.key({ key: 'Escape' }, cell); await l.drain(40);
+    assert.deepStrictEqual(selCells(l), [], '窓が無いときの表の Esc の段（セル → 行）が効かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
