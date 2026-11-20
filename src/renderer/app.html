@@ -2214,6 +2214,7 @@
   // 止めた押しに続く2回目（mousedown の detail が 2 以上）も止める
   let popStop = null;   // { id, timer }
   let popSeries = false;
+  let popBlurring = false;   // 外の押しで窓の中の欄の blur を呼んでいる間（本物は blur で focusout が来る。窓の focusout の受け口は決めずに、帳面の close('outside') に任せる: R23）
   const popEat = (ev) => { ev.preventDefault(); ev.stopImmediatePropagation(); };
   const popMine = (ev) => Boolean(popStop) && !(typeof ev.pointerId === 'number' && typeof popStop.id === 'number' && ev.pointerId !== popStop.id);
   function popStopEnd() { if (!popStop) return; clearTimeout(popStop.timer); popStop = null; }
@@ -2233,7 +2234,7 @@
     if (k >= 0) { for (const e of shut) e.close('other'); return; }   // 窓の中の押し: 子だけを閉じ、押しは届ける（決めたこと 19）
     const a = document.activeElement;   // 窓の中の欄の変換中の字を確定させてから閉じる（決めたこと 22）
     const field = popField(a) && shut.some((e) => popIn(a, e.el)) ? a : null;
-    if (field) field.blur();
+    if (field) { popBlurring = true; try { field.blur(); } finally { popBlurring = false; } }
     popStopOn(ev);
     popEat(ev);
     for (const e of shut) e.close('outside', field);
@@ -12947,6 +12948,7 @@
     if (col.type === 'date') pop.addEventListener('focusout', (ev) => {   // 暦は窓の外へ動いたら決める（表と同じ: R82・rv48 F10）
       const to = ev && ev.relatedTarget;
       if (to && isIn(to, pop)) return;
+      if (popBlurring) return;   // 0.17.1 直し（R23）: 外の押しで帳面が呼んだ blur。決めるのは帳面の close('outside')（値へフォーカスを戻さない: 決めたこと 18）
       if (st.editing === ed) rpEditEnd(st, true);
     });
     else pop.addEventListener('focusout', (ev) => {   // 選びの窓は窓の外の部品へ動いたら閉じる（表と同じ: rv49 M-b）
@@ -14266,6 +14268,7 @@
     if (col.type === 'date') pop.addEventListener('focusout', (ev) => {
       const to = ev && ev.relatedTarget;
       if (to && isIn(to, pop)) return;
+      if (popBlurring) return;   // 0.17.1 直し（R23）: 外の押しで帳面が呼んだ blur。決めるのは帳面の close('outside')（行のページと同じ）
       if (dbUse(st) && st.editing === ed) dbEditEnd(true);
     });
     // DV-3 直し2（rv49 M-b）: 選びの窓は、窓の外の部品へフォーカスが本当に動いたら閉じる（選ぶたびの描き直しで行き先の無い focusout では閉じない: rv48 F10）

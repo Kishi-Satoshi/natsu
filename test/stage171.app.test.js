@@ -118,7 +118,7 @@ test('OD-1・F217: 窓ごとの表（監査の表の 1〜17・19）: どの窓�
     assert.ok($(l, 'pProps').querySelector('.dbpick'), '行のページの選びの窓: 窓の中を押すと閉じた');
     await pressEl(l, l.document.querySelector('.phead'));
     assert.strictEqual($(l, 'pProps').querySelector('.dbpick') === null, true, '行のページの選びの窓: 外を押しても残る');
-    assert.ok(active(l) !== $(l, `rpv-${c2}`), '行のページの選びの窓: 外の押しで閉じた後に値へフォーカスを戻した（決めたこと 18・R10）');
+    assert.strictEqual(active(l) ? active(l).id : '', '', '行のページの選びの窓: 外の押しで閉じた後に値へフォーカスを戻した（決めたこと 18・R10。$() は描き直し前の要素を返すことがあるので id で見る: R24）');
     assert.ok(D);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
@@ -408,9 +408,29 @@ test('OD-1・F228: 変換中の欄: 外の押しで閉じる前に欄の blur �
     din.focus();
     din.value = '2026-11-22';
     din.dispatchEvent({ type: 'input' }); await l.drain(20);
+    const outs = [];
+    box(l).querySelector('.dbpick').addEventListener('focusout', (ev) => outs.push(ev.relatedTarget === null));
     const sc = l.called('rowSetCell').length;
     await pressEl(l, l.document.querySelector('.phead'));
+    assert.deepStrictEqual(outs, [true], '欄の blur で窓に focusout（行き先なし）が来ない（本物の Chromium の形）');
     assert.strictEqual(l.called('rowSetCell').length - sc, 1, '暦を2回書いたか書かない');
+    // 行のページの暦（0.17.1 直し R23: 帳面が呼んだ blur の focusout で決めて、値へフォーカスを戻していた。決めたこと 18・R10）
+    await open(l, rows[0]);
+    await clickEl(l, $(l, `rpv-${c3}`));
+    const rpin = $(l, 'pProps').querySelector('.dbpick input');
+    assert.ok(rpin, '前提: 行のページの暦が開かない');
+    rpin.focus();
+    rpin.value = '2026-11-23';
+    rpin.dispatchEvent({ type: 'input' }); await l.drain(20);
+    const rpOuts = [];
+    $(l, 'pProps').querySelector('.dbpick').addEventListener('focusout', (ev) => rpOuts.push(ev.relatedTarget === null));
+    const rc = l.called('rowSetCell').length;
+    await pressEl(l, l.document.querySelector('.phead'));
+    await l.drain(160);
+    assert.deepStrictEqual(rpOuts, [true], '行のページ: 欄の blur で窓に focusout（行き先なし）が来ない');
+    assert.strictEqual($(l, 'pProps').querySelector('.dbpick') === null, true, '行のページの暦が残る');
+    assert.strictEqual(l.called('rowSetCell').length - rc, 1, '行のページの暦を2回書いたか書かない');
+    assert.strictEqual(active(l) ? active(l).id : '', '', '行のページの暦を外の押しで閉じた後に、値へフォーカスを戻した（決めたこと 18・R10。フォーカスは窓と一緒に外れる）');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });

@@ -237,8 +237,18 @@ async function load(htmlPath, opt = {}) {
       fireOn(was, 'focusout', { relatedTarget: to });
     }
     if (to) { to.focus(); fireOn(to, 'focus', { relatedTarget: was }, [to]); fireOn(to, 'focusin', { relatedTarget: was }); }
-    else if (was) was.blur();
+    else if (was && Element.focused === was) Element.focused = null;   // blur と focusout は上で起こした（blur() は二度起こすので呼ばない）
   };
+  // 0.17.1 直し（R24）: l.press の押しの間は、この実行の木の中の要素の blur() が、本物の Chromium と同じく blur と focusout（行き先なし）を起こす
+  //（帳面が外の押しで欄の blur を呼んだときの focusout の受け口を、テストでも通す: 計画の F228）。押しの外の blur() は今までどおり何も起こさない
+  //（今のテストには、blur() で受け口を動かさずにフォーカスだけ外す形がある: stage130 の ED-5・EQ22 (a)）
+  const inRun = (el) => { for (let n = el; n; n = n.parentNode) if (n === root) return true; return false; };
+  let inPress = false;
+  Element.blurHooks.add((el) => {
+    if (!inPress || !inRun(el)) return;
+    fireOn(el, 'blur', { relatedTarget: null }, [el]);
+    fireOn(el, 'focusout', { relatedTarget: null });
+  });
   log.press = (target, o = {}) => {
     const button = o.button === undefined ? 0 : o.button;
     const pointerId = o.pointerId === undefined ? 1 : o.pointerId;
@@ -249,15 +259,18 @@ async function load(htmlPath, opt = {}) {
     const got = []; const events = {};
     const mods = { ctrlKey: false, shiftKey: false, altKey: false, metaKey: false };
     for (const k of Object.keys(mods)) if (o[k] !== undefined) mods[k] = Boolean(o[k]);
-    for (const type of types) {
-      const ptr = type.startsWith('pointer') || type === 'click' || type === 'auxclick' || type === 'contextmenu';
-      const extra = { button, buttons: type.endsWith('down') ? [1, 4, 2][button] || 0 : 0, detail, clientX: 0, clientY: 0, ...mods,
-        ...(ptr ? { pointerId, pointerType: 'mouse', isPrimary: true } : {}) };
-      const { ev, reached } = fireOn(target, type, extra);
-      events[type] = ev;
-      if (reached) got.push(type);
-      if (type === 'mousedown' && !ev.defaultPrevented) moveFocus(focusableOf(target));
-    }
+    inPress = true;
+    try {
+      for (const type of types) {
+        const ptr = type.startsWith('pointer') || type === 'click' || type === 'auxclick' || type === 'contextmenu';
+        const extra = { button, buttons: type.endsWith('down') ? [1, 4, 2][button] || 0 : 0, detail, clientX: 0, clientY: 0, ...mods,
+          ...(ptr ? { pointerId, pointerType: 'mouse', isPrimary: true } : {}) };
+        const { ev, reached } = fireOn(target, type, extra);
+        events[type] = ev;
+        if (reached) got.push(type);
+        if (type === 'mousedown' && !ev.defaultPrevented) moveFocus(focusableOf(target));
+      }
+    } finally { inPress = false; }
     return { got, events };
   };
   /** 0.17.1 OD-1: 窓のフォーカスが外れた（ほかのアプリへ移った・タイトルバーを押した）。window の blur の受け口を呼ぶ */

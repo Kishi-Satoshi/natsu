@@ -247,7 +247,9 @@ class Element {
   /* 今のフォーカスを覚える（Element.focused）。simrun の document.activeElement がこれを読む。
      本物の focus/blur の事象は起こさない（泡立ちも配置も無い偽 DOM なので、受け口は要素ごとに呼ぶ） */
   focus() { Element.focused = this; }
-  blur() { if (Element.focused === this) Element.focused = null; }
+  // 0.17.1 直し（計画 docs/plans/2026-11-18-171.md の R24）: フォーカスのある要素の blur() は、本物の Chromium と同じく blur と focusout（行き先なし）を起こせる。
+  // 起こすのは simrun が足した受け口（Element.blurHooks。その実行の木の中の要素を、l.press の押しの間だけ）。ほかは今のまま何も起こさない
+  blur() { if (Element.focused !== this) return; Element.focused = null; for (const h of [...Element.blurHooks]) h(this); }
   select() {} scrollIntoView() {}
   click() { return this.dispatchEvent({ type: 'click' }); }
   // 0.9.0 O-3: テストが _rect（{ width, height }）を置くと、その大きさを返す（録音バーがピルの大きさを測って main へ送る所を見る）
@@ -275,6 +277,7 @@ class Element {
 
 /** 今フォーカスのある要素（focus() で入り、blur() で自分なら外れる）。木から外れた要素は simrun が見ない */
 Element.focused = null;
+Element.blurHooks = new Set();
 
 /* 0.9.0 O-3: style は今までどおりの素の入れ物に、CSS 変数を書く setProperty・getPropertyValue・removeProperty を足したもの
    （3つは数えない名前にして、style を素の値として見る今のテストに混ざらない） */
