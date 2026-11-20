@@ -1807,8 +1807,10 @@ const IDS_171 = [
   // 0.17.1 直し（独立した点検の後。R23〜）で作った行
   'od-blur-quiet', 'od-stop-dbl-down', 'od-stop-dbl-one', 'od-stop-dbl-keep', 'od-probe-bar', 'od-stop-tap', 'od-stop-tap-click', 'od-stop-tap-id',
   'od-esc-gear', 'od-esc-cell', 'od-modal-regen',
+  // 0.17.1 の持ち主の答え（2026-11-22。PQ171-10「捨てる（おすすめ）」。R30）で作った行
+  'od-setvalue-discard',
 ];
-const IDS_171_ROWS = 54;   // 計画の「変異の表」の od- の行の数（43 と、独立した点検の後の直しの行）
+const IDS_171_ROWS = 55;   // 計画の「変異の表」の od- の行の数（43 と、独立した点検の後の直しの行と、PQ171-10 の答えの行）
 function planRows171() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-18-171.md'), 'utf8');
   const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);

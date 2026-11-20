@@ -472,6 +472,47 @@ test('OD-1・F221: 閉じ方は Esc と同じ: 暦は打った日付を書く・
   } finally { l.done(); }
 });
 
+test('OD-1・F221（PQ171-10）: ［列の値を変える ▸］の1行の欄は、外の押しで打った字を捨てる（Esc と同じ。選んだ全部の行に書く欄なので、決めたこと 6 の1行の欄の例外）。押しは止める。Enter は今どおり書く', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1, rows } = l.made;
+    const bar = () => box(l).querySelector('.dbselbar');
+    const place = () => rows.map((id) => cellAt(l, id, c1).textContent);
+    const was = place();
+    for (const id of [rows[0], rows[2]]) { const ck = rowEl(l, id).querySelector('.dbcheck'); ck.checked = true; ck.dispatchEvent({ type: 'change' }); await l.drain(20); }
+    assert.strictEqual(bar().hidden, false, '前提: 選んだ行の帯が出ない');
+    const typeIn = async (text) => {
+      await clickEl(l, bar().querySelectorAll('button').find((b) => b.textContent === '列の値を変える ▸'));
+      const m = bar().querySelector('.dbmenu');
+      assert.ok(m, '前提: ［列の値を変える ▸］のメニューが開かない');
+      await clickEl(l, itemIn(m, '場所'));
+      const inp = bar().querySelector('.dbmenu .dbedit');
+      assert.ok(inp, '前提: 1行の欄が無い');
+      assert.strictEqual(inp.getAttribute('aria-label'), '場所');
+      inp.value = text;
+      inp.dispatchEvent({ type: 'input' }); await l.drain(20);
+      return inp;
+    };
+    // 打ちかけて外（ページの頭）を押す → 閉じるだけ。どの行の値も変わらない
+    await typeIn('打ちかけ');
+    const r = await pressEl(l, l.document.querySelector('.phead'));
+    await l.drain(120);
+    assert.strictEqual(bar().querySelector('.dbmenu') === null, true, '外を押しても［列の値を変える ▸］の欄が残る');
+    assert.deepStrictEqual(l.called('rowsSetCell'), [], '外の押しで打った字を選んだ行に書いた（PQ171-10 の答え「捨てる」）');
+    assert.deepStrictEqual(l.called('rowSetCell'), [], '外の押しで行に書いた');
+    assert.deepStrictEqual(place(), was, '外の押しで行の値が変わった');
+    assert.deepStrictEqual(r.got.filter((t) => ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].includes(t)), [], '外の押しが押した所に届いた（閉じるだけ: 決めたこと 7）');
+    assert.ok(r.events.pointerdown.defaultPrevented, '外の押しの既定を止めない');
+    assert.strictEqual(bar().hidden, false, '外の押しで行の選びが外れた');
+    // Enter は今どおり、選んだ全部の行に1回で書く（捨てた字は残らない）
+    const inp = await typeIn('まとめて');
+    l.key({ key: 'Enter' }, inp); await l.drain(120);
+    assert.deepStrictEqual(l.called('rowsSetCell').map((c) => c.args), [[l.made.D, [rows[0], rows[2]], c1, 'まとめて']], 'Enter で選んだ行に1回で書かない');
+    assert.deepStrictEqual(place(), ['まとめて', was[1], 'まとめて'], 'Enter で書いた値が表に出ない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('OD-1・F228: 変換中の欄: 外の押しで閉じる前に欄の blur を呼び（変換中の字を確定させる）、送るのは1回', T, async () => {
   const l = await openDb();
   try {
