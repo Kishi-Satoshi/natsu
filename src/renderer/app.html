@@ -2490,6 +2490,7 @@
   // sec を省くと前に選んだ項目（初めは「一般」）。もう開いていれば項目を替えるだけ（フォーカスを戻す先を覚え直さない:
   // 知らせのボタンから開き直すと、閉じたときに消えた知らせへ戻ろうとするため）
   function openSettings(sec) {
+    popCloseAll('modal');   // 0.17.1 OD-2（決めたこと 10）
     const was = settingsOpen();
     if (!was) {
       const a = document.activeElement;
@@ -2878,6 +2879,7 @@
     const m = crumbMore;
     if (!m) return;
     crumbMore = null;
+    popDrop(m.box);   // 0.17.1 OD-2
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
     m.btn.setAttribute('aria-expanded', 'false');
     if (back && m.btn.parentNode) m.btn.focus();
@@ -2978,6 +2980,7 @@
     box.style.left = `${Math.round(rc.left || 0)}px`;
     box.style.top = `${Math.round((rc.bottom || 0) + 4)}px`;
     document.body.appendChild(box);
+    popPush(box, { close: () => closeCrumbMore(), anchors: [btn], name: 'crumb' });   // 0.17.1 OD-2（決めたこと 12）: 帳面に載せる（外の押しで閉じるだけ・開くのは1つ）
     btn.setAttribute('aria-expanded', 'true');
     const first = menuItems(box)[0];
     if (first) first.focus();
@@ -6373,6 +6376,7 @@
     const m = treeMenu;
     if (!m) return;
     treeMenu = null;
+    popDrop(m.box);   // 0.17.1 OD-2
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
     if (back) focusRowOf(m.where, m.id);
   }
@@ -6419,6 +6423,7 @@
     const rc = row.getBoundingClientRect();
     box.style.left = `${Math.round((rc.left || 0) + 8)}px`;
     document.body.appendChild(box);
+    popPush(box, { close: () => closeTreeMenu(), anchors: [row], name: 'tree' });   // 0.17.1 OD-2（決めたこと 12）
     // PH-3 直し（R28 (4)）: 窓の下に入らなければ行の上に開く（箱の高さは置いてから測る。測れなければ項目の数から見積もる）
     const h = box.offsetHeight || menuItems(box).length * 30 + 8;
     const vh = Number(window.innerHeight) || 0;
@@ -6802,6 +6807,7 @@
   }
   function openMovePop(id, o = {}) {
     if (!id || !crumbPage(id)) return;
+    popCloseAll('modal');   // 0.17.1 OD-2（決めたこと 10）: 全面の窓を開くときは浮く窓を閉じる
     closeNewPop();
     const fa = o.from || null;
     movePop = { id, from: fa && typeof fa.focus === 'function' ? fa : null, tree: o.tree || '', where: o.where === 'library' ? 'library' : 'tree', cands: moveCands(id), rows: [], at: 0 };
@@ -6928,6 +6934,7 @@
   let newPopFrom = null;
   function openNewPop() {
     if (newPopOn) return;
+    popCloseAll('modal');   // 0.17.1 OD-2（決めたこと 10）
     const fa = document.activeElement;
     newPopFrom = fa && fa !== document.body && typeof fa.focus === 'function' ? fa : null;
     newPopOn = true;
@@ -7135,10 +7142,12 @@
     const w = box.offsetWidth || 160;
     box.style.left = `${Math.max(0, Math.round((rc.right || 0) - w))}px`;
     box.style.top = `${Math.round(rc.bottom || 0)}px`;
+    popPush(box, { close: () => closePrivMenu(), anchors: [$('privMore')], name: 'priv' });   // 0.17.1 OD-2（決めたこと 12。［並べ替え ›］［表示 ›］は同じ箱の中）
     menuItems(box)[0].focus();
   }
   function closePrivMenu(back) {
     if (!privMenuOpen()) return;
+    popDrop($('privMenu'));   // 0.17.1 OD-2
     privSub('');
     $('privMenu').hidden = true;
     $('privMore').setAttribute('aria-expanded', 'false');
@@ -7310,6 +7319,7 @@
     return r;
   }
   function openPalette(from) {
+    popCloseAll('modal');   // 0.17.1 OD-2（決めたこと 10）
     if (!palOpen) palFrom = from && from !== document.body && typeof from.focus === 'function' ? from : null;
     palOpen = true;
     $('palette').hidden = false;
@@ -7603,8 +7613,6 @@
     });
   }
 
-  // 「…」（#pMore）とその中のメニュー（#pMenu の［コピー］［リンクを写す］［削除］）。
-  // Enter／Space（変換確定の Enter は除く）・↓ で開いて最初の項目へ、↑／↓ で移り、Esc で閉じて「…」へ戻る
   // ---------------- 0.17.0 LK-1（計画 docs/plans/2026-11-13-170.md の決めたこと 55・73〜77・F204）: データベースのロック
   // 「···」の［データベースをロック］（チェックの印の切り替え）・題名の右の「ロック中」（押すと［ロックを外す］）。ロック中は［削除］が灰色で吹き出し、
   // ［名前を変える］［移動先…］・列とビューの形を変える所を出さない（灰色）。db.setLock は元に戻すの歩みにしない（preload の UNDO_CMDS に入れない）
@@ -7652,8 +7660,11 @@
     const first = box.querySelector('.mitem');
     if (first) first.focus();
   };
+  // 「···」（#pMore）とその中のメニュー（#pMenu）。Enter／Space（変換確定の Enter は除く）・↓ で開いて最初の項目へ、↑／↓ で移り、Esc で閉じて「···」へ戻る。
+  // 0.17.1 OD-2（決めたこと 9・12・M6）: 外の押しは帳面が受ける（開いた部品は「···」だけ。#pActs の中のほかのボタンの押しも外の押しで、閉じるだけ）
   function setMoreOpen(on, focusItem) {
     const menu = $('pMenu');
+    if (on) popPush(menu, { close: () => setMoreOpen(false), anchors: [$('pMore')], name: 'pmenu' }); else popDrop(menu);
     menu.hidden = !on;
     $('pMore').setAttribute('aria-expanded', on ? 'true' : 'false');
     if (on && focusItem) { const it = menu.querySelectorAll('.mitem')[0]; if (it) it.focus(); }
@@ -7686,12 +7697,6 @@
     $('pMenu').textContent = '';
     for (const b of [...$('pActs').children]) if (b.id !== 'pMore' && b.id !== 'pMenu') b.remove();
   }
-  // メニューの外を押したら閉じる
-  document.addEventListener('pointerdown', (ev) => {
-    if ($('pMenu').hidden) return;
-    const t = ev.target;
-    if (!(t && t.closest && t.closest('#pActs'))) setMoreOpen(false);
-  });
 
   function renderPage() {
     clearActs();
@@ -7936,6 +7941,7 @@
   const trashButtons = () => [...$('trashList').querySelectorAll('button')];
   function openTrash() {
     if (trashOn || !trashHeads.length) return;
+    popCloseAll('modal');   // 0.17.1 OD-2（決めたこと 10）
     const fa = document.activeElement;
     trashFrom = fa && fa !== document.body && typeof fa.focus === 'function' ? fa : null;
     trashOn = true;
@@ -8057,6 +8063,7 @@
   }
   function openIconPop() {
     if (iconPopOn || iconLocked() || popOpen()) return;
+    popCloseAll('modal');   // 0.17.1 OD-2（決めたこと 10）
     iconPop = { id: curId, at: 0, tab: 'icon' };
     iconPopOn = true;
     $('iconSearch').value = '';
@@ -11042,6 +11049,7 @@
     box.addEventListener('focusout', () => setTimeout(() => { if (linkPop && linkPop.box === box && !isIn(document.activeElement, box)) linkPopClose(); }, 0));
     linkPop = { el, id: el.dataset.id, text: txt.textContent, pid: keyOfEl(el), s: r[0], e: r[1], box, input, msg };
     placeAt(box, el, true);
+    popPush(box, { close: () => linkPopClose(), name: 'link' });   // 0.17.1 OD-2（決めたこと 12）
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
     input.focus();
   }
@@ -11069,6 +11077,7 @@
     const p = linkPop;
     if (!p) return;
     linkPop = null;
+    popDrop(p.box);   // 0.17.1 OD-2
     if (p.box.parentNode) p.box.parentNode.removeChild(p.box);
     if (back && boxOfKey(p.pid) && rowCanMark(p.el)) { p.el._txt.focus(); setSel(p.el._txt, p.s, p.e); markBarSync(p.el); }
   }
@@ -11144,12 +11153,14 @@
     const fitsDown = nr.top + downTop - st + h <= view.bottom;
     const fitsUp = nr.top + upTop - st >= view.top;
     boxAt(box, !fitsDown && fitsUp ? upTop : downTop, (bar ? parseFloat(bar.style.left) || 0 : 0) + (btn ? btn.offsetLeft || 0 : 0));
+    popPush(box, { close: () => colorMenuClose(), name: 'color' });   // 0.17.1 OD-2（決めたこと 12。フォーカスと選んだ所は行に残すので、Esc で戻す部品は無い）
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
   }
   function colorMenuClose() {
     const m = colorMenu;
     if (!m) return;
     colorMenu = null;
+    popDrop(m.box);   // 0.17.1 OD-2
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
   }
   function colorPick(kind, name) {
@@ -11248,6 +11259,7 @@
     const p = dbPick;
     if (!p) return;
     dbPick = null;
+    popDrop(p.box);   // 0.17.1 OD-2
     if (p.box.parentNode) p.box.parentNode.removeChild(p.box);
     const el = back ? [...$('pNote').querySelectorAll('.blk')].find((e) => e.dataset.id === p.rowId) : null;
     if (el && el._txt) { el._slashOff = p.s.start; el._txt.focus(); setCaret(el._txt, p.s.start + 1 + p.s.query.length); }
@@ -11266,6 +11278,7 @@
     box.style.top = `${(el.offsetTop || 0) + (el.offsetHeight || 0)}px`;
     box.style.left = `${el.offsetLeft || 0}px`;
     popHost(el).appendChild(box);
+    popPush(box, { close: () => dbPickClose(), name: 'dbpick' });   // 0.17.1 OD-2（決めたこと 12）
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
     dbPickDbs();
     return null;
@@ -15229,6 +15242,8 @@
     slashBox.style.left = `${(s.el.offsetLeft || 0) + (txt.offsetLeft || 0)}px`;
     if (slashBox.parentNode !== box) {
       box.appendChild(slashBox);
+      // 0.17.1 OD-2（決めたこと 12）: 帳面に載せる。フォーカスは行に残るので、外の押しと Esc はどちらも行の Esc と同じ（その / では開き直さない）
+      popPush(slashBox, { close: (why) => slashClose(why === 'esc' || why === 'outside'), name: 'slash' });
       // 開いたときに箱の全部が見える所まで捲る（行が窓の下の端に近いと、項目が窓の外に出る: ED-5 の撮った画像の確かめ）
       if (typeof slashBox.scrollIntoView === 'function') slashBox.scrollIntoView({ block: 'nearest' });
     }
@@ -15241,6 +15256,7 @@
     if (dismiss) slash.el._slashOff = slash.start;
     txt.removeAttribute('aria-activedescendant'); txt.removeAttribute('aria-expanded');
     slash = null;
+    if (slashBox) popDrop(slashBox);   // 0.17.1 OD-2
     if (slashBox && slashBox.parentNode) slashBox.parentNode.removeChild(slashBox);
   }
   function slashMove(d) {
@@ -15790,6 +15806,7 @@
     box.style.top = `${(el.offsetTop || 0) + (el.offsetHeight || 0)}px`;
     box.style.left = `${el.offsetLeft || 0}px`;
     popHost(el).appendChild(box);
+    popPush(box, { close: () => blockMenuClose(), anchors: [grip], name: 'block' });   // 0.17.1 OD-2（決めたこと 12）
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });   // 箱の全部が見える所まで捲る（slashRender と同じ）
     menuItems(box)[0].focus();
   }
@@ -15800,7 +15817,7 @@
     if (!m) return;
     const was = m.sub ? m.subAt : at;
     if (!on || (m.sub && m.subAt !== at)) {
-      if (m.sub) { m.sub.remove(); m.sub = null; }
+      if (m.sub) { popDrop(m.sub); m.sub.remove(); m.sub = null; }
       m.heads[was].setAttribute('aria-expanded', 'false');
       if (!on) { m.heads[was].focus(); return; }
     }
@@ -15830,12 +15847,16 @@
       m.sub = sub; m.subAt = 2;
     }
     m.heads[at].setAttribute('aria-expanded', 'true');
+    // 0.17.1 OD-2（決めたこと 4・19）: 子の窓（親は残る）。親の窓の中の押しで閉じるときは、フォーカスを動かさずに子だけを外す
+    const sub = m.sub;
+    popPush(sub, { close: () => { const b = blockMenu; if (!b || b.sub !== sub) return; sub.remove(); b.sub = null; b.heads[b.subAt].setAttribute('aria-expanded', 'false'); }, anchors: [m.heads[at]], name: 'blocksub' });
     menuItems(m.sub)[0].focus();
   }
   function blockMenuClose(back) {
     const m = blockMenu;
     if (!m) return;
     blockMenu = null;
+    popDrop(m.box);   // 0.17.1 OD-2
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
     const grip = m.el.querySelector('.grip');
     if (grip) grip.setAttribute('aria-expanded', 'false');

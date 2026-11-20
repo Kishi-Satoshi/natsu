@@ -441,3 +441,167 @@ test('OD-1・F223: Esc: フォーカスが窓の外でも閉じて開いた部�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- OD-2（決めたこと 4・9・10・12・19・F218・F220・F224）
+const { samplePage } = require('./helpers/dbtmp');
+const kid = (id, text) => ({ id, type: 'paragraph', text, citeState: 'manual', cites: [] });
+const bodyRow = (l, id) => $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === id);
+const txtOf = (l, id) => bodyRow(l, id).querySelector('.txt');
+const plusOf = (l, id) => bodyRow(l, id).querySelector('.plus');
+// 見本: 議事録のページ pa1（要約の行 x・y）・データベース「名簿」・白紙のページ「まとめの頁」（行 b1）・6 段の入れ子（パンくずの「…」）・ゴミ箱のページ
+async function openNote() {
+  const l = await realApp({
+    seed: (t) => {
+      const a = samplePage('pa1'); t.seed({ ...a.page, blocks: [kid('x', 'あいうえお'), kid('y', 'かきくけこ')] }, a.segments);
+      const b = samplePage('pb2'); t.seed({ ...b.page, blocks: [] }, b.segments);   // 要約の無い議事録（［要約を生成］が主ボタン）
+    },
+    before: (call) => {
+      const D = call('db.create', {}).id;
+      call('db.setTitle', { db: D, title: '名簿' });   // データベースの題名（D77 の外）
+      call('tpl.add', { db: D, title: '見本' });   // テンプレートの題名（D77 の外）
+      const P = call('page.create', {}).id;
+      call('page.setTitle', { id: P, title: 'まとめの頁' });   // 白紙のページの題名（D77 の外）
+      const b1 = call('block.insert', { pageId: P, afterBlockId: '', type: 'paragraph' }).blockId;
+      let up = P; const deep = [];
+      for (let i = 0; i < 6; i += 1) { up = call('page.create', { parentId: up }).id; call('page.setTitle', { id: up, title: `段${i + 1}` }); deep.push(up); }   // 白紙のページの題名（D77 の外）
+      const nb = call('block.insert', { pageId: up, afterBlockId: '', type: 'paragraph' }).blockId;
+      const G = call('page.create', {}).id;
+      call('page.delete', { id: G });
+      return { D, P, b1, deep, nb };
+    },
+  });
+  await open(l, 'pa1');
+  return l;
+}
+const slashIn = async (l, t, text) => { t.focus(); t.textContent = text; l.caret.set(t, text.length); t.dispatchEvent({ type: 'input' }); await l.drain(); };
+const selectIn = (l, id, s, e) => { const t = txtOf(l, id); t.focus(); l.caret.set(t, s, e); t.dispatchEvent({ type: 'mouseup' }); return t; };
+
+test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026-11-21 の PQ171-7 の答え）: サイドバーの行のメニュー・⋮⋮・プライベートの［···］・パンくずの［…］・/ メニュー・リンクの窓・文字の色・/リンクドビュー を開いたまま本文の行の ＋（押してもフォーカスが動かない部品）を押すと、閉じるだけで ＋ は動かない', T, async () => {
+  const l = await openNote();
+  try {
+    const { P, b1, deep, nb } = l.made;
+    const shut = async (name, isOpen, rowId, pageId = 'pa1') => {
+      assert.ok(isOpen(), `${name}: 前提: 開かない`);
+      const ins = l.called('blockInsert').length;
+      const r = await pressEl(l, plusOf(l, rowId));
+      assert.strictEqual(Boolean(isOpen()), false, `${name}: 行の ＋ を押しても残る`);
+      assert.ok(!r.got.includes('click'), `${name}: 行の ＋ の click が届いた`);
+      assert.strictEqual(l.called('blockInsert').length, ins, `${name}: 行の ＋ が行を足した`);
+      assert.ok(pageId);
+    };
+    // サイドバーの行のメニュー
+    sideRow(l, 'pa1').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(40);
+    await shut('サイドバーの行のメニュー', () => l.document.querySelector('.treemenu'), 'x');
+    // ⋮⋮ のメニュー
+    await clickEl(l, bodyRow(l, 'x').querySelector('.grip'), 40);
+    await shut('⋮⋮ のメニュー', () => $(l, 'pNote').querySelector('.blockmenu'), 'y');
+    // プライベートの［···］
+    await clickEl(l, $(l, 'privMore'), 40);
+    await shut('プライベートの［···］', () => !$(l, 'privMenu').hidden, 'x');
+    // / メニュー
+    await slashIn(l, txtOf(l, 'y'), '/');
+    await shut('/ メニュー', () => $(l, 'pNote').querySelector('.slashmenu'), 'x');
+    // リンクの窓（Ctrl+K）
+    let t = selectIn(l, 'x', 0, 2);
+    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t); await l.drain(40);
+    await shut('リンクの窓', () => $(l, 'pNote').querySelector('#linkPop'), 'y');
+    // 文字の色（帯の［色］）
+    t = selectIn(l, 'x', 1, 3); await l.drain(20);
+    const cb = $(l, 'pNote').querySelector('#markBar').querySelectorAll('button').find((x) => x.title === '色');
+    cb.dispatchEvent({ type: 'click' }); await l.drain(20);
+    await shut('文字の色', () => $(l, 'pNote').querySelector('#colorMenu'), 'y');
+    // パンくずの［…］（6 段の入れ子のいちばん下）
+    await open(l, deep[5]);
+    await clickEl(l, $(l, 'crumb').children.find((e) => e.dataset && e.dataset.crumb === 'more'), 40);
+    await shut('パンくずの［…］', () => l.document.querySelectorAll('.treemenu').find((m) => m.getAttribute('aria-label') === '隠れた段'), nb, deep[5]);
+    // /リンクドビュー の窓（白紙のページ）
+    await open(l, P);
+    await slashIn(l, txtOf(l, b1), '/りんく');
+    l.key({ key: 'Enter', code: 'Enter' }, txtOf(l, b1)); await l.drain(200);
+    await shut('/リンクドビュー の窓', () => $(l, 'pNote').querySelector('.dbpickwin'), b1, P);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-2・F218（M6）: ページの［···］は帳面で閉じる（今の document の pointerdown は消した）。中の押しでは閉じない・［···］の押しで閉じて開き直さない・開いたまま［要約を生成］を押すと閉じるだけ', T, async () => {
+  const l = await openNote();
+  try {
+    await open(l, 'pb2');
+    const menuOn = () => !$(l, 'pMenu').hidden;
+    await clickEl(l, $(l, 'pMore'));
+    assert.ok(menuOn(), '前提: ［···］が開かない');
+    let r = await pressEl(l, $(l, 'pMenu'));
+    assert.ok(menuOn(), '［···］の中を押すと閉じた');
+    assert.ok(r.got.includes('mousedown'));
+    await pressEl(l, l.document.querySelector('.phead'));
+    assert.strictEqual(menuOn(), false, '外を押しても閉じない');
+    await clickEl(l, $(l, 'pMore'));
+    r = await pressEl(l, $(l, 'pMore'));
+    assert.strictEqual(menuOn(), false, '［···］を押すと開き直した');
+    assert.ok(!r.got.includes('click'), '［···］の click が届いた');
+    await clickEl(l, $(l, 'pMore'));
+    const sum = $(l, 'pActs').querySelectorAll('button').find((b) => b.textContent === '要約を生成');
+    assert.ok(sum, '前提: ［要約を生成］が無い');
+    r = await pressEl(l, sum);
+    assert.strictEqual(menuOn(), false, '［要約を生成］を押しても［···］が残る');
+    assert.deepStrictEqual(l.called('pageSummarize'), [], '［···］を閉じる押しで要約を始めた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-2・F220: 子の窓（決めたこと 4・19）: ▾ の［···］・⋮⋮ の［変換 ▸］を開いても親は残る。親の窓の中の押しは子だけを閉じ、その押しは親の項目に届く', T, async () => {
+  const l = await openNote();
+  try {
+    const { D } = l.made;
+    // ⋮⋮ → ［変換 ▸］→ 親の［複製］
+    await clickEl(l, bodyRow(l, 'x').querySelector('.grip'), 40);
+    const menu = $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => !x.classList.contains('sub'));
+    await clickEl(l, itemIn(menu, '変換 ▸'), 40);
+    assert.ok($(l, 'pNote').querySelector('.blockmenu.sub'), '前提: ［変換 ▸］が開かない');
+    assert.ok(menu.parentNode, '［変換 ▸］を開くと親が閉じた');
+    const r = await pressEl(l, itemIn(menu, '複製'));
+    assert.ok(r.got.includes('mousedown') && r.got.includes('click'), '親の項目の押しが止まった');
+    await l.drain(120);
+    assert.strictEqual(l.called('blockDuplicate').length, 1, '親の［複製］が1回動かない');
+    assert.strictEqual($(l, 'pNote').querySelector('.blockmenu.sub'), null);
+    // ▾ → ［···］→ 親の見出しの押し
+    await open(l, D);
+    await clickEl(l, box(l).querySelector('.dbtplbtn'));
+    await clickEl(l, l.document.querySelector('.dbtplmore'));
+    assert.ok(l.document.querySelector('.dbtplsub'), '前提: ▾ の［···］が開かない');
+    assert.ok(l.document.querySelector('.dbtplmenu'), '▾ の［···］を開くと ▾ の窓が閉じた');
+    const h = await pressEl(l, l.document.querySelector('.dbtplmenu .dbmenuhead'));
+    assert.ok(h.got.includes('mousedown'), '親の窓の中の押しが止まった');
+    assert.strictEqual(l.document.querySelector('.dbtplsub'), null, '親の窓の中を押しても子が残る');
+    assert.ok(l.document.querySelector('.dbtplmenu'), '親の窓の中を押すと親も閉じた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-2・F224: 全面の窓（決めたこと 10）: 列のメニューを開いたまま Ctrl+P・設定を開くと浮く窓は閉じる。サイドバーの［ゴミ箱］の押しは閉じるだけ（もう一度でゴミ箱）。全面の窓の中の押しで全面の窓は閉じない', T, async () => {
+  const l = await openNote();
+  try {
+    const { D } = l.made;
+    await open(l, D);
+    const c = l.call('db.get', { id: D }).cols.find((x) => x.type === 'title').id;
+    await clickEl(l, head(l, c));
+    assert.ok(colMenu(l), '前提: 列のメニューが開かない');
+    l.key({ key: 'p', code: 'KeyP', ctrlKey: true }, colMenu(l).querySelector('.mitem')); await l.drain(40);
+    assert.ok(!$(l, 'palette').hidden, '前提: 検索の窓が開かない');
+    assert.deepStrictEqual(pops(l).map((e) => e.className), [], '検索の窓を開いても列のメニューが残る');
+    const r = await pressEl(l, $(l, 'searchBox'));
+    assert.ok(!$(l, 'palette').hidden && r.got.includes('mousedown'), '全面の窓の中の押しを帳面が止めたか閉じた');
+    l.key({ key: 'Escape' }, $(l, 'searchBox')); await l.drain(40);
+    await clickEl(l, head(l, c));
+    l.fire('onOpenSettings'); await l.drain(60);
+    assert.deepStrictEqual(pops(l).map((e) => e.className), [], '設定を開いても列のメニューが残る');
+    l.key({ key: 'Escape' }, l.document.activeElement); await l.drain(40);
+    await clickEl(l, head(l, c));
+    await pressEl(l, $(l, 'tabBtnTrash'));
+    assert.ok($(l, 'trashPop').hidden, '列のメニューを閉じる押しでゴミ箱が開いた');
+    assert.deepStrictEqual(pops(l).map((e) => e.className), []);
+    await pressEl(l, $(l, 'tabBtnTrash'));
+    assert.ok(!$(l, 'trashPop').hidden, 'もう一度押してもゴミ箱が開かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
