@@ -2234,7 +2234,6 @@
     if (popMine(ev) && popStop.maybe && ev.type === 'mousedown' && !(ev.detail >= 2)) { popStopEnd(); popSeries = null; }   // 2回目ではなかった: pointerdown だけを止めた
     if (popMine(ev)) { popEat(ev); return; }   // 止めた押しの mousedown
     if (ev.button !== 0 && ev.button !== 2) return;   // 中の押し（と、ほかのボタン）では閉じない・止めない（決めたこと 17）
-    if (ev.type === 'pointerdown' && popNear(ev)) { popStopOn(ev, true); popEat(ev); return; }   // 2回続けた押しの2回目の pointerdown（R25）
     if (ev.type === 'mousedown' && ev.detail >= 2 && popSeries) { popStopOn(ev); popEat(ev); return; }
     popPrune();
     const t = ev.target;
@@ -2242,7 +2241,12 @@
     for (let i = popStack.length - 1; i >= 0; i--) if (popIn(t, popStack[i].el)) { k = i; break; }
     const shut = popStack.splice(k + 1).reverse();
     if (ev.type === 'mousedown') popSeries = null;
-    if (!shut.length) return;
+    if (!shut.length) {
+      // 2回続けた押しの2回目かもしれない pointerdown（R25）: 押した所の受け口には届けない。既定は止めない（止めると本物は mousedown を出さず、2回目かを
+      // mousedown の detail で見分けられない。1回目の押しとして届ける mousedown も消える: R31）
+      if (ev.type === 'pointerdown' && popNear(ev)) { popStopOn(ev, true); ev.stopImmediatePropagation(); }
+      return;
+    }
     if (k >= 0) { for (const e of shut) e.close('other'); return; }   // 窓の中の押し: 子だけを閉じ、押しは届ける（決めたこと 19）
     const a = document.activeElement;   // 窓の中の欄の変換中の字を確定させてから閉じる（決めたこと 22）
     const field = popField(a) && shut.some((e) => popIn(a, e.el)) ? a : null;

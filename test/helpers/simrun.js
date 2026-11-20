@@ -197,7 +197,7 @@ async function load(htmlPath, opt = {}) {
    * 0.17.1 OD-1（計画 docs/plans/2026-11-18-171.md の「調べた結果」の 6・M7）: マウスの押しを本物の順で起こす。事象ごとに、捕まえる段の document の受け口 →
    * 押した部品から根までの受け口（泡の段。on… と addEventListener）→ 泡の段の document の受け口の順に呼び、stopPropagation・stopImmediatePropagation・
    * preventDefault を守る。mousedown が止められなければ、押した所からいちばん近いフォーカスできる部品へフォーカスを移す（blur・focusout と focus・focusin を起こす。
-   * 無ければフォーカスを外す）。o: { button（0 左・1 中・2 右）, detail, pointerId, pointerType（既定 'mouse'）, clientX・clientY（既定 0）, types（起こす事象の並びを替える）, ctrlKey など }
+   * 無ければフォーカスを外す）。pointerdown の既定が止められたら、本物と同じく mousedown・mouseup は起こさない（click は起こす。R31）。o: { button（0 左・1 中・2 右）, detail, pointerId, pointerType（既定 'mouse'）, clientX・clientY（既定 0）, types（起こす事象の並びを替える）, ctrlKey など }
    * 答え: { got（押した部品の受け口に届いた事象の名前の並び）, events（事象の名前 → 作った事象） }
    */
   const FOCUSABLE = new Set(['button', 'input', 'select', 'textarea']);
@@ -261,7 +261,9 @@ async function load(htmlPath, opt = {}) {
     for (const k of Object.keys(mods)) if (o[k] !== undefined) mods[k] = Boolean(o[k]);
     inPress = true;
     try {
+      let quiet = false;   // 0.17.1 直し（R31）: pointerdown の既定を止めると、本物の Chromium は互換のマウスの事象（mousedown・mouseup）を出さない（click は出す）
       for (const type of types) {
+        if (quiet && (type === 'mousedown' || type === 'mouseup')) continue;
         const ptr = type.startsWith('pointer') || type === 'click' || type === 'auxclick' || type === 'contextmenu';
         const extra = { button, buttons: type.endsWith('down') ? [1, 4, 2][button] || 0 : 0, detail, clientX: Number(o.clientX) || 0, clientY: Number(o.clientY) || 0, ...mods,
           ...(ptr ? { pointerId, pointerType: o.pointerType || 'mouse', isPrimary: true } : {}) };
@@ -269,6 +271,7 @@ async function load(htmlPath, opt = {}) {
         events[type] = ev;
         if (reached) got.push(type);
         if (type === 'mousedown' && !ev.defaultPrevented) moveFocus(focusableOf(target));
+        if (type === 'pointerdown' && ev.defaultPrevented) quiet = true;
       }
     } finally { inPress = false; }
     return { got, events };

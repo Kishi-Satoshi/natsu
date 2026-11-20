@@ -132,7 +132,8 @@ test('OD-1・F226: 閉じるだけ（MC-01）: 列のメニューを開いたま
     const quiet = (r, name) => {
       assert.strictEqual(colMenu(l) === null, true, `${name}: 列のメニューが残る`);
       assert.deepStrictEqual(r.got.filter((t) => ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].includes(t)), [], `${name}: 押した部品に事象が届いた`);
-      assert.ok(r.events.mousedown.defaultPrevented, `${name}: mousedown の既定（フォーカスの移り・字の選び）を止めない`);
+      // 本物は pointerdown の既定を止めると mousedown を出さない（偽の DOM の l.press も同じ: R31）。出たときは既定を止めている
+      assert.ok(r.events.pointerdown.defaultPrevented && (!r.events.mousedown || r.events.mousedown.defaultPrevented), `${name}: mousedown の既定（フォーカスの移り・字の選び）を止めない`);
     };
     // (a) 別の行のテキストのセル
     await openMenu();
@@ -276,7 +277,9 @@ test('OD-1・F226（R25）: 2回続けた押しの2回目は pointerdown から�
     assert.strictEqual(colMenu(l) === null, true, '前提: 1回目で閉じない');
     let r = await pressEl(l, title(), { detail: 2, clientX: 302, clientY: 41 });
     assert.deepStrictEqual(r.got, [], '2回目の押しの pointerdown が届いた（ブロックの選びを外す・範囲の選びを始める）');
-    assert.ok(r.events.pointerdown.defaultPrevented, '2回目の pointerdown の既定を止めない');
+    // pointerdown の既定は止めない（止めると本物は mousedown を出さず、detail で2回目かを見分けられない: R31）。mousedown（detail 2）から既定を止める
+    assert.strictEqual(r.events.pointerdown.defaultPrevented, false, '2回目かもしれない pointerdown の既定を止めた（mousedown が来なくなる）');
+    assert.ok(r.events.mousedown && r.events.mousedown.defaultPrevented, '2回目の mousedown の既定を止めない');
     // 間が長い（2回続けた押しの間より後）の押しは全部届く
     await l.clock.advance(600);
     r = await pressEl(l, title(), { clientX: 302, clientY: 41 });
