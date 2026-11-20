@@ -7595,6 +7595,7 @@
   let regenAsking = false;   // 0.14.0 EK-4 直し（R155）: 確かめの窓が開いている（Ctrl+W・Ctrl+Tab は後ろのタブを動かさない）
   function askRegen() {
     return new Promise((resolve) => {
+      popCloseAll('modal');   // 0.17.1 直し（決めたこと 10・R29）: 確かめ（全面の窓）を開くときは浮く窓を閉じる
       regenAsking = true;
       const back = document.activeElement;
       const wrap = document.createElement('div'); wrap.className = 'setmodal askwrap';

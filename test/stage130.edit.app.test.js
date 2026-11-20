@@ -1288,6 +1288,25 @@ test('ED-8（EQ4 (a)・決めたこと 35）: 人が直した行があるとき�
   }
 });
 
+// 0.17.1 直し（計画 docs/plans/2026-11-18-171.md の R29。決めたこと 10・独立した点検の指摘 8）: ［要約を再生成］の確かめ（全面の窓の1つ）を開くと、浮く窓を閉じる
+test('ED-8（0.17.1 R29）: ［要約を再生成］の確かめを開くと、開いていた浮く窓（サイドバーの行のメニュー）は閉じる（確かめの［作り直す］の押しが、浮く窓を閉じるだけにならない）', T, async () => {
+  const human = [{ id: 'a1', type: 'heading', text: '決定事項' }, { id: 'a3', type: 'bullet', text: '人が足した行', cites: [], citeState: 'manual' }];
+  const l = await openReal({ pa1: human }, { returns: { pageSummarize: () => ({ ok: true, stat: { linked: 1, total: 1 } }) } });
+  try {
+    const row = $(l, 'plist').querySelectorAll('.pitem').find((r) => r.dataset.pid === 'pa1');
+    row.dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain();
+    assert.ok(l.document.querySelector('.treemenu'), '前提: サイドバーの行のメニューが開かない');
+    const btn = $(l, 'pMenu').querySelectorAll('button').find((b) => b.textContent === '要約を再生成');
+    const p = btn.onclick();   // キーで押した形（押しの帳面を通らない）
+    await l.drain();
+    assert.ok(l.document.querySelector('.askbox'), '前提: 確かめが出ない');
+    assert.strictEqual(l.document.querySelector('.treemenu') === null, true, '確かめを開いても浮く窓が残る（決めたこと 10）');
+    l.document.querySelector('.askbox').querySelectorAll('button')[1].dispatchEvent({ type: 'click' });
+    await p;
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 // 2026-10-26 の持ち主の答え（点検4「どんな手直しでも確かめる（おすすめ）」）
 test('ED-8・点検4: AI の型だけの要約でも、行を消す・動かす・複製・見出しの段を変えた後は［要約を再生成］の前に確かめる。作り直した要約が届いた後は聞かない', T, async () => {
   const AI = [{ id: 'h1', type: 'heading', level: 2, text: '決定事項' }, { id: 'b1', type: 'bullet', text: '来月に出す', cites: ['s2'], citeState: 'linked' },

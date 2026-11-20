@@ -1806,9 +1806,9 @@ const IDS_171 = [
   'od-nb-mc',
   // 0.17.1 直し（独立した点検の後。R23〜）で作った行
   'od-blur-quiet', 'od-stop-dbl-down', 'od-stop-dbl-one', 'od-probe-bar', 'od-stop-tap', 'od-stop-tap-click', 'od-stop-tap-id',
-  'od-esc-gear', 'od-esc-cell',
+  'od-esc-gear', 'od-esc-cell', 'od-modal-regen',
 ];
-const IDS_171_ROWS = 52;   // 計画の「変異の表」の od- の行の数（43 と、独立した点検の後の直しの行）
+const IDS_171_ROWS = 53;   // 計画の「変異の表」の od- の行の数（43 と、独立した点検の後の直しの行）
 function planRows171() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-18-171.md'), 'utf8');
   const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
