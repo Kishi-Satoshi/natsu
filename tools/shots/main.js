@@ -526,13 +526,19 @@ function boot() {
         await settle(o.wc, o.t);
         await wait(150);
         const base = await within(o.wc.executeJavaScript(SH.DISMISS_PROBE), 10000, '形を読む');
-        for (const a of step.acts) {
+        for (const [ai, a] of step.acts.entries()) {
           let none = '';
+          let nobar = false;
           if (a.press) {
             const p = await pointOf(o.wc, a.press.at);
-            if (!p) none = a.press.at === 'bar' ? '捲り棒が無い' : '押す所が無い';
+            if (!p) { none = a.press.at === 'bar' ? '捲り棒が無い' : '押す所が無い'; nobar = a.press.at === 'bar'; }
             else if (p.hidden) none = `押す所が隠れている（上に ${p.hidden}・${p.x},${p.y}）`;
             else await pressAt(o.wc, p, a.press);
+          }
+          if (nobar) {   // 0.17.1 直し（R26）: 捲り棒が無ければ窓は開いたままなので、後の段は押さない（押さなかった印 skip で残し、judgeDismiss が参考にする）
+            phases.push({ want: a.want, got: null, base, none, nobar: true });
+            for (const b of step.acts.slice(ai + 1)) phases.push({ want: b.want, got: null, base, skip: true });
+            break;
           }
           for (const k of a.keys || []) await keyTo(o.wc, k);
           await settle(o.wc, o.t);

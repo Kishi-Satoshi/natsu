@@ -1844,13 +1844,42 @@ test('OD-3・F225: judgeDismiss の表（どの手も、押した後の窓の数
   assert.strictEqual(j.ok, true, '捲り棒の手で窓の数のほかを照らした');
   j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0 }, { pops: 1 })], true)]);
   assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒の手の閉じ残りを OK と読んだ');
-  j = SH.judgeDismiss([dstep('bar', [{ want: { pops: 0 }, got: null, base, none: '捲り棒が無い' }], true)]);
+  j = SH.judgeDismiss([dstep('bar', [{ want: { pops: 0 }, got: null, base, none: '捲り棒が無い', nobar: true }], true)]);
   assert.strictEqual(j.ok, true);
   assert.match(j.notes.join(' '), /捲り棒が無い/);
   // 測れなかった手は NG
   j = SH.judgeDismiss([dstep('head', [{ want: { pops: 0 }, got: null, base }])]);
   assert.deepStrictEqual([j.ok, j.bad], [false, ['head']], '測れなかった手を OK と読んだ');
   assert.strictEqual(SH.judgeDismiss([]).ok, false, '手が無いのに OK');
+});
+
+test('OD-3・F225（R26）: judgeDismiss の捲り棒の手の参考は、捲り棒が無かった1段目と、そのために押さなかった後の段だけ。後の段が測れない・隠れている・押さなかったのに1段目に捲り棒があった・1段目が捲り棒の無いほかの理由で測れない、は NG。main.js は捲り棒が無ければ後の段を押さない', { timeout: 5000 }, () => {
+  const base = { pops: 0, sel: [], focus: '', title: '案件の一覧', picked: '', sideW: 260, lock: false, page: '案件の一覧' };   // データベースの題名（撮る画面の答えの「案件の一覧」。D77 の外）
+  const ok = (want, got = {}) => ({ want, got: { ...base, ...got }, base });
+  const nobar = { want: { pops: 0 }, got: null, base, none: '捲り棒が無い', nobar: true };
+  const skip = { want: { pops: 0, sel: ['r2:title'] }, got: null, base, skip: true };
+  // 捲り棒が無い: 1段目は参考、押さなかった2段目も参考（OK）
+  let j = SH.judgeDismiss([dstep('bar', [nobar, skip], true)]);
+  assert.strictEqual(j.ok, true, '捲り棒が無いときの参考を NG と読んだ');
+  assert.match(j.notes.join(' '), /捲り棒が無い/);
+  // 2段目（止める印が残らないかの段: F229）が測れない・押す所が隠れている → NG
+  for (const none of ['押す所が隠れている（上に .dbmenu・10,10）', '押す所が無い']) {
+    j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0 }, { scrolled: 0 }), { want: { pops: 0, sel: ['r2:title'] }, got: null, base, none }], true)]);
+    assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], `2段目が測れない（${none}）のを参考で OK と読んだ`);
+  }
+  // 捲り棒があったのに2段目を押さなかった → NG
+  j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0 }, { scrolled: 0 }), skip], true)]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒があったのに押さなかった段を OK と読んだ');
+  // 捲り棒が無いのに2段目を測れなかった（押さない印が無い）→ NG
+  j = SH.judgeDismiss([dstep('bar', [nobar, { want: { pops: 0, sel: ['r2:title'] }, got: null, base, none: '押す所が無い' }], true)]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒が無いときの2段目の測れないを参考と読んだ');
+  // 1段目が捲り棒の無いほかの理由（手の途中の落ち）で測れない → NG
+  j = SH.judgeDismiss([dstep('bar', [{ want: {}, got: null, base: null, none: '形を読む: 時間切れ' }], true)]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒の手の途中の落ちを参考で OK と読んだ');
+  // main.js: 捲り棒が無ければ印 nobar を付け、後の段は押さずに skip の印で残す
+  const main = fs.readFileSync(path.join(ROOT, 'tools', 'shots', 'main.js'), 'utf8');
+  assert.match(main, /nobar/, 'main.js が捲り棒が無いことを印にしない');
+  assert.match(main, /skip: true/, 'main.js が押さなかった後の段を残さない');
 });
 
 test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本物の押しが届くかの手）と DISMISS_PROBE の字面。撮る道具が本物のマウス（sendInputEvent）で押し、judgeDismiss で照らし、NG なら終わりの番号を 1 にする', { timeout: 5000 }, () => {

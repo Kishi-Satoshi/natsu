@@ -1946,19 +1946,24 @@ const DISMISS_PROBE = `(() => {
 /**
  * 手の結果 [{ name, bar, phases: [{ want, got, base, none }] }] → { ok, bad（違った手の名前）, notes（参考）, why（違った所） }。
  * 段ごとに窓の数（pops）と、want に書いた形（sel・selNot・focus・focusNot・lock・picked・titleSame・sideSame・pageSame）を照らす。
- * 捲り棒の手（bar）の1段目は窓の数だけ（捲れたかは notes に記録だけ）。捲り棒が無ければ（none）参考で OK。測れなかった段（got が無い）は NG
+ * 捲り棒の手（bar）の1段目は窓の数だけ（捲れたかは notes に記録だけ）。捲り棒が無ければ（1段目の nobar）、1段目と押さなかった後の段（skip）は参考で OK。
+ * ほかの測れなかった段（got が無い。捲り棒の手の後の段も）は NG（R26）
  */
 function judgeDismiss(steps) {
   const bad = []; const notes = []; const why = [];
   if (!Array.isArray(steps) || !steps.length) return { ok: false, bad: ['（手が無い）'], notes, why: ['手が無い'] };
   for (const s of steps) {
     const miss = [];
-    (s.phases || []).forEach((p, i) => {
+    // 0.17.1 直し（R26）: 参考で OK にするのは、捲り棒の手の1段目に捲り棒が無かった（nobar）ときの1段目と、そのために押さなかった後の段（skip）だけ
+    const ph = s.phases || [];
+    const nobar = Boolean(s.bar && ph[0] && ph[0].nobar === true && !ph[0].got);
+    ph.forEach((p, i) => {
       const w = (p && p.want) || {}; const g = p && p.got; const b = (p && p.base) || {};
       const at = `${i + 1} 段目`;
       if (!g) {
-        if (s.bar && p && p.none) { notes.push(`${s.name}: ${p.none}（参考）`); return; }
-        miss.push(`${at}を測れなかった${p && p.none ? `（${p.none}）` : ''}`);
+        if (nobar && i === 0) { notes.push(`${s.name}: ${p.none || '捲り棒が無い'}（参考）`); return; }
+        if (nobar && p && p.skip === true) { notes.push(`${s.name}: ${at}は捲り棒が無いので押さない（参考）`); return; }
+        miss.push(`${at}を${p && p.skip ? '押さなかった' : '測れなかった'}${p && p.none ? `（${p.none}）` : ''}`);
         return;
       }
       if (g.pops !== w.pops) miss.push(`${at}の窓の数 ${g.pops}（${w.pops} のはず）`);
