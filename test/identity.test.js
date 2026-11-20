@@ -67,9 +67,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.15.1 で意図して変えた: 版を 0.15.1 に（音声入力をなくす・サイドバーのプライベートの見出しと行のメニューと名前を変える・ライブラリ・PC の中の文字起こしを GPU 版に。Electron は 44.9.0 のまま）
 // 0.16.0 で意図して変えた: 版を 0.16.0 に（データベース: 表とリスト・列の種類・ビュー・リレーション・サブアイテム・インラインとリンクドビュー。Electron は 44.9.0 のまま）
 // 0.17.0 で意図して変えた: 版を 0.17.0 に（アイコンの版・データベースの作り方とサイドバーのビューの行・「議事録」データベース・タスク管理・行のテンプレート・ロック・実機との違いの直し。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.17.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.17.1 で意図して変えた: 版を 0.17.1 に（メニューと窓を、外を押すと閉じる・Esc で閉じる・開くのは1つにする直しの版。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.17.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.17.0');
+  assert.strictEqual(pkg.version, '0.17.1');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -302,8 +303,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.15.1 で意図して変えた: 版は 0.15.1（README の保存の説明は 0.7.0 のまま）
 // 0.16.0 で意図して変えた: 版は 0.16.0（README の保存の説明は 0.7.0 のまま）
 // 0.17.0 で意図して変えた: 版は 0.17.0（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.17.0');
+// 0.17.1 で意図して変えた: 版は 0.17.1（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0・0.17.1: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.17.1');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -921,7 +923,7 @@ test('0.17.0: CHANGELOG の 0.17.0 の節（承認した下書きから移した
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.17.0 （2026-11-18）'), 'CHANGELOG.md に「## natsu-v0.17.0 （2026-11-18）」の見出しが無い');
   assert.ok(cl.indexOf('## natsu-v0.17.0') < cl.indexOf('## natsu-v0.16.0'), '0.17.0 の節が 0.16.0 の節の上に無い');
-  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.17.0'), '0.17.0 の節が CHANGELOG の頭に無い');
+  // 0.17.1 で意図して変えた: CHANGELOG の頭は 0.17.1 の節になった（0.17.0 の節はそのすぐ下: 下の 0.17.1 のテスト）
   const sec = secOf(cl, '## natsu-v0.17.0');
   const plan = read('docs/plans/2026-11-13-170.md');
   const d = plan.indexOf('\n## CHANGELOG の節（下書き。答えを入れて G で持ち主が読む言葉に直して移す）\n');
@@ -958,6 +960,43 @@ test('0.17.0: CHANGELOG の 0.17.0 の節（承認した下書きから移した
   const titles = files.map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
   assert.deepStrictEqual(titles, ['「議事録」データベース', 'タスク管理と行のテンプレート', 'ページのアイコンと見た目', 'データベース（表とリスト）', '要約を書き直す', 'ページの中のページ・白紙のページ', '議事録を探す', 'ページを消す・戻す・毎日の控え', '録音を始める・止める', 'ホットキー', 'Claude から議事録を読む（MCP）', 'NaTsu の全体像']);
   for (const t of titles) assert.ok(sec.includes(`「${t}」`), `0.17.0 の節にヘルプの記事「${t}」が無い`);
+});
+
+// 0.17.1（計画 docs/plans/2026-11-18-171.md の「CHANGELOG の節」と「問答の答え（2026-11-22。Task G）」。R32）: 版を 0.17.1 に上げる commit で、取りまとめ役が持ち主の読む言葉に
+// 直し、2026-11-22 に持ち主が「このままでよい（おすすめ）」と答えた字のまま、日付つきの見出し（## natsu-v0.17.1 （2026-11-21））で CHANGELOG.md の頭（0.17.0 の節の上）へ移した。
+// 計画には「移した」の1行だけを残す。承認の字とコードの食い違い（日付の窓の Esc・前から閉じていた暦）は計画の M15 で持ち主に問うので、ここでは字のままを見る
+test('0.17.1: CHANGELOG の 0.17.1 の節（承認した字のまま移した）は日付つきの見出しで CHANGELOG の頭（0.17.0 の節のすぐ上）にあり、頭の1行と5つの箇条（外を押すと閉じる・閉じるだけ・1つずつ・Esc・打ったものが入る）を承認の字で書き、計画の番号と下書きの印を写さず、引いた［…］は src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.17.1 （2026-11-21）'), 'CHANGELOG.md に「## natsu-v0.17.1 （2026-11-21）」の見出しが無い');
+  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.17.1'), '0.17.1 の節が CHANGELOG の頭に無い');
+  assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.17.1') + 1) === cl.indexOf('\n## natsu-v0.17.0'), '0.17.1 の節のすぐ下が 0.17.0 の節でない');
+  const sec = secOf(cl, '## natsu-v0.17.1');
+  const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());   // 見出しの次から
+  assert.deepStrictEqual(body, [
+    'アプリの中の［更新して再起動］で当てられます（インストーラーの入れ直しは要りません）。',
+    '- **メニューの外を押すと、メニューが閉じるようになりました。** データベースの列の見出しのメニュー・ビューのタブ・⚙ の並べ替えと絞り込みの窓・行のメニュー・「ロック中」の［ロックを外す］・セルの選びの窓・日付の窓などが、外を押しても開いたままでした。',
+    '- メニューが開いているときに外を押すと、メニューを閉じるだけで、押した所は動きません（もう一度押すと動きます）。ページの［···］・サイドバーの行のメニュー・行の ⋮⋮ のメニュー・/ メニューも同じになりました。',
+    '- メニューは 1 つずつ開きます。',
+    '- メニューの外にフォーカスがあっても、Esc でメニューが閉じます。',
+    '- 列の名前・絞り込みの値・日付を打っている途中で外を押すと、打ったものが入ります（Esc ではやめます）。［列の値を変える ▸］の欄だけは、選んだ行をまとめて書き換えるため、外を押すと打った字を捨てます（Enter で書きます）。',
+  ], '0.17.1 の節が持ち主の承認した字（2026-11-22「このままでよい（おすすめ）」）と違う');
+  // PQ171-6 の答えで外れた下書きの項目（設定の窓は押した所も動く）を入れていない
+  assert.ok(!sec.includes('押した所もそのまま動きます'), '0.17.1 の節に PQ171-6 の答えで外れた下書きの項目がある');
+  assert.ok(!/（R\d+）|PQ171|N171|MC-\d|<!--|承認|YYYY/.test(sec), '0.17.1 の節に計画の番号か下書きの印がある');
+  assert.ok(!/notion/i.test(sec), '0.17.1 の節に参考にしたアプリの名前がある');
+  assert.ok(!/<[a-z]/i.test(sec), '0.17.1 の節に生の HTML がある');
+  // 計画の下書きは「移した」の1行
+  const plan = read('docs/plans/2026-11-18-171.md');
+  const d = plan.indexOf('\n## CHANGELOG の節（下書き。G で持ち主が読む言葉に直して移す）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の節（下書き）」の見出しが無い');
+  const draft = plan.slice(d, plan.indexOf('\n## ', d + 2));
+  assert.ok(!draft.includes('```') && !draft.includes('（YYYY-MM-DD）') && draft.includes('移した'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+  // 引いた［…］はアプリにある
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
+  assert.deepStrictEqual(names, ['更新して再起動', 'ロックを外す', '···', '列の値を変える ▸']);
+  for (const n of names) assert.ok(src.includes(n), `0.17.1 の節の［${n}］が src/ に無い`);
 });
 
 // ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）

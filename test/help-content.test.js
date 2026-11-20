@@ -1769,3 +1769,57 @@ test('0.17.1 Task OD-4: notion-behavior の 23 章（OB3）は 22 章の後ろ�
   assert.strictEqual(r78.length, 1, '0.16.0 の計画に R78 の行が1つでない');
   assert.ok(r78[0].includes('0.17.1 で替えた') && r78[0].includes('docs/plans/2026-11-18-171.md') && r78[0].includes('決めたこと 11'), 'R78 に 0.17.1 の書き添えが無い（M5）');
 });
+
+// ---------------------------------------------------------------- 0.17.1 Task G（計画 docs/plans/2026-11-18-171.md の Task G・R32・「問答の答え（2026-11-22。Task G）」）
+// 設計書の版の表の 0.17.1 の書き添え（「計画。持ち主の承認待ち」を外し D164〜D171。置き場所は 0.17.0 の欄の「D140〜D158）」の前のまま）と、節「利用者が決めたこと（メニューと窓の閉じ方。…）」の
+// D164〜D171（持ち主の言葉は計画の字のまま）、計画の答えの節と今の状態
+test('0.17.1 Task G: 設計書の版の表の 0.17.1 の書き添えに D164〜D171（承認待ちの字は無い）・節「利用者が決めたこと（メニューと窓の閉じ方。…）」の D164〜D171 は D162 の節の後と「作り方」の間に1つずつ並び、持ち主の言葉は計画の字のまま、計画に Task G の答えの節と今の状態', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const plan = read('docs/plans/2026-11-18-171.md');
+  const rowOf = (text, k) => { const xs = text.split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.strictEqual(xs.length, 1, `${k} の行が1つでない`); return xs[0]; };
+  // 版の表: 0.17.1 の書き添えは 0.17.0 の欄の「D140〜D158）」の前（0.17.0 Task G・NX-6 のテストが見る字は変えない）
+  const ver = d.split('\n').find((l) => l.startsWith('| 版 | 0.1.0'));
+  assert.ok(ver.includes('直しの版 0.17.1: メニューと窓を、外を押すと閉じる・Esc で閉じる・開くのは1つにする（浮く窓の閉じ方を1つの仕組みにまとめる。`docs/plans/2026-11-18-171.md`。2026-11-18 の持ち主の報告。D164〜D171）。D140〜D158） | 0.18.0（MCP の書く道具と残り。'), '版の表の 0.17.1 の書き添えに D164〜D171 が無い');
+  assert.ok(!ver.includes('承認待ち'), '版の表に「計画。持ち主の承認待ち」が残る');
+  // 節と D の行
+  const h = '## 利用者が決めたこと（メニューと窓の閉じ方。直しの版 0.17.1。2026-11-19〜11-22）';
+  const at = d.indexOf(`\n${h}\n`);
+  assert.ok(at > 0, `設計書に節「${h}」が無い`);
+  assert.ok(d.indexOf('\n| D162 |') < at && at < d.indexOf('\n## 作り方（Superpowers の進め方。'), '0.17.1 の節が D162 の後と「作り方」の間に無い');
+  const sec = d.slice(at, d.indexOf('\n## ', at + 5));
+  const ids = [...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(ids, Array.from({ length: 8 }, (_, i) => `D${164 + i}`), '0.17.1 の節の D の行が D164〜D171 でない');
+  for (const id of ids) assert.strictEqual(d.split('\n').filter((l) => l.startsWith(`| ${id} |`)).length, 1, `設計書に ${id} の行が1つでない`);
+  // 持ち主の言葉は計画にある字のまま（問いごとの行）
+  for (const [k, qs] of [
+    ['D164', ['PQ171-1「0.17.1 として先に出す（おすすめ）」']],
+    ['D165', ['PQ171-2「1 つの仕組みで全部の窓（おすすめ）」']],
+    ['D166', ['PQ171-3「Notion の画面で確かめて合わせる（おすすめ）」']],
+    ['D167', ['PQ171-4「閉じる（おすすめ）」', 'PQ171-6「ほかのメニューと同じ「閉じるだけ」」']],
+    ['D168', ['PQ171-7「「閉じるだけ」にそろえる（おすすめ）」']],
+    ['D169', ['PQ171-8「確かめず仮の形に決める」']],
+    ['D170', ['PQ171-10「捨てる（おすすめ）」']],
+    ['D171', ['「このままでよい（おすすめ）」', '「G を今作り、出すのは N171-6 の後（おすすめ）」']],
+  ]) {
+    const r = rowOf(sec, k);
+    for (const q of qs) {
+      assert.ok(r.includes(q), `${k} に ${q} が無い`);
+      const word = q.slice(q.indexOf('「'));
+      assert.ok(plan.includes(`| ${word} |`), `${k} の ${word} が計画の答えの表の字に無い`);
+    }
+  }
+  assert.ok(rowOf(sec, 'D165').includes('`popStack`') && rowOf(sec, 'D165').includes('`popPush`'), 'D165 が今のコードの帳面の名前（popStack・popPush）で書いていない（M16）');
+  assert.ok(rowOf(sec, 'D167').includes('0.16.0 の計画の R78'), 'D167 に 0.16.0 の R78 を替えたことが無い');
+  assert.ok(rowOf(sec, 'D168').includes('N171-6') && rowOf(sec, 'D171').includes('N171-6'), 'D168・D171 に N171-6 の後に出すことが無い');
+  // 計画: Task G の答えの節（言葉はそのまま）と今の状態・R32・M15
+  const qh = '\n## 問答の答え（2026-11-22。Task G）\n';
+  const qa = plan.indexOf(qh);
+  assert.ok(qa > plan.indexOf('\n## 問答の答え（2026-11-22。PQ171-10）\n') && qa < plan.indexOf('\n## Notion の画面で確かめたこと（2026-11-20。N171-1〜N171-4）\n'), '計画に Task G の答えの節が PQ171-10 の節の後に無い');
+  const qsec = plan.slice(qa, plan.indexOf('\n## ', qa + 5));
+  for (const w of ['| 「このままでよい（おすすめ）」 |', '| 「G を今作り、出すのは N171-6 の後（おすすめ）」 |', '「0.17.1 の更新の説明（CHANGELOG）の下書きです。この字のままでよいですか？」', '「版を 0.17.1 に上げる作業（Task G）と、Notion の画面の確かめ N171-6 の順番はどうしますか？」', '「N171-6 を待たずに G もリリースもする」']) {
+    assert.ok(qsec.includes(w), `計画の Task G の答えの節に ${w} が無い`);
+  }
+  assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-22）: Task G 済み'), '計画の頭の今の状態が Task G 済みでない');
+  assert.ok(plan.includes('\n> **Task G の前の状態（2026-11-22。記録）: 第2版。持ち主が承認した'), '計画に Task G の前の状態の記録が無い');
+  for (const k of ['R32', 'M15', 'M16']) assert.strictEqual(plan.split('\n').filter((l) => l.startsWith(`- **${k}（`)).length, 1, `計画に ${k} が1つでない`);
+});
