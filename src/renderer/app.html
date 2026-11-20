@@ -2211,25 +2211,32 @@
   function popCloseAll(why) { popPrune(); for (const e of popStack.splice(0).reverse()) e.close(why); }
   // 止める押し（決めたこと 15〜17）: 外の押しで窓を閉じた押しの事象を、押した所のどの受け口よりも先に止める。離した後の時限 0（click・auxclick・
   // contextmenu・dblclick はその前に届く）・pointercancel・窓のフォーカスが外れた・5 秒で外す。違う押しの番号（pointerId）の事象は止めない。
-  // 止めた押しに続く2回目（mousedown の detail が 2 以上）も止める
-  let popStop = null;   // { id, timer }
-  let popSeries = false;
+  // 止めた押しに続く2回目（mousedown の detail が 2 以上）も止める。pointerdown は押した回数を持たないので、止めた押しから短い間（2回続けた押しの間）に
+  // 近い所を左で押した pointerdown も止め（pointerdown だけで動く部品: 本文の選びと取っ手）、mousedown の detail が 1 なら、それより先は届ける（R25）
+  let popStop = null;   // { id, timer, maybe }
+  let popSeries = null;   // 止めた押しの時と所 { at, x, y }（2回続けた押しの2回目を見分ける）
+  const POP_DBL_MS = 500;   // 2回続けた押しの間（Windows の既定）
+  const POP_DBL_PX = 4;     // 2回続けた押しと数える所のずれ
   let popBlurring = false;   // 外の押しで窓の中の欄の blur を呼んでいる間（本物は blur で focusout が来る。窓の focusout の受け口は決めずに、帳面の close('outside') に任せる: R23）
   const popEat = (ev) => { ev.preventDefault(); ev.stopImmediatePropagation(); };
   const popMine = (ev) => Boolean(popStop) && !(typeof ev.pointerId === 'number' && typeof popStop.id === 'number' && ev.pointerId !== popStop.id);
   function popStopEnd() { if (!popStop) return; clearTimeout(popStop.timer); popStop = null; }
-  function popStopOn(ev) { popStopEnd(); popStop = { id: ev.pointerId, timer: setTimeout(popStopEnd, 5000) }; popSeries = true; }
+  function popStopOn(ev, maybe) { popStopEnd(); popStop = { id: ev.pointerId, timer: setTimeout(popStopEnd, 5000), maybe: maybe === true }; popSeries = { at: Date.now(), x: Number(ev.clientX) || 0, y: Number(ev.clientY) || 0 }; }
+  const popNear = (ev) => Boolean(popSeries) && ev.button === 0 && ev.isPrimary !== false && Date.now() - popSeries.at <= POP_DBL_MS
+    && Math.abs((Number(ev.clientX) || 0) - popSeries.x) <= POP_DBL_PX && Math.abs((Number(ev.clientY) || 0) - popSeries.y) <= POP_DBL_PX;
   const popField = (f) => Boolean(f) && (/^(input|textarea)$/i.test(f.tagName) || f.isContentEditable === true || f.contentEditable === 'true');
   function popDown(ev) {
+    if (popMine(ev) && popStop.maybe && ev.type === 'mousedown' && !(ev.detail >= 2)) { popStopEnd(); popSeries = null; }   // 2回目ではなかった: pointerdown だけを止めた
     if (popMine(ev)) { popEat(ev); return; }   // 止めた押しの mousedown
     if (ev.button !== 0 && ev.button !== 2) return;   // 中の押し（と、ほかのボタン）では閉じない・止めない（決めたこと 17）
+    if (ev.type === 'pointerdown' && popNear(ev)) { popStopOn(ev, true); popEat(ev); return; }   // 2回続けた押しの2回目の pointerdown（R25）
     if (ev.type === 'mousedown' && ev.detail >= 2 && popSeries) { popStopOn(ev); popEat(ev); return; }
     popPrune();
     const t = ev.target;
     let k = -1;   // 押した所を中に持つ、いちばん新しい窓
     for (let i = popStack.length - 1; i >= 0; i--) if (popIn(t, popStack[i].el)) { k = i; break; }
     const shut = popStack.splice(k + 1).reverse();
-    if (ev.type === 'mousedown') popSeries = false;
+    if (ev.type === 'mousedown') popSeries = null;
     if (!shut.length) return;
     if (k >= 0) { for (const e of shut) e.close('other'); return; }   // 窓の中の押し: 子だけを閉じ、押しは届ける（決めたこと 19）
     const a = document.activeElement;   // 窓の中の欄の変換中の字を確定させてから閉じる（決めたこと 22）

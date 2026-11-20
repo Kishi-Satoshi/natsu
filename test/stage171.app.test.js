@@ -256,11 +256,50 @@ test('OD-1・F226: 押し方: 右の押しは閉じるだけ（行のメニュ�
     await clickEl(l, head(l, c1));
     await pressEl(l, $(l, 'pTitle'));
     r = await pressEl(l, $(l, 'pTitle'), { detail: 2 });
-    assert.deepStrictEqual(r.got.filter((t) => t !== 'pointerdown'), [], '2回目の押し（detail 2）が届いた');
+    assert.deepStrictEqual(r.got, [], '2回目の押し（detail 2）が届いた（pointerdown も: R25）');
     assert.ok(r.events.mousedown.defaultPrevented && r.events.dblclick && !r.got.includes('dblclick'), '2回目の押しの既定・dblclick を止めない');
     assert.ok(active(l) !== $(l, 'pTitle'), '2回目の押しで題名にフォーカスが移った');
     r = await pressEl(l, $(l, 'pTitle'));
     assert.ok(r.got.includes('mousedown') && r.got.includes('click'), 'その後の1回目の押しが届かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('OD-1・F226（R25）: 2回続けた押しの2回目は pointerdown から止める（同じ所・間が短い左の押し）。所が離れた・間が長い・右の押しは pointerdown で止めない。2回目に見えて detail が 1 なら pointerdown だけを止める', T, async () => {
+  const l = await openDb();
+  try {
+    const { c1 } = l.made;
+    const title = () => $(l, 'pTitle');
+    // 同じ所の2回目（detail 2）: pointerdown から全部止まる
+    await clickEl(l, head(l, c1));
+    await pressEl(l, title(), { clientX: 300, clientY: 40 });
+    assert.strictEqual(colMenu(l) === null, true, '前提: 1回目で閉じない');
+    let r = await pressEl(l, title(), { detail: 2, clientX: 302, clientY: 41 });
+    assert.deepStrictEqual(r.got, [], '2回目の押しの pointerdown が届いた（ブロックの選びを外す・範囲の選びを始める）');
+    assert.ok(r.events.pointerdown.defaultPrevented, '2回目の pointerdown の既定を止めない');
+    // 間が長い（2回続けた押しの間より後）の押しは全部届く
+    await l.clock.advance(600);
+    r = await pressEl(l, title(), { clientX: 302, clientY: 41 });
+    assert.deepStrictEqual(r.got.slice(0, 2), ['pointerdown', 'mousedown'], '間が長い押しが届かない');
+    assert.ok(r.got.includes('click'), '間が長い押しの click が届かない');
+    // 所が離れた2回目（OS の2回続けた押しの決めが広いとき）: pointerdown は届き、mousedown（detail 2）からは今までどおり止める
+    await clickEl(l, head(l, c1));
+    await pressEl(l, title(), { clientX: 300, clientY: 40 });
+    r = await pressEl(l, title(), { detail: 2, clientX: 340, clientY: 40 });
+    assert.deepStrictEqual(r.got, ['pointerdown'], '所が離れた2回目: pointerdown のほかが届いたか、pointerdown を止めた');
+    await l.clock.advance(600);
+    // 2回目に見えて detail が 1（OS は別の押しと数えた）: pointerdown だけを止め、mousedown から先は届ける
+    await clickEl(l, head(l, c1));
+    await pressEl(l, title(), { clientX: 300, clientY: 40 });
+    r = await pressEl(l, title(), { clientX: 301, clientY: 40 });
+    assert.deepStrictEqual(r.got, ['mousedown', 'pointerup', 'mouseup', 'click'], '2回目に見えた1回目の押し: mousedown から先が届かない');
+    assert.ok(active(l) === title(), '2回目に見えた1回目の押しで題名にフォーカスが移らない');
+    await l.clock.advance(600);
+    // 右の押しの2回目は pointerdown で止めない（2回続けた押しは左だけ）
+    await clickEl(l, head(l, c1));
+    await pressEl(l, title(), { clientX: 300, clientY: 40 });
+    r = await pressEl(l, title(), { button: 2, clientX: 300, clientY: 40 });
+    assert.ok(r.got.includes('pointerdown'), '窓が無いときの右の押しを pointerdown で止めた');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -271,7 +310,7 @@ test('OD-1・F227・F229: 止める印が残らない（click が来ない・poi
     const { c1 } = l.made;
     const title = () => $(l, 'pTitle');
     const free = async (why) => {
-      const r = l.press(title());
+      const r = l.press(title(), { clientX: 200 });   // 止めた押しから離れた所（2回続けた押しの2回目と見ない: R25）
       await l.drain(20);
       assert.deepStrictEqual(r.got, ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'], `${why}: 次の押しが届かない（止める印が残った）`);
       assert.strictEqual(r.events.mousedown.defaultPrevented, false, `${why}: 窓が無いのに押しを止めた`);

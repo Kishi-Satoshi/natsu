@@ -197,7 +197,7 @@ async function load(htmlPath, opt = {}) {
    * 0.17.1 OD-1（計画 docs/plans/2026-11-18-171.md の「調べた結果」の 6・M7）: マウスの押しを本物の順で起こす。事象ごとに、捕まえる段の document の受け口 →
    * 押した部品から根までの受け口（泡の段。on… と addEventListener）→ 泡の段の document の受け口の順に呼び、stopPropagation・stopImmediatePropagation・
    * preventDefault を守る。mousedown が止められなければ、押した所からいちばん近いフォーカスできる部品へフォーカスを移す（blur・focusout と focus・focusin を起こす。
-   * 無ければフォーカスを外す）。o: { button（0 左・1 中・2 右）, detail, pointerId, types（起こす事象の並びを替える）, ctrlKey など }
+   * 無ければフォーカスを外す）。o: { button（0 左・1 中・2 右）, detail, pointerId, pointerType（既定 'mouse'）, clientX・clientY（既定 0）, types（起こす事象の並びを替える）, ctrlKey など }
    * 答え: { got（押した部品の受け口に届いた事象の名前の並び）, events（事象の名前 → 作った事象） }
    */
   const FOCUSABLE = new Set(['button', 'input', 'select', 'textarea']);
@@ -263,8 +263,8 @@ async function load(htmlPath, opt = {}) {
     try {
       for (const type of types) {
         const ptr = type.startsWith('pointer') || type === 'click' || type === 'auxclick' || type === 'contextmenu';
-        const extra = { button, buttons: type.endsWith('down') ? [1, 4, 2][button] || 0 : 0, detail, clientX: 0, clientY: 0, ...mods,
-          ...(ptr ? { pointerId, pointerType: 'mouse', isPrimary: true } : {}) };
+        const extra = { button, buttons: type.endsWith('down') ? [1, 4, 2][button] || 0 : 0, detail, clientX: Number(o.clientX) || 0, clientY: Number(o.clientY) || 0, ...mods,
+          ...(ptr ? { pointerId, pointerType: o.pointerType || 'mouse', isPrimary: true } : {}) };
         const { ev, reached } = fireOn(target, type, extra);
         events[type] = ev;
         if (reached) got.push(type);
