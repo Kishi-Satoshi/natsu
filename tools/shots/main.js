@@ -480,8 +480,12 @@ function boot() {
     })()` : `(() => {
       const el = ${at};
       if (!el) return null;
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       const r = el.getBoundingClientRect();
-      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), l: Math.round(r.left + 4), r: Math.round(r.right - 4) };
+      const x = Math.round(r.left + Math.min(r.width / 2, 40)); const y = Math.round(r.top + r.height / 2);   // 左から 40px まで（題名のセルの右の［開く］を押さない）
+      const top = document.elementFromPoint(x, y);
+      // 押す所に別の物が重なっていれば（窓の外・捲る枠で隠れている）、押しても確かめにならない
+      return { x, y, l: Math.round(r.left + 4), r: Math.round(r.right - 4), hidden: !(top && (top === el || el.contains(top))) ? String((top && (top.id || top.className)) || '（なし）') : '' };
     })()`), 10000, '押す所を測る');
     const mouse = async (wc, type, x, y, button = 'left', clickCount = 1, modifiers = []) => { wc.sendInputEvent({ type, x, y, button, clickCount, modifiers }); await wait(40); };
     const pressAt = async (wc, p, press) => {
@@ -527,6 +531,7 @@ function boot() {
           if (a.press) {
             const p = await pointOf(o.wc, a.press.at);
             if (!p) none = a.press.at === 'bar' ? '捲り棒が無い' : '押す所が無い';
+            else if (p.hidden) none = `押す所が隠れている（上に ${p.hidden}・${p.x},${p.y}）`;
             else await pressAt(o.wc, p, a.press);
           }
           for (const k of a.keys || []) await keyTo(o.wc, k);

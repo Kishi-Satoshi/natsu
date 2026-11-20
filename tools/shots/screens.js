@@ -1899,7 +1899,7 @@ function exitCodeOf({ shots, compare, flaky = [], csp = [], perf = [], errors = 
 // ---------------------------------------------------------------- 0.17.1 OD-3（計画 docs/plans/2026-11-18-171.md の決めたこと 14・15〜21・F225〜F227・F229）
 // 本物のマウス（webContents.sendInputEvent）で、浮く窓の閉じ方と止め方を見る確かめ（撮らない。撮る画像は変えない）。手ごとに窓を開き直し、
 // 開く文（open。表を開いた後に走らせる）で窓を1つ開いてから、acts の押し（press: 押す所の文か 'bar'（表の捲り棒）・ボタン・回数・なぞる）とキーを順に送り、
-// 段ごとに DISMISS_PROBE で今の形を読んで、決めた形（want）と judgeDismiss で照らす
+// 段ごとに DISMISS_PROBE で今の形を読んで、決めた形（want）と judgeDismiss で照らす。押すセルは2行目の題名のセル（いちばん左。表の箱の横の捲りで隠れない: R21）
 const DISMISS_COLBTN = `[...document.querySelectorAll('#pDb .dbcolh')].find((h) => h.dataset.col === 'c3').querySelector('.dbcolbtn')`;
 const DISMISS_CELL = (row, col) => `[...document.querySelectorAll('#pDb .dbrow')][${row}].querySelector('.dbcell[data-col="${col}"]')`;
 const DISMISS_OPEN_COL = `${DISMISS_COLBTN}.click();`;
@@ -1908,9 +1908,9 @@ const DISMISS_TITLE = `document.getElementById('pTitle')`;
 const DISMISS_LOCK = `document.getElementById('pLock')`;
 const DISMISS_STEPS = [
   // 本物の押しが届くか（窓が無いときは押したセルが選ばれる。届かなければ、ほかの手の「閉じた」が確かめにならない）
-  { name: 'ref', screen: 'db-locked-light', open: '', acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: ['r2:c3'] } }] },
+  { name: 'ref', screen: 'db-locked-light', open: '', acts: [{ press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, sel: ['r2:title'] } }] },
   { name: 'head', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_HEAD }, want: { pops: 0 } }] },
-  { name: 'cell', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] } }] },
+  { name: 'cell', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] } }] },
   { name: 'title-z', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_TITLE }, keys: ['z'], want: { pops: 0, titleSame: true, focusNot: ['#pTitle'] } }] },
   { name: 'lock', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_LOCK }, want: { pops: 0 } }, { press: { at: DISMISS_LOCK }, want: { pops: 1, lock: true } }] },
   { name: 'right', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_CELL(1, 'title'), button: 'right' }, want: { pops: 0 } }] },
@@ -1919,12 +1919,12 @@ const DISMISS_STEPS = [
   { name: 'grip', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: `document.getElementById('sideGrip')`, drag: { dx: 60 } }, want: { pops: 0, sideSame: true } }] },
   { name: 'double', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_TITLE, clickCount: 2 }, want: { pops: 0, picked: '' } }] },
   // 捲り棒の押し（決めたこと 20）: 窓の数だけを照らし、捲れたかは記録だけ。続けて押したセルが選ばれる（止める印が残らない）
-  { name: 'bar', screen: 'db-locked-light', bar: true, open: DISMISS_OPEN_COL, acts: [{ press: { at: 'bar' }, want: { pops: 0 } }, { press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: ['r2:c3'] } }] },
+  { name: 'bar', screen: 'db-locked-light', bar: true, open: DISMISS_OPEN_COL, acts: [{ press: { at: 'bar' }, want: { pops: 0 } }, { press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, sel: ['r2:title'] } }] },
   { name: 'tab-esc', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ keys: ['Tab', 'Escape'], want: { pops: 0, focus: '.dbcolbtn' } }] },
   // 設定の窓も閉じるだけ（決めたこと 11。2026-11-21 の PQ171-6 の答え）
   { name: 'filter', screen: 'db-table-light', open: `document.querySelector('#pDb .dbsetbtn').click(); [...document.querySelectorAll('#pDb .dbmenu .mitem')].find((b) => b.textContent === '絞り込み').click();`,
-    acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, sel: [] } }] },
-  { name: 'pick', screen: 'db-table-light', open: `${DISMISS_CELL(2, 'c2')}.click();`, acts: [{ press: { at: DISMISS_CELL(1, 'c3') }, want: { pops: 0, selNot: ['r2:c3'] } }] },
+    acts: [{ press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, sel: [] } }] },
+  { name: 'pick', screen: 'db-table-light', open: `${DISMISS_CELL(2, 'c2')}.click();`, acts: [{ press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, selNot: ['r2:title'] } }] },
 ];
 /** 手の開く文（一覧のいちばん上のデータベースを開いてから then） */
 const dismissOpen = (then) => OPEN_DB_AT(then);

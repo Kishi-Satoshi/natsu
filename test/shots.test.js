@@ -1856,7 +1856,7 @@ test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本
   assert.deepStrictEqual(names, ['ref', 'head', 'cell', 'title-z', 'lock', 'right', 'middle', 'drag-title', 'grip', 'double', 'bar', 'tab-esc', 'filter', 'pick']);
   const by = new Map(SH.DISMISS_STEPS.map((s) => [s.name, s]));
   const wants = (n) => by.get(n).acts.map((a) => a.want);
-  assert.deepStrictEqual(wants('ref'), [{ pops: 0, sel: ['r2:c3'] }], '本物の押しが届くかの手（窓が無いときはセルが選ばれる）');
+  assert.deepStrictEqual(wants('ref'), [{ pops: 0, sel: ['r2:title'] }], '本物の押しが届くかの手（窓が無いときはセルが選ばれる）');
   assert.deepStrictEqual(wants('head'), [{ pops: 0 }]);
   assert.deepStrictEqual(wants('cell'), [{ pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] }]);
   assert.deepStrictEqual(wants('title-z'), [{ pops: 0, titleSame: true, focusNot: ['#pTitle'] }]);
@@ -1866,11 +1866,11 @@ test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本
   assert.deepStrictEqual(wants('drag-title'), [{ pops: 0, picked: '', titleSame: true }]);
   assert.deepStrictEqual(wants('grip'), [{ pops: 0, sideSame: true }]);
   assert.deepStrictEqual(wants('double'), [{ pops: 0, picked: '' }]);
-  assert.deepStrictEqual(wants('bar'), [{ pops: 0 }, { pops: 0, sel: ['r2:c3'] }], '捲り棒の後の押しが届く（止める印が残らない）');
+  assert.deepStrictEqual(wants('bar'), [{ pops: 0 }, { pops: 0, sel: ['r2:title'] }], '捲り棒の後の押しが届く（止める印が残らない）');
   assert.strictEqual(by.get('bar').bar, true);
   assert.deepStrictEqual(wants('tab-esc'), [{ pops: 0, focus: '.dbcolbtn' }]);
   assert.deepStrictEqual(wants('filter'), [{ pops: 0, sel: [] }], '設定の窓の押しも止める（2026-11-21 の PQ171-6 の答え）');
-  assert.deepStrictEqual(wants('pick'), [{ pops: 0, selNot: ['r2:c3'] }]);
+  assert.deepStrictEqual(wants('pick'), [{ pops: 0, selNot: ['r2:title'] }]);
   // 押し方: 右・中・なぞる・2回続けた押し・取っ手の引っ張り・捲り棒・キー
   const act = (n, i = 0) => by.get(n).acts[i];
   assert.strictEqual(act('right').press.button, 'right');
@@ -1893,4 +1893,5 @@ test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本
   assert.match(m, /SH\.judgeDismiss\(/, 'judgeDismiss で照らしていない');
   assert.match(m, /SH\.DISMISS_STEPS/);
   assert.match(m, /errors\.push\(`外の押し/, 'NG を終わりの番号に入れていない');
+  assert.match(m, /elementFromPoint\(x, y\)/, '押す所に別の物が重なっているかを見ていない（R21）');
 });
