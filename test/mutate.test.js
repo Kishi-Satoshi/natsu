@@ -1791,7 +1791,8 @@ test('G3・0.17.0: 0.17.0 の変異が一覧にそろい、IDS_170 は計画の�
   }
 });
 // 0.17.1（計画 docs/plans/2026-11-18-171.md の「変異の表」の od- の表）: 開いている浮く窓の帳面（帳面と止める押し・データベースの窓・今閉じる窓・
-// 撮る道具の確かめ・notion-behavior の 23 章）。タスクを作るたびに、作ったタスクの行を表の行の順で足す（作っている間は「表の行の順に並んだ一部」: R4）
+// 撮る道具の確かめ・notion-behavior の 23 章）。タスクを作るたびに、作ったタスクの行を表の行の順で足した（作っている間は「表の行の順に並んだ一部」: R4。
+// OD-4 で表の 43 行がそろったので、表とちょうど同じかを見る）
 const IDS_171 = [
   // 0.17.1 OD-1 で作った行（表の行の順に）
   'od-down', 'od-down-button', 'od-anchor', 'od-one', 'od-dbmenu', 'od-tpl', 'od-tpl-ask', 'od-setmenu', 'od-panel', 'od-pick',
@@ -1801,6 +1802,8 @@ const IDS_171 = [
   'od-pmenu', 'od-tree', 'od-block', 'od-priv', 'od-crumb', 'od-slash', 'od-link', 'od-color', 'od-dbpick', 'od-nest', 'od-stop-parent', 'od-modal',
   // 0.17.1 OD-3 で作った行
   'od-probe-judge',
+  // 0.17.1 OD-4 で作った行
+  'od-nb-mc',
 ];
 function planRows171() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-18-171.md'), 'utf8');
@@ -1809,7 +1812,7 @@ function planRows171() {
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   return [...table.matchAll(/^\| (od-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
 }
-test('G3・0.17.1: 0.17.1 の変異が一覧にそろい、IDS_171 は計画の「変異の表」の od- の行の、表の行の順に並んだ一部（R4）。od- の変異は IDS_171 にある。どれも決まったテストのファイルを持ち、why が 0.17.1 で始まる。前の版の IDS に od- が無い', { timeout: 5000 }, () => {
+test('G3・0.17.1: 0.17.1 の変異が一覧にそろい、IDS_171 は計画の「変異の表」の od- の行とちょうど同じ（行の順。R4）。od- の変異は IDS_171 にある。どれも決まったテストのファイルを持ち、why が 0.17.1 で始まる。前の版の IDS に od- が無い', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_171.filter((id) => !byId.has(id)), [], 'IDS_171 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_171).size, IDS_171.length, 'IDS_171 に重なり');
@@ -1820,6 +1823,9 @@ test('G3・0.17.1: 0.17.1 の変異が一覧にそろい、IDS_171 は計画の�
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_171.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_171, rows.filter((id) => IDS_171.includes(id)), 'IDS_171 が表の行の順でない');
+  // 0.17.1 OD-4（R4）で意図して直した: 作っている間は「表の行の順に並んだ一部」を見ていた。OD-4 で 43 行がそろったので、表の全部とちょうど同じかを見る
+  assert.deepStrictEqual(IDS_171, rows, 'IDS_171 が計画の「変異の表」の od- の行とちょうど同じでない（行の順）');
+  assert.strictEqual(IDS_171.length, 43);
   for (const ids of [IDS_132, IDS_140, IDS_150, IDS_151, IDS_160, IDS_170]) assert.deepStrictEqual(ids.filter((id) => /^od-/.test(id)), [], '前の版の IDS に od-');
   for (const id of IDS_171) {
     const m = byId.get(id);

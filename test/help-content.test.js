@@ -1672,7 +1672,9 @@ test('0.17.0 Task NB-1・F215: 前の版の行を壊さない（0.15.0〜0.17.0 
     assert.strictEqual(h(row.slice(0, len)).slice(0, 16), sha, `${id} の前の字が頭から残っていない`);
     assert.ok(row.endsWith(tail), `${id} の末の列が変わった`);
   }
-  const c22 = nb.slice(nb.indexOf('\n## 22. '), nb.indexOf('\n---\n\n## 項目の数\n'));
+  // 0.17.1 Task OD-4（計画 docs/plans/2026-11-18-171.md の「意図して変えるテスト」）で意図して直した: 23 章（OB3）を 22 章の後ろへ移したので、
+  // 範囲の終わりを「項目の数」の前から 23 章の頭の前に（22 章の字と sha256 は変えない）
+  const c22 = nb.slice(nb.indexOf('\n## 22. '), nb.indexOf('\n---\n\n## 23. '));
   assert.strictEqual(h(c22), '528c544f5b6515271523d5dcb810bbc663fb627478f8bcbb52cabc26d1158219', '22章の字が変わった（R66 の「確かめていないこと」の字も消さない）');
 });
 
@@ -1743,4 +1745,27 @@ test('0.17.0 点検 4（rv61 軽い 4・軽い 5・XQ1〜XQ4）: 設計書の D1
   const x39 = rowOf(nb, 'X-39');
   assert.ok(x39.includes('V-T44') && x39.includes('`dbAddRow`') && x39.includes('後の版で持ち主に問う') && x39.endsWith(' | OB2 | 11a |'), 'X-39 に V-T44・今のコード・後の版で問う、が無い');
   assert.ok(nb.includes('X 39 件'), '項目の数の X が 39 件でない');
+});
+
+// ---------------------------------------------------------------- 0.17.1 Task OD-4（計画 docs/plans/2026-11-18-171.md の OD-4・M5）
+test('0.17.1 Task OD-4: notion-behavior の 23 章（OB3）は 22 章の後ろ・「項目の数」の前にあり、行が MC-01〜MC-08 で出典が OB3。「項目の数」の MC の数が行の数と同じ・画像のファイルの名前が無い・出典の一覧に OB3 が1つ。0.16.0 の計画の R78 に 0.17.1 の書き添え', { timeout: 5000 }, () => {
+  const nb = nbDoc();
+  const a22 = nb.indexOf('\n## 22. 持ち主の PC の Notion の画面で確かめた動き（2026-11-14）\n');
+  const a23 = nb.indexOf('\n## 23. 持ち主の PC の Notion の画面で確かめた動き（2026-11-20。メニューと窓の閉じ方）\n');
+  const aCount = nb.indexOf('\n## 項目の数\n');
+  assert.ok(a22 > 0 && a23 > a22 && aCount > a23, '23 章が 22 章の後ろ・「項目の数」の前に無い');
+  assert.strictEqual(nb.indexOf('\n## ', a22 + 5), a23, '22 章と 23 章の間にほかの章がある');
+  const c23 = nb.slice(a23, aCount);
+  const rows = [...c23.matchAll(/^\| (MC-\d+) \|.*\| (\S+) \| 0\.17\.1 \|$/gm)].map((m) => [m[1], m[2]]);
+  assert.deepStrictEqual(rows, Array.from({ length: 8 }, (_, i) => [`MC-0${i + 1}`, 'OB3']), '23 章の行が MC-01〜MC-08（出典 OB3・回 0.17.1）でない');
+  assert.strictEqual((nb.match(/^\| MC-\d+ \|/gm) || []).length, 8, '23 章の外に MC の行がある');
+  assert.ok(nb.slice(aCount).includes(`MC ${rows.length} 件`), '「項目の数」の MC の数が行の数と違う');
+  assert.ok(!/\.(png|jpe?g|gif|webp)\b/i.test(c23), '23 章に画像のファイルの名前がある');
+  assert.ok(!c23.includes('**置き場所:**'), '23 章に「置き場所」の段落が残る（22 章の後ろへ移した）');
+  const ob3 = nbRows(nb, 'OB3');
+  assert.strictEqual(ob3.length, 1, '出典の一覧に OB3 の行が1つでない');
+  assert.ok(ob3[0].includes('`docs/plans/notion-behavior-observed-2026-11-20.md`') && ob3[0].includes('2026-11-20'), 'OB3 の行に置き場所と日付が無い');
+  const r78 = read('docs/plans/2026-11-04-160.md').split('\n').filter((l) => l.startsWith('- **R78（DV-3）設定の窓:**'));
+  assert.strictEqual(r78.length, 1, '0.16.0 の計画に R78 の行が1つでない');
+  assert.ok(r78[0].includes('0.17.1 で替えた') && r78[0].includes('docs/plans/2026-11-18-171.md') && r78[0].includes('決めたこと 11'), 'R78 に 0.17.1 の書き添えが無い（M5）');
 });
