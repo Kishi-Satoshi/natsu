@@ -517,6 +517,50 @@ test('OD-1・F228: 変換中の欄: 外の押しで閉じる前に欄の blur �
   } finally { l.done(); }
 });
 
+test('OD-1・F223（R28）: Esc で戻す開いた部品は Esc の時に引く: 書いて ⚙ や表のセルが描き直されても、設定の窓・選びの窓を Esc で閉じるとフォーカスは今の ⚙・セルへ戻る', T, async () => {
+  const l = await realApp({ before: (call) => {
+    const D = call('db.create', {}).id;
+    call('db.setTitle', { db: D, title: '名簿' });   // データベースの題名（D77 の外）
+    const cm = call('col.add', { db: D, type: 'multi', name: '札' }).col.id;   // 列の名前（試しの字）
+    call('col.setOpts', { db: D, col: cm, opts: [{ id: 'o1', name: '甲', color: 'red' }, { id: 'o2', name: '乙', color: 'default' }] });
+    const rows = ['一', '二'].map((t) => call('row.add', { db: D, title: t }).id);   // 行の題名（D77 の外）
+    return { D, cm, rows };
+  } });
+  try {
+    await open(l, l.made.D);
+    const { cm, rows } = l.made;
+    // 設定の窓: 条件を書くと表と ⚙ が描き直される（窓は残る）
+    const g0 = box(l).querySelector('.dbsetbtn');
+    await clickEl(l, g0);
+    await clickEl(l, itemIn(box(l).querySelector('.dbmenu'), '絞り込み'));
+    const add = box(l).querySelector('.dbpanel').querySelectorAll('button').find((b) => b.textContent.includes('条件を足す'));
+    await clickEl(l, add, 160);
+    const val = box(l).querySelector('.dbpanel').querySelector('input.dbmenuinput');
+    assert.ok(val, '前提: 値の欄が無い');
+    val.value = '一';
+    val.dispatchEvent({ type: 'change' }); await l.drain(200);
+    assert.ok(box(l).querySelector('.dbpanel'), '前提: 設定の窓が無い');
+    assert.ok(box(l).querySelector('.dbsetbtn') !== g0, '前提: 書いても ⚙ が描き直されない（確かめにならない）');
+    $(l, 'pTitle').focus();
+    l.key({ key: 'Escape' }, $(l, 'pTitle')); await l.drain(40);
+    assert.strictEqual(box(l).querySelector('.dbpanel') === null, true, '設定の窓が Esc で閉じない');
+    assert.ok(active(l) === box(l).querySelector('.dbsetbtn'), `設定の窓の Esc の後、フォーカスが今の ⚙ に無い（${active(l) ? active(l).className : 'なし'}）`);
+    // 選びの窓（複数選択）: 選ぶと書き、閉じるときに表のセルが描き直される
+    const c0 = cellAt(l, rows[0], cm);
+    await clickEl(l, c0);
+    const opt = box(l).querySelector('.dbpick').querySelectorAll('.dbopt').find((b) => b.textContent.includes('甲'));
+    assert.ok(opt, '前提: 選びの窓の「甲」が無い');
+    await clickEl(l, opt, 160);
+    assert.ok(box(l).querySelector('.dbpick'), '前提: 複数選択の選びの窓が選ぶと閉じた');
+    $(l, 'pTitle').focus();
+    l.key({ key: 'Escape' }, $(l, 'pTitle')); await l.drain(80);
+    assert.strictEqual(box(l).querySelector('.dbpick') === null, true, '選びの窓が Esc で閉じない');
+    assert.ok(cellAt(l, rows[0], cm) !== c0, '前提: 閉じても表のセルが描き直されない（確かめにならない）');
+    assert.ok(active(l) === cellAt(l, rows[0], cm), `選びの窓の Esc の後、フォーカスが今のセルに無い（${active(l) ? active(l).className : 'なし'}）`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('OD-1・F223: Esc: フォーカスが窓の外でも閉じて開いた部品へ戻す。変換中の Esc では閉じない。窓が無いときの Esc は止めない（表の Esc の段のまま）', T, async () => {
   const l = await openDb();
   try {

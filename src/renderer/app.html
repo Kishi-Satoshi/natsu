@@ -2206,8 +2206,11 @@
     popDrop(el);
     popPrune();
     for (const e of popStack.slice().reverse()) if (!popIn(el, e.el)) { popDrop(e.el); e.close('other'); }
-    popStack.push({ el, close: typeof o.close === 'function' ? o.close : () => {}, anchors: (o.anchors || []).filter(Boolean), name: o.name || '' });
+    // anchors は開いた部品の並びか、Esc の時に今の部品を引く関数（描き直しで替わる部品: 設定の窓の ⚙・選びの窓のセル。R28）
+    const fixed = typeof o.anchors === 'function' ? null : (o.anchors || []).filter(Boolean);
+    popStack.push({ el, close: typeof o.close === 'function' ? o.close : () => {}, anchors: fixed ? () => fixed : o.anchors, name: o.name || '' });
   }
+  const popAnchors = (e) => { let a = []; try { a = e.anchors() || []; } catch (_) { a = []; } return a.filter(Boolean); };
   function popCloseAll(why) { popPrune(); for (const e of popStack.splice(0).reverse()) e.close(why); }
   // 止める押し（決めたこと 15〜17）: 外の押しで窓を閉じた押しの事象を、押した所のどの受け口よりも先に止める。離した後の時限 0（click・auxclick・
   // contextmenu・dblclick はその前に届く）・pointercancel・窓のフォーカスが外れた・5 秒で外す。違う押しの番号（pointerId）の事象は止めない。
@@ -2263,7 +2266,7 @@
     ev.preventDefault(); ev.stopPropagation();
     popStack.pop();
     top.close('esc');
-    const back = top.anchors.find(popLive);
+    const back = popAnchors(top).find(popLive);   // 閉じた後に引く（R28）
     if (back) back.focus();
   }
   document.addEventListener('pointerdown', popDown, true);
@@ -12289,6 +12292,8 @@
     else s = typeof x === 'number' ? (Math.round(x * 100) / 100).toLocaleString('ja-JP') : String(x);
     return `${label} ${s}`;
   }
+  // 0.17.1 直し（R28）: 表 st の今のセル（いま操作している表 dbSt を替えずに引く）
+  function dbCellIn(st, rowId, colId) { const was = dbSt; dbSt = st; try { return dbCellEl(rowId, colId); } finally { dbSt = was; } }
   function dbCellEl(rowId, colId) {
     const st = dbSt;
     if (!st || !st.parts) return null;
@@ -12967,7 +12972,7 @@
       if (st.editing === ed) rpEditEnd(st, false);
     });
     // 0.17.1 OD-1（決めたこと 6・7・18）: 帳面に載せる（表と同じ）。外の押しで閉じたときは、値へフォーカスを戻さない
-    popPush(pop, { close: (why) => { if (st.editing === ed) rpEditEnd(st, col.type === 'date', why === 'outside'); }, anchors: [v], name: 'rppick' });
+    popPush(pop, { close: (why) => { if (st.editing === ed) rpEditEnd(st, col.type === 'date', why === 'outside'); }, anchors: () => [rpSt === st && rpValEl(colId)], name: 'rppick' });   // R28: Esc の時の値
   }
   // 書き手を閉じる（save: 1行の欄は打った値を、暦は決めた値を書く）。描き直して、その列の値へフォーカスを戻す
   async function rpEditEnd(st, save, quiet) {
@@ -13975,7 +13980,7 @@
     st.host.appendChild(el);
     // 0.17.1 OD-1（決めたこと 6・11。2026-11-21 の PQ171-6 の答え）: 外の押しは、ほかのメニューと同じく閉じるだけ。値の欄に打ちかけた値は change と同じに書いてから閉じる
     //（帳面が先に欄の blur を呼ぶ。本物は blur で change が来るので、書いた値と同じなら二度は書かない: dbFieldSent）
-    popPush(el, { close: (why, f) => dbPopClose(st, () => { if (why === 'outside' && f && isIn(f, el) && f.dataset.sent !== undefined && String(f.value) !== f.dataset.sent && typeof f.onchange === 'function') f.onchange(); dbPanelClose(); }), anchors: [st.parts && st.parts.gear], name: 'panel' });
+    popPush(el, { close: (why, f) => dbPopClose(st, () => { if (why === 'outside' && f && isIn(f, el) && f.dataset.sent !== undefined && String(f.value) !== f.dataset.sent && typeof f.onchange === 'function') f.onchange(); dbPanelClose(); }), anchors: () => [dbOnScreen(st) && st.parts && st.parts.gear], name: 'panel' });   // R28: Esc の時の ⚙
     dbPanelPaint(st);
     const f = [...el.querySelectorAll('button, select, input')].find((x) => !x.disabled);   // DV-3 直し（rv48 F1）: NodeList に find は無い
     if (f) f.focus();
@@ -14288,7 +14293,7 @@
       if (dbUse(st) && st.editing === ed) dbEditEnd(false);
     });
     // 0.17.1 OD-1（決めたこと 6・7）: 帳面に載せる。外の押し・Esc で閉じるときは今の Esc と同じ（暦は打った日付を決め、選びの窓は書かない。セルは選ばない）
-    popPush(pop, { close: () => { if (st.editing === ed) dbPopClose(st, () => dbEditEnd(col.type === 'date')); }, anchors: [cell], name: 'pick' });
+    popPush(pop, { close: () => { if (st.editing === ed) dbPopClose(st, () => dbEditEnd(col.type === 'date')); }, anchors: () => [dbOnScreen(st) && dbCellIn(st, rowId, colId)], name: 'pick' });   // R28: Esc の時のセル
   }
   // 閉じる（選びの窓は選ぶたびに書いたので、ここでは書かない）。表を描き直し、セルを選ぶ（then: 'stay'・'right'・'left'）
   // DV-2 直し（rv46 I2・R82）: 暦は save のとき（ほかのセルを押す・暦の外へ動く・遠くへ捲る）に打った値を決めて書く（読めなければ書かずに一言）
