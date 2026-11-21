@@ -2196,7 +2196,7 @@
   //  - Esc: フォーカスがいちばん新しい窓の外にあれば、その窓を閉じて開いた部品へフォーカスを戻す（窓の中なら窓の受け口に任せる。変換中は何もしない）。
   //  - 開くのは1つ: popPush は、新しい窓を中に持つ窓（親）のほかを閉じる。
   // 帳面と止める印は窓のメモリだけ。この受け口は、ほかの document の捕まえる段の受け口より先に付ける（同じ段は付けた順に呼ばれる）
-  const popStack = [];   // 古い順。{ el, close(why, field), anchors, name }。why は 'outside'・'esc'・'other'・'modal'
+  const popStack = [];   // 古い順。{ el, close(why, field), anchors, name, pass }。why は 'outside'・'esc'・'other'・'modal'
   const popIn = (n, el) => { for (let x = n; x; x = x.parentNode) if (x === el) return true; return false; };
   const popLive = (el) => popIn(el, document.documentElement);
   function popPrune() { for (let i = popStack.length - 1; i >= 0; i--) if (!popLive(popStack[i].el)) popStack.splice(i, 1); }   // 描き直しで木から外れた窓は黙って外す
@@ -2208,7 +2208,8 @@
     for (const e of popStack.slice().reverse()) if (!popIn(el, e.el)) { popDrop(e.el); e.close('other'); }
     // anchors は開いた部品の並びか、Esc の時に今の部品を引く関数（描き直しで替わる部品: 設定の窓の ⚙・選びの窓のセル。R28）
     const fixed = typeof o.anchors === 'function' ? null : (o.anchors || []).filter(Boolean);
-    popStack.push({ el, close: typeof o.close === 'function' ? o.close : () => {}, anchors: fixed ? () => fixed : o.anchors, name: o.name || '' });
+    // pass は通す窓の印（外の押しで閉じても、その押しを止めずに押した所へ届ける。/ メニューだけ: 0.17.1 OD-5・決めたこと 23）
+    popStack.push({ el, close: typeof o.close === 'function' ? o.close : () => {}, anchors: fixed ? () => fixed : o.anchors, name: o.name || '', pass: o.pass === true });
   }
   const popAnchors = (e) => { let a = []; try { a = e.anchors() || []; } catch (_) { a = []; } return a.filter(Boolean); };
   function popCloseAll(why) { popPrune(); for (const e of popStack.splice(0).reverse()) e.close(why); }
@@ -2248,6 +2249,7 @@
       return;
     }
     if (k >= 0) { for (const e of shut) e.close('other'); return; }   // 窓の中の押し: 子だけを閉じ、押しは届ける（決めたこと 19）
+    if (shut.every((e) => e.pass)) { for (const e of shut) e.close('outside'); return; }   // 0.17.1 OD-5（決めたこと 23）: 閉じる窓が全部通す窓なら、閉じて押しは届ける（止める印を立てない・既定も止めない・欄の blur もしない）
     const a = document.activeElement;   // 窓の中の欄の変換中の字を確定させてから閉じる（決めたこと 22）
     const field = popField(a) && shut.some((e) => popIn(a, e.el)) ? a : null;
     if (field) { popBlurring = true; try { field.blur(); } finally { popBlurring = false; } }
@@ -15266,7 +15268,8 @@
     if (slashBox.parentNode !== box) {
       box.appendChild(slashBox);
       // 0.17.1 OD-2（決めたこと 12）: 帳面に載せる。フォーカスは行に残るので、外の押しと Esc はどちらも行の Esc と同じ（その / では開き直さない）
-      popPush(slashBox, { close: (why) => slashClose(why === 'esc' || why === 'outside'), name: 'slash' });
+      // 0.17.1 OD-5（決めたこと 23）: 通す窓（外の押しは閉じて、押した所にも届く）
+      popPush(slashBox, { close: (why) => slashClose(why === 'esc' || why === 'outside'), name: 'slash', pass: true });
       // 開いたときに箱の全部が見える所まで捲る（行が窓の下の端に近いと、項目が窓の外に出る: ED-5 の撮った画像の確かめ）
       if (typeof slashBox.scrollIntoView === 'function') slashBox.scrollIntoView({ block: 'nearest' });
     }

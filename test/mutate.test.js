@@ -1809,8 +1809,10 @@ const IDS_171 = [
   'od-esc-gear', 'od-esc-cell', 'od-modal-regen',
   // 0.17.1 の持ち主の答え（2026-11-22。PQ171-10「捨てる（おすすめ）」。R30）で作った行
   'od-setvalue-discard',
+  // 0.17.1 OD-5（計画の第3版。PQ171-11「/ だけ Notion に合わせる（おすすめ）」・決めたこと 23）で作った行
+  'od-slash-pass',
 ];
-const IDS_171_ROWS = 55;   // 計画の「変異の表」の od- の行の数（43 と、独立した点検の後の直しの行と、PQ171-10 の答えの行）
+const IDS_171_ROWS = 56;   // 計画の「変異の表」の od- の行の数（43 と、独立した点検の後の直しの行と、PQ171-10 の答えの行と、OD-5 の行）
 function planRows171() {
   const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-18-171.md'), 'utf8');
   const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);

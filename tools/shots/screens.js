@@ -1906,6 +1906,15 @@ const DISMISS_OPEN_COL = `${DISMISS_COLBTN}.click();`;
 const DISMISS_HEAD = `document.querySelector('.phead')`;
 const DISMISS_TITLE = `document.getElementById('pTitle')`;
 const DISMISS_LOCK = `document.getElementById('pLock')`;
+// 0.17.1 OD-5: 本文の行の字の欄と、行（b2）の末で / を打ってメニューを開く文（edit-slash-light の OPEN_SLASH と同じ打ち方）
+const DISMISS_TXT = (id) => `[...document.querySelectorAll('#pNote .blk')].find((e) => e.dataset.id === '${id}').querySelector('.txt')`;
+const DISMISS_OPEN_SLASH = `document.getElementById('paneBtnNote').click();
+  await new Promise((r) => setTimeout(r, 100));
+  const t = ${DISMISS_TXT('b2')};
+  t.focus();
+  t.textContent = t.textContent + ' /';
+  const sel = getSelection(); const rg = document.createRange(); rg.selectNodeContents(t); rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg);
+  t.dispatchEvent(new InputEvent('input', { bubbles: true }));`;
 const DISMISS_STEPS = [
   // 本物の押しが届くか（窓が無いときは押したセルが選ばれる。届かなければ、ほかの手の「閉じた」が確かめにならない）
   { name: 'ref', screen: 'db-locked-light', open: '', acts: [{ press: { at: DISMISS_CELL(1, 'title') }, want: { pops: 0, sel: ['r2:title'] } }] },
@@ -1929,12 +1938,16 @@ const DISMISS_STEPS = [
   // 後に来ることがあるので、外のタップで閉じた後にタップしたセルが選ばれないかを見る。先に、窓が無いときのタップでセルが選ばれる（タップが届く）ことを見る
   { name: 'ref-touch', screen: 'db-locked-light', open: '', acts: [{ press: { at: DISMISS_CELL(1, 'title'), touch: true }, want: { pops: 0, sel: ['r2:title'] } }] },
   { name: 'touch', screen: 'db-locked-light', open: DISMISS_OPEN_COL, acts: [{ press: { at: DISMISS_CELL(1, 'title'), touch: true }, want: { pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] } }] },
+  // 0.17.1 OD-5（決めたこと 23・PQ171-11）: / メニューは通す窓。本文の行（b2）の末で / を打ってメニューを開き、上の行（b1。メニューは b2 の下に開くので隠れない）の字を
+  // 押すと、閉じて、フォーカスとカーソルはその行へ移る（押しが届く）
+  { name: 'slash', screen: 'edit-slash-light', open: DISMISS_OPEN_SLASH, acts: [{ press: { at: DISMISS_TXT('b1') }, want: { pops: 0, row: 'b1', caret: 'b1' } }] },
 ];
 /** 手の開く文（一覧のいちばん上のデータベースを開いてから then） */
 const dismissOpen = (then) => OPEN_DB_AT(then);
 /**
  * 今の形を集める文 → { pops（見えている浮く窓の数）, sel（選んだセル「行:列」）, focus（#id か .クラス。body は ''）, lock（［ロックを外す］が開いているか）,
- * title（題名の字）, picked（選んだ字）, sideW（サイドバーの幅）, page（開いているページの題名）, scrolled（表を捲った量） }
+ * title（題名の字）, picked（選んだ字）, sideW（サイドバーの幅）, page（開いているページの題名）, scrolled（表を捲った量）,
+ * row（フォーカスのある本文の行の id）, caret（カーソルのある本文の行の id。0.17.1 OD-5） }
  */
 const DISMISS_PROBE = `(() => {
   const seen = (e) => e && e.isConnected && !e.hidden && e.getClientRects().length > 0;
@@ -1944,12 +1957,15 @@ const DISMISS_PROBE = `(() => {
   const focus = !a || a === document.body || a === document.documentElement ? '' : a.id ? '#' + a.id : a.classList.length ? '.' + a.classList[0] : a.tagName.toLowerCase();
   const sc = document.querySelector('#pDb .dbscroll');
   const title = document.getElementById('pTitle').textContent;
-  return { pops, sel, focus, lock: Boolean(document.querySelector('.lockmenu')), title, picked: String(window.getSelection ? window.getSelection() : ''),
-    sideW: Math.round(document.querySelector('#side').getBoundingClientRect().width), page: title, scrolled: sc ? sc.scrollLeft + sc.scrollTop : 0 };
+  const blk = (n) => { for (let x = n; x; x = x.parentNode) if (x.classList && x.classList.contains('blk')) return x.dataset.id || ''; return ''; };
+  const s = window.getSelection ? window.getSelection() : null;
+  return { pops, sel, focus, lock: Boolean(document.querySelector('.lockmenu')), title, picked: String(s || ''),
+    sideW: Math.round(document.querySelector('#side').getBoundingClientRect().width), page: title, scrolled: sc ? sc.scrollLeft + sc.scrollTop : 0,
+    row: blk(a), caret: s && s.rangeCount ? blk(s.focusNode) : '' };
 })()`;
 /**
  * 手の結果 [{ name, bar, phases: [{ want, got, base, none }] }] → { ok, bad（違った手の名前）, notes（参考）, why（違った所） }。
- * 段ごとに窓の数（pops）と、want に書いた形（sel・selNot・focus・focusNot・lock・picked・titleSame・sideSame・pageSame）を照らす。
+ * 段ごとに窓の数（pops）と、want に書いた形（sel・selNot・focus・focusNot・lock・picked・titleSame・sideSame・pageSame・row・caret）を照らす。
  * 捲り棒の手（bar）の1段目は窓の数だけ（捲れたかは notes に記録だけ）。捲り棒が無ければ（1段目の nobar）、1段目と押さなかった後の段（skip）は参考で OK。
  * ほかの測れなかった段（got が無い。捲り棒の手の後の段も）は NG（R26）
  */
@@ -1982,6 +1998,8 @@ function judgeDismiss(steps) {
       if (w.titleSame && g.title !== b.title) miss.push(`${at}の題名が「${g.title}」に変わった`);
       if (w.sideSame && Math.abs((Number(g.sideW) || 0) - (Number(b.sideW) || 0)) >= 1) miss.push(`${at}のサイドバーの幅が ${b.sideW} から ${g.sideW} に変わった`);
       if (w.pageSame && g.page !== b.page) miss.push(`${at}に「${g.page}」が開いた`);
+      if (w.row !== undefined && g.row !== w.row) miss.push(`${at}のフォーカスの行 ${g.row || '（なし）'}（${w.row} のはず）`);   // 0.17.1 OD-5
+      if (w.caret !== undefined && g.caret !== w.caret) miss.push(`${at}のカーソルの行 ${g.caret || '（なし）'}（${w.caret} のはず）`);
     });
     if (miss.length) { bad.push(s.name); why.push(`${s.name}: ${miss.join('・')}`); }
   }

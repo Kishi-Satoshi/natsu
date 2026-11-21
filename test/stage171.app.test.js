@@ -1,5 +1,6 @@
 /* stage171.app.test.js — 0.17.1（計画 docs/plans/2026-11-18-171.md）の画面: 開いている浮く窓の帳面（popLayer）
  *  OD-1（決めたこと 1〜7・11・15〜22・F217・F219・F221・F223・F226〜F229）: 帳面と止める押し、データベースの窓と［ロックを外す］を外の押しで閉じるだけにする
+ *  OD-5（決めたこと 23・F218。PQ171-11）: / メニューの外の押しは、閉じて押した所にも届ける（通す窓の印 pass）
  * 最小 DOM（helpers/simrun.js）の上で app.html の <script> を本当に走らせ、命令は本物の preload から一時の DB に本当に通す（helpers/realapp.js）。
  * 押しは helpers/simrun.js の l.press（本物の順: 捕まえる段の document の受け口 → 押した部品から根まで → 泡の段の document の受け口）。
  * データベースの題名・列の名前・行の題名は作った物（D77 の外）。
@@ -666,7 +667,8 @@ async function openNote() {
 const slashIn = async (l, t, text) => { t.focus(); t.textContent = text; l.caret.set(t, text.length); t.dispatchEvent({ type: 'input' }); await l.drain(); };
 const selectIn = (l, id, s, e) => { const t = txtOf(l, id); t.focus(); l.caret.set(t, s, e); t.dispatchEvent({ type: 'mouseup' }); return t; };
 
-test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026-11-21 の PQ171-7 の答え）: サイドバーの行のメニュー・⋮⋮・プライベートの［···］・パンくずの［…］・/ メニュー・リンクの窓・文字の色・/リンクドビュー を開いたまま本文の行の ＋（押してもフォーカスが動かない部品）を押すと、閉じるだけで ＋ は動かない', T, async () => {
+// 0.17.1 OD-5（決めたこと 23・PQ171-11）で意図して直した: / メニューを外した（/ メニューの外の押しは閉じて押した所にも届く。下の「OD-5・F218: / メニューの外の押しは通す」で見る）
+test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026-11-21 の PQ171-7 の答え）: サイドバーの行のメニュー・⋮⋮・プライベートの［···］・パンくずの［…］・リンクの窓・文字の色・/リンクドビュー を開いたまま本文の行の ＋（押してもフォーカスが動かない部品）を押すと、閉じるだけで ＋ は動かない', T, async () => {
   const l = await openNote();
   try {
     const { P, b1, deep, nb } = l.made;
@@ -688,9 +690,6 @@ test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026
     // プライベートの［···］
     await clickEl(l, $(l, 'privMore'), 40);
     await shut('プライベートの［···］', () => !$(l, 'privMenu').hidden, 'x');
-    // / メニュー
-    await slashIn(l, txtOf(l, 'y'), '/');
-    await shut('/ メニュー', () => $(l, 'pNote').querySelector('.slashmenu'), 'x');
     // リンクの窓（Ctrl+K）
     let t = selectIn(l, 'x', 0, 2);
     l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t); await l.drain(40);
@@ -792,6 +791,75 @@ test('OD-2・F224: 全面の窓（決めたこと 10）: 列のメニューを�
     assert.deepStrictEqual(pops(l).map((e) => e.className), []);
     await pressEl(l, $(l, 'tabBtnTrash'));
     assert.ok(!$(l, 'trashPop').hidden, 'もう一度押してもゴミ箱が開かない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- OD-5（第3版。決めたこと 23・F218。2026-11-22 の PQ171-11「/ だけ Notion に合わせる（おすすめ）」）
+test('OD-5・F218: / メニューの外の押しは通す（N171-6・PQ171-11）: / メニューを開いたまま本文の別の行の字・サイドバーの別のページ・本文の行の ＋ を押すと、閉じて押した所も動く（止める印を立てない）。閉じた後に元の行で続けて打っても開き直さない（R12）。列のメニューの外の押しは今までどおり閉じるだけ', T, async () => {
+  const l = await openNote();
+  try {
+    const { P, D, b1 } = l.made;
+    const slashOn = () => $(l, 'pNote').querySelector('.slashmenu');
+    const all = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+    // (a) 本文の別の行の字: 閉じて、押した行に押しが全部届き、フォーカス（カーソル）がその行へ移る
+    await slashIn(l, txtOf(l, 'y'), '/');
+    assert.ok(slashOn(), '前提: / メニューが開かない');
+    let r = await pressEl(l, txtOf(l, 'x'));
+    assert.strictEqual(Boolean(slashOn()), false, '(a) 本文の別の行を押しても / メニューが残る');
+    assert.deepStrictEqual(all.filter((t) => !r.got.includes(t)), [], '(a) 押した行に届かない事象がある（閉じるだけになった）');
+    assert.ok(!r.events.pointerdown.defaultPrevented && !r.events.mousedown.defaultPrevented, '(a) 押しの既定（フォーカスの移り・カーソル）を止めた');
+    assert.ok(active(l) === txtOf(l, 'x'), '(a) フォーカス（カーソル）が押した行へ移らない');
+    assert.strictEqual(txtOf(l, 'y').textContent, '/', '(a) 打った / が行に残らない');
+    // 止める印が立たない: すぐ同じ所をもう一度押しても届く
+    r = await pressEl(l, txtOf(l, 'x'));
+    assert.deepStrictEqual(all.filter((t) => !r.got.includes(t)), [], '(a) 閉じた後の押しが止まる（止める印が残る）');
+    // (d) 閉じた後に元の行で続けて打っても、その / では開き直さない（R12）
+    await slashIn(l, txtOf(l, 'y'), '/み');
+    assert.strictEqual(Boolean(slashOn()), false, '(d) 閉じた / の行で続けて打つと / メニューが開き直した');
+    // 右の押しも通す（決めたこと 23）: 閉じて、押した行の右の押しのメニュー（⋮⋮ のメニュー）が開く
+    await slashIn(l, txtOf(l, 'x'), 'あいうえお /');
+    assert.ok(slashOn(), '前提: / メニューが開かない（x）');
+    r = await pressEl(l, txtOf(l, 'y'), { button: 2 });
+    assert.strictEqual(Boolean(slashOn()), false, '右の押しで / メニューが残る');
+    assert.ok(r.got.includes('contextmenu'), '右の押しの contextmenu が届かない');
+    assert.ok($(l, 'pNote').querySelector('.blockmenu'), '右の押しで押した行のメニューが開かない');
+    l.key({ key: 'Escape' }, active(l)); await l.drain(40);
+    // (c) 本文の行の ＋（押してもフォーカスが動かない部品）: 閉じて、＋ も動く（0.17.0 では / メニューが残った: 監査の表の 24）
+    await open(l, 'pa1');
+    await slashIn(l, txtOf(l, 'y'), '/');
+    assert.ok(slashOn(), '前提: / メニューが開かない（＋）');
+    const ins = l.called('blockInsert').length;
+    r = await pressEl(l, plusOf(l, 'x'));
+    assert.ok(r.got.includes('click'), '(c) 行の ＋ の click が届かない');
+    await l.drain(120);
+    assert.strictEqual(l.called('blockInsert').length, ins + 1, '(c) 行の ＋ が行を足さない');
+    // 元の行（y）の / メニューは閉じ、開いているのは ＋ が足した行の / メニューだけ（＋ は足した行で / メニューを開く: E1）
+    const opened = $(l, 'pNote').querySelectorAll('.blk').filter((e) => e.querySelector('.txt') && e.querySelector('.txt').getAttribute('aria-expanded') === 'true').map((e) => e.dataset.id);
+    assert.strictEqual(opened.length, 1, `(c) / メニューの開いた行が1つでない（${opened.join(',')}）`);
+    assert.ok(!['x', 'y'].includes(opened[0]), `(c) 元の行の / メニューが閉じない（${opened[0]}）`);
+    l.key({ key: 'Escape' }, active(l)); await l.drain(40);
+    // (b) サイドバーの別のページの行: 閉じて、そのページが開く
+    await open(l, P);
+    await slashIn(l, txtOf(l, b1), '/');
+    assert.ok(slashOn(), '前提: / メニューが開かない（白紙のページ）');
+    r = await pressEl(l, sideRow(l, 'pa1'));
+    await l.drain(120);
+    assert.strictEqual(Boolean(slashOn()), false, '(b) サイドバーのページを押しても / メニューが残る');
+    assert.ok(r.got.includes('click'), '(b) サイドバーの行の click が届かない');
+    assert.ok(bodyRow(l, 'x'), '(b) サイドバーのページが開かない');
+    // (e) 通す印はほかの窓に広がらない: 列のメニューの外の押しは今までどおり閉じるだけ
+    l.call('row.add', { db: D, title: '一' });   // 行の題名（D77 の外）
+    await open(l, D);
+    const c = l.call('db.get', { id: D }).cols.find((x) => x.type === 'title').id;
+    await clickEl(l, head(l, c));
+    assert.ok(colMenu(l), '前提: 列のメニューが開かない');
+    const cell = box(l).querySelectorAll('.dbcell').find((e) => e.dataset.col === c);
+    assert.ok(cell, '前提: セルが無い');
+    r = await pressEl(l, cell);
+    assert.strictEqual(Boolean(colMenu(l)), false, '(e) 列のメニューが残る');
+    assert.deepStrictEqual(r.got.filter((t) => all.includes(t)), [], '(e) 列のメニューの外の押しが押したセルに届いた（通す印が広がった）');
+    assert.deepStrictEqual(selCells(l), [], '(e) 押したセルが選ばれた');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
