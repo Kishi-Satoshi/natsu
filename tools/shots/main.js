@@ -465,6 +465,107 @@ function boot() {
       }
     }
 
+
+    // ---- 0.17.1 OD-3（計画 docs/plans/2026-11-18-171.md の決めたこと 14・15〜21・F225）: 本物のマウスで、浮く窓の閉じ方と止め方を見る（撮らない確かめ）。
+    // 手ごとに本体の窓を開き直し（SH.DISMISS_STEPS）、押す所を測って sendInputEvent で押し（右・中・なぞる・2回続けた押し・取っ手の引っ張り・捲り棒。
+    // タップは DevTools の Input.dispatchTouchEvent: R27）とキーを送り、
+    // 段ごとに SH.DISMISS_PROBE で形を読んで SH.judgeDismiss で照らす。NG なら「撮れない」と同じく終わりの番号を 1 にする。キーを受けるため、Tab の輪と同じく
+    // DevTools の Emulation.setFocusEmulationEnabled でページがフォーカスを持つ扱いにする
+    const pointOf = (wc, at) => within(wc.executeJavaScript(at === 'bar' ? `(() => {
+      const sc = document.querySelector('#pDb .dbscroll');
+      if (!sc) return null;
+      const r = sc.getBoundingClientRect(); const hb = sc.offsetHeight - sc.clientHeight; const vb = sc.offsetWidth - sc.clientWidth;
+      if (hb > 0) return { x: Math.round(r.left + r.width / 2), y: Math.round(r.bottom - Math.max(1, Math.floor(hb / 2))) };
+      if (vb > 0) return { x: Math.round(r.right - Math.max(1, Math.floor(vb / 2))), y: Math.round(r.top + r.height / 2) };
+      return null;
+    })()` : `(() => {
+      const el = ${at};
+      if (!el) return null;
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const r = el.getBoundingClientRect();
+      const x = Math.round(r.left + Math.min(r.width / 2, 40)); const y = Math.round(r.top + r.height / 2);   // 左から 40px まで（題名のセルの右の［開く］を押さない）
+      const top = document.elementFromPoint(x, y);
+      // 押す所に別の物が重なっていれば（窓の外・捲る枠で隠れている）、押しても確かめにならない
+      return { x, y, l: Math.round(r.left + 4), r: Math.round(r.right - 4), hidden: !(top && (top === el || el.contains(top))) ? String((top && (top.id || top.className)) || '（なし）') : '' };
+    })()`), 10000, '押す所を測る');
+    const mouse = async (wc, type, x, y, button = 'left', clickCount = 1, modifiers = []) => { wc.sendInputEvent({ type, x, y, button, clickCount, modifiers }); await wait(40); };
+    const pressAt = async (wc, p, press) => {
+      const b = press.button || 'left';
+      if (press.touch) {   // 0.17.1 直し（R27）: 本物のタップ（指を下ろして離す。click はタップの見分けから後で来る）
+        await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+        await wc.debugger.sendCommand('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: p.x, y: p.y }] });
+        await wait(40);
+        await wc.debugger.sendCommand('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await wait(400);   // タップの click と、ペンとタッチの止める印の 350ms が過ぎるまで
+        return;
+      }
+      if (press.drag) {
+        const x0 = press.drag.dx === 'across' ? p.l : p.x;
+        const x1 = press.drag.dx === 'across' ? p.r : p.x + press.drag.dx;
+        await mouse(wc, 'mouseMove', x0, p.y);
+        wc.sendInputEvent({ type: 'mouseDown', x: x0, y: p.y, button: b, clickCount: 1 });
+        await wait(40);
+        for (let k = 1; k <= 4; k++) await mouse(wc, 'mouseMove', Math.round(x0 + ((x1 - x0) * k) / 4), p.y, b, 1, ['leftButtonDown']);
+        await mouse(wc, 'mouseUp', x1, p.y, b, 1);
+        return;
+      }
+      await mouse(wc, 'mouseMove', p.x, p.y);
+      for (let k = 1; k <= (press.clickCount || 1); k++) {
+        wc.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: b, clickCount: k });
+        await wait(40);
+        await mouse(wc, 'mouseUp', p.x, p.y, b, k);
+      }
+    };
+    const keyTo = async (wc, key) => {
+      const code = key.length === 1 ? key.toUpperCase() : key;
+      wc.sendInputEvent({ type: 'keyDown', keyCode: code });
+      if (key.length === 1) wc.sendInputEvent({ type: 'char', keyCode: key });
+      wc.sendInputEvent({ type: 'keyUp', keyCode: code });
+      await wait(60);
+    };
+    for (const step of SH.DISMISS_STEPS) {
+      let o = null;
+      const phases = [];
+      try {
+        const scr = SH.SCREENS.find((x) => x.name === step.screen);
+        o = await open('app', 'light', { ...SH.fixtures(), ...JSON.parse(JSON.stringify((scr && scr.answers) || {})) });
+        await o.wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+        o.wc.focus();
+        await within(o.wc.executeJavaScript(SH.dismissOpen(step.open), true), 10000, `外の押し ${step.name} の窓を開く`);
+        await settle(o.wc, o.t);
+        await wait(150);
+        const base = await within(o.wc.executeJavaScript(SH.DISMISS_PROBE), 10000, '形を読む');
+        for (const [ai, a] of step.acts.entries()) {
+          let none = '';
+          let nobar = false;
+          if (a.press) {
+            const p = await pointOf(o.wc, a.press.at);
+            if (!p) { none = a.press.at === 'bar' ? '捲り棒が無い' : '押す所が無い'; nobar = a.press.at === 'bar'; }
+            else if (p.hidden) none = `押す所が隠れている（上に ${p.hidden}・${p.x},${p.y}）`;
+            else await pressAt(o.wc, p, a.press);
+          }
+          if (nobar) {   // 0.17.1 直し（R26）: 捲り棒が無ければ窓は開いたままなので、後の段は押さない（押さなかった印 skip で残し、judgeDismiss が参考にする）
+            phases.push({ want: a.want, got: null, base, none, nobar: true });
+            for (const b of step.acts.slice(ai + 1)) phases.push({ want: b.want, got: null, base, skip: true });
+            break;
+          }
+          for (const k of a.keys || []) await keyTo(o.wc, k);
+          await settle(o.wc, o.t);
+          await wait(150);
+          const got = none ? null : await within(o.wc.executeJavaScript(SH.DISMISS_PROBE), 10000, '形を読む');
+          phases.push({ want: a.want, got, base, none });
+        }
+      } catch (e) {
+        phases.push({ want: {}, got: null, base: null, none: msgOf(e) });
+      } finally {
+        if (o) { tables.delete(o.wc.id); try { o.win.destroy(); } catch (_) { /* もう無い */ } }
+      }
+      const j = SH.judgeDismiss([{ name: step.name, bar: step.bar === true, phases }]);
+      const note = [...j.why, ...j.notes].join('・') || '決めた形';
+      console.log(`${j.ok ? 'OK' : 'NG'} 外の押し ${step.name} — ${note}`);
+      if (!j.ok) errors.push(`外の押し ${step.name}: ${note}`);
+    }
+
     // ---- 書く・比べる
     let compare;
     fs.mkdirSync(args.out, { recursive: true });

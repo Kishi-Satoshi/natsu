@@ -1648,15 +1648,17 @@ test('EB-5 直し: 変換中は道具の帯を出さない。帯を出した行�
 test('EB-5 直し: リンクの欄を開いている間に行が描き直されても、同じ id の行に付ける（黙って閉じてフォーカスを失わない）', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
-    const t = selectIn(l, 'p1', 1, 3);
-    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t);
-    const pop = popOf(l);
-    assert.ok(pop);
-    // 開いている間に、⠿ の［色 ▸］で行の色を変える（答えで p1 の行の要素が替わる。フォーカスはリンクの欄）
+    // 0.17.1 OD-2（計画 docs/plans/2026-11-18-171.md の決めたこと 4・12）で意図して直した: 前はリンクの欄を開いたまま ⠿ のメニューを開いていたが、
+    // 0.17.1 から開くのは1つ（⠿ のメニューを開くとリンクの欄は閉じる）。⠿ の［色 ▸］で色を変える命令を送り、その答えが届く前にリンクの欄を開く形にした
+    //（答えで p1 の行の要素が替わる。フォーカスはリンクの欄。描き直しの間も欄が開いている形は前と同じ）
     rowOf(l, 'p1').querySelector('.grip').onclick();
     const m = $(l, 'pNote').querySelector('.blockmenu');
     m.querySelectorAll('.mitem').filter((x) => x.parentNode === m)[3].onclick();
     $(l, 'pNote').querySelectorAll('.blockmenu').find((x) => x.classList.contains('sub')).querySelectorAll('.mitem').find((x) => x.dataset.key === 'red').onclick();
+    const t = selectIn(l, 'p1', 1, 3);
+    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t);
+    const pop = popOf(l);
+    assert.ok(pop);
     await l.drain();
     assert.ok(txtOf(l, 'p1') !== t, '前提: 行の要素が替わらない');
     pop.querySelector('input').value = 'https://example.invalid/';
@@ -1666,14 +1668,14 @@ test('EB-5 直し: リンクの欄を開いている間に行が描き直され�
     assert.deepStrictEqual(viewOf(t2), ['あ', { tag: 'span', link: 'https://example.invalid/', t: 'いう' }, 'えお'], '描き直した行にリンクが付かない');
     assert.ok(l.document.activeElement === t2, 'フォーカスが行に戻らない');
     assert.ok(!popOf(l));
-    // 行の文が変わっていたら付けずに閉じ、行へフォーカスを戻す
-    selectIn(l, 'p1', 0, 1);
-    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, txtOf(l, 'p1'));
-    const pop2 = popOf(l);
+    // 行の文が変わっていたら付けずに閉じ、行へフォーカスを戻す（0.17.1 OD-2 で意図して直した: ⠿ の［複製］を送ってから、答えが届く前にリンクの欄を開く）
     l.call('page.put', { page: { ...l.page(), blocks: l.page().blocks.map((b) => (b.id === 'p1' ? { ...b, text: '別の文', rich: undefined } : b)) }, baseRev: l.page().rev }, 'main');
     rowOf(l, 't1').querySelector('.grip').onclick();
     const m2 = $(l, 'pNote').querySelector('.blockmenu');
     m2.querySelectorAll('.mitem').find((x) => x.textContent === '複製').onclick();
+    selectIn(l, 'p1', 0, 1);
+    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, txtOf(l, 'p1'));
+    const pop2 = popOf(l);
     await l.drain();
     pop2.querySelector('input').value = 'https://example.invalid/b';
     l.key({ key: 'Enter' }, pop2.querySelector('input'));

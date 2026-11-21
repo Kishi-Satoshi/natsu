@@ -107,6 +107,8 @@ async function load(htmlPath, opt = {}) {
   const log = { errors: [], missingIds: [], calls: [], consoleErrors: [], parseErrors: errors, root, created: [], paints: [], lookups: new Set() };
 
   const docListeners = {};
+  const docCapture = new Set();   // 0.17.1 OD-1: 捕まえる段（capture）で付けた document の受け口（l.press が押した部品より先に呼ぶ。l.key の呼ぶ順は今のまま）
+  const winListeners = {};        // 0.17.1 OD-1: window の受け口（l.blurWindow で blur を起こす）
   const byId = new Map();
   for (const el of root._walk([])) if (el.id && !byId.has(el.id)) byId.set(el.id, el);
   log.byId = byId;
@@ -134,7 +136,7 @@ async function load(htmlPath, opt = {}) {
     querySelector: (s) => root.querySelector(s),
     querySelectorAll: (s) => root.querySelectorAll(s),
     // document の受け口は覚える（l.key で呼ぶ）。泡立ちは無いので、要素の事象が document へ上がることは無い
-    addEventListener(t, fn) { (docListeners[t] = docListeners[t] || []).push(fn); },
+    addEventListener(t, fn, o) { (docListeners[t] = docListeners[t] || []).push(fn); if (o === true || (o && o.capture)) docCapture.add(fn); },
     removeEventListener(t, fn) { const a = docListeners[t]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
     execCommand: () => true,
     /** 今の木の中で focus() された要素（無ければ null）。木から外した要素は数えない */
@@ -189,6 +191,95 @@ async function load(htmlPath, opt = {}) {
     } else ev.target = document.activeElement || document.body;
     ev.currentTarget = document;
     for (const fn of [...(docListeners[ev.type] || [])]) { try { fn.call(document, ev); } catch (e) { log.errors.push(e); } }
+    return ev;
+  };
+  /*
+   * 0.17.1 OD-1（計画 docs/plans/2026-11-18-171.md の「調べた結果」の 6・M7）: マウスの押しを本物の順で起こす。事象ごとに、捕まえる段の document の受け口 →
+   * 押した部品から根までの受け口（泡の段。on… と addEventListener）→ 泡の段の document の受け口の順に呼び、stopPropagation・stopImmediatePropagation・
+   * preventDefault を守る。mousedown が止められなければ、押した所からいちばん近いフォーカスできる部品へフォーカスを移す（blur・focusout と focus・focusin を起こす。
+   * 無ければフォーカスを外す）。pointerdown の既定が止められたら、本物と同じく mousedown・mouseup は起こさない（click は起こす。R31）。o: { button（0 左・1 中・2 右）, detail, pointerId, pointerType（既定 'mouse'）, clientX・clientY（既定 0）, types（起こす事象の並びを替える）, ctrlKey など }
+   * 答え: { got（押した部品の受け口に届いた事象の名前の並び）, events（事象の名前 → 作った事象） }
+   */
+  const FOCUSABLE = new Set(['button', 'input', 'select', 'textarea']);
+  const focusableOf = (el) => {
+    for (let n = el; n && n !== root; n = n.parentNode) {
+      if (n.tagName.startsWith('#')) continue;
+      if (FOCUSABLE.has(n.tagName) && !n.disabled) return n;
+      if (n.tagName === 'a' && n.hasAttribute('href')) return n;
+      if (n.hasAttribute('tabindex') || typeof n.tabIndex === 'number') return n;
+      if (n.contentEditable === 'true' || n.getAttribute('contenteditable') === 'true') return n;
+    }
+    return null;
+  };
+  const fireOn = (target, type, extra, path) => {
+    const ev = { type, bubbles: true, cancelable: true, ...extra, target, defaultPrevented: false, _stop: false, _stopNow: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this._stop = true; }, stopImmediatePropagation() { this._stop = true; this._stopNow = true; } };
+    let reached = false;
+    const call = (node, fns) => { for (const fn of fns) { if (ev._stopNow) return; try { fn.call(node, ev); } catch (e) { log.errors.push(e); } } };
+    ev.currentTarget = document;
+    call(document, (docListeners[type] || []).filter((fn) => docCapture.has(fn)));
+    const chain = path || (() => { const a = []; for (let n = target; n && n !== root; n = n.parentNode) a.push(n); return a; })();
+    for (const n of chain) {
+      if (ev._stop) break;
+      if (n === target) reached = true;
+      ev.currentTarget = n;
+      const on = n['on' + type];
+      call(n, [...(typeof on === 'function' ? [on] : []), ...(n._listeners[type] || [])]);
+    }
+    if (!ev._stop) { ev.currentTarget = document; call(document, (docListeners[type] || []).filter((fn) => !docCapture.has(fn))); }
+    return { ev, reached };
+  };
+  const moveFocus = (to) => {
+    const was = document.activeElement;
+    if (was === to) return;
+    if (was) {
+      fireOn(was, 'blur', { relatedTarget: to }, [was]);
+      fireOn(was, 'focusout', { relatedTarget: to });
+    }
+    if (to) { to.focus(); fireOn(to, 'focus', { relatedTarget: was }, [to]); fireOn(to, 'focusin', { relatedTarget: was }); }
+    else if (was && Element.focused === was) Element.focused = null;   // blur と focusout は上で起こした（blur() は二度起こすので呼ばない）
+  };
+  // 0.17.1 直し（R24）: l.press の押しの間は、この実行の木の中の要素の blur() が、本物の Chromium と同じく blur と focusout（行き先なし）を起こす
+  //（帳面が外の押しで欄の blur を呼んだときの focusout の受け口を、テストでも通す: 計画の F228）。押しの外の blur() は今までどおり何も起こさない
+  //（今のテストには、blur() で受け口を動かさずにフォーカスだけ外す形がある: stage130 の ED-5・EQ22 (a)）
+  const inRun = (el) => { for (let n = el; n; n = n.parentNode) if (n === root) return true; return false; };
+  let inPress = false;
+  Element.blurHooks.add((el) => {
+    if (!inPress || !inRun(el)) return;
+    fireOn(el, 'blur', { relatedTarget: null }, [el]);
+    fireOn(el, 'focusout', { relatedTarget: null });
+  });
+  log.press = (target, o = {}) => {
+    const button = o.button === undefined ? 0 : o.button;
+    const pointerId = o.pointerId === undefined ? 1 : o.pointerId;
+    const detail = o.detail === undefined ? 1 : o.detail;
+    const types = o.types || (button === 2 ? ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'contextmenu', 'auxclick']
+      : button === 1 ? ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'auxclick']
+        : ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', ...(detail >= 2 ? ['dblclick'] : [])]);
+    const got = []; const events = {};
+    const mods = { ctrlKey: false, shiftKey: false, altKey: false, metaKey: false };
+    for (const k of Object.keys(mods)) if (o[k] !== undefined) mods[k] = Boolean(o[k]);
+    inPress = true;
+    try {
+      let quiet = false;   // 0.17.1 直し（R31）: pointerdown の既定を止めると、本物の Chromium は互換のマウスの事象（mousedown・mouseup）を出さない（click は出す）
+      for (const type of types) {
+        if (quiet && (type === 'mousedown' || type === 'mouseup')) continue;
+        const ptr = type.startsWith('pointer') || type === 'click' || type === 'auxclick' || type === 'contextmenu';
+        const extra = { button, buttons: type.endsWith('down') ? [1, 4, 2][button] || 0 : 0, detail, clientX: Number(o.clientX) || 0, clientY: Number(o.clientY) || 0, ...mods,
+          ...(ptr ? { pointerId, pointerType: o.pointerType || 'mouse', isPrimary: true } : {}) };
+        const { ev, reached } = fireOn(target, type, extra);
+        events[type] = ev;
+        if (reached) got.push(type);
+        if (type === 'mousedown' && !ev.defaultPrevented) moveFocus(focusableOf(target));
+        if (type === 'pointerdown' && ev.defaultPrevented) quiet = true;
+      }
+    } finally { inPress = false; }
+    return { got, events };
+  };
+  /** 0.17.1 OD-1: 窓のフォーカスが外れた（ほかのアプリへ移った・タイトルバーを押した）。window の blur の受け口を呼ぶ */
+  log.blurWindow = () => {
+    const ev = { type: 'blur', target: window, currentTarget: window, preventDefault() {}, stopPropagation() {} };
+    for (const fn of [...(winListeners.blur || [])]) { try { fn.call(window, ev); } catch (e) { log.errors.push(e); } }
     return ev;
   };
 
@@ -308,7 +399,9 @@ async function load(htmlPath, opt = {}) {
     Date: FakeDate,
     requestAnimationFrame: (fn) => { if (rafLeft > 0) { rafLeft--; rafQ.push(fn); } return ++rafId; },
     cancelAnimationFrame: () => { rafQ.length = 0; },
-    addEventListener: noop, removeEventListener: noop,
+    // 0.17.1 OD-1: window の受け口は覚える（l.blurWindow で blur を起こす。ほかの事象は今までどおり起こさない）
+    addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { const a = winListeners[t]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
     AudioContext: FakeAudioContext, webkitAudioContext: FakeAudioContext, OfflineAudioContext: FakeOfflineAudioContext,
     MediaRecorder: FakeMediaRecorder,
     Blob: FakeBlob,

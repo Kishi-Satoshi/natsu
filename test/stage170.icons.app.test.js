@@ -362,9 +362,12 @@ test('IV-1・F179（R10）: 画面の写しに ic: の字が出ない（白紙�
     assert.strictEqual(l.copies.length, 2, '写していない');
     assert.ok(l.copies[0].includes('📄 週の予定'), l.copies[0]);
     assert.strictEqual(data['text/plain'], '📄 週の予定');
+    // ページの ID は乱数の英字なので、たまたま star・mic などを含むことがある（0.17.1 R36）。ID を伏せてから字を見る
+    const hideIds = (s) => [top, kid].reduce((t, id) => t.split(id).join('<id>'), s);
     for (const s of [...l.copies, data['text/plain'], data['text/html']]) {
       assert.ok(typeof s === 'string' && s.length > 0);
-      for (const w of ['ic:', 'star', 'certification', 'mic']) assert.ok(!s.includes(w), `${w}: ${s}`);
+      const t = hideIds(s);
+      for (const w of ['ic:', 'star', 'certification', 'mic']) assert.ok(!t.includes(w), `${w}: ${s}`);
     }
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }

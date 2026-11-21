@@ -572,8 +572,9 @@ test('G2・F14・RP9・G-3: 第1a回の録音バーの画面と基準は無い�
 // 0.15.1 で意図して変えた: 持ち主が取り直しの見比べ（116 枚）を「この見た目でよい（おすすめ）」と言ったので取り直し待ちを空にし、版を 0.15.1 にした。次の版も、取り直し待ちが残る間は 0.15.1 のまま
 // 0.16.0 で意図して変えた: 持ち主が取り直しの見比べ（24 枚）を「OK」と言ったので取り直し待ちを空にし、版を 0.16.0 にした。次の版も、取り直し待ちが残る間は 0.16.0 のまま
 // 0.17.0 で意図して変えた: 持ち主が取り直しの見比べ（19 枚）を「画面 OK（おすすめ）」と言い、ほかの 127 枚は機械の確かめで見たので取り直し待ちを空にし、版を 0.17.0 にした。次の版も、取り直し待ちが残る間は 0.17.0 のまま
+// 0.17.1 で意図して変えた: 撮る画面は変わらず取り直し待ちは無いまま（計画 docs/plans/2026-11-18-171.md の「取り直す画面」）、版を 0.17.1 にした。次の版も、取り直し待ちが残る間は 0.17.1 のまま
 test('F14: 取り直し待ちが残っている間は、版を上げられない（取り直し待ちのまま次の版を出さない）', { timeout: 5000 }, () => {
-  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.17.0', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
+  if (SH.RETAKE.size) assert.strictEqual(JSON.parse(read('package.json')).version, '0.17.1', `取り直し待ち ${[...SH.RETAKE].join(',')} を残したまま版を上げた`);
 });
 
 test('tools/shots/main.js は画面ごとの答え・拡大・はみ出し・Tab を使う', { timeout: 5000 }, () => {
@@ -1377,7 +1378,16 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.17.0 NX-5 の続き: 注釈の字だけ（見た目は変わらない）。値を今の app.html に合わせた（前の値は 204a1a43…）
   // 0.17.0 点検 4（rv61 重要 1・重要 2。計画の R98・R99）: コールアウトの貼り付け・/・＋ の置き場を Enter と同じ enterInside に・行の頭のチェックの Ctrl+Z・↑↓・Enter（dbCheckKey）（<script> の中だけ。新しい字は無く、撮る画面は変わらない。アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は b9ccae15…）
   // 0.17.0 Task G の後半（決めたこと 97・R102。2026-11-17 の持ち主の答え「0.17.0 で線のアイコンにする（おすすめ）」）: データベースの中の検索の欄の頭の 🔍 をサイドバーの［検索］と同じ線の絵（ic:search）に。見た目が変わるのは行が 3 以上のデータベースの表の画面（アプリの画面はどれも RETAKE_170）。値を今の app.html に合わせた（前の値は 54be7e84…）
-  assert.strictEqual(sha, '0505c660d7e132a48e92f1dd9d9d29f43eebf6eba9b61a4b213394b9ebe8feed',
+  // 0.17.1 OD-1（計画 docs/plans/2026-11-18-171.md の決めたこと 1〜7・11・15〜22）: 開いている浮く窓の帳面（popPush・止める押し・Esc）と、データベースの窓・［ロックを外す］を載せた（<script> の中だけ。新しい字は無く、撮る画面はどれも窓を1つだけ開いて撮るので変わらない。RETAKE は無い: 計画の「取り直す画面」）。値を今の app.html に合わせた（前の値は 0505c660…）
+  // 0.17.1 OD-2（決めたこと 4・9・10・12・19・M3・M6）: 今閉じる窓（ページの［···］・サイドバーとライブラリの行の［···］・プライベートの［···］・パンくずの［…］・⋮⋮ とその子・/ メニュー・文字の色・リンクの窓・/リンクドビュー の窓）を帳面に載せ、ページの［···］の document の pointerdown を消し、全面の窓を開くときに浮く窓を閉じる（<script> の中だけ。撮る画面は変わらない）。値を今の app.html に合わせた（前の値は 63eafdbe…）
+  // 0.17.1 直し（独立した点検の指摘 1・R23）: 帳面が外の押しで欄の blur を呼ぶ間の印（popBlurring）と、暦の focusout の受け口がその間は決めない形（<script> の中だけ。新しい字は無く、撮る画面は変わらない。RETAKE は無い）。値を今の app.html に合わせた（前の値は d26defa2…）
+  // 0.17.1 直し（独立した点検の指摘 3・R25）: 2回続けた押しの2回目の pointerdown も、止めた押しから短い間に近い所を左で押したときは止める（<script> の中だけ。新しい字は無く、撮る画面は変わらない。RETAKE は無い）。値を今の app.html に合わせた（前の値は c66200b0…）
+  // 0.17.1 直し（独立した点検の指摘 5・R27）: ペンとタッチの外の押しの止める印を、その押しの click が来るか 350ms まで残す（<script> の中だけ。新しい字は無く、撮る画面は変わらない。RETAKE は無い）。値を今の app.html に合わせた（前の値は fa311cba…）
+  // 0.17.1 直し（独立した点検の指摘 7・R28）: Esc で戻す開いた部品を Esc の時に引く（設定の窓の ⚙・選びの窓のセル・行のページの値。<script> の中だけ。新しい字は無く、撮る画面は変わらない。RETAKE は無い）。値を今の app.html に合わせた（前の値は e192d451…）
+  // 0.17.1 直し（独立した点検の指摘 8・R29）: ［要約を再生成］の確かめを開くときに浮く窓を閉じる（<script> の中だけ。新しい字は無く、撮る画面は変わらない。RETAKE は無い）。値を今の app.html に合わせた（前の値は fed3db53…）
+  // 0.17.1 直し（R31。c764537 の run 44795825187 の electron-smoke の lock の手の NG）: 2回続けた押しの2回目かもしれない pointerdown は受け口に届けないだけにし、既定は止めない（窓が無いときだけ見る）（<script> の中だけ。新しい字は無く、撮る画面は変わらない。RETAKE は無い）。値を今の app.html に合わせた（前の値は 0d78f4a9…）
+  // 0.17.1 OD-5（決めたこと 23・PQ171-11）: / メニューを通す窓にした（帳面の行の印 pass と、閉じる窓が全部通す窓なら押しを止めない枝。<script> の中だけ。新しい字は無く、撮る画面は変わらない。RETAKE は無い）。値を今の app.html に合わせた（前の値は d5b7ff17…）
+  assert.strictEqual(sha, 'a075d8f21f100a2d9d1e377db4e4df1261d6682b47ba67665a44052e83be7e09',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1803,4 +1813,144 @@ test('R84: todo-task-light は、［タスクにする］の ToDo の行にフ�
   const row = a.indexOf("closest('.blk')"); const btn = a.indexOf('bs[1].focus()');
   assert.ok(row > 0 && btn > row, '［タスクにする］の行にフォーカスを入れてからボタンにフォーカスしていない');
   assert.ok(a.includes('document.activeElement !== bs[1]') && /document\.activeElement !== bs\[1\]\) throw new Error/.test(a), 'ボタンにフォーカスが入らなくても撮る');
+});
+
+// ---------------------------------------------------------------- 0.17.1 OD-3（計画 docs/plans/2026-11-18-171.md の決めたこと 14・15〜21・F225〜F227・F229）
+// 本物のマウス（webContents.sendInputEvent）で浮く窓の閉じ方と止め方を見る確かめ（DISMISS_STEPS・DISMISS_PROBE・judgeDismiss）。撮る画像は変えない
+const dstep = (name, phases, bar) => ({ name, bar: Boolean(bar), phases });
+test('OD-3・F225: judgeDismiss の表（どの手も、押した後の窓の数と押した所の形が決めた形なら OK。1つでも違えば NG と違った手の名前。捲り棒の手は窓の数だけを照らし、捲り棒が無ければ参考）', { timeout: 5000 }, () => {
+  const base = { pops: 0, sel: [], focus: '', title: '案件の一覧', picked: '', sideW: 260, lock: false, page: '案件の一覧' };   // データベースの題名（撮る画面の答えの「案件の一覧」。D77 の外）
+  const ok = (want, got = {}) => ({ want, got: { ...base, ...got }, base });
+  // 全部そろう
+  let j = SH.judgeDismiss([dstep('head', [ok({ pops: 0 })]), dstep('lock', [ok({ pops: 0 }), ok({ pops: 1, lock: true }, { pops: 1, lock: true })])]);
+  assert.deepStrictEqual([j.ok, j.bad], [true, []]);
+  // 閉じ残り
+  j = SH.judgeDismiss([dstep('head', [ok({ pops: 0 }, { pops: 1 })])]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['head']], '閉じ残りを OK と読んだ');
+  // 止め損ね: セルが選ばれた・フォーカスがセルへ・題名の字が変わった・字が選ばれた・サイドバーの幅が変わった・ページが開いた
+  for (const [name, want, got] of [
+    ['cell', { pops: 0, sel: [] }, { sel: ['r2:c3'] }],
+    ['focus', { pops: 0, focusNot: ['.dbcell', '.dbcolbtn'] }, { focus: '.dbcell' }],
+    ['title', { pops: 0, titleSame: true }, { title: '案件の一覧z' }],   // データベースの題名（D77 の外）
+    ['drag', { pops: 0, picked: '' }, { picked: '案件' }],
+    ['grip', { pops: 0, sideSame: true }, { sideW: 320 }],
+    ['page', { pops: 0, pageSame: true }, { page: '議事録' }],
+    ['sel-not', { pops: 0, selNot: ['r2:c3'] }, { sel: ['r3:c2', 'r2:c3'] }],
+    ['lock', { pops: 1, lock: true }, { pops: 1, lock: false }],
+    ['back', { pops: 0, focus: '.dbcolbtn' }, { focus: '#pTitle' }],
+    // 0.17.1 OD-5（決めたこと 23）: / メニューの外の押しは届く。フォーカスかカーソルが押した行に無ければ NG
+    ['slash-row', { pops: 0, row: 'b1', caret: 'b1' }, { row: 'b2', caret: 'b1' }],
+    ['slash-caret', { pops: 0, row: 'b1', caret: 'b1' }, { row: 'b1', caret: '' }],
+  ]) {
+    j = SH.judgeDismiss([dstep(name, [ok(want, got)])]);
+    assert.deepStrictEqual([j.ok, j.bad], [false, [name]], `${name}: 止め損ねを OK と読んだ`);
+  }
+  // 2つ目の段だけ違う
+  j = SH.judgeDismiss([dstep('lock', [ok({ pops: 0 }), ok({ pops: 1, lock: true }, { pops: 2, lock: true })])]);
+  assert.deepStrictEqual(j.bad, ['lock'], '2つ目の段の違いを見ない');
+  // 0.17.1 OD-5: / メニューを閉じて、押した行にフォーカスとカーソルが移れば OK。/ メニューが残れば NG
+  j = SH.judgeDismiss([dstep('slash', [ok({ pops: 0, row: 'b1', caret: 'b1' }, { row: 'b1', caret: 'b1' })])]);
+  assert.deepStrictEqual([j.ok, j.bad], [true, []], '/ メニューの手がそろっているのに NG');
+  j = SH.judgeDismiss([dstep('slash', [ok({ pops: 0, row: 'b1', caret: 'b1' }, { pops: 1, row: 'b2', caret: 'b2' })])]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['slash']], '/ メニューの閉じ残り・押しの止め過ぎを OK と読んだ');
+  // 捲り棒の手: 窓の数だけを照らす（捲れたかは記録だけ）。捲り棒が無ければ参考（OK）
+  j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0, sel: [] }, { sel: ['r1:c1'], scrolled: 40 })], true)]);
+  assert.strictEqual(j.ok, true, '捲り棒の手で窓の数のほかを照らした');
+  j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0 }, { pops: 1 })], true)]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒の手の閉じ残りを OK と読んだ');
+  j = SH.judgeDismiss([dstep('bar', [{ want: { pops: 0 }, got: null, base, none: '捲り棒が無い', nobar: true }], true)]);
+  assert.strictEqual(j.ok, true);
+  assert.match(j.notes.join(' '), /捲り棒が無い/);
+  // 測れなかった手は NG
+  j = SH.judgeDismiss([dstep('head', [{ want: { pops: 0 }, got: null, base }])]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['head']], '測れなかった手を OK と読んだ');
+  assert.strictEqual(SH.judgeDismiss([]).ok, false, '手が無いのに OK');
+});
+
+test('OD-3・F225（R26）: judgeDismiss の捲り棒の手の参考は、捲り棒が無かった1段目と、そのために押さなかった後の段だけ。後の段が測れない・隠れている・押さなかったのに1段目に捲り棒があった・1段目が捲り棒の無いほかの理由で測れない、は NG。main.js は捲り棒が無ければ後の段を押さない', { timeout: 5000 }, () => {
+  const base = { pops: 0, sel: [], focus: '', title: '案件の一覧', picked: '', sideW: 260, lock: false, page: '案件の一覧' };   // データベースの題名（撮る画面の答えの「案件の一覧」。D77 の外）
+  const ok = (want, got = {}) => ({ want, got: { ...base, ...got }, base });
+  const nobar = { want: { pops: 0 }, got: null, base, none: '捲り棒が無い', nobar: true };
+  const skip = { want: { pops: 0, sel: ['r2:title'] }, got: null, base, skip: true };
+  // 捲り棒が無い: 1段目は参考、押さなかった2段目も参考（OK）
+  let j = SH.judgeDismiss([dstep('bar', [nobar, skip], true)]);
+  assert.strictEqual(j.ok, true, '捲り棒が無いときの参考を NG と読んだ');
+  assert.match(j.notes.join(' '), /捲り棒が無い/);
+  // 2段目（止める印が残らないかの段: F229）が測れない・押す所が隠れている → NG
+  for (const none of ['押す所が隠れている（上に .dbmenu・10,10）', '押す所が無い']) {
+    j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0 }, { scrolled: 0 }), { want: { pops: 0, sel: ['r2:title'] }, got: null, base, none }], true)]);
+    assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], `2段目が測れない（${none}）のを参考で OK と読んだ`);
+  }
+  // 捲り棒があったのに2段目を押さなかった → NG
+  j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0 }, { scrolled: 0 }), skip], true)]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒があったのに押さなかった段を OK と読んだ');
+  // 捲り棒が無いのに2段目を測れなかった（押さない印が無い）→ NG
+  j = SH.judgeDismiss([dstep('bar', [nobar, { want: { pops: 0, sel: ['r2:title'] }, got: null, base, none: '押す所が無い' }], true)]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒が無いときの2段目の測れないを参考と読んだ');
+  // 1段目が捲り棒の無いほかの理由（手の途中の落ち）で測れない → NG
+  j = SH.judgeDismiss([dstep('bar', [{ want: {}, got: null, base: null, none: '形を読む: 時間切れ' }], true)]);
+  assert.deepStrictEqual([j.ok, j.bad], [false, ['bar']], '捲り棒の手の途中の落ちを参考で OK と読んだ');
+  // main.js: 捲り棒が無ければ印 nobar を付け、後の段は押さずに skip の印で残す
+  const main = fs.readFileSync(path.join(ROOT, 'tools', 'shots', 'main.js'), 'utf8');
+  assert.match(main, /nobar/, 'main.js が捲り棒が無いことを印にしない');
+  assert.match(main, /skip: true/, 'main.js が押さなかった後の段を残さない');
+});
+
+test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本物の押しが届くかの手）と DISMISS_PROBE の字面。撮る道具が本物のマウス（sendInputEvent）で押し、judgeDismiss で照らし、NG なら終わりの番号を 1 にする', { timeout: 5000 }, () => {
+  const names = SH.DISMISS_STEPS.map((s) => s.name);
+  // 0.17.1 直し（R27）で意図して足した: 本物のタップ（DevTools の Input.dispatchTouchEvent）の手 ref-touch・touch
+  // 0.17.1 OD-5（決めたこと 23・PQ171-11）で意図して足した: 15 の手 slash（/ メニューの外の押しは通す）
+  assert.deepStrictEqual(names, ['ref', 'head', 'cell', 'title-z', 'lock', 'right', 'middle', 'drag-title', 'grip', 'double', 'bar', 'tab-esc', 'filter', 'pick', 'ref-touch', 'touch', 'slash']);
+  const by = new Map(SH.DISMISS_STEPS.map((s) => [s.name, s]));
+  const wants = (n) => by.get(n).acts.map((a) => a.want);
+  assert.deepStrictEqual(wants('ref'), [{ pops: 0, sel: ['r2:title'] }], '本物の押しが届くかの手（窓が無いときはセルが選ばれる）');
+  assert.deepStrictEqual(wants('head'), [{ pops: 0 }]);
+  assert.deepStrictEqual(wants('cell'), [{ pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] }]);
+  assert.deepStrictEqual(wants('title-z'), [{ pops: 0, titleSame: true, focusNot: ['#pTitle'] }]);
+  assert.deepStrictEqual(wants('lock'), [{ pops: 0 }, { pops: 1, lock: true }], '「ロック中」の1回目は閉じるだけ、2回目で［ロックを外す］だけ');
+  assert.deepStrictEqual(wants('right'), [{ pops: 0 }], '右の押しで行のメニューが開く');
+  assert.deepStrictEqual(wants('middle'), [{ pops: 1 }], '中の押しで閉じる');
+  assert.deepStrictEqual(wants('drag-title'), [{ pops: 0, picked: '', titleSame: true }]);
+  assert.deepStrictEqual(wants('grip'), [{ pops: 0, sideSame: true }]);
+  assert.deepStrictEqual(wants('double'), [{ pops: 0, picked: '' }]);
+  assert.deepStrictEqual(wants('bar'), [{ pops: 0 }, { pops: 0, sel: ['r2:title'] }], '捲り棒の後の押しが届く（止める印が残らない）');
+  assert.strictEqual(by.get('bar').bar, true);
+  assert.deepStrictEqual(wants('tab-esc'), [{ pops: 0, focus: '.dbcolbtn' }]);
+  assert.deepStrictEqual(wants('filter'), [{ pops: 0, sel: [] }], '設定の窓の押しも止める（2026-11-21 の PQ171-6 の答え）');
+  assert.deepStrictEqual(wants('pick'), [{ pops: 0, selNot: ['r2:title'] }]);
+  assert.deepStrictEqual(wants('ref-touch'), [{ pops: 0, sel: ['r2:title'] }], '本物のタップが届くかの手（窓が無いときはセルが選ばれる）');
+  assert.deepStrictEqual(wants('touch'), [{ pops: 0, sel: [], focusNot: ['.dbcell', '.dbcolbtn'] }], '外のタップは閉じるだけ（R27）');
+  assert.deepStrictEqual(wants('slash'), [{ pops: 0, row: 'b1', caret: 'b1' }], '/ メニューの外の押しは、閉じてフォーカスとカーソルが押した行へ（OD-5）');
+  assert.match(by.get('slash').open, /' \/'/, '/ メニューの手が行の末で / を打たない');
+  assert.match(by.get('slash').open, /dataset\.id === 'b2'/, '/ メニューの手が b2 の行で開かない');
+  assert.match(by.get('slash').acts[0].press.at, /dataset\.id === 'b1'/, '/ メニューの手が b1 の行を押さない');
+  // 押し方: 右・中・なぞる・2回続けた押し・取っ手の引っ張り・捲り棒・キー
+  const act = (n, i = 0) => by.get(n).acts[i];
+  assert.strictEqual(act('right').press.button, 'right');
+  assert.strictEqual(act('middle').press.button, 'middle');
+  assert.ok(act('drag-title').press.drag && act('grip').press.drag, 'なぞる・引っ張るの手が無い');
+  assert.strictEqual(act('double').press.clickCount, 2);
+  assert.strictEqual(act('bar').press.at, 'bar');
+  assert.deepStrictEqual(act('tab-esc').keys, ['Tab', 'Escape']);
+  assert.deepStrictEqual(act('title-z').keys, ['z']);
+  assert.strictEqual(act('ref-touch').press.touch, true);
+  assert.strictEqual(act('touch').press.touch, true);
+  for (const s of SH.DISMISS_STEPS) {
+    // 0.17.1 OD-5 で意図して足した: / メニューの手は本文の行を持つ edit-slash-light の答え
+    assert.ok(['db-locked-light', 'db-table-light', 'edit-slash-light'].includes(s.screen) && SH.SCREENS.some((x) => x.name === s.screen), `${s.name}: 撮る画面の答えを使わない`);
+    assert.ok(typeof s.open === 'string', `${s.name}: 開く文が無い`);
+  }
+  assert.match(SH.DISMISS_PROBE, /getSelection/);
+  assert.match(SH.DISMISS_PROBE, /aria-selected/);
+  assert.match(SH.DISMISS_PROBE, /activeElement/);
+  assert.match(SH.DISMISS_PROBE, /sideGrip|#side/);
+  assert.match(SH.DISMISS_PROBE, /focusNode/, 'DISMISS_PROBE がカーソルの行を読まない（OD-5）');
+  const m = read('tools/shots/main.js');
+  assert.match(m, /sendInputEvent\(\{ type: 'mouseDown'/, '本物のマウスで押していない');
+  assert.match(m, /SH\.judgeDismiss\(/, 'judgeDismiss で照らしていない');
+  assert.match(m, /SH\.DISMISS_STEPS/);
+  assert.match(m, /errors\.push\(`外の押し/, 'NG を終わりの番号に入れていない');
+  assert.match(m, /elementFromPoint\(x, y\)/, '押す所に別の物が重なっているかを見ていない（R21）');
+  assert.match(m, /Input\.dispatchTouchEvent/, '本物のタップで押していない（R27）');
+  assert.match(m, /Emulation\.setTouchEmulationEnabled/, 'タップの手でタッチを有効にしていない（R27）');
 });

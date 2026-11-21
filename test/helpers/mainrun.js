@@ -506,7 +506,6 @@ const Module = require('module');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const net = require('net');
 const cp = require('child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -802,24 +801,8 @@ const childEnv = (env) => {
 // 偽の claude を Electron のアプリとして起こし、Windows では標準入力が届かない（D2 の stdinHasTranscript が false になる）
 const fakeClaudeEnv = (env) => (process.versions.electron ? { ...childEnv(env), ELECTRON_RUN_AS_NODE: '1' } : childEnv(env));
 
-// 偽のエンジン（子のプロセス）に渡す空いたポート。前は listen(0) で OS の一時ポート（Linux は 32768〜60999・Windows は 49152〜65535）を借りて
-// すぐ返していたが、返した後・子が待ち受ける前に、同じ機械の外向きの接続（中継の偽物への要求など。並べて回すほかの場面も）が一時ポートとして
-// そのポートを使うことがあり、偽のエンジンが EADDRINUSE で落ちた（CI run 39904812869 の ubuntu・stage094.main の S4・S5。0.9.4 の freePort の
-// Ruling と同じ原因）。一時ポートの範囲の外（20000〜31999）から選び、待ち受けられることを確かめてから返す（Windows の予約された範囲は EACCES で飛ばす）
-const PORT_LO = 20000;
-const PORT_SPAN = 12000;
-const tryPort = (port) => new Promise((resolve) => {
-  const srv = net.createServer();
-  srv.once('error', () => resolve(false));
-  srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(true)));
-});
-const freePort = async () => {
-  for (let i = 0; i < 200; i++) {
-    const port = PORT_LO + Math.floor(Math.random() * PORT_SPAN);
-    if (await tryPort(port)) return port;
-  }
-  throw new Error('mainrun: 空いたポートが見つからない');
-};
+// 偽のエンジン（子のプロセス）に渡す空いたポート（helpers/port-claims.js。選び方の理由はそのファイルの頭）
+const { freePort } = require('./port-claims');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 0.14.0 DQ-3: 偽の中継の整えの口（POST /v1/text/tidy。頭の注）。受けた要求の本文（JSON）・Cookie に CF_Authorization があったか・X-Requested-With・Content-Type を覚える
 async function startFakeTidy(mode0) {

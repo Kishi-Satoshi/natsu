@@ -477,63 +477,89 @@ test('SV-1・F191: MCP の一覧と答えにビューの名前を出さない（
   } finally { m.done(); }
 });
 
-test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース。どれもビュー 20）が、ビューを読まない同じ一覧（同じ大きさの欄）の 1.1 倍以内で、データベースでない行には views を付けない', { timeout: 120000 }, () => {
-  const t = tmpDb();
+test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース。どれもビュー 20）が、ビューを読まない同じ一覧（同じ大きさの欄）の 1.1 倍以内で、データベースでない行には views を付けない', { timeout: 120000 }, (tc) => {
+  const temps = [];
   try {
-    const { db } = t.open();
-    const made = ok(call(db, 'db.create', {}), 'db.create').result;
-    const fresh = made.page;
-    const views = Array.from({ length: 20 }, (_, i) => ({ ...fresh.views[0], id: `v${i + 1}`, name: `ビュー${i + 1}` }));
-    const dbAttrs = JSON.stringify({ kind: 'database', cols: fresh.cols, views, nextNo: 1, date: '2026-11-01' });
-    const memo = 'メモ'.repeat(200);
-    db.exec('BEGIN');
-    const ins = db.prepare("insert into blocks(id,type,page_id,parent_id,ord,text,rich,attrs,fold,rev,created_at,updated_at,trashed_at) values (?,?,?,?,?,?,null,?,'',1,?,?,null)");
-    const pid = (i) => `ps${String(i).padStart(5, '0')}`;
-    for (let i = 0; i < 2000; i++) {
-      const isDb = i % 20 === 0;
-      // 議事録の 100 に、迷い込んだ views の欄（データベースでない行に views を付けないかを見る）
-      ins.run(pid(i), 'page', pid(i), null, 'i', `題${i}`, isDb ? dbAttrs : JSON.stringify({ memo, date: '2026-11-01', meeting: { phase: 'done' }, ...(i % 20 === 1 ? { views } : {}) }),
-        new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(), '');
-    }
-    db.exec('COMMIT');
-    const dbIds = Array.from({ length: 100 }, (_, k) => pid(k * 20));
-    // データベースのビューの欄の名前を替える（views ↔ vx。欄の大きさも中身も同じで、ビューを読むかだけが違う）
-    const swap = (from, to) => {
+    // 同じ形の DB を作る。読む方（A）はデータベースのビューの欄が views、読まない方（B）は同じ中身を vx に置く（欄の大きさも中身も同じで、
+    // ビューを読むかだけが違う）。R34: 前は1つの DB で欄の名前を替えながら（views ↔ vx）計っていたので、2つを1回ずつ交互に呼べなかった
+    const build = (key) => {
+      const t = tmpDb();
+      temps.push(t);
+      const { db } = t.open();
+      const made = ok(call(db, 'db.create', {}), 'db.create').result;
+      const fresh = made.page;
+      const views = Array.from({ length: 20 }, (_, i) => ({ ...fresh.views[0], id: `v${i + 1}`, name: `ビュー${i + 1}` }));
+      const dbAttrs = JSON.stringify({ kind: 'database', cols: fresh.cols, [key]: views, nextNo: 1, date: '2026-11-01' });
+      const memo = 'メモ'.repeat(200);
       db.exec('BEGIN');
-      for (const id of dbIds) db.prepare(`update blocks set attrs = json_remove(json_set(attrs, '$.${to}', json_extract(attrs, '$.${from}')), '$.${from}') where id = ?`).run(id);
+      const ins = db.prepare("insert into blocks(id,type,page_id,parent_id,ord,text,rich,attrs,fold,rev,created_at,updated_at,trashed_at) values (?,?,?,?,?,?,null,?,'',1,?,?,null)");
+      const pid = (i) => `ps${String(i).padStart(5, '0')}`;
+      for (let i = 0; i < 2000; i++) {
+        const isDb = i % 20 === 0;
+        // 議事録の 100 に、迷い込んだ views の欄（データベースでない行に views を付けないかを見る）
+        ins.run(pid(i), 'page', pid(i), null, 'i', `題${i}`, isDb ? dbAttrs : JSON.stringify({ memo, date: '2026-11-01', meeting: { phase: 'done' }, ...(i % 20 === 1 ? { views } : {}) }),
+          new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(), '');
+      }
       db.exec('COMMIT');
+      return { db, made };
     };
-    // R107（release の run 44250035465 の ci / test (windows-latest)）: 計るのは壁時計でなく、この手が使った CPU の時間（process.cpuUsage の user ＋ system。
-    // ほかのテストのファイルに機械を取られて、この手が走っていなかった間を数えない）。Windows の CPU の時間は約 15.6ms 刻みなので、1回でなく続けた 8 回の
-    // 合わせた時間を 8 で割った1回あたりの値（1回の一覧は 30〜50ms なので、刻みの誤りは 1 回あたり 2ms ほど。組の真ん中でさらに薄まる）
-    const LOOP = 8;
-    const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
-    const timed = () => { const c0 = cpuMs(); let r; for (let i = 0; i < LOOP; i++) r = call(db, 'pages.list', {}); return [(cpuMs() - c0) / LOOP, r.result]; };
+    const A = build('views');
+    const B = build('vx');
     const stray = (list) => list.filter((p) => Object.hasOwn(p, 'views') && p.kind !== 'database').map((p) => p.id);
-    // 2つを続けて計った組を 13 組（どちらも覚えた一覧の後で。はじめの 2 組は捨てる: JIT が温まる前）。組ごとに先に計る方を替える（時間とともに機械の混み方が
-    // 変わっても、どちらかに寄らない）。比べるのは組ごとの差（読む − 読まない × 1.1）の真ん中の値で、揺れの分の 2 ミリ秒は見逃す。R26 直し: 前はデータベース ↔
-    // 白紙のページの種類を替えて比べていて、データベースの一覧の前からの重さまで数えていた（CI run 43585807076）。R41 直し: 前は2つのいちばん速い回どうしを
-    // 比べていて、別の時に計った回どうしなので、ほかのテストのファイルと同時に走る機械の混み方が計る間に変わると外れた（CI run 43647892596 の mutate-3 の
-    // 元のままの確かめで 38.2ms と 32.7ms。手元で同じ形を3回計ると、いちばん速い回の差は 1 ミリ秒の中）。R80 の「続けて計った3回のいちばん短い時間」は、
-    // R107 で CPU の時間にしたので外した（割り込まれた間はもう数えない。GC も一覧の仕事なので、8 回の合わせた時間で数える）
-    const diffs = []; const read = []; const plain = [];
-    const one = (want) => {
-      if (want === 'plain') swap('views', 'vx');
-      call(db, 'pages.list', {});   // 欄の名前を替えた後の1回目（覚えた一覧を読み直す）は計らない
-      const [ms, list] = timed();
-      if (want === 'plain') {
-        assert.deepStrictEqual(list.filter((p) => Array.isArray(p.views) && p.views.length), list.filter((p) => p.id === made.id && p.views.length), '前提: ビューの欄の名前を替えても views がある');
-        swap('vx', 'views');
+    const check = (side, list) => {
+      if (side === B) {
+        assert.deepStrictEqual(list.filter((p) => Array.isArray(p.views) && p.views.length), list.filter((p) => p.id === B.made.id && p.views.length), '前提: 読まない方の DB にも views がある');
       } else assert.strictEqual(list.filter((p) => Array.isArray(p.views) && p.views.length === 20).length, 100, '前提: データベースの行に views が無い');
       assert.deepStrictEqual(stray(list), [], 'データベースでない行に views を付けた');
-      return ms;
     };
-    for (let k = 0; k < 13; k++) {
-      let a; let b;
-      if (k % 2 === 0) { a = one('read'); b = one('plain'); } else { b = one('plain'); a = one('read'); }
-      if (k >= 2) { read.push(a); plain.push(b); diffs.push(a - b * 1.1); }
+    // R107（release の run 44250035465 の ci / test (windows-latest)）: 計るのは壁時計でなく CPU の時間（ほかのテストのファイルに機械を取られて、
+    // この手が走っていなかった間を数えない）。
+    // R34（計画 docs/plans/2026-11-18-171.md。R20 の根）: 前は「読む」と「読まない」をそれぞれ 8 回続けて、プロセス全体の CPU の時間で計っていた。
+    // (1) 1回の一覧が若い世代に置く量（約 15.5MB）が若い世代の大きさとほぼ同じなので、若い世代の GC（scavenge）が一覧の中のほぼ同じ所で起き続け、
+    // 組みかけの一覧が生きている所で起きると写す物が多く、重さが約3倍違う。ビューの分（置く量で約 2%）で起きる所がずれ、続けた 8 回の片方だけが重い所に
+    // 固まった。(2) その重さの多くは GC の手伝いの糸の CPU の時間で、手伝いの糸の時間は空いているコアの数で 10 倍ほど変わり（同じ仕事で、混んで
+    // いない機械では1回あたり約 9ms、混んだ機械では 1ms 未満）、Windows では約 15.6ms 刻みで数えるので、片方に 5ms ほど寄った（CI の Electron の
+    // Node で 32.9ms と 27.0ms の赤）。今は、計る1回の前にでたらめな量（種を決めた乱数。若い世代の大きさまで）のごみを作って GC の起きる所を毎回
+    // ずらし、2つの DB を1回ずつ ABBA と BAAB の順に交互に呼んで、一覧を走らせる糸（主の糸）の CPU の時間を 64 回ずつ合わせて比べる。
+    // R26（種類を替えて比べない）・R41（別の時に計った回どうしを比べない）の考えはそのまま
+    const v8 = require('node:v8');
+    const space = v8.getHeapSpaceStatistics().find((s) => s.space_name === 'new_space');
+    const young = Math.max(space ? space.space_size : 0, 32 * 1024 * 1024);
+    let seed = 190;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    let keep = null;
+    const shake = () => { const kb = Math.floor(rnd() * young / 1024); for (let i = 0; i < kb; i += 8) keep = new Array(1000).fill(i); };
+    // 判定は一覧を走らせる糸（主の糸）の CPU の時間（process.threadCpuUsage。無い Node では process.cpuUsage）。プロセス全体の CPU の時間と壁時計は記録だけ
+    const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+    const thrMs = typeof process.threadCpuUsage === 'function' ? () => { const u = process.threadCpuUsage(); return (u.user + u.system) / 1000; } : cpuMs;
+    const wallMs = () => Number(process.hrtime.bigint()) / 1e6;
+    const sum = { A: { cpu: 0, thr: 0, wall: 0 }, B: { cpu: 0, thr: 0, wall: 0 } };
+    // 1回ずつ計る（前の一覧を生かしたまま次の一覧を呼ばない。続けて呼ぶと、同じ側が続く間だけ GC の重さが寄る）
+    const one = (side) => {
+      shake();
+      const w0 = wallMs(); const t0 = thrMs(); const c0 = cpuMs();
+      const r = call(side.db, 'pages.list', {});
+      const got = { cpu: cpuMs() - c0, thr: thrMs() - t0, wall: wallMs() - w0 };
+      check(side, r.result);
+      return got;
+    };
+    // JIT は別の DB（同じ形）で温めてから、A と B の一覧を覚える（冷えたコードで先に覚えた側の一覧が、同じ仕事でも 2〜3% 重く出た）
+    const C = build('views');
+    for (let i = 0; i < 3; i++) call(C.db, 'pages.list', {});
+    for (let i = 0; i < 2; i++) { call(A.db, 'pages.list', {}); call(B.db, 'pages.list', {}); }   // 一覧を覚える（計らない）
+    const BLOCKS = 32;
+    for (let k = 0; k < BLOCKS + 2; k++) {   // はじめの 2 組は捨てる（温まる前）。組ごとに ABBA と BAAB を替える（並びの位置に寄らない）
+      const order = k % 2 === 0 ? [A, B, B, A] : [B, A, A, B];
+      const got = order.map(one);
+      if (k < 2) continue;
+      got.forEach((g, i) => { const s0 = sum[order[i] === A ? 'A' : 'B']; s0.cpu += g.cpu; s0.thr += g.thr; s0.wall += g.wall; });
     }
-    const mid = (xs) => [...xs].sort((x, y) => x - y)[xs.length >> 1];
-    assert.ok(mid(diffs) <= 2, `ビューを読む一覧が読まない一覧の 1.1 倍を超えた（1回あたりの CPU の時間で、組ごとの差の真ん中 ${mid(diffs).toFixed(1)}ms・真ん中の回 ${mid(read).toFixed(1)}ms と ${mid(plain).toFixed(1)}ms）`);
-  } finally { t.done(); }
+    assert.ok(keep);
+    const n = BLOCKS * 2;
+    const a = sum.A.thr / n; const b = sum.B.thr / n;
+    const f = (x) => (x / n).toFixed(1);
+    tc.diagnostic(`1回あたり（読む・読まない）: 主の糸 ${f(sum.A.thr)}・${f(sum.B.thr)}ms、プロセス全体の CPU ${f(sum.A.cpu)}・${f(sum.B.cpu)}ms、壁時計 ${f(sum.A.wall)}・${f(sum.B.wall)}ms、若い世代 ${(young / 1048576).toFixed(0)}MB`);
+    // 比べるのは1回あたりの差（読む − 読まない × 1.1）で、揺れの分の 2 ミリ秒は見逃す
+    assert.ok(a - b * 1.1 <= 2, `ビューを読む一覧が読まない一覧の 1.1 倍を超えた（1回あたりの主の糸の CPU の時間で ${a.toFixed(1)}ms と ${b.toFixed(1)}ms）`);
+  } finally { for (const t of temps) t.done(); }
 });
