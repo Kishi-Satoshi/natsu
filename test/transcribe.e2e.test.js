@@ -25,6 +25,7 @@ const { execScene } = require('./helpers/scene-slots');
 const net = require('node:net');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
+const claims = require('./helpers/port-claims');
 const { vcRuntimeIssue } = require('../src/mainlib');
 
 // 場面ごとの文字起こしエンジンのポートを、先にまとめて取る。別々に空きを探すと、並べて走らせた
@@ -42,15 +43,27 @@ const tryListen = (port) => new Promise((resolve) => {
   s.once('error', () => resolve(null));
   s.listen(port, '127.0.0.1', () => resolve(s));
 });
+// 0.17.1 R33（run 44842332022 の mutate-3）: 取ったポートには機械全体の印（helpers/port-claims.js）を置く。ここで取ったポートは、場面が枠を待つ間
+// （長いと数十秒）閉じたままなので、印が無いと、ほかのテストのファイルの場面（mainrun.js の freePort）が同じポートを選び、どちらかの main が
+// もう一方の偽のエンジンに当たる。印は、このファイルのプロセスが終わるときに消える
 async function reservePorts(n) {
   const servers = [];
+  // 印を置けたものだけを持つ（ほかのプロセスが選んだポートは閉じて飛ばす）
+  const keep = async (s) => {
+    if (s && !claims.claim(s.address().port)) { await new Promise((r) => s.close(r)); return false; }
+    if (s) servers.push(s);
+    return Boolean(s);
+  };
   if (!LOW_RANGE) {
-    for (let i = 0; i < n; i++) { const s = await tryListen(0); if (!s) throw new Error('空きのポートを取れない'); servers.push(s); }
+    for (let tries = 0; servers.length < n; tries++) {
+      const s = tries < 4000 ? await tryListen(0) : null;
+      if (!s) throw new Error('空きのポートを取れない');
+      await keep(s);
+    }
   }
   let port = PORT_LO + Math.floor(Math.random() * (PORT_HI - PORT_LO - 2000));   // 別のテストの走りと重ならないよう、始めを散らす
   for (let tries = 0; servers.length < n && tries < 4000; tries++, port = port >= PORT_HI ? PORT_LO : port + 1) {
-    const s = await tryListen(port);
-    if (s) servers.push(s);
+    await keep(await tryListen(port));
   }
   if (servers.length < n) throw new Error(`一時的なポートの範囲の外に空きのポートが ${n} 個ない`);
   const ports = servers.map((s) => s.address().port);
