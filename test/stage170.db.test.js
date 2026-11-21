@@ -477,7 +477,7 @@ test('SV-1・F191: MCP の一覧と答えにビューの名前を出さない（
   } finally { m.done(); }
 });
 
-test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース。どれもビュー 20）が、ビューを読まない同じ一覧（同じ大きさの欄）の 1.1 倍以内で、データベースでない行には views を付けない', { timeout: 120000 }, () => {
+test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース。どれもビュー 20）が、ビューを読まない同じ一覧（同じ大きさの欄）の 1.1 倍以内で、データベースでない行には views を付けない', { timeout: 120000 }, (tc) => {
   const temps = [];
   try {
     // 同じ形の DB を2つ作る。読む方（A）はデータベースのビューの欄が views、読まない方（B）は同じ中身を vx に置く（欄の大きさも中身も同じで、
@@ -529,24 +529,37 @@ test('SV-1・F190: 一覧の速さ（2,000 ページ・100 のデータベース
     let keep = null;
     const shake = () => { const kb = Math.floor(rnd() * young / 1024); for (let i = 0; i < kb; i += 8) keep = new Array(1000).fill(i); };
     const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+    // 記録だけ（判定には使わない）: 主の糸だけの CPU の時間（無い Node では 0）と壁時計
+    const thrMs = typeof process.threadCpuUsage === 'function' ? () => { const u = process.threadCpuUsage(); return (u.user + u.system) / 1000; } : () => 0;
+    const wallMs = () => Number(process.hrtime.bigint()) / 1e6;
+    const sum = { A: { cpu: 0, thr: 0, wall: 0, zero: 0 }, B: { cpu: 0, thr: 0, wall: 0, zero: 0 } };
+    const pos = [0, 0, 0, 0];
     const one = (side) => {
       shake();
-      const c0 = cpuMs();
+      const w0 = wallMs(); const t0 = thrMs(); const c0 = cpuMs();
       const r = call(side.db, 'pages.list', {});
-      const ms = cpuMs() - c0;
+      const ms = cpuMs() - c0; const thr = thrMs() - t0; const wall = wallMs() - w0;
       check(side, r.result);
-      return ms;
+      return { ms, thr, wall };
     };
     for (let i = 0; i < 2; i++) { call(A.db, 'pages.list', {}); call(B.db, 'pages.list', {}); }   // 一覧を覚える・JIT を温める（計らない）
     const BLOCKS = 24;
-    let a = 0; let b = 0;
-    for (let k = 0; k < BLOCKS + 2; k++) {   // はじめの 2 組は捨てる（温まる前）
-      const a1 = one(A); const b1 = one(B); const b2 = one(B); const a2 = one(A);
-      if (k >= 2) { a += a1 + a2; b += b1 + b2; }
+    for (let k = 0; k < BLOCKS + 2; k++) {   // はじめの 2 組は捨てる（温まる前）。組ごとに ABBA と BAAB を替える（並びの位置に寄らない）
+      const order = k % 2 === 0 ? [A, B, B, A] : [B, A, A, B];
+      const got = order.map(one);
+      if (k < 2) continue;
+      got.forEach((g, i) => {
+        const s0 = sum[order[i] === A ? 'A' : 'B'];
+        s0.cpu += g.ms; s0.thr += g.thr; s0.wall += g.wall; if (g.ms === 0) s0.zero += 1;
+        pos[i] += g.ms;
+      });
     }
     assert.ok(keep);
     const n = BLOCKS * 2;
+    const a = sum.A.cpu / n; const b = sum.B.cpu / n;
+    const f = (x) => (x / n).toFixed(1);
+    tc.diagnostic(`1回あたり（読む・読まない）: CPU ${f(sum.A.cpu)}・${f(sum.B.cpu)}ms、主の糸 ${f(sum.A.thr)}・${f(sum.B.thr)}ms、壁時計 ${f(sum.A.wall)}・${f(sum.B.wall)}ms、CPU が 0 の回 ${sum.A.zero}・${sum.B.zero}、並びの位置ごとの CPU ${pos.map((x) => (x / BLOCKS).toFixed(1)).join('・')}ms、若い世代 ${(young / 1048576).toFixed(0)}MB`);
     // 比べるのは1回あたりの差（読む − 読まない × 1.1）で、揺れの分の 2 ミリ秒は見逃す
-    assert.ok(a / n - (b / n) * 1.1 <= 2, `ビューを読む一覧が読まない一覧の 1.1 倍を超えた（1回あたりの CPU の時間で ${(a / n).toFixed(1)}ms と ${(b / n).toFixed(1)}ms）`);
+    assert.ok(a - b * 1.1 <= 2, `ビューを読む一覧が読まない一覧の 1.1 倍を超えた（1回あたりの CPU の時間で ${a.toFixed(1)}ms と ${b.toFixed(1)}ms）`);
   } finally { for (const t of temps) t.done(); }
 });
