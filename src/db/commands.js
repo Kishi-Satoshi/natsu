@@ -77,6 +77,7 @@ const SW = require('../summaryWrite');
 const TL = require('../mcp/timeline');
 // 0.18.0 CS-3（決めたこと 23〜26）: Claude の名前の直し（要約・メモ・発言・担当・参加者を1回で。純粋な部品）
 const NF = require('../nameFix');
+const { markdownToBlocks } = require('../minutes');   // 0.18.0 CT-2: Claude が渡す Markdown を本文の行に（要約の書き戻しと同じ読み方。飾りは落ちる）
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -3435,6 +3436,69 @@ function mcpMakeTask(db, a, ctx) {
   }, ctx);
 }
 
+// ---------------------------------------------------------------- Claude の白紙のページと書き足し（0.18.0 CT-2。計画 docs/plans/2026-11-18-180.md の
+// 決めたこと 30〜33・F239・F243）
+// Markdown → 本文の行（markdownToBlocks の見出し・箇条書き・ToDo・段落。新しい ID・人の行・出典なし: 貼り付けの pasteRows と同じ形。子ページの行は作れない）
+function mdRows(db, ctx, md) {
+  const used = new Set();
+  return markdownToBlocks(md).map((b) => {
+    const out = { id: freshId(db, ctx, used), type: b.type, text: b.text, cites: [], citeState: 'manual' };
+    if (b.type === 'heading') out.level = b.level;
+    if (b.type === 'todo') out.checked = b.checked === true;
+    return out;
+  });
+}
+// mcp.createPage（役 mcp）: 0.15.0 の page.create と同じ部品（pageCreate）で白紙のページを作り、同じ命令で題名と本文の行を書く（oplog の1行・控えは無い: CR6）。
+// 親は白紙のページか無し（最上位）。白紙の親なら、その本文の最後に子ページの行（pageCreate のまま）。データベース・データベースの行・議事録・「議事録」の中は
+// bad-args（CR17）。録音中の写し・ゴミ箱（祖先も）・無い親は pageCreate が bad-args で断る。本文は 2,000 行まで（too-big）
+function mcpCreatePage(db, a, ctx) {
+  if (a.parentId !== undefined) {
+    const host = db.prepare(HOT_QUERIES.pageRow).get(a.parentId);
+    if (!host || host.type !== 'page' || !isBlankPage(parseOr(host.attrs))) throw refuse('bad-args');   // 白紙のページの中だけ（決めたこと 30）
+  }
+  const rows = mdRows(db, ctx, a.md);
+  if (rows.length > LIMITS.blocks) throw refuse('too-big');
+  const made = pageCreate(db, { parentId: a.parentId }, ctx);
+  const id = made.result.id;
+  const w = forWrite(db, id);
+  w.page.title = a.title;
+  w.page.blocks = rows;
+  pageFits(w.page, ctx);
+  const ops = saveOps(w.was, w.page, ctx.now);
+  applyOps(db, ops);
+  return { ops: [...made.ops, ...ops], pageIds: made.pageIds, what: 'create', result: { id, title: a.title, rows: rows.length } };
+}
+function createPageDup(db, _a, row) {
+  const ops = JSON.parse(row.ops || '[]');
+  const add = ops.find((o) => o && o.op === 'add' && o.row && o.row.type === 'page');
+  const p = add ? readPage(db, add.id) : null;
+  return p ? { id: add.id, title: p.title, rows: ops.filter((o) => o && o.op === 'add' && o.row && o.row.page_id === add.id && o.id !== add.id).length } : null;
+}
+// mcp.appendPage（役 mcp）: 白紙のページとデータベースの行のページの本文の最上位の最後に、Markdown の行を足す（今ある行は1つも変えない・動かさない）。
+// 議事録とデータベースのページは bad-args（AQ8 (a)）。ロック中のデータベースの行にも書ける（D152）。行の無い Markdown は書かない（操作の空の行だけ）。
+// 本文が 2,000 行を越えるなら too-big。断る: mcpPageOf の not-found（テンプレートの行も）
+function mcpAppendPage(db, a, ctx) {
+  const { row, w } = mcpPageOf(db, a.pageId);
+  if (!row && !isBlankPage(w.page)) throw refuse('bad-args');   // 白紙のページと行のページだけ（決めたこと 31）
+  const rows = mdRows(db, ctx, a.md);
+  const result = { title: w.page.title, rows: rows.length };
+  if (!rows.length) return { ops: [], pageIds: [], result };
+  if (BT.flattenBlocks(w.page.blocks).length + rows.length > LIMITS.blocks) throw refuse('too-big');
+  return withSnap(db, a.pageId, 'append', () => {
+    w.page.blocks.push(...rows);   // 最上位の最後（子の中には入れない）
+    if (row) w.page.by = { ...(isObj(w.page.by) ? w.page.by : {}), u: whoOf(ctx) };   // 行の最終更新者（Claude）
+    pageFits(w.page, ctx);
+    const ops = saveOps(w.was, w.page, ctx.now);
+    applyOps(db, ops);
+    return { ops, pageIds: [a.pageId], what: 'append', result };
+  }, ctx);
+}
+function appendPageDup(db, a, row) {
+  const p = readPage(db, a.pageId);
+  const ops = JSON.parse(row.ops || '[]');
+  return p ? { title: p.title, rows: ops.filter((o) => o && o.op === 'add').length } : null;
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -3539,6 +3603,9 @@ const DEFS = {
   'mcp.updateAction': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id', done: 'bool?', assignee: 'short?', dueRaw: 'short?' }, run: mcpUpdateAction, dupResult: actionDup },
   'mcp.makeTask': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id' }, run: mcpMakeTask,
     dupResult: (db, a, row) => { const r = DEFS['todo.toTask'].dupResult(db, a); return r ? { ...r, made: JSON.parse(row.ops || '[]').length > 0 } : null; } },
+  // 0.18.0 CT-2（決めたこと 30〜33）: Claude の白紙のページを作る・書き足す（役 mcp だけ）
+  'mcp.createPage': { roles: ['mcp'], write: true, args: { title: 'oneLineTitle', md: 'mdText', parentId: 'id?' }, run: mcpCreatePage, dupResult: createPageDup },
+  'mcp.appendPage': { roles: ['mcp'], write: true, args: { pageId: 'id', md: 'mdText' }, run: mcpAppendPage, dupResult: appendPageDup },
   'pages.trash': { roles: ['app'], write: false, args: {},
     run: (db) => ({ result: trashHeads(db) }) },
   'block.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', patch: 'patch' },

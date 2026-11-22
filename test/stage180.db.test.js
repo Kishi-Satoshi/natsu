@@ -977,3 +977,117 @@ test('CT-1: 同じ tx の送り直しは dup で、2回目は控えも oplog も
   assert.strictEqual(db.prepare('select count(*) c from oplog').get().c, n + 1);
   assert.deepStrictEqual(snapRows(db, id).map((s) => s.what), ['action', 'task']);
 }));
+
+// ---------------------------------------------------------------- CT-2（決めたこと 30〜33・F239・F243）: Claude の白紙のページを作る mcp.createPage・書き足す mcp.appendPage
+const bodyRowsOf = (db, id) => db.prepare('select id, parent_id, ord, type, text from blocks where page_id = ? and id <> ? order by ord').all(id, id).map((r) => ({ ...r }));
+const pagesN = (db) => db.prepare("select count(*) c from blocks where type = 'page'").get().c;
+const NEW_MD = '# 次回の議題\n- 予算の **確認**\n- [ ] 資料を配る\n本文の段落';
+
+test('CT-2・F239・F243: mcp.createPage: 白紙のページ（kind blank）が本文つきでできる（飾りは落ち、出典は付かない）・oplog は1行（actor claude）・控えは無い・changed の what は create。白紙の親なら本文の最後に子ページの行。データベース・行・議事録・「議事録」・録音中の写し・ゴミ箱・無い親は bad-args・題名の改行・U+202E・201 字・空は bad-args・本文の 2,001 行は too-big', T, () => withDb((db, t) => {
+  const r = ok(mcp(db, 'mcp.createPage', { title: '次回の議題（見本）', md: NEW_MD }), 'mcp.createPage');   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  const id = r.result.id;
+  assert.deepStrictEqual(r.result, { id, title: '次回の議題（見本）', rows: 4 });   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  assert.deepStrictEqual(r.changed, { pageIds: [id], actor: 'claude', what: 'create' });
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.createPage', page_id: null });
+  assert.strictEqual(db.prepare('select count(*) c from oplog where tx = ?').get(r.tx).c, 1);
+  const p = C.readPage(db, id);
+  assert.deepStrictEqual([p.kind, p.title, db.prepare('select parent_id from blocks where id = ?').get(id).parent_id], ['blank', '次回の議題（見本）', null]);
+  assert.deepStrictEqual(p.blocks.map((b) => `${b.type}:${b.text}`), ['heading:次回の議題', 'bullet:予算の 確認', 'todo:資料を配る', 'paragraph:本文の段落']);
+  assert.ok(p.blocks.every((b) => Array.isArray(b.cites) && b.cites.length === 0 && !b.rich), '出典か飾りが付いた');
+  assert.deepStrictEqual(snapRows(db, id), []);
+  assert.ok(ok(call(db, 'pages.list', {}), 'pages.list').result.some((e) => e.id === id), '一覧に出ない');
+  // 白紙の親: 本文の最後に子ページの行（0.15.0 の F123 と同じ形）
+  const { id: host } = blankPage(db);
+  const c = ok(mcp(db, 'mcp.createPage', { title: '中のページ', md: '- 一行', parentId: host }), 'mcp.createPage(中)');   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  assert.deepStrictEqual(c.changed.pageIds.slice().sort(), [c.result.id, host].sort());
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get(c.result.id).parent_id, host);
+  const hb = C.readPage(db, host).blocks;
+  assert.deepStrictEqual([hb.length, hb[hb.length - 1].type, hb[hb.length - 1].page], [2, 'subpage', c.result.id], '親の本文の最後に子ページの行が無い');
+  assert.deepStrictEqual(snapRows(db, host), [], '親の控えを作った');
+  // 断る親（何も作らない）
+  const mid = meetingPage(t);
+  const { d, row } = dbWithRow(db);
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  const mdb = db.prepare("select id from blocks where type = 'page' and instr(attrs, '\"minutes\"') > 0").get().id;
+  const { page: lp, segments: ls } = samplePage('pl1');
+  for (const b of lp.blocks) b.id = `pl1${b.id}`;
+  lp.meeting = { phase: 'recording' };
+  t.seed(lp, ls);
+  const { id: gone } = blankPage(db);
+  ok(call(db, 'page.delete', { id: gone }), 'page.delete');
+  const n0 = pagesN(db);
+  for (const [what, parentId] of [['データベース', d], ['行', row], ['議事録', mid], ['「議事録」', mdb], ['録音中の写し', 'pl1'], ['ゴミ箱', gone], ['無い', 'pnone1']]) {
+    const x = mcp(db, 'mcp.createPage', { title: '中のページ', md: '- 一行', parentId });   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+    assert.deepStrictEqual([x.ok, x.code], [false, 'bad-args'], what);
+  }
+  for (const [what, title] of [['改行', '題\n名'], ['U+202E', '題‮名'], ['U+2028', '題 名'], ['制御の文字', '題\u0007名'], ['201 字', 'あ'.repeat(201)], ['空', ''], ['空白だけ', '  ']]) {
+    const x = mcp(db, 'mcp.createPage', { title, md: '- 一行' });
+    assert.deepStrictEqual([x.ok, x.code], [false, 'bad-args'], what);
+  }
+  const big = mcp(db, 'mcp.createPage', { title: '長い', md: Array.from({ length: 2001 }, (_, i) => `- 行${i}`).join('\n') });   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  assert.deepStrictEqual([big.ok, big.code], [false, 'too-big']);
+  assert.strictEqual(pagesN(db), n0, '断ったのにページができた');
+  ok(mcp(db, 'mcp.createPage', { title: 'あ'.repeat(200), md: '- 一行' }), '200 字の題名');   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+}));
+
+test('CT-2・F239: mcp.appendPage: 白紙のページと行のページの本文の最上位の最後に足され、前からある行の id・ord・文は1つも変わらない・控えが1行（what append）・changed の what は append・行の最終更新者は Claude。議事録・データベースは bad-args・テンプレートの行・ゴミ箱は not-found・ロック中のデータベースの行には書ける・満杯は too-big・行の無い Markdown は操作の空の行', T, () => withDb((db, t) => {
+  const { id, blockId } = blankPage(db);
+  const k = ok(call(db, 'block.insert', { pageId: id, afterBlockId: blockId, type: 'bullet' }), 'block.insert').result.blockId;
+  ok(call(db, 'block.update', { pageId: id, blockId: k, patch: { text: '前からある箇条' } }), 'block.update');
+  ok(call(db, 'block.indent', { pageId: id, blockId: k, dir: 'in' }), 'block.indent');   // 子の行（最上位の最後に足すとき、子の中に入れない）
+  const before = bodyRowsOf(db, id);
+  const r = ok(mcp(db, 'mcp.appendPage', { pageId: id, md: '- 足した1\n- [ ] 足した2' }), 'mcp.appendPage');
+  assert.deepStrictEqual(r.result, { title: '', rows: 2 });
+  assert.deepStrictEqual(r.changed, { pageIds: [id], actor: 'claude', what: 'append' });
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.appendPage', page_id: id });
+  const after = bodyRowsOf(db, id);
+  assert.deepStrictEqual(after.filter((x) => before.some((y) => y.id === x.id)), before, '前からある行が変わった・動いた');
+  const p = C.readPage(db, id);
+  assert.deepStrictEqual(p.blocks.map((b) => `${b.type}:${b.text}`), ['paragraph:白紙の本文の一行', 'bullet:足した1', 'todo:足した2'], '最上位の最後でない');
+  assert.deepStrictEqual(p.blocks[0].children.map((b) => b.text), ['前からある箇条']);
+  assert.deepStrictEqual(snapRows(db, id).map((s) => [s.what, s.rev_after]), [['append', revOf(db, id)]]);
+  // 行のページ（ロック中のデータベースの行も）
+  const { d, row } = dbWithRow(db);
+  ok(call(db, 'db.setLock', { db: d, on: true }), 'db.setLock');
+  ok(mcp(db, 'mcp.appendPage', { pageId: row, md: '本文に足す' }), 'mcp.appendPage(ロック中の行)');
+  assert.deepStrictEqual(C.readPage(db, row).blocks.map((b) => b.text), ['行の本文', '本文に足す']);
+  assert.strictEqual(byOf(db, row).u, 'claude', '行の最終更新者が Claude でない');
+  assert.deepStrictEqual(snapRows(db, row).map((s) => s.what), ['append']);
+  ok(call(db, 'db.setLock', { db: d, on: false }), 'db.setLock(外す)');
+  // 断る
+  const mid = meetingPage(t);
+  const tpl = ok(call(db, 'tpl.add', { db: d, title: 'テンプレートの見本' }), 'tpl.add').result.id;   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  const code = (x) => [x.ok, x.code];
+  assert.deepStrictEqual(code(mcp(db, 'mcp.appendPage', { pageId: mid, md: '- 足す' })), [false, 'bad-args'], '議事録に書き足した');
+  assert.deepStrictEqual(code(mcp(db, 'mcp.appendPage', { pageId: d, md: '- 足す' })), [false, 'bad-args'], 'データベースに書き足した');
+  assert.deepStrictEqual(code(mcp(db, 'mcp.appendPage', { pageId: tpl, md: '- 足す' })), [false, 'not-found'], 'テンプレートの行に書き足した');
+  assert.deepStrictEqual(code(mcp(db, 'mcp.appendPage', { pageId: 'pnone1', md: '- 足す' })), [false, 'not-found']);
+  assert.deepStrictEqual([snapRows(db, mid), snapRows(db, tpl)], [[], []]);
+  assert.strictEqual(C.readPage(db, mid).blocks.length, 6);
+  // 行の無い Markdown: 操作の空の行だけ（rev・控えは変わらない）
+  const rev = revOf(db, id);
+  const empty = ok(mcp(db, 'mcp.appendPage', { pageId: id, md: '  \n\n ' }), '空');
+  assert.deepStrictEqual([empty.result, empty.changed, revOf(db, id), snapRows(db, id).length], [{ title: '', rows: 0 }, undefined, rev, 1]);
+  // 満杯（本文の 2,000 行）
+  const full = ok(mcp(db, 'mcp.createPage', { title: '満杯', md: Array.from({ length: 2000 }, (_, i) => `- 行${i}`).join('\n') }), '2,000 行').result.id;   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  assert.deepStrictEqual(code(mcp(db, 'mcp.appendPage', { pageId: full, md: '- もう1行' })), [false, 'too-big']);
+  assert.deepStrictEqual(snapRows(db, full), []);
+  // ゴミ箱
+  ok(call(db, 'page.delete', { id }), 'page.delete');
+  assert.deepStrictEqual(code(mcp(db, 'mcp.appendPage', { pageId: id, md: '- 足す' })), [false, 'not-found']);
+}));
+
+test('CT-2: 同じ tx の送り直しは dup で、2回目はページも行も控えも増えず、答えは同じ形（mcp.createPage・mcp.appendPage）', T, () => withDb((db) => {
+  const tx1 = txOf('mcp');
+  const a = ok(mcp(db, 'mcp.createPage', { title: '次回の議題（見本）', md: NEW_MD }, {}, tx1), '1回目');   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  const n = pagesN(db);
+  const b = mcp(db, 'mcp.createPage', { title: '次回の議題（見本）', md: NEW_MD }, {}, tx1);   // D77: 白紙のページ・テンプレートの題名（会議の題名でない）
+  assert.deepStrictEqual([b.ok, b.dup, b.result], [true, true, a.result]);
+  assert.strictEqual(pagesN(db), n);
+  const tx2 = txOf('mcp');
+  const c = ok(mcp(db, 'mcp.appendPage', { pageId: a.result.id, md: '- 足す' }, {}, tx2), '1回目');
+  const d = mcp(db, 'mcp.appendPage', { pageId: a.result.id, md: '- 足す' }, {}, tx2);
+  assert.deepStrictEqual([d.ok, d.dup, d.result], [true, true, c.result]);
+  assert.strictEqual(C.readPage(db, a.result.id).blocks.length, 5);
+  assert.strictEqual(snapRows(db, a.result.id).length, 1);
+}));

@@ -25,7 +25,8 @@ const LIMITS = { blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000,
   // 0.16.0 DL-1（決めたこと 40）: 1つの本文に置けるデータベースの表（インラインとリンクドビュー。速さのため）
   dbTables: 10,
   tpls: 20,   // 0.17.0 RT-1（決めたこと 66）: 1つのデータベースの行のテンプレート
-  mdText: 60000 };   // 0.18.0 CS-2: Claude が渡す Markdown の字の数
+  mdText: 60000,   // 0.18.0 CS-2: Claude が渡す Markdown の字の数
+  oneLineTitle: 200 };   // 0.18.0 CT-2: Claude が付ける白紙のページの題名の字の数
 const RESERVED_BLOCK = ['id', 'type', 'text', 'rich', 'children'];
 const RESERVED_PAGE = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];
@@ -35,6 +36,8 @@ const LINK_RE = RT.LINK_HEAD_RE;
 const COLOR_KINDS = ['color', 'bg'];   // 0.14.0 EB-2: 値が richText.COLORS の飾り
 const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;   // ブロックの型・会議の種類の名前（知らない型も通す。2a2 で増える）
 const TXS_MAX = 50;                         // 0.14.0 EB-2: 1回の edit.revert に渡す歩みの tx の数
+// 0.18.0 CT-2: 1行の文字に入れない字（改行・制御の文字・行と段落の区切り・向きの制御の文字。src/nameFix.js の照らしと同じ字の並び）
+const LINE_CTRL_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
 const SHORT = 500;                          // 担当・期限の文字・検索の語などの短い文字
 // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 9。持ち主の試作の命令ごとの照らし）: 画面の書く命令（block.*）の型は決まった表
 // （blockEdit.TYPE_KEYS）だけ。main の page.put・meeting.* は今の NAME_RE のまま（新しい版の型を古い版で壊さない）
@@ -235,6 +238,9 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   namePairs: (v) => require('../nameFix').checkPairs(v),
   mdText: (v) => { if (typeof v !== 'string' || v.length < 1 || v.length > LIMITS.mdText) throw bad('mdText'); return v; },
   title: (v) => { if (!isStr(v, LIMITS.title)) throw bad('title'); return v; },
+  // 0.18.0 CT-2（決めたこと 30・F243）: Claude が付ける白紙のページの題名（1行・1〜200 字（コードポイント）・空白だけ・改行・制御の文字・行と段落の区切り・
+  // 向きの制御の文字は断る: サイドバーとタブを崩させない）
+  oneLineTitle: (v) => { if (typeof v !== 'string' || !v.trim() || [...v].length > LIMITS.oneLineTitle || LINE_CTRL_RE.test(v)) throw bad('title'); return v; },
   short: (v) => { if (!isStr(v, SHORT)) throw bad('short'); return v; },
   name: (v) => { if (typeof v !== 'string' || !NAME_RE.test(v)) throw bad('name'); return v; },
   // 0.11.0 M-4（持ち主の試作の命令ごとの照らし）: 会議の種類は選べる鍵（meetingType.SELECTABLE）と auto（自動に戻す）だけ
