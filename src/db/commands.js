@@ -40,7 +40,7 @@
 
 const crypto = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
-const { isCitable, refreshCitations, searchFold } = require('../cite');
+const { isCitable, refreshCitations, searchFold, attachCitations } = require('../cite');
 const { parseDue } = require('../actions');
 const { routeLabel, summaryLock, memoDocBare } = require('../mainlib');
 const R = require('../pagerules');
@@ -75,6 +75,8 @@ const CS = require('./claudeSnap');
 // 0.18.0 CS-2（決めたこと 15・17〜22）: Claude の要約の書き戻しも、main の［要約を生成］と同じ要約の作り方（summaryWrite.prepareSummary）を通る
 const SW = require('../summaryWrite');
 const TL = require('../mcp/timeline');
+// 0.18.0 CS-3（決めたこと 23〜26）: Claude の名前の直し（要約・メモ・発言・担当・参加者を1回で。純粋な部品）
+const NF = require('../nameFix');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -3306,6 +3308,62 @@ function writeSummaryDup(db, a, row) {
   return claudeSummaryAnswer(p, !ops.some((o) => o && o.op === 'set' && o.key === 'summaryEdited'));
 }
 
+// ---------------------------------------------------------------- Claude の名前の直し（0.18.0 CS-3。計画 docs/plans/2026-11-18-180.md の
+// 決めたこと 23〜26・F237。第14回 F2 の MCP の形）
+// mcp.fixNames（役 mcp）: 1つのページの要約の行（白紙のページと行のページは本文の行）・メモの行・文字起こしの発言・ToDo の担当・「議事録」の「参加者」を、
+// 1つの命令（oplog の1行・控えは1つ。控えの segs は直した発言だけ）で直す（nameFix.fixNames）。題名とタスク（「タスク管理」の行）の担当は直さず数を返す。
+// 直した発言を指す行は segment.update の recite と同じ refreshCitations で、文を直した行は今の文字起こしで、出典を照らし直す。
+// 当たりが無ければ何も書かない（操作の空の行だけ。rev・更新の時刻・控えは変わらない: 決めたこと 56）。
+// 断る: 無い・ゴミ箱・録音中の写し（listedRows の外）・ゴミ箱のデータベースの行・テンプレートの行は not-found、データベースのページは bad-args
+// その ToDo から作ったタスクの「担当」の名前（生きている行だけ。数えるだけ: CR15）
+function taskNamesOf(db, blocks) {
+  const out = [];
+  for (const b of BT.flattenBlocks(Array.isArray(blocks) ? blocks : [])) {
+    if (!isObj(b) || b.type !== 'todo' || typeof b.task !== 'string' || !b.task) continue;
+    const r = db.prepare(HOT_QUERIES.dbRow).get(b.task);
+    if (!r || r.type !== 'row' || (r.trashed_at !== null && r.trashed_at !== undefined)) continue;
+    const d = dbOf(db, r.parent_id);
+    const who = d ? colByName(d, '担当', 'person') : null;
+    const v = who ? ((parseOr(r.attrs) || {}).cells || {})[who.id] : null;
+    if (Array.isArray(v)) out.push(...v.filter((x) => typeof x === 'string'));
+  }
+  return out;
+}
+function mcpFixNames(db, a, ctx) {
+  const raw = db.prepare(HOT_QUERIES.dbRow).get(a.pageId);
+  if (!raw || (raw.trashed_at !== null && raw.trashed_at !== undefined)) throw refuse('not-found');
+  const row = raw.type === 'row';
+  if (row && (!raw.parent_id || !dbOf(db, raw.parent_id) || isTplRaw(raw))) throw refuse('not-found');
+  if (!row && !listedRows(db).some((r) => r.id === a.pageId)) throw refuse('not-found');   // 録音中の写し・ゴミ箱の行の中のページ
+  const w = forWrite(db, a.pageId);
+  if (!w) throw refuse('not-found');
+  if (isDbPage(w.page)) throw refuse('bad-args');
+  const meeting = !row && !isBlankPage(w.page);
+  const segs = meeting ? readSegments(db, a.pageId) : [];
+  let people = [];
+  const host = meeting && raw.parent_id ? dbOf(db, raw.parent_id) : null;
+  if (isMinutesDb(host)) people = host.cols.filter((c) => !c.gone && c.type === 'person').map((c) => c.id);   // 「議事録」の「参加者」
+  const f = NF.fixNames(w.page, segs, a.pairs, { tasks: taskNamesOf(db, w.page.blocks), people });
+  const result = { title: w.page.title, counts: f.counts };
+  const c = f.counts;
+  if (!(c.summary + c.memo + c.transcript + c.assignee + c.people)) return { ops: [], pageIds: [], result };   // 当たりが無い: 書かない
+  return withSnap(db, a.pageId, 'names', () => {
+    const p = f.page;
+    if (meeting && p.blocks.length) {
+      const flat = BT.flattenBlocks(p.blocks);
+      const fresh = f.segments.filter((x) => !x.failed);
+      for (const segId of f.segIds) refreshCitations(flat, fresh, segId);   // 直した発言を指す行（segment.update の recite と同じ）
+      const touched = flat.filter((b) => f.changedBlocks.has(b.id));
+      if (touched.length) attachCitations(touched, fresh);   // 文を直した要約の行も、今の文字起こしで照らし直す
+    }
+    if (row) p.by = { ...(isObj(p.by) ? p.by : {}), u: whoOf(ctx) };   // 行の最終更新者（Claude）
+    pageFits(p, ctx);
+    const ops = [...saveOps(w.was, p, ctx.now), ...diffSegments(segs, f.segments, a.pageId)];
+    applyOps(db, ops);
+    return { ops, pageIds: [a.pageId], what: 'names', result };
+  }, ctx, { segIds: f.segIds });
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -3403,6 +3461,9 @@ const DEFS = {
   'page.claudeRevert': { roles: ['app'], write: true, args: { id: 'id', sid: 'num' }, run: claudeRevert, dupResult: reread },
   // 0.18.0 CS-2（決めたこと 17〜22）: Claude の要約の書き戻し（役 mcp だけ: CR42）
   'mcp.writeSummary': { roles: ['mcp'], write: true, args: { pageId: 'id', baseRev: 'int', md: 'mdText', meetingType: 'meetingTypeArg?' }, run: mcpWriteSummary, dupResult: writeSummaryDup },
+  // 0.18.0 CS-3（決めたこと 23〜26）: Claude の名前の直し（役 mcp だけ）。送り直しの答えは counts: null（直した後なので当たりは数え直さない: CR61）
+  'mcp.fixNames': { roles: ['mcp'], write: true, args: { pageId: 'id', pairs: 'namePairs' }, run: mcpFixNames,
+    dupResult: (db, a) => { const p = readPage(db, a.pageId); return p ? { title: p.title, counts: null } : null; } },
   'pages.trash': { roles: ['app'], write: false, args: {},
     run: (db) => ({ result: trashHeads(db) }) },
   'block.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', patch: 'patch' },

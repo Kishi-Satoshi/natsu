@@ -696,3 +696,100 @@ test('CS-2: 同じ tx の送り直しは dup で、2回目は控えも oplog も
   assert.strictEqual(db.prepare('select count(*) c from oplog').get().c, n);
   assert.strictEqual(snapRows(db, id).length, 1);
 }));
+
+// ---------------------------------------------------------------- CS-3（決めたこと 23〜26・F237）: Claude の名前の直し mcp.fixNames
+const fixN = (db, id, pairs) => mcp(db, 'mcp.fixNames', { pageId: id, pairs });
+
+test('CS-3・F237: 命令: 1回で要約・メモ・発言・担当・「議事録」の参加者が直り、控えは1行（segs は直した発言だけ）・直した発言を指す行の出典が付け直る・タスクの担当は変わらず数・changed の what は names', T, () => withDb((db, t) => {
+  const { page, segments } = samplePage('pm1');
+  for (const b of page.blocks) b.id = `pm1${b.id}`;
+  page.memo = '担当Aに確認する';
+  page.memoDoc = MD.memoFromText(page.memo);
+  page.blocks.push({ id: 'pm1b7', type: 'bullet', text: '見積書は月末までに先方へ送る', cites: [] });   // 根拠なしの要点（直した後に照らし直す）
+  t.seed(page, segments);
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  const mdb = db.prepare("select id, attrs from blocks where type = 'page' and instr(attrs, '\"minutes\"') > 0").get();
+  const people = JSON.parse(mdb.attrs).cols.find((c) => c.type === 'person').id;
+  ok(call(db, 'row.setCell', { db: mdb.id, id: 'pm1', col: people, value: ['担当A', '担当C'] }), '参加者');
+  const task = ok(call(db, 'todo.toTask', { pageId: 'pm1', blockId: 'pm1b4' }), 'todo.toTask').result.id;
+  const taskBefore = JSON.parse(db.prepare('select attrs from blocks where id = ?').get(task).attrs).cells;
+  const before = C.readPage(db, 'pm1');
+  const r = ok(fixN(db, 'pm1', [{ from: '担当A', to: '担当B' }]), 'mcp.fixNames');
+  assert.deepStrictEqual(r.changed, { pageIds: ['pm1'], actor: 'claude', what: 'names' });
+  assert.deepStrictEqual(r.result, { title: before.title, counts: { summary: 1, memo: 1, transcript: 1, assignee: 1, people: 1, title: 0, crossed: 0, tasks: 1 } });
+  const p = C.readPage(db, 'pm1');
+  assert.strictEqual(p.blocks.find((b) => b.id === 'pm1b2').text, '来月の予算案の作成を担当Bが進める');
+  assert.strictEqual(p.blocks.find((b) => b.id === 'pm1b4').assignee, '担当B');
+  assert.deepStrictEqual([p.memo, p.memoDoc[0].text], ['担当Bに確認する\n', '担当Bに確認する']);
+  assert.deepStrictEqual(p.cells[people], ['担当B', '担当C']);
+  assert.strictEqual(p.title, before.title);
+  const segs = C.readSegments(db, 'pm1');
+  assert.strictEqual(segs.find((s) => s.id === 's2').text, '来月の予算案の作成は担当Bさんが進めることにしました');
+  assert.deepStrictEqual(JSON.parse(db.prepare('select attrs from blocks where id = ?').get(task).attrs).cells, taskBefore, 'タスクの担当を直した');
+  // 出典: 直した発言を指す行は付け直り、根拠なしの要点も照らし直す（segment.update の recite と同じ）
+  assert.deepStrictEqual(p.blocks.find((b) => b.id === 'pm1b2').cites, ['s2']);
+  assert.deepStrictEqual(p.blocks.find((b) => b.id === 'pm1b7').cites, ['s3'], '直した後に出典を照らし直していない');
+  // 控えは1行・segs は直した発言だけ（書く前の文）
+  const snaps = snapRows(db, 'pm1');
+  assert.deepStrictEqual(snaps.map((s) => s.what), ['names']);
+  assert.deepStrictEqual(JSON.parse(snaps[0].body).segs, [{ id: 's2', text: '来月の予算案の作成は担当Aさんが進めることにしました' }]);
+}));
+
+test('CS-3・F237: 当たりが無ければ操作の空の行だけで、rev・更新の時刻・控えは変わらない。録音中の写し・ゴミ箱・無いページは not-found・データベースは bad-args・形の違う組は bad-args', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const raw = () => C.readRawPage(db, id);
+  const was = raw();
+  const r = ok(fixN(db, id, [{ from: '該当なし', to: '担当B' }]), 'mcp.fixNames');
+  assert.deepStrictEqual(r.result.counts, { summary: 0, memo: 0, transcript: 0, assignee: 0, people: 0, title: 0, crossed: 0, tasks: 0 });
+  assert.strictEqual(r.changed, undefined);
+  assert.deepStrictEqual([raw().rev, raw().updatedAt], [was.rev, was.updatedAt]);
+  assert.deepStrictEqual(snapRows(db, id), []);
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.fixNames', page_id: id });
+  assert.strictEqual(db.prepare('select ops from oplog where tx = ?').get(r.tx).ops, '[]');
+  for (const pairs of [[{ from: '担', to: '担当B' }], [{ from: '担当A', to: '' }], []]) {
+    const b = fixN(db, id, pairs);
+    assert.deepStrictEqual([b.ok, b.code], [false, 'bad-args'], JSON.stringify(pairs));
+  }
+  const { page: lp, segments: ls } = samplePage('pl1');
+  for (const b of lp.blocks) b.id = `pl1${b.id}`;
+  lp.meeting = { phase: 'recording' };
+  t.seed(lp, ls);
+  const live = fixN(db, 'pl1', [{ from: '担当A', to: '担当B' }]);
+  assert.deepStrictEqual([live.ok, live.code], [false, 'not-found'], '録音中の写しを直した');
+  assert.strictEqual(C.readSegments(db, 'pl1').find((s) => s.id === 's2').text, ls[1].text);
+  const d = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  assert.deepStrictEqual(((x) => [x.ok, x.code])(fixN(db, d, [{ from: '担当A', to: '担当B' }])), [false, 'bad-args']);
+  ok(call(db, 'page.delete', { id }), 'page.delete');
+  assert.deepStrictEqual(((x) => [x.ok, x.code])(fixN(db, id, [{ from: '担当A', to: '担当B' }])), [false, 'not-found']);
+  assert.deepStrictEqual(((x) => [x.ok, x.code])(fixN(db, 'pnone1', [{ from: '担当A', to: '担当B' }])), [false, 'not-found']);
+}));
+
+test('CS-3・F237: 白紙のページと行のページは本文と ToDo の担当だけを直す（題名は数だけ）。控えは1行', T, () => withDb((db) => {
+  const { id, blockId } = blankPage(db, '担当Aがまとめる');
+  ok(call(db, 'page.setTitle', { id, title: '担当Aのメモ' }), 'page.setTitle');   // 白紙のページの題名（利用者が付け直した題名と同じ扱い: D77）
+  const todo = ok(call(db, 'block.insert', { pageId: id, afterBlockId: blockId, type: 'todo' }), 'block.insert').result.blockId;
+  ok(call(db, 'block.update', { pageId: id, blockId: todo, patch: { text: '資料を配る' } }), 'block.update');
+  ok(call(db, 'block.setAction', { pageId: id, blockId: todo, assignee: '担当A' }), 'block.setAction');
+  const r = ok(fixN(db, id, [{ from: '担当A', to: '担当B' }]), 'mcp.fixNames(白紙)');
+  assert.deepStrictEqual(r.result.counts, { summary: 1, memo: 0, transcript: 0, assignee: 1, people: 0, title: 1, crossed: 0, tasks: 0 });
+  const p = C.readPage(db, id);
+  assert.deepStrictEqual([p.title, p.blocks[0].text, p.blocks[1].assignee], ['担当Aのメモ', '担当Bがまとめる', '担当B']);
+  assert.strictEqual(snapRows(db, id).length, 1);
+  const { row } = dbWithRow(db);
+  const w = ok(fixN(db, row, [{ from: '本文', to: '中身' }]), 'mcp.fixNames(行)');
+  assert.deepStrictEqual(w.result.counts.summary, 1);
+  assert.strictEqual(C.readPage(db, row).blocks[0].text, '行の中身');
+  assert.deepStrictEqual(snapRows(db, row).map((s) => s.what), ['names']);
+}));
+
+test('CS-3: 同じ tx の送り直しは dup で、2回目は何も直さず（控えも oplog も増えない）、答えは題名と counts: null', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const tx = txOf('mcp');
+  const a = ok(mcp(db, 'mcp.fixNames', { pageId: id, pairs: [{ from: '担当A', to: '担当B' }] }, {}, tx), '1回目');
+  const n = db.prepare('select count(*) c from oplog').get().c;
+  const b = mcp(db, 'mcp.fixNames', { pageId: id, pairs: [{ from: '担当B', to: '担当D' }] }, {}, tx);
+  assert.deepStrictEqual([b.ok, b.dup, b.result], [true, true, { title: a.result.title, counts: null }]);
+  assert.strictEqual(db.prepare('select count(*) c from oplog').get().c, n);
+  assert.strictEqual(snapRows(db, id).length, 1);
+  assert.ok(!JSON.stringify(C.readPage(db, id)).includes('担当D'), '送り直しで2回目の組を当てた');
+}));

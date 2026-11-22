@@ -231,6 +231,8 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   idOrEmpty: (v) => { if (v !== '' && (typeof v !== 'string' || !ID_RE.test(v))) throw bad('id'); return v; },
   text: (v) => { if (!isStr(v, LIMITS.text)) throw bad('text'); return v; },
   // 0.18.0 CS-2（計画 docs/plans/2026-11-18-180.md の「受け渡す名前と形」）: Claude が渡す Markdown（1〜60,000 字の文字）
+  // 0.18.0 CS-3: 名前の直しの組（照らしは src/nameFix.js の checkPairs の1か所。memoDoc と同じく読むのは使う時: memoDoc が validate を読むため）
+  namePairs: (v) => require('../nameFix').checkPairs(v),
   mdText: (v) => { if (typeof v !== 'string' || v.length < 1 || v.length > LIMITS.mdText) throw bad('mdText'); return v; },
   title: (v) => { if (!isStr(v, LIMITS.title)) throw bad('title'); return v; },
   short: (v) => { if (!isStr(v, SHORT)) throw bad('short'); return v; },

@@ -171,3 +171,78 @@ test('CS-2: routeLabel の表に「🤖 要約: Claude（本人）」（今の2�
   assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'claude-code' } }, ''), ['✨ 要約: Claude Code']);
   assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'local' } }, ''), ['🖥 要約: PC（オフライン）']);
 });
+
+// ---------------------------------------------------------------- CS-3（決めたこと 23〜26・F237）: 名前の直しの部品（src/nameFix.js）
+const NF = require('../src/nameFix');
+const throwsBad = (fn, what) => assert.throws(fn, (e) => e && e.code === 'bad-args', what);
+
+test('CS-3・F237: checkPairs の表（1字の from・空の to・from と to が同じ・改行と制御の文字・0 個と 11 個・形の違う組は投げる）', () => {
+  throwsBad(() => NF.checkPairs([{ from: '林', to: '森' }]), '1字の from');
+  throwsBad(() => NF.checkPairs([{ from: '𠮷', to: '吉田' }]), '1字（サロゲートの組）の from');
+  throwsBad(() => NF.checkPairs([{ from: '山田', to: '' }]), '空の to');
+  throwsBad(() => NF.checkPairs([{ from: '山田', to: '  ' }]), '空白だけの to');
+  throwsBad(() => NF.checkPairs([{ from: '  ', to: '山田' }]), '空白だけの from');
+  throwsBad(() => NF.checkPairs([{ from: '山田', to: '山田' }]), 'from と to が同じ');
+  throwsBad(() => NF.checkPairs([{ from: '山\n田', to: '山本' }]), '改行の from');
+  throwsBad(() => NF.checkPairs([{ from: '山田', to: '山\u0007本' }]), '制御の文字の to');
+  throwsBad(() => NF.checkPairs([{ from: '山田', to: '\u202e山本' }]), '向きの制御の文字');
+  throwsBad(() => NF.checkPairs([{ from: 'あ'.repeat(51), to: '山本' }]), '51 字の from');
+  throwsBad(() => NF.checkPairs([{ from: '山田', to: 'あ'.repeat(51) }]), '51 字の to');
+  throwsBad(() => NF.checkPairs([]), '0 個');
+  throwsBad(() => NF.checkPairs(Array.from({ length: 11 }, (_, i) => ({ from: `名前${i}`, to: `新名${i}` }))), '11 個');
+  throwsBad(() => NF.checkPairs([{ from: '山田', to: '山本', x: 1 }]), '知らない欄');
+  throwsBad(() => NF.checkPairs([{ from: 3, to: '山本' }]), '文字でない');
+  throwsBad(() => NF.checkPairs('山田'), '並びでない');
+  assert.deepStrictEqual(NF.checkPairs([{ from: '林さん', to: '森さん' }, { from: '𠮷田', to: '吉田' }]), [{ from: '林さん', to: '森さん' }, { from: '𠮷田', to: '吉田' }]);
+  assert.strictEqual(NF.checkPairs(Array.from({ length: 10 }, (_, i) => ({ from: `名前${i}`, to: `新名${i}` }))).length, 10);
+});
+
+test('CS-3・F237: fixNames の表（要約の行・メモの行・発言・ToDo の担当・参加者が変わる／題名とタスクの担当は変わらず数／飾りの区切りの中は置き換わり飾りは残る・区切りをまたぐ語は crossed に数えて変えない／組の順に1回ずつ／ひらがなとカタカナを寄せない）', () => {
+  const page = {
+    title: '山田さんと打ち合わせ',   // 利用者が付け直した題名（D77。題名の語を数えるため）
+    blocks: [
+      { id: 'b1', type: 'heading', text: '山田さんの報告', level: 2 },
+      { id: 'b2', type: 'bullet', text: '見積は山田さんが作る', cites: ['s1'] },
+      { id: 'b3', type: 'bullet', text: '担当は山田', rich: [{ t: '担当は' }, { t: '山田', m: ['b'] }], cites: [] },
+      { id: 'b4', type: 'bullet', text: '担当は山田さん', rich: [{ t: '担当は山' }, { t: '田さん', m: ['i'] }], cites: [] },
+      { id: 'b5', type: 'todo', text: '資料を配る', assignee: '山田', checked: false, task: 'r1', cites: [], children: [
+        { id: 'b6', type: 'bullet', text: 'ヤマダ・やまだ・山田', cites: [] },
+      ] },
+    ],
+    memo: '山田さんに聞く',
+    memoDoc: [{ id: 'm1', type: 'paragraph', text: '山田さんに聞く', citeState: 'manual' }],
+    cells: { c3: ['山田', '佐藤'], c9: '山田' },
+  };
+  const segs = [
+    { id: 's1', atMs: 0, text: '見積は山田さんが作ります', parts: [{ at: 0, ms: 0 }] },
+    { id: 's2', atMs: 1000, text: '（この区間の認識に失敗: 山田）', failed: true },
+    { id: 's3', atMs: 2000, text: '佐藤です' },
+  ];
+  const before = JSON.stringify({ page, segs });
+  const r = NF.fixNames(page, segs, [{ from: '山田', to: '山本' }], { tasks: ['山田', '鈴木'], people: ['c3'] });
+  assert.strictEqual(JSON.stringify({ page, segs }), before, '受けた物を書き換えた');
+  const flat = (list) => list.flatMap((b) => [b, ...flat(b.children || [])]);
+  assert.deepStrictEqual(flat(r.page.blocks).map((b) => b.text), ['山本さんの報告', '見積は山本さんが作る', '担当は山本', '担当は山田さん', '資料を配る', 'ヤマダ・やまだ・山本']);
+  assert.deepStrictEqual(r.page.blocks[2].rich, [{ t: '担当は' }, { t: '山本', m: ['b'] }], '飾りが外れた');
+  assert.deepStrictEqual(r.page.blocks[3].rich, page.blocks[3].rich, '区切りをまたぐ語を置き換えた');
+  assert.strictEqual(r.page.blocks[4].assignee, '山本');
+  assert.deepStrictEqual([r.page.memoDoc[0].text, r.page.memo], ['山本さんに聞く', '山本さんに聞く\n'], '素の文字のメモをメモの行から作り直していない');
+  assert.deepStrictEqual(r.page.cells, { c3: ['山本', '佐藤'], c9: '山田' }, '参加者の列のほかを直した・参加者が直らない');
+  assert.strictEqual(r.page.title, '山田さんと打ち合わせ', '題名を直した');
+  assert.deepStrictEqual(r.segments.map((s) => s.text), ['見積は山本さんが作ります', '（この区間の認識に失敗: 山田）', '佐藤です']);
+  assert.strictEqual(r.segments[0].parts, undefined, '文を変えた発言の文の頭（parts）が古いまま');
+  assert.deepStrictEqual(r.segIds, ['s1']);
+  assert.deepStrictEqual(r.counts, { summary: 4, memo: 1, transcript: 1, assignee: 1, people: 1, title: 1, crossed: 1, tasks: 1 });
+  assert.deepStrictEqual([...r.changedBlocks].sort(), ['b1', 'b2', 'b3', 'b5', 'b6']);
+  // 組の順に1回ずつ（A→B・B→C で A は B のまま、もとの B は C）
+  const two = NF.fixNames({ blocks: [{ id: 'x', type: 'bullet', text: '山田と佐藤と山田' }] }, [], [{ from: '山田', to: '佐藤' }, { from: '佐藤', to: '鈴木' }]);
+  assert.strictEqual(two.page.blocks[0].text, '佐藤と鈴木と佐藤');
+  assert.deepStrictEqual(two.counts.summary, 3);
+  // 当たりが無ければ数は 0 で、ページと発言はそのまま
+  const none = NF.fixNames(page, segs, [{ from: '該当なし', to: '山本' }], { tasks: ['山田'], people: ['c3'] });
+  assert.deepStrictEqual(none.counts, { summary: 0, memo: 0, transcript: 0, assignee: 0, people: 0, title: 0, crossed: 0, tasks: 0 });
+  assert.deepStrictEqual([none.page, none.segments, none.segIds], [page, segs, []]);
+  // 参加者の名前が重なったら1つにまとめる（人の列は同じ名前を2つ持たない）
+  const dup = NF.fixNames({ blocks: [], cells: { c3: ['山田', '山本'] } }, [], [{ from: '山田', to: '山本' }], { people: ['c3'] });
+  assert.deepStrictEqual([dup.page.cells.c3, dup.counts.people], [['山本'], 1]);
+});
