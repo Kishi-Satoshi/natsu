@@ -92,7 +92,8 @@ const BLANK_UNTITLED = '無題のページ';
 const isBlank = (x) => Boolean(x) && x.kind === 'blank';
 // 0.16.0 DX-3（計画 docs/plans/2026-11-04-160.md の決めたこと 49・F145・R103）: データベースの印（会議の種類と長さの代わり）・無題の名前・続きの1行
 const DB_UNTITLED = '無題のデータベース';
-const DB_MORE = '行は NaTsu で見てください（Claude からの絞り込みは 0.18.0 の道具で）';
+// 0.18.0 CT-3（M12・計画の「意図して変えるテスト」）: 続きは query_database の offset で読める（0.16.0 の字の意図「続きの読み方を伝える」は残す）
+const DB_MORE = '行の続きは query_database の offset で読めます';
 const dbLabel = (n) => `データベース（行 ${Number(n) || 0}）`;
 const isDb = (x) => Boolean(x) && x.kind === 'database';
 // 題名の1行（無題は白紙のページなら「無題のページ」・データベースは「無題のデータベース」・議事録は「(無題の議事録)」）
@@ -336,6 +337,21 @@ function dbLines(dump) {
   if (d.total > d.rows.length) out.push(DB_MORE);
   return out;
 }
+// 0.18.0 CT-3（計画 docs/plans/2026-11-18-180.md の決めたこと 34・F240・RF77）: query_database の行の1行「- 題名｜列の名前: 値｜…｜ID <行の ID>」。
+// どの文字も safeLine（列の名前・選択肢の名前・セルの改行や向きの制御の文字で答えの形を偽らせない）。行の ID は DB の ID の形（ID_RE）
+function queryRowLine(r) {
+  const vals = r.vals.map(([n, v]) => [safeLine(n), safeLine(v)]).filter((x) => x[1] !== '');
+  return `- ${[safeLine(r.title) || BLANK_UNTITLED, ...vals.map(([n, v]) => `${n}: ${v}`), `ID ${r.id}`].join('｜')}`;
+}
+// 0.18.0 CT-3（決めたこと 39）: 行の ID で読む行のページ（題名・場所（データベースの場所と名前）・版・ID・リンク・「## 行」（列の値。dbLines の行と同じ形）・
+// 「## 本文」（白紙のページの本文と同じ形））。r は commands.claudeRowOf の答え。place・subTitle は呼び手が1行にしたもの
+function rowMarkdown(r, { place = '', subTitle, budget = 12000 } = {}) {
+  const page = r.page;
+  const head = [NOTICE, `# ${safeLine(page.title || '') || BLANK_UNTITLED}`, ...(place ? [`- 場所: ${place}`] : []), `- 版: r${Number(page.rev) || 0}`, `- ID: ${page.id}`, ...linkLine(page.id)].join('\n');
+  const vals = r.vals.map(([n, v]) => [safeLine(n), safeLine(v)]).filter((x) => x[1] !== '');
+  const rest = ['## 行', `- ${[safeLine(r.title) || BLANK_UNTITLED, ...vals.map(([n, v]) => `${n}: ${v}`)].join('｜')}`, ...summaryLines({ ...page, kind: 'blank' }, subTitle)];
+  return [head, fitLines(rest, budget - head.length - 1)].join('\n');
+}
 // 0.11.0 T-6（決めたこと 40）: 要約の後の点の節（軸の名前・点・理由・出典の印）。点が無い・壊れていれば []
 function qualityLinesOf(page) {
   const qv = qualityOf(page.quality);
@@ -422,4 +438,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { BLANK_LABEL, BLANK_UNTITLED, isBlank, DB_UNTITLED, DB_MORE, dbLabel, isDb, titleLine, UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { BLANK_LABEL, BLANK_UNTITLED, isBlank, DB_UNTITLED, DB_MORE, dbLabel, isDb, titleLine, dbLines, queryRowLine, rowMarkdown, linkLine, UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

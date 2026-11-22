@@ -1227,7 +1227,8 @@ const DH1_QUOTES = [
   ['start/claude-mcp', 'データベース（行 …）', [['src/mcp/format.js', 't', 'データベース（行 ${Number(n) || 0}）']]],
   ['start/claude-mcp', '## 列', [['src/mcp/format.js', 'q', '## 列']]],
   ['start/claude-mcp', '## 行', [['src/mcp/format.js', 'q', '## 行']]],
-  ['start/claude-mcp', '行は NaTsu で見てください（Claude からの絞り込みは 0.18.0 の道具で）', [['src/mcp/format.js', 'q', '行は NaTsu で見てください（Claude からの絞り込みは 0.18.0 の道具で）']]],
+  // 0.18.0 CT-3 で意図して直した（format.js の続きの1行: M12。記事の残りの文は CH-1）
+  ['start/claude-mcp', '行の続きは query_database の offset で読めます', [['src/mcp/format.js', 'q', '行の続きは query_database の offset で読めます']]],
 ];
 test('DH-1: 記事が「…」で写した画面の文は、記事にその形であり、その文を作るコードの文字列にもある（知らせ・確かめの文を直すと記事も直す）', { timeout: 5000 }, () => {
   const src = new Map();

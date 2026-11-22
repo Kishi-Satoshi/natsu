@@ -246,3 +246,114 @@ test('CS-3・F237: fixNames の表（要約の行・メモの行・発言・ToDo
   const dup = NF.fixNames({ blocks: [], cells: { c3: ['山田', '山本'] } }, [], [{ from: '山田', to: '山本' }], { people: ['c3'] });
   assert.deepStrictEqual([dup.page.cells.c3, dup.counts.people], [['山本'], 1]);
 });
+
+// ---------------------------------------------------------------- CT-3（決めたこと 34〜38・F240・F241）: データベースの問い合わせと書く値の読み替え（src/mcp/dbQuery.js）
+const DQ = require('../src/mcp/dbQuery');
+const DV = require('../src/dbView');
+const DMOD = require('../src/dbModel');
+// データベースの列（作った物）: 題名・テキスト・数値・選択・複数選択・ステータス・日付・ユーザー・チェック・リレーション・作成者・作成日時・ID・消した列
+const QCOLS = [
+  { id: 'title', name: '名前', type: 'title' },
+  { id: 'c1', name: 'メモ', type: 'text' },
+  { id: 'c2', name: '金額', type: 'number', fmt: 'plain' },
+  { id: 'c3', name: '区分', type: 'select', opts: [{ id: 'o1', name: '社内', color: 'default' }, { id: 'o2', name: '社外', color: 'blue' }] },
+  { id: 'c4', name: 'タグ', type: 'multi', opts: [{ id: 'o1', name: '急ぎ', color: 'red' }, { id: 'o2', name: '確認', color: 'gray' }] },
+  { id: 'c5', name: 'ステータス', type: 'status', opts: [{ id: 'o1', name: '未着手', color: 'default' }, { id: 'o2', name: '進行中', color: 'blue' }, { id: 'o3', name: '完了', color: 'green' }], groups: { todo: ['o1'], doing: ['o2'], done: ['o3'] } },
+  { id: 'c6', name: '期限', type: 'date' },
+  { id: 'c7', name: '担当', type: 'person' },
+  { id: 'c8', name: '済み', type: 'check' },
+  { id: 'c9', name: '関連', type: 'rel', db: 'pother' },
+  { id: 'c10', name: '作成者', type: 'cby' },
+  { id: 'c11', name: '作成日時', type: 'ctime' },
+  { id: 'c12', name: '番号', type: 'no' },
+  { id: 'c13', name: '消した列', type: 'text', gone: true },
+];
+const QVIEWS = [
+  { id: 'v1', name: 'すべて', layout: 'table', props: [], sort: [{ col: 'c2', dir: 'desc' }], filter: null, group: null, agg: {} },
+  { id: 'v2', name: '社内だけ', layout: 'table', props: [], sort: [], filter: { op: 'and', items: [{ col: 'c3', cmp: 'any', value: ['o1'] }] }, group: { col: 'c3' }, agg: {} },
+];
+const condsOf = (v) => (v.filter ? v.filter.items : []);
+
+test('CT-3・F240: toView の表: 列の名前 → ID・選択肢の名前 → ID・「自分」「Claude」「NaTsu」→ me・claude・system・日付・between・match any → or・sort。条件は normalizeView を通した形で FILTER_OPS の中だけ', () => {
+  const r = DQ.toView({ filters: [
+    { column: 'メモ', op: 'contains', value: '見積' },
+    { column: '金額', op: 'ge', value: 100 },
+    { column: '区分', op: 'any', value: ['社外'] },
+    { column: 'タグ', op: 'anyOf', value: '急ぎ' },
+    { column: 'ステータス', op: 'none', value: '完了' },
+    { column: '期限', op: 'between', value: { from: '2026-11-01', to: '2026-11-30' } },
+    { column: '期限', op: 'before', value: '2026-12-01' },
+    { column: '担当', op: 'contains', value: '担当A' },
+    { column: '済み', op: 'no' },
+    { column: '作成者', op: 'any', value: ['自分', 'Claude', 'NaTsu'] },
+  ], match: 'any', sort: [{ column: '期限', dir: 'asc' }] }, QCOLS, QVIEWS);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.deepStrictEqual(r.view.filter, { op: 'or', items: [
+    { col: 'c1', cmp: 'contains', value: '見積' }, { col: 'c2', cmp: 'ge', value: 100 }, { col: 'c3', cmp: 'any', value: ['o2'] },
+    { col: 'c4', cmp: 'anyOf', value: ['o1'] }, { col: 'c5', cmp: 'none', value: ['o3'] },
+    { col: 'c6', cmp: 'between', value: { from: '2026-11-01', to: '2026-11-30' } }, { col: 'c6', cmp: 'before', value: '2026-12-01' },
+    { col: 'c7', cmp: 'contains', value: '担当A' }, { col: 'c8', cmp: 'no' }, { col: 'c10', cmp: 'any', value: ['me', 'claude', 'system'] },
+  ] });
+  // 並べ替え: 渡した並べ替えの後に、ビュー（名前を渡さなければ最初のビュー）の並べ替え（同じ列は重ねない）
+  assert.deepStrictEqual(r.view.sort, [{ col: 'c6', dir: 'asc' }, { col: 'c2', dir: 'desc' }]);
+  assert.strictEqual(r.pre, null, 'ビューの名前を渡さないのに、ビューの絞り込みを使った');
+  assert.strictEqual(r.view.group, null);
+  for (const c of condsOf(r.view)) assert.ok(DV.FILTER_OPS[QCOLS.find((x) => x.id === c.col).type].includes(c.cmp), JSON.stringify(c));
+  assert.deepStrictEqual(DV.normalizeView(r.view, QCOLS).repaired, [], 'normalizeView が直した（条件が FILTER_OPS の外）');
+  // ビューの名前: そのビューの絞り込み（先に当てる pre）と並べ替え。グループは使わない
+  const v = DQ.toView({ view: '社内だけ', filters: [{ column: 'メモ', op: 'notEmpty' }] }, QCOLS, QVIEWS);
+  assert.deepStrictEqual([v.ok, v.pre, v.view.filter, v.view.sort, v.view.group], [true, { op: 'and', items: [{ col: 'c3', cmp: 'any', value: ['o1'] }] }, { op: 'and', items: [{ col: 'c1', cmp: 'notEmpty' }] }, [], null]);
+  // 条件が無ければ絞らない
+  assert.deepStrictEqual(((x) => [x.ok, x.view.filter, x.pre])(DQ.toView({}, QCOLS, QVIEWS)), [true, null, null]);
+  // 選択肢と列の名前は大文字小文字・全角半角を寄せて当てる（dbModel の foldName）
+  assert.deepStrictEqual(DQ.toView({ filters: [{ column: '作成者', op: 'any', value: 'claude' }] }, QCOLS, QVIEWS).view.filter.items, [{ col: 'c10', cmp: 'any', value: ['claude'] }]);
+});
+
+test('CT-3・F240: toView の表: 無い列（消した列も）・その種類に無い op・無い選択肢・形の悪い値・知らないビューの名前・並べ替えの無い列は { ok: false, at, why }（1つでも落ちたら絞らない）', () => {
+  const bad = (args) => { const r = DQ.toView(args, QCOLS, QVIEWS); assert.strictEqual(r.ok, false, JSON.stringify(args)); assert.strictEqual(r.view, undefined, '落ちたのにビューを返した'); return [r.at, r.why]; };
+  const two = (f) => ({ filters: [{ column: 'メモ', op: 'contains', value: '見積' }, f] });
+  assert.deepStrictEqual(bad(two({ column: '無い列', op: 'contains', value: 'x' })), ['filter:2', 'no-col']);
+  assert.deepStrictEqual(bad(two({ column: '消した列', op: 'contains', value: 'x' })), ['filter:2', 'no-col']);
+  assert.deepStrictEqual(bad(two({ column: '金額', op: 'contains', value: 'x' })), ['filter:2', 'no-op']);
+  assert.deepStrictEqual(bad(two({ column: '区分', op: 'any', value: ['無い名前'] })), ['filter:2', 'no-opt']);
+  assert.deepStrictEqual(bad(two({ column: '作成者', op: 'any', value: ['だれか'] })), ['filter:2', 'bad-value']);
+  assert.deepStrictEqual(bad(two({ column: '金額', op: 'ge', value: '100' })), ['filter:2', 'bad-value']);
+  assert.deepStrictEqual(bad(two({ column: '期限', op: 'before', value: '2026-02-30' })), ['filter:2', 'bad-value']);
+  assert.deepStrictEqual(bad(two({ column: '期限', op: 'between', value: { from: '2026-12-01', to: '2026-11-01' } })), ['filter:2', 'bad-value']);
+  assert.deepStrictEqual(bad(two({ column: '済み', op: 'yes', value: true })), ['filter:2', 'bad-value']);
+  assert.deepStrictEqual(bad(two({ column: 'メモ', op: 'contains', value: '' })), ['filter:2', 'bad-value']);
+  assert.deepStrictEqual(bad(two({ column: 'メモ', op: 'contains', value: '、。' })), ['filter:2', 'bad-value']);   // 寄せると空の語は全部に当たる（dbView と同じ）
+  assert.deepStrictEqual(bad({ view: '無いビュー' }), ['view', 'no-view']);
+  assert.deepStrictEqual(bad({ sort: [{ column: '期限', dir: 'asc' }, { column: '無い列', dir: 'asc' }] }), ['sort:2', 'no-col']);
+  // SQL や検索の文法の字はただの文字（そのまま値になる）
+  const q = DQ.toView({ filters: [{ column: 'メモ', op: 'contains', value: '"見積" AND 100%' }] }, QCOLS, QVIEWS);
+  assert.deepStrictEqual(q.view.filter.items, [{ col: 'c1', cmp: 'contains', value: '"見積" AND 100%' }]);
+});
+
+test('CT-3・F241: cellsFromNames の表: 列の名前 → ID・選択肢の名前 → ID・人は名前の並び・日付・null は空。書けない列（作成日時・作成者・ID・「議事録」の読む列）は read-only・無い選択肢は no-opt（今ある名前を添える）・題名は title・無い列は no-col・形の悪い値は bad-value。「議事録」は参加者（ユーザー）だけ', () => {
+  const r = DQ.cellsFromNames({ メモ: '見積の件', 金額: 1200, 区分: '社外', タグ: ['急ぎ', '確認'], ステータス: '進行中', 期限: '2026-11-30', 担当: '担当A', 済み: true, 関連: ['r1', 'r2'] }, QCOLS);
+  assert.deepStrictEqual(r, { ok: true, cells: { c1: '見積の件', c2: 1200, c3: 'o2', c4: ['o1', 'o2'], c5: 'o2', c6: { start: '2026-11-30' }, c7: ['担当A'], c8: true, c9: ['r1', 'r2'] } });
+  assert.deepStrictEqual(DQ.cellsFromNames({ 期限: { from: '2026-11-01', to: '2026-11-03' }, 担当: ['担当A', '担当B'], メモ: null, 済み: false }, QCOLS).cells, { c6: { start: '2026-11-01', end: '2026-11-03' }, c7: ['担当A', '担当B'], c1: null, c8: null });
+  const no = (cells, opts) => { const x = DQ.cellsFromNames(cells, QCOLS, opts); assert.strictEqual(x.ok, false, JSON.stringify(cells)); return x; };
+  for (const name of ['作成者', '作成日時', '番号']) assert.deepStrictEqual(((x) => [x.col, x.why])(no({ [name]: 'x' })), [name, 'read-only'], name);
+  assert.deepStrictEqual(no({ 区分: '無い名前' }), { ok: false, col: '区分', why: 'no-opt', opts: ['社内', '社外'] });
+  assert.deepStrictEqual(no({ タグ: ['急ぎ', '無い名前'] }), { ok: false, col: 'タグ', why: 'no-opt', opts: ['急ぎ', '確認'] });
+  assert.deepStrictEqual(((x) => [x.col, x.why])(no({ 名前: '題' })), ['名前', 'title']);
+  assert.deepStrictEqual(((x) => [x.col, x.why])(no({ 無い列: 'x' })), ['無い列', 'no-col']);
+  assert.deepStrictEqual(((x) => [x.col, x.why])(no({ 消した列: 'x' })), ['消した列', 'no-col']);
+  for (const [name, v] of [['金額', '12'], ['期限', '11/30'], ['済み', 'はい'], ['関連', ['r 1']], ['メモ', 3]]) assert.deepStrictEqual(no({ [name]: v }).why, 'bad-value', name);
+  // 「議事録」: 書けるのは参加者（ユーザーの列）だけ。日付・作成者・要約（読む列）と題名は書けない
+  const MCOLS = [{ id: 'title', name: '名前', type: 'title' }, { id: 'c1', name: '日付', type: 'mdate' }, { id: 'c2', name: '作成者', type: 'cby' }, { id: 'c3', name: '参加者', type: 'person' }, { id: 'c4', name: '要約', type: 'msum' }, { id: 'c5', name: '足した列', type: 'text' }];
+  assert.deepStrictEqual(DQ.cellsFromNames({ 参加者: ['担当A'] }, MCOLS, { minutes: true }), { ok: true, cells: { c3: ['担当A'] } });
+  for (const name of ['日付', '作成者', '要約', '足した列']) assert.deepStrictEqual(DQ.cellsFromNames({ [name]: 'x' }, MCOLS, { minutes: true }).why, 'read-only', name);
+  assert.deepStrictEqual(DQ.cellsFromNames({ 名前: 'x' }, MCOLS, { minutes: true }).why, 'title');
+});
+
+test('CT-3: OPS_HELP は FILTER_OPS から作った、列の種類の名前ごとの op の表（手で書かない・どの種類の op も載る）', () => {
+  assert.strictEqual(typeof DQ.OPS_HELP, 'string');
+  for (const [type, ops] of Object.entries(DV.FILTER_OPS)) {
+    const line = DQ.OPS_HELP.split('\n').find((l) => l.split(': ')[0].split('・').includes(DMOD.COLS[type].label));
+    assert.ok(line, `${type} の行が無い`);
+    assert.deepStrictEqual(line.split(': ')[1].split('・'), ops, type);
+  }
+});

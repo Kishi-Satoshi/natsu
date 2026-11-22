@@ -14,13 +14,15 @@ const meetingType = require('../meetingType');
 const { ID_RE } = require('../db/validate');
 const natsulink = require('../natsulink');
 const PT = require('../pageTree');
+// 0.18.0 CT-3: データベースの問い合わせの読み替え（純粋）
+const DQ = require('./dbQuery');
 
 const MAX_RESULT_CHARS = 12000;
 // 箇所の検索の候補（決めたこと 71）: 語ごとに引く行の上限と、読んで箇所に切る会議の数。テストだけ callTool の第3引数で小さくできる（環境変数ではない: 決めたこと 33）
 const CAND_MAX = 5000;
 const PAGE_CAND = 40;
 // [既定, 最大]
-const LIMITS = Object.freeze({ list: [20, 100], passages: [8, 20], perMeeting: [3, 10], actions: [50, 200] });
+const LIMITS = Object.freeze({ list: [20, 100], passages: [8, 20], perMeeting: [3, 10], actions: [50, 200], query: [50, 100] });   // 0.18.0 CT-3: query_database の行
 const OFFSET_MAX = 10000;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SEG_RE = /^s\d{1,6}$/;
@@ -114,6 +116,8 @@ const TOOLS = Object.freeze([
   },
 ]);
 const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
+// 0.18.0 CT-3: 本体と引数の照らしだけ先に作った道具（tools/list に載せて Claude から呼べるようにするのは CT-4。rpc は tools/list の名前しか通さない）
+const LATER = new Set(['query_database']);
 
 // ---------------------------------------------------------------- 引数の照らし
 // 本当にある日か
@@ -156,6 +160,21 @@ const refsType = (max) => (v) => {
   return out.every(Boolean) ? out : undefined;
 };
 
+// 0.18.0 CT-3（決めたこと 34）: query_database の引数の形（条件は 10・並べ替えは 3 まで。列とビューの名前は 100 字・op は FILTER_OPS の鍵の文字の形・
+// 値は文字（200 字）・数・文字の並び（200 まで）・{ from, to }・無し。値の意味は dbQuery.toView が列の種類で見る）
+const isPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const nameOk = (v) => typeof v === 'string' && v.length >= 1 && v.length <= 100;
+const filterValueOk = (v) => v === undefined || v === null || (typeof v === 'string' && v.length <= 200) || (typeof v === 'number' && Number.isFinite(v))
+  || (Array.isArray(v) && v.length >= 1 && v.length <= 200 && v.every((x) => typeof x === 'string' && x.length <= 200))
+  || (isPlain(v) && Object.keys(v).length === 2 && typeof v.from === 'string' && typeof v.to === 'string' && v.from.length <= 10 && v.to.length <= 10);
+const Q_TYPES = {
+  name: (v) => (nameOk(v) ? v : undefined),
+  match: (v) => (v === 'all' || v === 'any' ? v : undefined),
+  filters: (v) => (Array.isArray(v) && v.length >= 1 && v.length <= 10 && v.every((f) => isPlain(f) && Object.keys(f).every((k) => ['column', 'op', 'value'].includes(k))
+    && nameOk(f.column) && typeof f.op === 'string' && /^[A-Za-z]{1,20}$/.test(f.op) && filterValueOk(f.value)) ? v.map((f) => ({ ...f })) : undefined),
+  sort: (v) => (Array.isArray(v) && v.length >= 1 && v.length <= 3 && v.every((x) => isPlain(x) && Object.keys(x).length === 2 && nameOk(x.column) && (x.dir === 'asc' || x.dir === 'desc')) ? v.map((x) => ({ ...x })) : undefined),
+};
+
 // 道具ごとの引数（名前 → [型, 例の文]）
 const SPECS = {
   list_meetings: {
@@ -185,8 +204,13 @@ const SPECS = {
     assignee: [ARG_TYPES.assignee, 'assignee は 50 文字までの名前です。'], from: [ARG_TYPES.date], to: [ARG_TYPES.date],
     limit: [limitType(LIMITS.actions[1]), `limit は 1〜${LIMITS.actions[1]} の数です。`], offset: [offsetType(OFFSET_MAX), `offset は 0〜${OFFSET_MAX} の数です。`],
   },
+  // 0.18.0 CT-3（決めたこと 34）: 形だけを見る（列・選択肢・値の読み替えは dbQuery.toView。例の文は CT-4 で道具の表と一緒に足す）
+  query_database: {
+    database: [ARG_TYPES.ref], view: [Q_TYPES.name], filters: [Q_TYPES.filters], match: [Q_TYPES.match], sort: [Q_TYPES.sort],
+    limit: [limitType(LIMITS.query[1])], offset: [offsetType(OFFSET_MAX)],
+  },
 };
-const REQUIRED = { search_passages: ['query'], get_meeting: ['id'], expand_passage: ['anchor'] };
+const REQUIRED = { search_passages: ['query'], get_meeting: ['id'], expand_passage: ['anchor'], query_database: ['database'] };
 const COMMON_EXAMPLE = {
   from: 'from は 2026-10-20 のような YYYY-MM-DD です。',
   to: 'to は 2026-10-20 のような YYYY-MM-DD です。',
@@ -373,11 +397,22 @@ const DB_READ_ROWS = 100;
 const rowCountOf = (db, id) => commands.dbRowCountOf(db, id);   // 0.17.0 点検 3（rv60 重要 2・R69）: 表と同じ数え方（テンプレートは数えない・「議事録」は議事録の行も）
 const dumpOf = (db, page, now) => (F.isDb(page) ? commands.dbDump(db, page.id, DB_READ_ROWS, now.getTime()) : null);
 
-// get_meeting（決めたこと 114）。一覧に出す行に無い ID（無い・ゴミ箱・録音中の写し）は not-found
+// 0.18.0 CT-3（計画 docs/plans/2026-11-18-180.md の決めたこと 39・F243）: get_meeting に行の ID。データベースの生きている行のページ（題名・場所（データベースの
+// 場所と名前）・版・列の値・本文）。テンプレートの行・ゴミ箱の行・ゴミ箱のデータベースの行は not-found。行に文字起こしは無い（transcript_from は no-seg）
+function getRow(db, args, all) {
+  const r = commands.claudeRowOf(db, args.id);
+  if (!r) return { error: 'not-found' };
+  if (args.transcript_from) return { error: 'no-seg' };
+  const places = placesOf(shownOf(all));
+  const place = [places.place(r.dbId), F.titleLine({ title: r.dbTitle, kind: 'database' })].filter(Boolean).join(' / ');
+  return { text: F.rowMarkdown(r, { place, subTitle: places.kidTitle(args.id), budget: MAX_RESULT_CHARS }), count: 1 };
+}
+
+// get_meeting（決めたこと 114）。一覧に出す行に無い ID（無い・ゴミ箱・録音中の写し）は not-found（0.18.0 CT-3: データベースの行の ID は行のページ）
 function getMeeting(db, args, { now }) {
   const all = commands.listedRows(db);
   const row = all.find((r) => r.id === args.id);
-  if (!row) return { error: 'not-found' };
+  if (!row) return getRow(db, args, all);
   const places = placesOf(shownOf(all));   // 0.15.0 PH-7: 場所と子ページの行の題名（一覧に出る行だけ。0.17.0 MG-2: 「議事録」の子に場所を付けない）
   const page = commands.readPage(db, args.id);
   if (!page) return { error: 'not-found' };
@@ -553,11 +588,31 @@ function listActionItems(db, args, { now }) {
   return { text: [...head, ...lines].join('\n'), count: all.length ? i - offset : 0 };
 }
 
-const BODIES = { list_action_items: listActionItems, list_meetings: listMeetings, search_passages: searchPassages, get_meeting: getMeeting, get_meetings: getMeetings, expand_passage: expandPassage };
+// 0.18.0 CT-3（計画 docs/plans/2026-11-18-180.md の決めたこと 34・F240・RF77）: query_database。列・選択肢・作成者の名前を dbQuery.toView で読み替え、
+// 1つでも読めなければ絞らずに bad-filter（どの条件かは bad に）。行は表と同じ1か所（commands.dbQueryRead）。答えは頭（題名・データベース（行 n）・ID）・
+// 「## 列」・「## 行」（1行に「- 題名｜列の名前: 値｜…｜ID 行の ID」）・続きの offset（12,000 字の決まりのまま。行の途中では切らない）
+function queryDatabase(db, args, { now }) {
+  const offset = args.offset || 0;
+  const r = commands.dbQueryRead(db, args.database, (cols, views) => DQ.toView(args, cols, views), now.getTime(), { offset, limit: args.limit || LIMITS.query[0] });
+  if (r.error) return { error: r.error, bad: r.bad };
+  const head = [F.header(now), `# ${F.titleLine({ title: r.title, kind: 'database' })}`, `- ${F.dbLabel(r.total)}`, `- ID: ${r.id}`, ...F.dbLines({ total: 0, cols: r.cols, rows: [] })];
+  const lines = [];
+  let size = head.join('\n').length;
+  for (const row of r.rows) {
+    const line = F.queryRowLine(row);
+    if (size + 1 + line.length + 40 > MAX_RESULT_CHARS) break;
+    size += 1 + line.length;
+    lines.push(line);
+  }
+  const next = offset + lines.length;
+  return { text: [...head, ...lines, ...(next < r.hits ? [`続き: offset ${next}`] : [])].join('\n'), count: lines.length };
+}
+
+const BODIES = { query_database: queryDatabase, list_action_items: listActionItems, list_meetings: listMeetings, search_passages: searchPassages, get_meeting: getMeeting, get_meetings: getMeetings, expand_passage: expandPassage };
 
 // callTool(name, args, { sqlite, dataDir, now, fs }) → { text, isError, code?, count? }。知らない名前は投げる
 function callTool(name, args, ctx = {}) {
-  if (!TOOL_NAMES.has(name)) throw new Error('知らない道具');
+  if (!TOOL_NAMES.has(name) && !LATER.has(name)) throw new Error('知らない道具');
   const checked = checkToolArgs(name, args);
   if (!checked.ok) return { text: checked.text, isError: true, code: 'bad-arg' };
   const body = BODIES[name];

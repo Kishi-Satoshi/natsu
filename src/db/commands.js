@@ -67,7 +67,7 @@ const { UNDO_CMDS } = require('../undoBook');
 const pageLookLib = require('../pageLook');   // 0.15.0 PL-2: 全部既定の見た目は欄を消す（isPlainLook）
 const RT = require('../richText');
 const S = require('./search');
-const { LIMITS } = require('./validate');
+const { LIMITS, LINE_CTRL_RE } = require('./validate');
 // 0.14.0 MB-2（決めたこと 59〜64・R74・R76）: メモの行（素の文字のメモ memo は memoPlain(memoDoc) で作り直す）
 const MD = require('../memoDoc');
 // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 10〜14）: Claude の変更の控え（page_snapshot）の中身と戻す形
@@ -78,6 +78,7 @@ const TL = require('../mcp/timeline');
 // 0.18.0 CS-3（決めたこと 23〜26）: Claude の名前の直し（要約・メモ・発言・担当・参加者を1回で。純粋な部品）
 const NF = require('../nameFix');
 const { markdownToBlocks } = require('../minutes');   // 0.18.0 CT-2: Claude が渡す Markdown を本文の行に（要約の書き戻しと同じ読み方。飾りは落ちる）
+const DQ = require('../mcp/dbQuery');   // 0.18.0 CT-3: Claude が名前で渡すセルの読み替え（MCP の道具の先の照らしと同じ1か所）
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -3499,6 +3500,146 @@ function appendPageDup(db, a, row) {
   return p ? { title: p.title, rows: ops.filter((o) => o && o.op === 'add').length } : null;
 }
 
+// ---------------------------------------------------------------- Claude のデータベースの問い合わせと行（0.18.0 CT-3。計画 docs/plans/2026-11-18-180.md の
+// 決めたこと 34〜40・F240・F241）
+// 行の題名を Claude が付けるときの照らし（1行・空白だけでない。字の数は型 title の 500 字）
+const rowTitleOk = (t) => typeof t === 'string' && t.trim() !== '' && !LINE_CTRL_RE.test(t);
+// 照らしたセル（列の ID → 値 | null）をリレーションとほかに分ける
+function splitRelCells(d, cells) {
+  const plain = {};
+  const rels = [];
+  for (const [k, v] of Object.entries(cells)) {
+    if (colIn(d.cols, k).type === 'rel') rels.push([k, v || []]); else plain[k] = v;
+  }
+  return { plain, rels };
+}
+// リレーションのセルを ids の並びにする（足す相手と外す相手を rel.link・rel.unlink と同じ部品 relEdit で。相手の行の照らし（生きている行・テンプレートで
+// ない）と対の列もそこの1か所）→ { ops, pageIds }
+function setRelCell(db, d, id, colId, ids, ctx) {
+  const r = db.prepare(HOT_QUERIES.dbRow).get(id);
+  const now = r ? (parseOr(r.attrs) || {}).cells : null;
+  const have = isObj(now) && Array.isArray(now[colId]) ? now[colId] : [];
+  const out = { ops: [], pageIds: [] };
+  const drop = have.filter((x) => !ids.includes(x));
+  const add = ids.filter((x) => !have.includes(x));
+  for (const [list, on] of [[drop, false], [add, true]]) {
+    if (!list.length) continue;
+    const e = relEdit(db, { db: d.id, id, col: colId, ids: list }, ctx, on);
+    out.ops.push(...e.ops);
+    out.pageIds.push(...e.pageIds);
+  }
+  return out;
+}
+// mcp.addRow（役 mcp）: データベースに行を1つ足す（0.16.0 の row.add と同じ部品 rowAdd・リレーションは relEdit・本文は Markdown の行。1つの命令で
+// oplog の1行）。作成者は Claude（actor）。行のテンプレートは当てない（CR19）。控えは作らない（CR6）。ロック中のデータベースにも足せる（D152・AQ4 (a)）。
+// 断る: 無い・ゴミ箱のデータベースは not-found、「議事録」・書けない列・題名の列・無い列・無い選択肢（選択肢は足さない: CR18）・形の悪い値・
+// ゴミ箱の相手のリレーション・空と改行の題名は bad-args、行の上限（1 万）と本文の 2,000 行は too-big
+function mcpAddRow(db, a, ctx) {
+  const d = dbOf(db, a.db);
+  if (!d) throw refuse('not-found');
+  if (isMinutesDb(d)) throw refuse('bad-args');   // 「議事録」には足さない（会議は NaTsu で録音すると入る: 決めたこと 35）
+  if (!rowTitleOk(a.title)) throw refuse('bad-args');
+  const m = DQ.cellsFromNames(a.cells || {}, d.cols);
+  if (!m.ok) throw refuse('bad-args');
+  const { plain, rels } = splitRelCells(d, m.cells);
+  for (const k of Object.keys(plain)) if (plain[k] === null) delete plain[k];
+  const body = a.md === undefined ? [] : mdRows(db, ctx, a.md);
+  if (body.length > LIMITS.blocks) throw refuse('too-big');
+  const add = rowAdd(db, { db: d.id, title: a.title, cells: plain }, ctx);
+  const id = add.result.id;
+  const ops = [...add.ops];
+  const pageIds = new Set(add.pageIds);
+  for (const [colId, ids] of rels) {
+    if (!ids.length) continue;
+    const e = setRelCell(db, d, id, colId, ids, ctx);
+    ops.push(...e.ops);
+    for (const p of e.pageIds) pageIds.add(p);
+  }
+  if (body.length) {
+    const w = forWrite(db, id);
+    w.page.blocks = body;
+    pageFits(w.page, ctx);
+    const b = saveOps(w.was, w.page, ctx.now);
+    applyOps(db, b);
+    ops.push(...b);
+  }
+  return { ops, pageIds: [...pageIds], what: 'addRow', result: { id, title: a.title } };
+}
+// mcp.updateRow（役 mcp）: 行の題名とセル（名前で渡す。null は空にする: CR20）を直す。書く直前の行（題名・セル・本文）を控える（withSnap）。
+// 「議事録」の行（議事録）は「参加者」だけ（題名は直さない: CR9）。同じ値なら書かない。ロック中のデータベースの行も直せる（D152）。
+// 断る: 無い・ゴミ箱の行・ゴミ箱のデータベースの行・テンプレートの行は not-found、何も渡さない・空と改行の題名・書けない列・無い選択肢・形の悪い値・
+// ゴミ箱の相手のリレーションは bad-args
+function mcpUpdateRow(db, a, ctx) {
+  if (a.title === undefined && a.cells === undefined) throw refuse('bad-args');
+  const raw = db.prepare(HOT_QUERIES.dbRow).get(a.id);
+  if (!raw || (raw.trashed_at !== null && raw.trashed_at !== undefined)) throw refuse('not-found');
+  const d = raw.parent_id ? dbOf(db, raw.parent_id) : null;
+  if (!d) throw refuse('not-found');
+  const minutes = isMinutesDb(d);
+  if (raw.type === 'row' ? isTplRaw(raw) : !(minutes && raw.type === 'page' && isMeetingRaw(parseOr(raw.attrs) || {}))) throw refuse('not-found');
+  if (minutes && a.title !== undefined) throw refuse('bad-args');   // 「議事録」の行の名前（議事録の題名）は直さない（決めたこと 36・CR9）
+  if (a.title !== undefined && !rowTitleOk(a.title)) throw refuse('bad-args');
+  const m = DQ.cellsFromNames(a.cells || {}, d.cols, { minutes });
+  if (!m.ok) throw refuse('bad-args');
+  const { plain, rels } = splitRelCells(d, m.cells);
+  return withSnap(db, a.id, 'row', () => {
+    const r = liveRow(db, d, a.id);
+    const ops = [];
+    if (a.title !== undefined) ops.push(...cellOps(r, TITLE_COL, a.title));
+    for (const [k, v] of Object.entries(plain)) ops.push(...cellOps(r, colIn(d.cols, k), v));
+    if (ops.length) { ops.push(...touchOps(r, ctx)); applyOps(db, ops); }
+    const pageIds = new Set(ops.length ? [a.id, d.id] : []);
+    for (const [colId, ids] of rels) {
+      const e = setRelCell(db, d, a.id, colId, ids, ctx);
+      ops.push(...e.ops);
+      for (const p of e.pageIds) pageIds.add(p);
+    }
+    const now = db.prepare(HOT_QUERIES.dbRow).get(a.id);
+    return { ops, pageIds: [...pageIds], what: 'row', result: { title: now.text, db: d.id } };
+  }, ctx);
+}
+// 列の値の見せる文字（dbDump の行と同じ: 題名の列のほかで、空でないもの）→ [[列の名前, 文字]]
+function rowValsOf(cols, r, opts) {
+  return cols.filter((c) => c.type !== 'title').map((c) => [c.name, DM.fmtCell(c, DM.cellValue(r, c), opts)]).filter((x) => x[1] !== '');
+}
+const showCols = (d) => d.cols.filter((c) => !c.gone && Object.hasOwn(DM.COLS, c.type));
+// query_database（MCP の読み手が読み取りだけの接続で呼ぶ）: データベースの行を、viewOf(cols, views)（dbQuery.toView）の絞り込みと並べ替えで並べ、
+// offset から limit 行の題名と列の値を返す。行は表と同じ1か所（dbRowsOf: ゴミ箱の行・テンプレートの行を外し、「議事録」なら議事録の行）。
+// 答え: { error: 'not-found' }（無い・ゴミ箱のデータベース）| { error: 'bad-filter', bad: { at, why, col } } |
+//   { id, title, total（表の行の数）, hits（当たった数）, cols: [{ name, label }], rows: [{ id, title, vals }] }
+function dbQueryRead(db, id, viewOf, nowMs, { offset = 0, limit = 50 } = {}) {
+  const d = dbOf(db, id);
+  if (!d) return { error: 'not-found' };
+  const q = viewOf(d.cols, d.views);
+  if (!q.ok) return { error: 'bad-filter', bad: { at: q.at, why: q.why, col: q.col } };   // 読めない条件は1つでも絞らずに断る（F240）
+  const all = dbRowsOf(db, d).map(rowView);
+  const list = q.pre ? all.filter((r) => DV.matchFilter(q.pre, r, d.cols, nowMs)) : all;
+  const order = DV.applyView(list, q.view, d.cols, { now: nowMs }).order;
+  const byId = new Map(list.map((r) => [r.id, r]));
+  const cols = showCols(d);
+  const picked = order.slice(offset, offset + limit).map((o) => byId.get(o.id)).filter(Boolean);
+  const titles = relTitlesOf(db, picked.flatMap((r) => relIdsIn(cols, r.cells)));
+  const opts = { rowsById: new Map(Object.entries(titles)) };
+  return {
+    id: d.id, title: d.title, total: all.length, hits: order.length,
+    cols: cols.map((c) => ({ name: c.name, label: DM.COLS[c.type].label })),
+    rows: picked.map((r) => ({ id: r.id, title: DM.fmtCell(TITLE_COL, r.title, opts), vals: rowValsOf(cols, r, opts) })),
+  };
+}
+// get_meeting に行の ID（決めたこと 39）: データベースの生きている行（テンプレートの行・ゴミ箱の行・ゴミ箱のデータベースの行を除く）のページと、
+// データベース（ID・題名）と列の値 → { page, dbId, dbTitle, title, vals } | null。「議事録」の議事録は一覧に出るので、ここでは読まない
+function claudeRowOf(db, id) {
+  const raw = db.prepare(HOT_QUERIES.dbRow).get(id);
+  if (!raw || raw.type !== 'row' || raw.trashed_at !== null || isTplRaw(raw)) return null;
+  const d = dbOf(db, raw.parent_id);
+  const page = d ? readPage(db, id) : null;
+  if (!page) return null;
+  const r = rowView(raw);
+  const cols = showCols(d);
+  const opts = { rowsById: new Map(Object.entries(relTitlesOf(db, relIdsIn(cols, r.cells)))) };
+  return { page, dbId: d.id, dbTitle: d.title, title: DM.fmtCell(TITLE_COL, r.title, opts), vals: rowValsOf(cols, r, opts) };
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -3606,6 +3747,11 @@ const DEFS = {
   // 0.18.0 CT-2（決めたこと 30〜33）: Claude の白紙のページを作る・書き足す（役 mcp だけ）
   'mcp.createPage': { roles: ['mcp'], write: true, args: { title: 'oneLineTitle', md: 'mdText', parentId: 'id?' }, run: mcpCreatePage, dupResult: createPageDup },
   'mcp.appendPage': { roles: ['mcp'], write: true, args: { pageId: 'id', md: 'mdText' }, run: mcpAppendPage, dupResult: appendPageDup },
+  // 0.18.0 CT-3（決めたこと 35〜38）: Claude の行の追加と直し（役 mcp だけ。ロック中も書ける: lockBlocked にしない）
+  'mcp.addRow': { roles: ['mcp'], write: true, args: { db: 'id', title: 'title', cells: 'cellsByName?', md: 'mdText?' }, pageOf: dbOfArgs, run: mcpAddRow,
+    dupResult: (db, _a, row) => { const add = dupOps(row).find((o) => o && o.op === 'add' && o.row && o.row.type === 'row'); const r = add ? db.prepare(HOT_QUERIES.dbRow).get(add.id) : null; return r ? { id: r.id, title: r.text } : null; } },
+  'mcp.updateRow': { roles: ['mcp'], write: true, args: { id: 'id', title: 'title?', cells: 'cellsByName?' }, run: mcpUpdateRow,
+    dupResult: (db, a) => { const r = db.prepare(HOT_QUERIES.dbRow).get(a.id); return r ? { title: r.text, db: r.parent_id } : null; } },
   'pages.trash': { roles: ['app'], write: false, args: {},
     run: (db) => ({ result: trashHeads(db) }) },
   'block.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', patch: 'patch' },
@@ -4123,4 +4269,4 @@ const lockGuard = (run) => (db, a, ctx) => { if (isLockedDb(db, lockTargetOf(a))
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v.lockBlocked ? { ...v, run: lockGuard(v.run) } : v)]))));
 
-module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, withSnap, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump, dbRowCountOf };
+module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, withSnap, dbQueryRead, claudeRowOf, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump, dbRowCountOf };

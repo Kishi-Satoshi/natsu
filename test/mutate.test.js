@@ -1854,11 +1854,13 @@ const IDS_180 = [
   'cw-revert-size', 'cw-revert-role', 'cw-door-ok-only', 'cw-door-network', 'cw-door-remove', 'cw-door-stale', 'cw-door-rename-wait', 'cw-door-tmp', 'cw-door-tmp-stale',
   'cw-door-token', 'cw-door-hello-first', 'cw-door-role', 'cw-door-cmds', 'cw-door-app-claude', 'cw-mcp-roles', 'cw-door-line-max', 'cw-door-conns', 'cw-door-evict',
   'cw-door-backpressure', 'cw-door-log', 'cw-actor-claude',
-  // 0.18.0 Task CS-1（要約の作り方の部品）・CS-2（Claude の要約の書き戻しと making）・CS-3（Claude の名前の直し）・CT-1（Claude の ToDo とタスク）・CT-2（Claude の白紙のページと書き足し）
+  // 0.18.0 Task CS-1（要約の作り方の部品）・CS-2（Claude の要約の書き戻しと making）・CS-3（Claude の名前の直し）・CT-1（Claude の ToDo とタスク）・CT-2（Claude の白紙のページと書き足し）・CT-3（データベースの問い合わせと行）
   'cs-sum-pipeline', 'cs-sum-strip', 'cs-sum-cite', 'cs-sum-ground', 'cs-sum-mark', 'cs-sum-making', 'cs-sum-wait', 'cs-sum-base', 'cs-sum-live', 'cs-sum-blank',
   'cs-making-signal', 'cs-names-min', 'cs-names-title', 'cs-names-recite', 'cs-names-rich', 'cs-names-zero', 'cs-names-assignee', 'cs-names-people', 'cs-names-tasks',
   'ct-act-todo-only', 'ct-act-no-clear', 'ct-act-task-keep', 'ct-act-locked', 'ct-task-once', 'ct-task-actor',
   'ct-create-row', 'ct-create-parent-live', 'ct-create-title-line', 'ct-create-db-parent', 'ct-append-blank-only', 'ct-append-end', 'ct-append-row', 'ct-append-tpl',
+  'ct-q-bad-cond', 'ct-q-filter-map', 'ct-q-trash', 'ct-q-tpl', 'ct-q-safe', 'ct-q-limit', 'ct-q-minutes', 'ct-add-minutes', 'ct-add-readonly', 'ct-add-option',
+  'ct-add-lock', 'ct-add-max', 'ct-add-rel-live', 'ct-add-actor', 'ct-up-minutes-title', 'ct-up-readonly', 'ct-up-null', 'ct-row-read',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

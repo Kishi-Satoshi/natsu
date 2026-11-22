@@ -122,7 +122,7 @@ test('DX-3・F145・決めたこと 49: データベースが一覧に「デー�
     assert.deepStrictEqual(rl.slice(0, 3), [F.NOTICE, `# ${EVIL_LINE('案件')}`, '- 日付: 2026-10-21（水）00:00']);
     for (const l of rl.slice(1)) {
       assert.ok(!BAD.test(l), `見えない文字か改行: ${JSON.stringify(l)}`);
-      assert.ok(/^(# |## |- |行は NaTsu で見てください)/.test(l), `形の崩れた行: ${l}`);
+      assert.ok(/^(# |## |- |行の続きは query_database)/.test(l), `形の崩れた行: ${l}`);   // 0.18.0 CT-3 で意図して直した（続きの1行の字: M12）
     }
     assert.ok(rl.includes('- データベース（行 102）') && rl.includes('- 場所: 計画の親') && rl.includes(`- ID: ${d}`), read.text);
     assert.deepStrictEqual(rl.filter((l) => l.startsWith('## ')), ['## 列', '## 行'], read.text);
@@ -134,7 +134,7 @@ test('DX-3・F145・決めたこと 49: データベースが一覧に「デー�
     assert.strictEqual(rows.length, 101, read.text);
     assert.deepStrictEqual(rows.slice(0, 2), ['- 行 101｜金額: 101', '- 行 100｜金額: 100']);
     assert.strictEqual(rows[99], '- 行 2｜金額: 2');
-    assert.strictEqual(rows[100], '行は NaTsu で見てください（Claude からの絞り込みは 0.18.0 の道具で）');
+    assert.strictEqual(rows[100], '行の続きは query_database の offset で読めます');   // 0.18.0 CT-3 で意図して直した（続きは query_database の offset: M12）
     assert.ok(!rows.some((l) => l.includes('見積もり')), '101 行目より後ろの行が出た');
     // get_meetings も同じ形（頭の注意の行は無い）
     const many = call('get_meetings', { ids: [d] });
@@ -163,7 +163,9 @@ test('DX-3・F145: 行のセルと選択肢の名前も1行（行の数が 100 �
       assert.match(r.text, /近い箇所は見つかりませんでした/, `${q}: ${r.text}`);
     }
     assert.ok(!call('list_action_items').text.includes('倉庫の鍵'), '行の本文の ToDo が出た');
-    // 行の ID は読めない（データベースのページから読む）
-    assert.strictEqual(call('get_meeting', { id: all[0] }).isError, true);
+    // 0.18.0 CT-3（決めたこと 39・R103 の申し送り）で意図して直した: 行の ID で行のページが読める（前は読めなかった。一覧・箇所・ToDo に出ないのは今のまま）
+    const one = call('get_meeting', { id: all[0] });
+    assert.strictEqual(one.isError, false, one.text);
+    assert.ok(linesOf(one.text).includes(`- ID: ${all[0]}`) && linesOf(one.text).includes('## 本文'), one.text);
   } finally { m.done(); }
 });

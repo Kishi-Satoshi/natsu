@@ -227,6 +227,27 @@ function checkGrid(v) {
   return v.map((r) => [...r]);
 }
 
+// 0.18.0 CT-3: Claude が名前で渡すセル
+const CELLS_MAX = 50;
+function cellByNameValue(v) {
+  if (v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) return v;
+  if (typeof v === 'string' && v.length <= LIMITS.text) return v;
+  if (Array.isArray(v) && v.length <= 200 && v.every((x) => typeof x === 'string' && x.length <= SHORT)) return [...v];
+  if (isObj(v) && Object.keys(v).length === 2 && typeof v.from === 'string' && typeof v.to === 'string' && v.from.length <= 10 && v.to.length <= 10) return { from: v.from, to: v.to };
+  throw bad('cells value');
+}
+function checkCellsByName(v) {
+  if (!isObj(v)) throw bad('cells');
+  const keys = Object.keys(v);
+  if (keys.length > CELLS_MAX) throw bad('cells');
+  const out = {};
+  for (const k of keys) {
+    if (!k || k.length > 100 || LINE_CTRL_RE.test(k)) throw bad('cells name');
+    out[k] = cellByNameValue(v[k]);
+  }
+  return out;
+}
+
 // 型の表: 値を照らして、保存してよい写しを返す（だめなら投げる）
 const TYPES = Object.freeze(Object.assign(Object.create(null), {
   id: (v) => { if (typeof v !== 'string' || !ID_RE.test(v)) throw bad('id'); return v; },
@@ -240,6 +261,9 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   title: (v) => { if (!isStr(v, LIMITS.title)) throw bad('title'); return v; },
   // 0.18.0 CT-2（決めたこと 30・F243）: Claude が付ける白紙のページの題名（1行・1〜200 字（コードポイント）・空白だけ・改行・制御の文字・行と段落の区切り・
   // 向きの制御の文字は断る: サイドバーとタブを崩させない）
+  // 0.18.0 CT-3（決めたこと 35・36）: Claude が名前で渡すセル（{ 列の名前: 値 | null }・50 個まで・列の名前は 100 字まで）。値の形は
+  // 文字・数・真偽・null・文字の並び（200 まで）・{ from, to }（日付の範囲）だけ。列と値の照らしは src/mcp/dbQuery.js の cellsFromNames（命令が当てる）
+  cellsByName: checkCellsByName,
   oneLineTitle: (v) => { if (typeof v !== 'string' || !v.trim() || [...v].length > LIMITS.oneLineTitle || LINE_CTRL_RE.test(v)) throw bad('title'); return v; },
   short: (v) => { if (!isStr(v, SHORT)) throw bad('short'); return v; },
   name: (v) => { if (typeof v !== 'string' || !NAME_RE.test(v)) throw bad('name'); return v; },
@@ -325,6 +349,6 @@ function checkArgs(spec, args) {
 }
 
 module.exports = {
-  ID_RE, TX_RE, LIMITS, RESERVED_BLOCK, RESERVED_PAGE, RESERVED_SEG, RICH_MARKS,
+  ID_RE, TX_RE, LIMITS, RESERVED_BLOCK, RESERVED_PAGE, RESERVED_SEG, RICH_MARKS, LINE_CTRL_RE,
   checkArgs, richText, normalizeBlock,
 };

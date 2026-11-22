@@ -1091,3 +1091,144 @@ test('CT-2: 同じ tx の送り直しは dup で、2回目はページも行も�
   assert.strictEqual(C.readPage(db, a.result.id).blocks.length, 5);
   assert.strictEqual(snapRows(db, a.result.id).length, 1);
 }));
+
+// ---------------------------------------------------------------- CT-3（決めたこと 35〜38・F241）: Claude の行の追加 mcp.addRow と行の直し mcp.updateRow
+const ops180 = require('../src/db/ops');
+const colOf = (db, d, type, name, more = {}) => ok(call(db, 'col.add', { db: d, type, name, ...more }), `col.add ${type}`).result.col.id;
+const rowCount = (db, d) => db.prepare("select count(*) c from blocks where type = 'row' and parent_id = ? and trashed_at is null").get(d).c;
+// データベース（題名「案件」）と列（メモ・区分（社内・社外）・担当・期限・金額・作成日時・関連（相手のデータベースへの両側のリレーション））と、相手のデータベースの行 2 つ
+function rowDb(db) {
+  const d = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  ok(call(db, 'db.setTitle', { db: d, title: '案件' }), 'db.setTitle');   // D77: データベースの題名（会議の題名でない）
+  const memo = colOf(db, d, 'text', 'メモ');
+  const sel = colOf(db, d, 'select', '区分');
+  ok(call(db, 'col.setOpts', { db: d, col: sel, opts: [{ id: 'o1', name: '社内', color: 'default' }, { id: 'o2', name: '社外', color: 'blue' }] }), 'col.setOpts');
+  const who = colOf(db, d, 'person', '担当');
+  const due = colOf(db, d, 'date', '期限');
+  const num = colOf(db, d, 'number', '金額');
+  const ctime = colOf(db, d, 'ctime', '作成日時');
+  const d2 = ok(call(db, 'db.create', {}), 'db.create(相手)').result.id;
+  const ra = ok(call(db, 'row.add', { db: d2, title: '相手の行A' }), 'row.add').result.id;   // D77: データベースの行の題名
+  const rb = ok(call(db, 'row.add', { db: d2, title: '相手の行B' }), 'row.add').result.id;   // D77: データベースの行の題名
+  const rel = colOf(db, d, 'rel', '関連', { target: d2, both: true });
+  const back = JSON.parse(db.prepare('select attrs from blocks where id = ?').get(d).attrs).cols.find((c) => c.id === rel).back;
+  return { d, memo, sel, who, due, num, ctime, d2, ra, rb, rel, back };
+}
+const addRow = (db, args, ctx, tx) => mcp(db, 'mcp.addRow', args, ctx, tx);
+
+test('CT-3・F241: mcp.addRow: 題名とセル（名前で渡す）と本文の行が1つの命令（oplog の1行・actor claude）で入る・作成者と最終更新者は Claude・リレーションの相手の対の列も・テンプレートは当てない・控えは無い・changed の what は addRow。ロック中のデータベースにも足せる', T, () => withDb((db) => {
+  const x = rowDb(db);
+  // 既定のテンプレート（Claude の行には当てない: CR19）
+  const tpl = ok(call(db, 'tpl.add', { db: x.d, title: 'テンプレートの見本' }), 'tpl.add').result.id;   // D77: テンプレートの題名
+  ok(call(db, 'block.insert', { pageId: tpl, afterBlockId: '', type: 'paragraph' }), 'block.insert(テンプレート)');
+  ok(call(db, 'tpl.setDefault', { db: x.d, id: tpl }), 'tpl.setDefault');
+  const r = ok(addRow(db, { db: x.d, title: '見積の行', cells: { メモ: '見積の件', 区分: '社外', 担当: ['担当A'], 期限: '2026-11-30', 金額: 1200, 関連: [x.ra] }, md: '- 本文の一行\n- [ ] 先方に送る' }), 'mcp.addRow');   // D77: データベースの行の題名
+  const id = r.result.id;
+  assert.deepStrictEqual(r.result, { id, title: '見積の行' });   // D77: データベースの行の題名（会議の題名でない）
+  assert.strictEqual(r.changed.what, 'addRow');
+  assert.deepStrictEqual([r.changed.actor, r.changed.pageIds.includes(x.d), r.changed.pageIds.includes(id)], ['claude', true, true]);
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.addRow', page_id: x.d });
+  assert.strictEqual(db.prepare('select count(*) c from oplog where tx = ?').get(r.tx).c, 1);
+  assert.deepStrictEqual(cellsOf(db, id), { [x.memo]: '見積の件', [x.sel]: 'o2', [x.who]: ['担当A'], [x.due]: { start: '2026-11-30' }, [x.num]: 1200, [x.rel]: [x.ra] });
+  assert.deepStrictEqual(cellsOf(db, x.ra)[x.back], [id], 'リレーションの相手の対の列が無い');
+  assert.deepStrictEqual(byOf(db, id), { c: 'claude', u: 'claude' }, '作成者が Claude でない');
+  assert.deepStrictEqual(C.readPage(db, id).blocks.map((b) => `${b.type}:${b.text}`), ['bullet:本文の一行', 'todo:先方に送る'], 'テンプレートの本文が混ざった');
+  assert.strictEqual(db.prepare('select text from blocks where id = ?').get(id).text, '見積の行');
+  assert.deepStrictEqual(snapRows(db, id), []);
+  // 本文もセルも無い行・ロック中のデータベース（D152: 行を足すのはロック中もできる）
+  ok(call(db, 'db.setLock', { db: x.d, on: true }), 'db.setLock');
+  const bare = ok(addRow(db, { db: x.d, title: '題名だけ' }), 'mcp.addRow(ロック中)').result.id;   // D77: データベースの行の題名
+  assert.deepStrictEqual([cellsOf(db, bare), C.readPage(db, bare).blocks], [{}, []]);
+  // 同じ tx の送り直し: 行は1つ
+  const tx = txOf('mcp');
+  const a1 = ok(addRow(db, { db: x.d, title: '送り直し' }, {}, tx), '1回目');   // D77: データベースの行の題名
+  const n = rowCount(db, x.d);
+  const a2 = addRow(db, { db: x.d, title: '送り直し' }, {}, tx);   // D77: データベースの行の題名
+  assert.deepStrictEqual([a2.ok, a2.dup, a2.result], [true, true, a1.result]);
+  assert.strictEqual(rowCount(db, x.d), n);
+}));
+
+test('CT-3・F241: mcp.addRow は書けない列（作成日時）・無い選択肢（選択肢は増えない）・無い列・題名の列・形の悪い値・ゴミ箱の相手のリレーション・空や改行の題名を bad-args、「議事録」を bad-args（minutes-row）、無い・ゴミ箱のデータベースを not-found、1 万行で too-big。どれも行を作らない', T, () => withDb((db, t) => {
+  const x = rowDb(db);
+  const code = (r) => [r.ok, r.code];
+  const optsOf = () => JSON.parse(db.prepare('select attrs from blocks where id = ?').get(x.d).attrs).cols.find((c) => c.id === x.sel).opts;
+  const opts0 = optsOf();
+  ok(call(db, 'rows.trash', { db: x.d2, ids: [x.rb] }), 'rows.trash(相手)');
+  const n0 = rowCount(db, x.d);
+  for (const [what, args] of [
+    ['作成日時', { cells: { 作成日時: '2026-11-01' } }], ['無い選択肢', { cells: { 区分: '社長室' } }], ['無い列', { cells: { 無い列: 'x' } }], ['題名の列', { cells: { 名前: 'x' } }],
+    ['形の悪い値', { cells: { 金額: '千円' } }], ['ゴミ箱の相手', { cells: { 関連: [x.rb] } }], ['無い相手', { cells: { 関連: ['rnone1'] } }],
+    ['空の題名', { title: '  ' }], ['改行の題名', { title: '題\n名' }], ['U+202E の題名', { title: '題‮名' }],   // D77: データベースの行の題名（会議の題名でない）
+  ]) assert.deepStrictEqual(code(addRow(db, { db: x.d, title: '断る行', ...args })), [false, 'bad-args'], what);   // D77: データベースの行の題名
+  assert.strictEqual(rowCount(db, x.d), n0, '断ったのに行ができた');
+  assert.deepStrictEqual(optsOf(), opts0, '選択肢が増えた');
+  // 「議事録」には足せない
+  meetingPage(t);
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  const mdb = db.prepare("select id from blocks where type = 'page' and instr(attrs, '\"minutes\"') > 0").get().id;
+  const kids = () => db.prepare('select count(*) c from blocks where parent_id = ?').get(mdb).c;
+  const k0 = kids();
+  assert.deepStrictEqual(code(addRow(db, { db: mdb, title: '会議の行' })), [false, 'bad-args'], '「議事録」に行を足した');   // D77: 断る題名（作られない）
+  assert.strictEqual(kids(), k0);
+  // 無い・ゴミ箱のデータベース
+  assert.deepStrictEqual(code(addRow(db, { db: 'pnone1', title: '無い' })), [false, 'not-found']);   // D77: 断る題名
+  const gone = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  ok(call(db, 'page.delete', { id: gone }), 'page.delete');
+  assert.deepStrictEqual(code(addRow(db, { db: gone, title: 'ゴミ箱' })), [false, 'not-found']);   // D77: 断る題名
+  // 1 万行（決めたこと 7 の上限）
+  const at = new Date(clock).toISOString();
+  db.exec('BEGIN');
+  applyOps(db, Array.from({ length: 10000 - n0 }, (_, i) => ({ op: 'add', id: `rq${i}`, row: ops180.rowBlock({ id: `rq${i}`, db: x.d, ord: `z${String(i).padStart(5, '0')}`, title: `行 ${i}`, cells: {}, by: { c: 'me', u: 'me' }, no: 100 + i, at }) })));   // D77: データベースの行の題名
+  db.exec('COMMIT');
+  assert.strictEqual(rowCount(db, x.d), 10000);
+  assert.deepStrictEqual(code(addRow(db, { db: x.d, title: '一万一行目' })), [false, 'too-big']);   // D77: 断る題名
+  assert.strictEqual(rowCount(db, x.d), 10000);
+}));
+
+test('CT-3・F241: mcp.updateRow: 題名とセルが変わり控えが1行（what row。書く直前の題名・セル・本文）・null でセルが空になる・リレーションは渡した並びに（外した相手の対の列も外れる）・最終更新者は Claude・同じ値は書かない。題名は空にできない・読む列・無い選択肢は bad-args・ゴミ箱の行・テンプレートの行・無い行は not-found。ロック中のデータベースの行も直せる', T, () => withDb((db) => {
+  const x = rowDb(db);
+  const id = ok(addRow(db, { db: x.d, title: '前の題', cells: { メモ: '前のメモ', 期限: '2026-11-30', 関連: [x.ra] }, md: '本文' }), 'mcp.addRow').result.id;   // D77: データベースの行の題名
+  ok(call(db, 'row.setCell', { db: x.d, id, col: x.memo, value: '自分が直したメモ' }), 'row.setCell');
+  assert.strictEqual(byOf(db, id).u, 'me');
+  ok(call(db, 'db.setLock', { db: x.d, on: true }), 'db.setLock');
+  const r = ok(mcp(db, 'mcp.updateRow', { id, title: '新しい題', cells: { メモ: '直したメモ', 期限: null, 関連: [x.rb] } }), 'mcp.updateRow');   // D77: データベースの行の題名
+  assert.deepStrictEqual(r.result, { title: '新しい題', db: x.d });
+  assert.strictEqual(r.changed.what, 'row');
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.updateRow', page_id: id });
+  assert.strictEqual(db.prepare('select text from blocks where id = ?').get(id).text, '新しい題');
+  assert.deepStrictEqual(cellsOf(db, id), { [x.memo]: '直したメモ', [x.rel]: [x.rb] }, 'null で期限が空にならない・リレーションが渡した並びでない');
+  assert.deepStrictEqual([cellsOf(db, x.ra)[x.back], cellsOf(db, x.rb)[x.back]], [undefined, [id]], '外した相手・つないだ相手の対の列');
+  assert.strictEqual(byOf(db, id).u, 'claude');
+  const snaps = snapRows(db, id);
+  assert.deepStrictEqual(snaps.map((s) => s.what), ['row']);
+  const body = JSON.parse(snaps[0].body);
+  assert.deepStrictEqual([body.title, body.cells[x.memo], body.cells[x.due], body.blocks.map((b) => b.text)], ['前の題', '自分が直したメモ', { start: '2026-11-30' }, ['本文']], '控えが書く直前の行でない');
+  // 同じ値: 書かない（控えも増えない）
+  const same = ok(mcp(db, 'mcp.updateRow', { id, cells: { メモ: '直したメモ', 関連: [x.rb] } }), '同じ値');
+  assert.deepStrictEqual([same.changed, snapRows(db, id).length], [undefined, 1]);
+  const code = (args) => ((q) => [q.ok, q.code])(mcp(db, 'mcp.updateRow', args));
+  for (const [what, args] of [['何も渡さない', { id }], ['空の題名', { id, title: ' ' }], ['改行の題名', { id, title: '題\n名' }], ['作成日時', { id, cells: { 作成日時: '2026-11-01' } }], ['無い選択肢', { id, cells: { 区分: '社長室' } }], ['題名の列', { id, cells: { 名前: 'x' } }]]) {   // D77: データベースの行の題名（会議の題名でない）
+    assert.deepStrictEqual(code(args), [false, 'bad-args'], what);
+  }
+  assert.strictEqual(db.prepare('select text from blocks where id = ?').get(id).text, '新しい題');
+  ok(call(db, 'db.setLock', { db: x.d, on: false }), 'db.setLock(外す)');
+  const tplId = ok(call(db, 'tpl.add', { db: x.d, title: 'テンプレートの見本2' }), 'tpl.add').result.id;   // D77: テンプレートの題名
+  assert.deepStrictEqual(code({ id: tplId, title: '直す' }), [false, 'not-found'], 'テンプレートの行を直した');
+  assert.deepStrictEqual(code({ id: 'rnone1', title: '直す' }), [false, 'not-found']);   // D77: データベースの行の題名（会議の題名でない）
+  ok(call(db, 'rows.trash', { db: x.d, ids: [id] }), 'rows.trash');
+  assert.deepStrictEqual(code({ id, title: '直す' }), [false, 'not-found'], 'ゴミ箱の行を直した');   // D77: データベースの行の題名（会議の題名でない）
+}));
+
+test('CT-3・F241: mcp.updateRow の「議事録」の行（議事録）は「参加者」だけ: 名前（題名）・日付・要約は bad-args。参加者は直り、控えは議事録の1行', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  const mdb = db.prepare("select id, attrs from blocks where type = 'page' and instr(attrs, '\"minutes\"') > 0").get();
+  const people = JSON.parse(mdb.attrs).cols.find((c) => c.type === 'person').id;
+  const title = C.readPage(db, id).title;
+  const code = (args) => ((q) => [q.ok, q.code])(mcp(db, 'mcp.updateRow', args));
+  assert.deepStrictEqual(code({ id, title: '会議の新しい題' }), [false, 'bad-args'], '議事録の題名を直した');   // D77: 断る題名（直らない）
+  for (const name of ['名前', '日付', '要約', '作成者']) assert.deepStrictEqual(code({ id, cells: { [name]: 'x' } }), [false, 'bad-args'], name);
+  const r = ok(mcp(db, 'mcp.updateRow', { id, cells: { 参加者: ['担当A', '担当B'] } }), 'mcp.updateRow(参加者)');
+  assert.deepStrictEqual([r.result.db, C.readPage(db, id).cells[people], C.readPage(db, id).title], [mdb.id, ['担当A', '担当B'], title]);
+  assert.deepStrictEqual(snapRows(db, id).map((s) => s.what), ['row']);
+}));
