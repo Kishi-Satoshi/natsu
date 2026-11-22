@@ -3364,6 +3364,77 @@ function mcpFixNames(db, a, ctx) {
   }, ctx, { segIds: f.segIds });
 }
 
+// ---------------------------------------------------------------- Claude の ToDo とタスク（0.18.0 CT-1。計画 docs/plans/2026-11-18-180.md の
+// 決めたこと 27〜29・F238・D148・D149）
+// Claude の命令が書けるページ（議事録・白紙のページ・データベースの行のページ）を読む。無い・ゴミ箱・録音中の写し（listedRows の外）・
+// ゴミ箱のデータベースの行・テンプレートの行は not-found → { row（データベースの行か）, w（forWrite） }
+function mcpPageOf(db, id) {
+  const raw = db.prepare(HOT_QUERIES.dbRow).get(id);
+  if (!raw || (raw.trashed_at !== null && raw.trashed_at !== undefined)) throw refuse('not-found');
+  const row = raw.type === 'row';
+  if (row && (!raw.parent_id || !dbOf(db, raw.parent_id) || isTplRaw(raw))) throw refuse('not-found');
+  if (!row && !listedRows(db).some((r) => r.id === id)) throw refuse('not-found');   // 録音中の写し・ゴミ箱の行の中のページ
+  const w = forWrite(db, id);
+  if (!w) throw refuse('not-found');
+  return { row, w };
+}
+// ToDo の印の指す生きているタスクの行の ID（行もデータベースも生きている: todo.toTask と同じ見方）| null
+function liveTaskOf(db, b) {
+  if (typeof b.task !== 'string' || !b.task) return null;
+  const r = db.prepare(HOT_QUERIES.dbRow).get(b.task);
+  return r && r.type === 'row' && r.trashed_at === null && dbOf(db, r.parent_id) ? r.id : null;
+}
+// mcp.updateAction（役 mcp）: ToDo の行の済み・担当・期限（どれか1つ以上）を、block.setAction と同じ照らしと読み（parseDue）で書く。空の担当と期限は断る
+// （消す道具にしない）。その ToDo から作ったタスクのステータスは変えない（D149。答えにタスクの ID）。同じ値なら書かない（操作の空の行だけ）。
+// 断る: mcpPageOf の not-found・データベースのページと ToDo でない行（無い行も）は bad-args・main が要約を作っている間と要約の欄の鍵（要約待ちなど）は locked
+function mcpUpdateAction(db, a, ctx) {
+  const assignee = typeof a.assignee === 'string' ? a.assignee.trim() : undefined;
+  const dueRaw = typeof a.dueRaw === 'string' ? a.dueRaw.trim() : undefined;
+  if (a.done === undefined && assignee === undefined && dueRaw === undefined) throw refuse('bad-args');
+  if (assignee === '' || dueRaw === '') throw refuse('bad-args');   // 担当と期限を空にしない（決めたこと 27）
+  const { row, w } = mcpPageOf(db, a.pageId);
+  if (isDbPage(w.page)) throw refuse('bad-args');
+  if (ctx.making.has(a.pageId) || summaryLockedPage(db, w.was.page)) throw refuse('locked');   // 要約の欄の鍵（main が作っている間・要約待ち）
+  const hit = BT.locate(w.page.blocks, a.blockId);
+  if (!hit || hit.b.type !== 'todo') throw refuse('bad-args');
+  const b = hit.b;
+  const before = JSON.stringify(b);
+  if (a.done !== undefined) b.checked = a.done;
+  if (assignee !== undefined) b.assignee = assignee;
+  if (dueRaw !== undefined) {
+    b.dueRaw = dueRaw;
+    const r = parseDue(dueRaw, new Date(w.page.createdAt));
+    b.due = r.date; b.dueApprox = r.approx;
+  }
+  const task = liveTaskOf(db, b);
+  const result = { title: w.page.title, ...(task ? { task } : {}) };
+  if (JSON.stringify(b) === before) return { ops: [], pageIds: [], result };   // 同じ値: 書かない（rev・更新の時刻・控えは変わらない: 決めたこと 56）
+  return withSnap(db, a.pageId, 'action', () => {
+    w.page.summaryEdited = true;   // 要約の欄の手直しと同じ（block.setAction の summary: true）
+    if (row) w.page.by = { ...(isObj(w.page.by) ? w.page.by : {}), u: whoOf(ctx) };   // 行の最終更新者（Claude）
+    const ops = saveOps(w.was, w.page, ctx.now);
+    applyOps(db, ops);
+    return { ops, pageIds: [a.pageId], what: 'action', result };
+  }, ctx);
+}
+function actionDup(db, a) {
+  const p = readPage(db, a.pageId);
+  const h = p ? BT.locate(p.blocks, a.blockId) : null;
+  const task = h ? liveTaskOf(db, h.b) : null;
+  return p ? { title: p.title, ...(task ? { task } : {}) } : null;
+}
+// mcp.makeTask（役 mcp）: ［タスクにする］（todo.toTask）と同じ部品で「タスク管理」の行を作り（無ければ「タスク管理」も）、ToDo に印を付ける。作成者は
+// Claude（actor）。もうタスクがあれば何もせずその行の ID（made 偽）。控えは ToDo のページの1行（戻すのは印だけ: CR13）。
+// 断る: mcpPageOf の not-found・main が要約を作っている間は locked・ほかは todo.toTask と同じ（ToDo でない行は bad-args・要約の欄の鍵は locked）
+function mcpMakeTask(db, a, ctx) {
+  const { w } = mcpPageOf(db, a.pageId);
+  if (ctx.making.has(w.page.id)) throw refuse('locked');   // main が要約を作っている間（todo.toTask が見るのは DB の要約の欄の鍵だけ）
+  return withSnap(db, a.pageId, 'task', () => {
+    const out = todoToTask(db, a, ctx);
+    return { ...out, what: 'task', result: { ...out.result, made: out.ops.length > 0 } };
+  }, ctx);
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -3464,6 +3535,10 @@ const DEFS = {
   // 0.18.0 CS-3（決めたこと 23〜26）: Claude の名前の直し（役 mcp だけ）。送り直しの答えは counts: null（直した後なので当たりは数え直さない: CR61）
   'mcp.fixNames': { roles: ['mcp'], write: true, args: { pageId: 'id', pairs: 'namePairs' }, run: mcpFixNames,
     dupResult: (db, a) => { const p = readPage(db, a.pageId); return p ? { title: p.title, counts: null } : null; } },
+  // 0.18.0 CT-1（決めたこと 27・28・D149）: Claude の ToDo の更新と［タスクにする］（役 mcp だけ）
+  'mcp.updateAction': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id', done: 'bool?', assignee: 'short?', dueRaw: 'short?' }, run: mcpUpdateAction, dupResult: actionDup },
+  'mcp.makeTask': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id' }, run: mcpMakeTask,
+    dupResult: (db, a, row) => { const r = DEFS['todo.toTask'].dupResult(db, a); return r ? { ...r, made: JSON.parse(row.ops || '[]').length > 0 } : null; } },
   'pages.trash': { roles: ['app'], write: false, args: {},
     run: (db) => ({ result: trashHeads(db) }) },
   'block.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', patch: 'patch' },

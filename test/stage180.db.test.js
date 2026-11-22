@@ -793,3 +793,187 @@ test('CS-3: 同じ tx の送り直しは dup で、2回目は何も直さず（�
   assert.strictEqual(snapRows(db, id).length, 1);
   assert.ok(!JSON.stringify(C.readPage(db, id)).includes('担当D'), '送り直しで2回目の組を当てた');
 }));
+
+// ---------------------------------------------------------------- CT-1（決めたこと 27〜29・F238・D149）: Claude の ToDo の更新 mcp.updateAction と［タスクにする］mcp.makeTask
+const act = (db, id, blockId, more, ctx = {}, tx) => mcp(db, 'mcp.updateAction', { pageId: id, blockId, ...more }, ctx, tx);
+const cellsOf = (db, id) => JSON.parse(db.prepare('select attrs from blocks where id = ?').get(id).attrs).cells;
+const byOf = (db, id) => JSON.parse(db.prepare('select attrs from blocks where id = ?').get(id).attrs).by;
+
+test('CT-1・F238: mcp.updateAction: 済み・担当・期限が変わり控えが1行（what action）・changed の what は action・oplog の actor は claude。ToDo でない行・無い行・何も渡さない・空の担当と期限は bad-args。同じ値は操作の空の行で rev と控えは変わらない', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const before = C.readPage(db, id);
+  const r = ok(act(db, id, 'pm1b4', { done: true, assignee: ' 担当B ', dueRaw: '11/30' }), 'mcp.updateAction');
+  assert.deepStrictEqual(r.changed, { pageIds: [id], actor: 'claude', what: 'action' });
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.updateAction', page_id: id });
+  assert.deepStrictEqual(r.result, { title: before.title });
+  const b = C.readPage(db, id).blocks.find((x) => x.id === 'pm1b4');
+  assert.deepStrictEqual([b.checked, b.assignee, b.dueRaw, typeof b.due, b.due.length, b.dueApprox], [true, '担当B', '11/30', 'string', 10, false]);
+  assert.strictEqual(b.text, '見積書を月末までに先方へ送る', '文が変わった');
+  const snaps = snapRows(db, id);
+  assert.deepStrictEqual(snaps.map((s) => [s.what, s.rev_after]), [['action', revOf(db, id)]]);
+  const was = JSON.parse(snaps[0].body).blocks.find((x) => x.id === 'pm1b4');
+  assert.deepStrictEqual([was.checked, was.assignee, was.dueRaw], [false, '担当A', '月末'], '控えが書く前の ToDo でない');
+  // 断る（何も変えない）
+  const rev = revOf(db, id);
+  for (const [what, more] of [['ToDo でない行', { blockId: 'pm1b2', done: true }], ['見出し', { blockId: 'pm1b1', assignee: '担当B' }], ['無い行', { blockId: 'pm1bx', done: true }],
+    ['何も渡さない', { blockId: 'pm1b4' }], ['空の担当', { blockId: 'pm1b4', assignee: '  ' }], ['空の期限', { blockId: 'pm1b4', dueRaw: '' }]]) {
+    const x = mcp(db, 'mcp.updateAction', { pageId: id, ...more });
+    assert.deepStrictEqual([x.ok, x.code], [false, 'bad-args'], what);
+  }
+  assert.strictEqual(C.readPage(db, id).blocks.find((x) => x.id === 'pm1b2').assignee, undefined, 'ToDo でない行に担当が付いた');
+  assert.strictEqual(revOf(db, id), rev);
+  // 同じ値: 操作の空の行だけ（rev・更新の時刻・控えは変わらない）
+  const raw = C.readRawPage(db, id);
+  const same = ok(act(db, id, 'pm1b4', { done: true, assignee: '担当B' }), '同じ値');
+  assert.strictEqual(same.changed, undefined);
+  assert.strictEqual(db.prepare('select ops from oplog where tx = ?').get(same.tx).ops, '[]');
+  assert.deepStrictEqual([C.readRawPage(db, id).rev, C.readRawPage(db, id).updatedAt], [raw.rev, raw.updatedAt]);
+  assert.strictEqual(snapRows(db, id).length, 1);
+}));
+
+test('CT-1・F238: mcp.updateAction の要約の欄の鍵: making・要約待ちは locked で何も変えない（外れたら書ける）。録音中の写し・ゴミ箱・無いページは not-found（CR58 と同じ）・データベースは bad-args。白紙のページと行のページの本文の ToDo も書け、行の最終更新者は Claude', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const rev = revOf(db, id);
+  const m = act(db, id, 'pm1b4', { done: true }, { making: new Set([id]) });
+  assert.deepStrictEqual([m.ok, m.code], [false, 'locked'], 'making のページの ToDo を書いた');
+  assert.strictEqual(revOf(db, id), rev);
+  assert.deepStrictEqual(snapRows(db, id), []);
+  ok(act(db, id, 'pm1b4', { done: true }, { making: new Set(['pother']) }), 'ほかのページの making は鍵にならない');
+  const { page: wp, segments: ws } = samplePage('pw1');
+  for (const b of wp.blocks) b.id = `pw1${b.id}`;
+  wp.summaryWait = true;
+  t.seed(wp, ws);
+  const w = act(db, 'pw1', 'pw1b4', { done: true });
+  assert.deepStrictEqual([w.ok, w.code], [false, 'locked'], '要約待ちのページの ToDo を書いた');
+  assert.strictEqual(C.readPage(db, 'pw1').blocks.find((b) => b.id === 'pw1b4').checked, false);
+  const { page: lp, segments: ls } = samplePage('pl1');
+  for (const b of lp.blocks) b.id = `pl1${b.id}`;
+  lp.meeting = { phase: 'recording' };
+  t.seed(lp, ls);
+  const live = act(db, 'pl1', 'pl1b4', { done: true });
+  assert.deepStrictEqual([live.ok, live.code], [false, 'not-found'], '録音中の写しの ToDo を書いた');
+  const d = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  assert.deepStrictEqual(((x) => [x.ok, x.code])(act(db, d, 'pm1b4', { done: true })), [false, 'bad-args']);
+  assert.deepStrictEqual(((x) => [x.ok, x.code])(act(db, 'pnone1', 'pm1b4', { done: true })), [false, 'not-found']);
+  // 白紙のページの本文の ToDo
+  const { id: blank, blockId } = blankPage(db);
+  const todo = ok(call(db, 'block.insert', { pageId: blank, afterBlockId: blockId, type: 'todo' }), 'block.insert').result.blockId;
+  ok(call(db, 'block.update', { pageId: blank, blockId: todo, patch: { text: '資料を配る' } }), 'block.update');
+  ok(act(db, blank, todo, { assignee: '担当B', done: true }), 'mcp.updateAction(白紙)');
+  assert.deepStrictEqual(((b) => [b.assignee, b.checked])(C.readPage(db, blank).blocks.find((b) => b.id === todo)), ['担当B', true]);
+  assert.deepStrictEqual(snapRows(db, blank).map((s) => s.what), ['action']);
+  // データベースの行のページの本文の ToDo（最終更新者は Claude）
+  const { row, blockId: rb } = dbWithRow(db);
+  const rt = ok(call(db, 'block.insert', { pageId: row, afterBlockId: rb, type: 'todo' }), 'block.insert(行)').result.blockId;
+  ok(call(db, 'block.update', { pageId: row, blockId: rt, patch: { text: '行の ToDo' } }), 'block.update(行)');
+  assert.notStrictEqual(byOf(db, row).u, 'claude');
+  ok(act(db, row, rt, { dueRaw: '12/1' }), 'mcp.updateAction(行)');
+  assert.strictEqual(C.readPage(db, row).blocks.find((b) => b.id === rt).dueRaw, '12/1');
+  assert.strictEqual(byOf(db, row).u, 'claude', '行の最終更新者が Claude でない');
+  assert.deepStrictEqual(snapRows(db, row).map((s) => s.what), ['action']);
+  // ゴミ箱
+  ok(call(db, 'page.delete', { id }), 'page.delete');
+  assert.deepStrictEqual(((x) => [x.ok, x.code])(act(db, id, 'pm1b6', { done: true })), [false, 'not-found']);
+}));
+
+test('CT-1・F238・D149: ToDo を済みにしても、その ToDo から作ったタスクのステータスは変わらない。答えにタスクの ID（ゴミ箱のタスクは書かない）', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const task = ok(call(db, 'todo.toTask', { pageId: id, blockId: 'pm1b4' }), 'todo.toTask').result.id;
+  const cells = cellsOf(db, task);
+  const r = ok(act(db, id, 'pm1b4', { done: true }), 'mcp.updateAction');
+  assert.deepStrictEqual(r.result, { title: C.readPage(db, id).title, task });
+  assert.strictEqual(C.readPage(db, id).blocks.find((b) => b.id === 'pm1b4').checked, true);
+  assert.deepStrictEqual(cellsOf(db, task), cells, 'タスクのステータスが変わった（D149）');
+  ok(act(db, id, 'pm1b4', { done: false }), '済みを外す');
+  assert.deepStrictEqual(cellsOf(db, task), cells, 'タスクのステータスが変わった（D149）');
+  const d = db.prepare('select parent_id from blocks where id = ?').get(task).parent_id;
+  ok(call(db, 'rows.trash', { db: d, ids: [task] }), 'rows.trash');
+  assert.deepStrictEqual(ok(act(db, id, 'pm1b4', { done: true }), 'ゴミ箱のタスク').result, { title: C.readPage(db, id).title });
+}));
+
+test('CT-1・F238: mcp.makeTask: ［タスクにする］（todo.toTask）と同じ行ができる（ステータス・担当・期限・「議事録」）・作成者と最終更新者は Claude・2回目は同じ行の ID で何もしない（made 偽・控えは増えない）・控えは ToDo のページの1行（what task。戻すと印だけ外れ行は残る）', T, () => withDb((db, t) => {
+  const a = meetingPage(t, 'pm1');
+  const b = meetingPage(t, 'pm2');
+  ok(call(db, 'block.setAction', { pageId: 'pm1', blockId: 'pm1b6', dueRaw: '12/1' }), '期限（推し量らない）');
+  ok(call(db, 'block.setAction', { pageId: 'pm2', blockId: 'pm2b6', dueRaw: '12/1' }), '期限（推し量らない）');
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  const r = ok(mcp(db, 'mcp.makeTask', { pageId: a, blockId: 'pm1b6' }), 'mcp.makeTask');
+  const tdb = db.prepare("select id from blocks where type = 'page' and instr(attrs, '\"tasks\"') > 0").get().id;
+  assert.deepStrictEqual(r.result, { id: r.result.id, db: tdb, made: true });
+  assert.strictEqual(r.changed.what, 'task');
+  assert.deepStrictEqual([r.changed.actor, r.changed.pageIds.includes(a), r.changed.pageIds.includes(r.result.id)], ['claude', true, true]);
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.makeTask', page_id: a });
+  const u = ok(call(db, 'todo.toTask', { pageId: b, blockId: 'pm2b6' }), 'todo.toTask').result.id;
+  const mine = cellsOf(db, r.result.id);
+  const theirs = cellsOf(db, u);
+  const dbAttrs = JSON.parse(db.prepare('select attrs from blocks where id = ?').get(tdb).attrs);
+  const relCol = dbAttrs.cols.find((c) => c.type === 'rel').id;
+  assert.deepStrictEqual([mine[relCol], theirs[relCol]], [[a], [b]], '「議事録」のリレーション');
+  assert.deepStrictEqual({ ...mine, [relCol]: null }, { ...theirs, [relCol]: null }, '［タスクにする］と違う行');
+  assert.strictEqual(Object.keys(mine).length, 4, `ステータス・担当・期限・議事録: ${JSON.stringify(mine)}`);
+  assert.deepStrictEqual(byOf(db, r.result.id), { c: 'claude', u: 'claude' }, '作成者が Claude でない');
+  assert.deepStrictEqual(byOf(db, u), { c: 'me', u: 'me' });
+  assert.strictEqual(C.readPage(db, a).blocks.find((x) => x.id === 'pm1b6').task, r.result.id);
+  assert.deepStrictEqual(snapRows(db, a).map((s) => s.what), ['task']);
+  assert.strictEqual(JSON.parse(snapRows(db, a)[0].body).blocks.find((x) => x.id === 'pm1b6').task, undefined, '控えが印の前でない');
+  // 2回目: 同じ行の ID で何もしない（made 偽・控えも oplog の操作も増えない）
+  const rows = db.prepare("select count(*) c from blocks where type = 'row'").get().c;
+  const again = ok(mcp(db, 'mcp.makeTask', { pageId: a, blockId: 'pm1b6' }), '2回目');
+  assert.deepStrictEqual([again.result, again.changed], [{ id: r.result.id, db: tdb, made: false }, undefined]);
+  assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'row'").get().c, rows, '2つ目のタスクができた');
+  assert.strictEqual(snapRows(db, a).length, 1);
+  // 戻すと印だけ外れ、行は残る（CR13）
+  ok(call(db, 'page.claudeRevert', { id: a, sid: snapRows(db, a)[0].rid }), 'page.claudeRevert');
+  assert.strictEqual(C.readPage(db, a).blocks.find((x) => x.id === 'pm1b6').task, undefined);
+  assert.strictEqual(db.prepare('select trashed_at from blocks where id = ?').get(r.result.id).trashed_at, null, '作った行がゴミ箱へ入った');
+}));
+
+test('CT-1・F238: mcp.makeTask は ToDo でない行は bad-args、making・要約待ちは locked、録音中の写し・ゴミ箱・無いページは not-found で何も作らない。行のページの ToDo からも作れ、「タスク管理」が無ければ作る', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const rowsN = () => db.prepare("select count(*) c from blocks where type = 'row'").get().c;
+  const n0 = rowsN();
+  const code = (x) => [x.ok, x.code];
+  assert.deepStrictEqual(code(mcp(db, 'mcp.makeTask', { pageId: id, blockId: 'pm1b2' })), [false, 'bad-args']);
+  assert.deepStrictEqual(code(mcp(db, 'mcp.makeTask', { pageId: id, blockId: 'pm1b4' }, { making: new Set([id]) })), [false, 'locked']);
+  const { page: wp, segments: ws } = samplePage('pw1');
+  for (const b of wp.blocks) b.id = `pw1${b.id}`;
+  wp.summaryWait = true;
+  t.seed(wp, ws);
+  assert.deepStrictEqual(code(mcp(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1b4' })), [false, 'locked']);
+  const { page: lp, segments: ls } = samplePage('pl1');
+  for (const b of lp.blocks) b.id = `pl1${b.id}`;
+  lp.meeting = { phase: 'recording' };
+  t.seed(lp, ls);
+  assert.deepStrictEqual(code(mcp(db, 'mcp.makeTask', { pageId: 'pl1', blockId: 'pl1b4' })), [false, 'not-found']);
+  assert.deepStrictEqual(code(mcp(db, 'mcp.makeTask', { pageId: 'pnone1', blockId: 'pl1b4' })), [false, 'not-found']);
+  assert.strictEqual(rowsN(), n0, '断ったのに行ができた');
+  assert.deepStrictEqual([snapRows(db, id), snapRows(db, 'pw1')], [[], []]);
+  const { row, blockId: rb } = dbWithRow(db);
+  const rt = ok(call(db, 'block.insert', { pageId: row, afterBlockId: rb, type: 'todo' }), 'block.insert(行)').result.blockId;
+  ok(call(db, 'block.update', { pageId: row, blockId: rt, patch: { text: '行の ToDo' } }), 'block.update(行)');
+  const tasksN = () => db.prepare("select count(*) c from blocks where type = 'page' and instr(attrs, '\"tasks\"') > 0").get().c;
+  assert.strictEqual(tasksN(), 0, '「タスク管理」が初めからある');
+  const r = ok(mcp(db, 'mcp.makeTask', { pageId: row, blockId: rt }), 'mcp.makeTask(行)');
+  assert.strictEqual(tasksN(), 1, '「タスク管理」が無いときに作らない');
+  assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get(r.result.id).parent_id, r.result.db);
+  assert.strictEqual(C.readPage(db, row).blocks.find((b) => b.id === rt).task, r.result.id);
+  assert.deepStrictEqual(snapRows(db, row).map((s) => s.what), ['task']);
+  ok(call(db, 'page.delete', { id }), 'page.delete');
+  assert.deepStrictEqual(code(mcp(db, 'mcp.makeTask', { pageId: id, blockId: 'pm1b6' })), [false, 'not-found']);
+}));
+
+test('CT-1: 同じ tx の送り直しは dup で、2回目は控えも oplog も増えない（mcp.updateAction・mcp.makeTask）', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const tx1 = txOf('mcp');
+  const a = ok(act(db, id, 'pm1b4', { done: true }, {}, tx1), '1回目');
+  const n = db.prepare('select count(*) c from oplog').get().c;
+  const b = act(db, id, 'pm1b4', { done: false }, {}, tx1);
+  assert.deepStrictEqual([b.ok, b.dup, b.result], [true, true, a.result]);
+  assert.strictEqual(C.readPage(db, id).blocks.find((x) => x.id === 'pm1b4').checked, true, '送り直しで2回目を当てた');
+  const tx2 = txOf('mcp');
+  const c = ok(mcp(db, 'mcp.makeTask', { pageId: id, blockId: 'pm1b6' }, {}, tx2), '1回目');
+  const d = mcp(db, 'mcp.makeTask', { pageId: id, blockId: 'pm1b6' }, {}, tx2);
+  assert.deepStrictEqual([d.ok, d.dup, d.result], [true, true, c.result]);
+  assert.strictEqual(db.prepare('select count(*) c from oplog').get().c, n + 1);
+  assert.deepStrictEqual(snapRows(db, id).map((s) => s.what), ['action', 'task']);
+}));
