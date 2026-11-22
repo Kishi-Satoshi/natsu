@@ -589,13 +589,14 @@ function listActionItems(db, args, { now }) {
 }
 
 // 0.18.0 CT-3（計画 docs/plans/2026-11-18-180.md の決めたこと 34・F240・RF77）: query_database。列・選択肢・作成者の名前を dbQuery.toView で読み替え、
-// 1つでも読めなければ絞らずに bad-filter（どの条件かは bad に）。行は表と同じ1か所（commands.dbQueryRead）。答えは頭（題名・データベース（行 n）・ID）・
+// 1つでも読めなければ絞らずに bad-filter（どの条件かは bad に）。行は表と同じ1か所（commands.dbQueryRead）。答えは頭（題名・データベース（行 n）・
+// 当たった行の数（AQ38「- 当たった行: <数>」。続きの答えでも全体の数）・ID）・
 // 「## 列」・「## 行」（1行に「- 題名｜列の名前: 値｜…｜ID 行の ID」）・続きの offset（12,000 字の決まりのまま。行の途中では切らない）
 function queryDatabase(db, args, { now }) {
   const offset = args.offset || 0;
   const r = commands.dbQueryRead(db, args.database, (cols, views) => DQ.toView(args, cols, views), now.getTime(), { offset, limit: args.limit || LIMITS.query[0] });
   if (r.error) return { error: r.error, bad: r.bad };
-  const head = [F.header(now), `# ${F.titleLine({ title: r.title, kind: 'database' })}`, `- ${F.dbLabel(r.total)}`, `- ID: ${r.id}`, ...F.dbLines({ total: 0, cols: r.cols, rows: [] })];
+  const head = [F.header(now), `# ${F.titleLine({ title: r.title, kind: 'database' })}`, `- ${F.dbLabel(r.total)}`, `- 当たった行: ${r.hits}`, `- ID: ${r.id}`, ...F.dbLines({ total: 0, cols: r.cols, rows: [] })];
   const lines = [];
   let size = head.join('\n').length;
   for (const row of r.rows) {

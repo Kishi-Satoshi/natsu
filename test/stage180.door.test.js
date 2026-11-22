@@ -58,7 +58,9 @@ function boot(d, { network = false, ...opts } = {}) {
   };
   // 0.18.0 CS-2: main が送る「要約を作っている間」の知らせ（parentPort の { type: 'making', ids }）
   const making = (ids) => parent.emit({ type: 'making', ids });
-  return { port, ready, stop, logs, making };
+  // 0.18.0 AQ41: main が送る設定「打ち合わせの質」の知らせ（parentPort の { type: 'quality', setting }）
+  const quality = (setting) => parent.emit({ type: 'quality', setting });
+  return { port, ready, stop, logs, making, quality };
 }
 const paperOf = (d) => path.join(d.dataDir, D.DOOR_NAME);
 const readPaper = (d) => { try { return fs.readFileSync(paperOf(d), 'utf8'); } catch (_) { return null; } };
@@ -473,5 +475,33 @@ test('CS-2・F235: main が parentPort で知らせた making のページへの
     c.close();
     await waitFor(() => seen.length > 0, 'changed');
     assert.deepStrictEqual(seen, [{ event: 'changed', pageIds: [id], actor: 'claude', what: 'summary' }]);
+  } finally { await s.stop(); d.done(); }
+});
+
+// ---------------------------------------------------------------- AQ41（決めたこと 22・CR59）: main の設定「打ち合わせの質」の知らせと Claude の要約の書き戻しの点
+test('AQ41・CS-2: main が parentPort で知らせた設定「打ち合わせの質」に、扉の口からの mcp.writeSummary の点が従う（付けない設定では Claude の採点の節を落とし、すべてに戻すと点が付く）', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const s = boot(d);
+  try {
+    s.quality('off');
+    await s.ready();
+    const id = d.ids[0];
+    const app = s.port('app');
+    const long = await app.ask({ id: 1, cmd: 'segment.update', args: { pageId: id, segId: 's2', patch: { text: '来月の予算案の作成は担当Aさんが進めることにしました。'.repeat(20) } }, tx: 'a:c180-aq41-0001' });
+    assert.strictEqual(long.ok, true, JSON.stringify(long));
+    const md = ['## 決めたこと', '- 来月の予算案の作成は担当Aさんが進める', '## 打ち合わせの質（採点）',
+      '目的と結論: 4 | 冒頭で決めることを言いました', '抜け・重なり: 3 | 予算の話を2回やり直しました', '決定事項: 5 | 人を足すと確かめました'].join('\n');
+    const pageOf = async (k) => (await app.ask({ id: k, cmd: 'page.get', args: { id } })).result.page;
+    const c = await hello(d);
+    c.send({ id: 1, cmd: 'mcp.writeSummary', args: { pageId: id, baseRev: (await pageOf(2)).rev, md }, tx: 'c:c180-aq41-0001' });
+    assert.strictEqual((await c.reply(1)).ok, true);
+    assert.strictEqual((await pageOf(3)).quality, undefined, '付けない設定なのに点が付いた');
+    s.quality('all');
+    c.send({ id: 2, cmd: 'mcp.writeSummary', args: { pageId: id, baseRev: (await pageOf(4)).rev, md }, tx: 'c:c180-aq41-0002' });
+    assert.strictEqual((await c.reply(2)).ok, true);
+    const q = (await pageOf(5)).quality;
+    assert.ok(q && q.total > 0, `すべての会議の設定なのに点が付かない: ${JSON.stringify(q)}`);
+    c.close();
   } finally { await s.stop(); d.done(); }
 });

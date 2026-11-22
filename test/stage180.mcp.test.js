@@ -64,17 +64,23 @@ test('CT-3・F240: query_database の答え: applyView と同じ行・同じ並�
     assert.deepStrictEqual(idsIn(r.text), want, r.text);
     assert.ok(want.length > 3 && want.length < 11, JSON.stringify(want));
     const ll = linesOf(r.text);
-    assert.deepStrictEqual(ll.slice(0, 4), [F.header(NOW()), '# 案件', '- データベース（行 11）', `- ID: ${d}`]);
+    // AQ38（2026-11-22「「- 当たった行: <数>」と、場所はそのまま（おすすめ）」）: 頭に当たった行の数（K8 の (1) で出していなかった行を足した）
+    assert.deepStrictEqual(ll.slice(0, 5), [F.header(NOW()), '# 案件', '- データベース（行 11）', `- 当たった行: ${want.length}`, `- ID: ${d}`]);
     assert.deepStrictEqual(ll.slice(ll.indexOf('## 列'), ll.indexOf('## 行') + 1), ['## 列', '- 名前（題名）', '- メモ（テキスト）', '- 区分（選択）', '- 金額（数値）', '## 行']);
     assert.ok(ll.includes(`- 行 1｜区分: 社内｜金額: 2｜ID ${ids[1]}`), r.text);
     assert.ok(!r.text.includes(ids[11]) && !r.text.includes(tpl) && !r.text.includes('テンプレートの見本'), 'ゴミ箱の行かテンプレートの行が出た');
     // 条件が無ければ全部の行（ゴミ箱とテンプレートを除く 11 行）を最初のビューの並び（金額の大きい順）で
     const all = call('query_database', { database: d });
     assert.deepStrictEqual(idsIn(all.text).length, 11);
+    assert.ok(linesOf(all.text).includes('- 当たった行: 11'), all.text);
     assert.ok(!all.text.includes('続き'), all.text);
     // ビューの名前: そのビューの絞り込み（社外だけ）を先に当てる
     const outer = call('query_database', { database: d, view: '社外だけ', filters: [{ column: '金額', op: 'ge', value: 0 }] });
     assert.deepStrictEqual(idsIn(outer.text).sort(), [ids[0], ids[3], ids[6], ids[9]].sort(), outer.text);
+    assert.ok(linesOf(outer.text).includes('- 当たった行: 4'), outer.text);
+    // 続き（offset）の答えも、当たった行の数は全体の数（その答えに出た行の数でない）
+    const part = call('query_database', { database: d, limit: 2, offset: 1 });
+    assert.deepStrictEqual([idsIn(part.text).length, linesOf(part.text).includes('- 当たった行: 11')], [2, true], part.text);
     // SQL・検索の文法の字はただの文字
     for (const value of ['100%', '"見積"', 'AND 契約']) assert.deepStrictEqual(idsIn(call('query_database', { database: d, filters: [{ column: 'メモ', op: 'contains', value }] }).text), [ids[4]], value);
     assert.deepStrictEqual(idsIn(call('query_database', { database: d, filters: [{ column: 'メモ', op: 'contains', value: '値引き' }], match: 'any' }).text).sort(), [ids[4], ids[5]].sort());

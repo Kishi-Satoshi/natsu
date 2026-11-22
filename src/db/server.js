@@ -12,6 +12,7 @@
  *   口の上: 頼み { id, cmd, args, tx? } → 返事 { id, ok: true, result } | { id, ok: false, code, retry }。
  *           書けたら全部の口に { event: 'changed', pageIds, actor, what? }（what は Claude の命令 mcp.* の道具の印: 0.18.0 CS-2）。
  *   main → 子: 0.18.0 CS-2 の { type: 'making', ids }（main が要約を作っている間のページ。覚えるだけで書かない。mcp.writeSummary が locked で断る）。
+ *   main → 子: 0.18.0 AQ41 の { type: 'quality', setting }（設定「打ち合わせの質」。覚えるだけ。mcp.writeSummary の点が main の要約と同じ設定に従う）。
  *   口ごとの役は main が port の知らせで付ける（頼みの中で役を名乗っても変わらない: 役は core.call に口の役だけを渡す）。
  *   0.18.0 CW-2（計画 docs/plans/2026-11-18-180.md の決めたこと 1〜5・F230・F231）: ready の state が ok のときだけ、Claude の書き込みの口（door.js。
  *   名前付きパイプと合い言葉・扉の紙 natsu.door）を開き、握手した口を役 mcp で役の表に入れる（main は口を作らず、頼みを中継しない）。
@@ -96,6 +97,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   let snapChain = Promise.resolve();   // 控えを1つずつ
   let door = null;   // 0.18.0 CW-2: Claude の書き込みの口（ready の ok の後だけ）
   let making = new Set();   // 0.18.0 CS-2（決めたこと 17）: main が要約を作っている間のページ（{ type: 'making', ids }。覚えるだけで書かない）
+  let qualityScore;   // 0.18.0 AQ41（決めたこと 22）: 設定「打ち合わせの質」（{ type: 'quality', setting }。知らせが無ければ undefined: shouldScore の既定）
 
   const post = (m) => { try { parentPort.postMessage(m); } catch (_) { /* main が居ない */ } };
   const log = (line) => post({ type: 'log', line });
@@ -161,7 +163,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
         .then((out) => reply(port, id, out), () => reply(port, id, failOut('internal')));
       return;
     }
-    const r = core.call(db, { role, cmd: data.cmd, args: data.args, tx: data.tx }, { now, labels, log, making });
+    const r = core.call(db, { role, cmd: data.cmd, args: data.args, tx: data.tx }, { now, labels, log, making, qualityScore });
     if (!r.ok) { reply(port, id, failOut(r.code, r.retry === true)); return; }
     // 0.14.0 EB-2（決めたこと 6・R59・R75）: 何か変えた命令（と、その送り直し）の答えだけに changed（画面の元に戻すの1歩）
     reply(port, id, r.changed || r.dupChanged ? { ok: true, result: r.result, changed: true } : { ok: true, result: r.result });
@@ -502,6 +504,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     else if (data.type === 'migrate') enqueue(() => runMigrate(data));
     else if (data.type === 'close') enqueue(() => close());
     else if (data.type === 'making') making = new Set(Array.isArray(data.ids) ? data.ids.filter((x) => typeof x === 'string') : []);   // 0.18.0 CS-2: 待たせずに覚える
+    else if (data.type === 'quality') qualityScore = typeof data.setting === 'string' ? data.setting : undefined;   // 0.18.0 AQ41: 待たせずに覚える
   });
 }
 

@@ -117,3 +117,30 @@ test('ST7: 子の error（致命的な失敗）を受け止めて記録し、mai
     assert.ok(logs.some((l) => l === 'DB: 子の致命的な失敗（FatalError）'), JSON.stringify(logs));
   } finally { await c.close({ timeoutMs: 2000 }); d.done(); }
 });
+
+test('0.18.0 AQ41: setQualityScore は子に { type: "quality", setting } を送り、起こし直した子にも init の後に知らせ直す（making と同じ）', { timeout: 15000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  const base = trackFork(fakeFork({ crashAfterRequests: 1 }));   // 1つ目の頼みを書いた直後、返事の前に落ちる
+  const sent = [];
+  const fork = (...a) => {
+    const ch = base(...a);
+    const pm = ch.postMessage.bind(ch);
+    ch.postMessage = (m, t) => { sent.push(m && m.type); return pm(m, t); };
+    return ch;
+  };
+  const c = makeDbClient({ fork, Channel: FakeChannel, serverPath: require.resolve('../src/db/server'), init: { dataDir: d.dataDir, labels: {}, network: false } });
+  made.clients.push(c);
+  c.setQualityScore('off');   // 起こす前に知らせた値も、起こした子に init の後で送る
+  c.start();
+  try {
+    await c.call('page.setTitle', { id: d.ids[0], title: '落ちる前に送った' }, { tx: 'm:title:aq41-01' });   // D77
+    assert.strictEqual(base.starts(), 2, '前提: 起こし直した');
+    const inits = sent.reduce((a, t, i) => (t === 'init' ? [...a, i] : a), []);
+    assert.strictEqual(inits.length, 2);
+    // それぞれの子に、init の後（次の子の init の前）で知らせている
+    inits.forEach((at, k) => assert.ok(sent.slice(at, inits[k + 1]).includes('quality'), `${k + 1} 番目の子の init の後に quality が無い: ${JSON.stringify(sent)}`));
+    const n = sent.length;
+    c.setQualityScore('on');
+    assert.deepStrictEqual(sent.slice(n), ['quality'], '起こし直した後の変更を送っていない');
+  } finally { await c.close({ timeoutMs: 2000 }); d.done(); }
+});

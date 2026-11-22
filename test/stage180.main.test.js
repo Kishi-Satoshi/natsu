@@ -86,3 +86,11 @@ test('CS-2・F235: ［要約を生成］の間、DB のプロセスに making �
   assert.deepStrictEqual(makingsOf(quit), [['pq1'], []]);
   makingAround(quit, 'pq1');
 });
+
+// ---------------------------------------------------------------- AQ41（2026-11-22「設定に従う（おすすめ）」・決めたこと 22・CR59）
+test('AQ41・CS-2: main は、設定「打ち合わせの質」を DB のプロセスに知らせる（起動で DB の頼みより前に今の値・設定の保存で変わった値）', T, async () => {
+  const o = await sceneRun(['text', `--mcp-steps=${JSON.stringify([['save', { qualityScore: 'off' }], ['save', { qualityScore: 'on' }]])}`, `--settings-add=${JSON.stringify({ qualityScore: 'on' })}`]);
+  const q = o.qualityTrace.map((x) => x.setting);
+  assert.strictEqual(q[0], 'on', `起動で今の値を知らせていない: ${JSON.stringify(q)}`);
+  assert.deepStrictEqual(q.filter((v, i) => i === 0 || v !== q[i - 1]), ['on', 'off', 'on'], `設定の保存で変わった値を知らせていない: ${JSON.stringify(q)}`);
+});

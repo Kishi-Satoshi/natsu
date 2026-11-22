@@ -3259,7 +3259,8 @@ function claudeRevert(db, a, ctx) {
 // 出典は今の文字起こしと照らして付け直す）で要約の行にし、書く直前の形を控えに取って（withSnap）要約の行を作り直す。
 // 断る: 無い・ゴミ箱・録音中の写し（listedRows の外）は not-found、白紙のページ・データベース・データベースの行は bad-args（要約が無い）、
 // main が要約を作っている間（ctx.making）と要約の欄の鍵（要約待ちなど: summaryLockedPage）は locked、読んだ版（baseRev）が今と違えば conflict、
-// 本文が上限（行の数・ページの大きさ）を越えれば too-big。採点の節があり文字起こしが短くなければ Claude Code の要約と同じに点を読み、無ければ前の点を消す
+// 本文が上限（行の数・ページの大きさ）を越えれば too-big。採点の節があり、設定「打ち合わせの質」がその種類に点を付け（AQ41）、文字起こしが短くなければ
+// Claude Code の要約と同じに点を読み、無ければ前の点を消す
 function claudeSummaryAnswer(p, edited) {
   const st = R.citeStatOf(p.blocks || []);
   const notes = typeof p.summaryError === 'string' && p.summaryError ? p.summaryError.split('\n') : [];
@@ -3284,8 +3285,11 @@ function mcpWriteSummary(db, a, ctx) {
     const segs = readSegments(db, a.pageId);
     const rows = TL.timelineOf(segs.filter((x) => !x.failed && !x.pending));
     const plain = rows.map((r) => r.text).join('\n');
+    // AQ41（決めたこと 22・CR59）: main の要約と同じく設定「打ち合わせの質」と種類で点を付けるか決める（quality.shouldScore）。付けない設定・種類では、
+    // Claude が書いた採点の節を main の頼まなかった節と同じに黙って落とす（注も無い）。節が無ければ点も注も無い（Claude は頼まれたときだけ節を書く: CR22）
     const asked = quality.splitScore(a.md).found > 0;
-    const score = asked && plain.length >= quality.MIN_SCORE_CHARS;
+    const want = asked && quality.shouldScore(p.meetingType, ctx.qualityScore);
+    const score = want && plain.length >= quality.MIN_SCORE_CHARS;
     const template = memoTypes.buildTemplate({ meetingType: p.meetingType, score, labeled: rows.some((r) => TL.srcLabel(r)) });
     const made = SW.prepareSummary({ md: a.md, page: p, segments: segs, segmentsAtStart: segs, score, template, at: ctx.now().toISOString() });
     p.blocks = made.blocks;
@@ -3293,7 +3297,7 @@ function mcpWriteSummary(db, a, ctx) {
     p.citeStat = made.citeStat;
     p.actionStat = made.actionStat;
     if (made.quality) p.quality = made.quality; else delete p.quality;   // 点は要約と組（古い要約の点を残さない: 決めたこと 22）
-    p.summaryError = [made.scoreNote || (asked && !score ? SW.QUALITY_NOTE_SHORT : '')].filter(Boolean).join('\n');
+    p.summaryError = [made.scoreNote || (want && !score ? SW.QUALITY_NOTE_SHORT : '')].filter(Boolean).join('\n');
     p.summaryEdited = true;   // ［要約を再生成］で Claude の要約を消す前に、0.13.0 の確かめが出る（決めたこと 19）
     p.route = { ...(isObj(p.route) ? p.route : {}), summary: { by: 'claude', at: ctx.now().toISOString() } };
     pageFits(p, ctx);
@@ -3316,7 +3320,8 @@ function writeSummaryDup(db, a, row) {
 // 1つの命令（oplog の1行・控えは1つ。控えの segs は直した発言だけ）で直す（nameFix.fixNames）。題名とタスク（「タスク管理」の行）の担当は直さず数を返す。
 // 直した発言を指す行は segment.update の recite と同じ refreshCitations で、文を直した行は今の文字起こしで、出典を照らし直す。
 // 当たりが無ければ何も書かない（操作の空の行だけ。rev・更新の時刻・控えは変わらない: 決めたこと 56）。
-// 断る: 無い・ゴミ箱・録音中の写し（listedRows の外）・ゴミ箱のデータベースの行・テンプレートの行は not-found、データベースのページは bad-args
+// 断る: 無い・ゴミ箱・録音中の写し（listedRows の外）・ゴミ箱のデータベースの行・テンプレートの行は not-found、データベースのページは bad-args、
+// main が要約を作っている間（ctx.making）と要約待ちは locked（AQ40）
 // その ToDo から作ったタスクの「担当」の名前（生きている行だけ。数えるだけ: CR15）
 function taskNamesOf(db, blocks) {
   const out = [];
@@ -3341,6 +3346,9 @@ function mcpFixNames(db, a, ctx) {
   if (!w) throw refuse('not-found');
   if (isDbPage(w.page)) throw refuse('bad-args');
   const meeting = !row && !isBlankPage(w.page);
+  // AQ40（2026-11-22「要約を作っている間は断る（おすすめ）」）: main が要約を作っている間と要約待ちは locked（main の書き戻しが要約の行を丸ごと置くので、
+  // 要約の行の直しが黙って消えない。updateAction と同じ）。要約の欄の鍵のほかの形（要約の無い議事録の none・empty）は名前の直しを止めない
+  if (ctx.making.has(a.pageId) || (meeting && w.was.page.summaryWait === true)) throw refuse('locked');
   const segs = meeting ? readSegments(db, a.pageId) : [];
   let people = [];
   const host = meeting && raw.parent_id ? dbOf(db, raw.parent_id) : null;

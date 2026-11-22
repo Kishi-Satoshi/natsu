@@ -673,6 +673,7 @@ function loadStores() {
   // 議事録の DB のプロセスを起こす（第2a1回 ST2）。開けなければ子が「使えない」と答え、知らせ D1（onDbEvent）
   DB_INIT.dataDir = path.join(app.getPath('userData'), 'data');
   DB_INIT.network = isNetworkPath(DB_INIT.dataDir);
+  db.setQualityScore(settings.qualityScore);   // 0.18.0 AQ41: 起こす子に init の後で知らせる（Claude の要約の書き戻しの点も設定に従う）
   db.start();
 }
 // いまのデータフォルダの絶対パス（「データ保存先を開く」）
@@ -6023,6 +6024,7 @@ function setupIpc() {
     const prevDetect = { meetingDetect: settings.meetingDetect, mute: JSON.stringify(settings.meetingDetectMute) };
     const prevLeave = settings.autoStopLeave !== false;
     settings = merged;
+    db.setQualityScore(settings.qualityScore);   // 0.18.0 AQ41（計画 docs/plans/2026-11-18-180.md の決めたこと 22・CR59）: DB のプロセスにも今の設定を
     // 0.9.3 M-2: 会議の検出の設定が変わったら、判断に知らせて見張りを起こす・止める
     if (prevDetect.meetingDetect !== settings.meetingDetect || prevDetect.mute !== JSON.stringify(settings.meetingDetectMute)) applyDetectSettings(prevDetect);
     if (prevLeave !== (settings.autoStopLeave !== false)) applyLeaveSetting();   // 0.12.1 LV-2（決めたこと L9・L16）
@@ -6749,6 +6751,7 @@ if (!gotLock) {
 // （あちらはそのまま残す）。ファイルの最後に置くのは、repo.test.js の起動のホットキーの確かめが、最初の
 // resolveStartupHotkeys( の呼び出し（起動の所）から読むため（ここが先にあると、その確かめが起動の所を見なくなる）
 function applyReloadedSettings(prev, next) {
+  db.setQualityScore(next.qualityScore);   // 0.18.0 AQ41: 読み直した本当の設定を DB のプロセスにも
   if (prev.meetingDetect !== next.meetingDetect || JSON.stringify(prev.meetingDetectMute) !== JSON.stringify(next.meetingDetectMute)) applyDetectSettings(prev);   // 0.9.3 M-2
   if ((prev.autoStopLeave !== false) !== (next.autoStopLeave !== false)) applyLeaveSetting();   // 0.12.1 LV-2
   // ホットキーは起動のときと同じ決め方（登録できなければ既定に退避し、settings には書かない）

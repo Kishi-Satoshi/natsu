@@ -2240,7 +2240,9 @@ process.on('exit', () => {
         const close = restartDuring === 'closing' ? (o) => new Promise((r) => { releaseClose = () => r(c.close(o)); }) : c.close;
         // 0.18.0 CS-2: 要約を作っている間の知らせ（setMaking）も trace に残す（{ kind: 'making', ids }。頼みとの順を見る）
         const setMaking = (ids) => { trace.push({ kind: 'making', ids: Array.isArray(ids) ? [...ids] : ids }); return c.setMaking(ids); };
-        return { ...c, call, close, setMaking, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
+        // 0.18.0 AQ41: 設定「打ち合わせの質」の知らせ（setQualityScore）も trace に残す（{ kind: 'quality', setting }。頼みとの順を見る）
+        const setQualityScore = (v) => { trace.push({ kind: 'quality', setting: v }); return c.setQualityScore(v); };
+        return { ...c, call, close, setMaking, setQualityScore, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
       } };
     }
     // 第1d回 A-9: 取り込みは数えるだけ（本当には取りに行かない・アプリのフォルダを書き換えない）
@@ -3166,6 +3168,7 @@ process.on('exit', () => {
       claudeConfigs: claudeConfigsNow(), notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p), engineLog: elogLines(),
       settingsText: (readUser('settings.json') || '').toString('utf8'), dataDir: path.join(userData, 'data'), tasklistCalls, protocolCalls,
       mainSent: sent.filter(([ch]) => ch === 'page:open-link'), mainWinCalls: mainWinCalls.slice(),
+      qualityTrace: trace.filter((t) => t.kind === 'quality'),   // 0.18.0 AQ41
     });
     for (const dir of Object.values(claudeDirs)) { try { for (const n of fs.readdirSync(dir)) fs.chmodSync(path.join(dir, n), 0o644); } catch (_) { /* 無ければ飛ばす */ } }
     process.stdout.write(`\n${JSON.stringify(out)}\n`);

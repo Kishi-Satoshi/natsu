@@ -10,6 +10,8 @@
  *   start: fork(serverPath, [], { serviceName: 'NaTsu DB' }) で子を起こし、{ type: 'init', dataDir, labels, network } と、
  *     自分用の口（役 main）を { type: 'port', role: 'main' } で渡す。
  *   setMaking(ids): 0.18.0 CS-2。要約を作っている間のページを子へ { type: 'making', ids }（返事を待たない。起こし直した子にも知らせ直す）。
+ *   setQualityScore(setting): 0.18.0 AQ41。設定「打ち合わせの質」（settings.qualityScore）を子へ { type: 'quality', setting }（返事を待たない。
+ *     起こす前に渡した値も、起こし直した子にも、init の後に知らせ直す。Claude の要約の書き戻しの点が main の要約と同じ設定に従う）。
  *   call: 用意の前（starting・migrating）と起こし直しの間の頼みは待ち行列に入れ、時間切れは数えない。用意ができたら届いた順に送る。
  *     送った後の時間切れは読む命令 15 秒・書く命令 30 秒（retry で失敗）。書く命令の tx は呼び手が渡さなければ
  *     'm:' + cmd + ':' + 時刻 + 乱数 を作る（呼ぶたびに別）。失敗は Error（message は符号そのもの）に .code と .retry。
@@ -72,6 +74,7 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
   let closing = null;
   let migrateGo = false;
   let making = [];             // 0.18.0 CS-2: 要約を作っている間のページ（setMaking）
+  let qualityScore = null;     // 0.18.0 AQ41: 設定「打ち合わせの質」（setQualityScore。null はまだ知らせていない）
   const readyFns = [];
   const closedWaiters = [];
   const exitWaiters = [];
@@ -192,6 +195,7 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
       c.postMessage({ ...init, type: 'init' });
       c.postMessage({ type: 'port', role: 'main' }, [ch.port1]);
       if (making.length) c.postMessage({ type: 'making', ids: making.slice() });   // 0.18.0 CS-2: 起こし直した子にも、要約を作っている間のページを知らせ直す
+      if (qualityScore !== null) c.postMessage({ type: 'quality', setting: qualityScore });   // 0.18.0 AQ41: 起こし直した子にも、設定「打ち合わせの質」を知らせ直す
     } catch (_) { /* 子がもう居ない: exit で起こし直す */ }
   }
 
@@ -230,6 +234,13 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
   function setMaking(ids) {
     making = Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : [];
     if (child && !closing) { try { child.postMessage({ type: 'making', ids: making.slice() }); } catch (_) { /* 子が居ない: 起こし直しで送る */ } }
+  }
+
+  // 0.18.0 AQ41（計画 docs/plans/2026-11-18-180.md の決めたこと 22・CR59）: 設定「打ち合わせの質」を子に知らせる（main の起動・設定の保存・読み直し）。
+  // 子は覚えるだけ（Claude の要約の書き戻しの点を main の要約と同じ quality.shouldScore で決める）。返事は待たない。起こし直した子にも spawn で知らせ直す
+  function setQualityScore(setting) {
+    qualityScore = typeof setting === 'string' ? setting : null;
+    if (qualityScore !== null && child && !closing) { try { child.postMessage({ type: 'quality', setting: qualityScore }); } catch (_) { /* 子が居ない: 起こし直しで送る */ } }
   }
 
   function rendererPort() {
@@ -286,6 +297,7 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
     call,
     send,
     setMaking,
+    setQualityScore,
     rendererPort,
     state: () => (phase === 'idle' ? 'starting' : phase),
     onReady(fn) {

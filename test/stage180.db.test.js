@@ -697,8 +697,81 @@ test('CS-2: 同じ tx の送り直しは dup で、2回目は控えも oplog も
   assert.strictEqual(snapRows(db, id).length, 1);
 }));
 
+// ---------------------------------------------------------------- AQ41（2026-11-22「設定に従う（おすすめ）」・決めたこと 22・CR59）: Claude の書き戻しの点は、
+// main の要約と同じく設定「打ち合わせの質」（main が DB のプロセスに知らせた ctx.qualityScore）に従う
+const SCORE_MD = ['## 決めたこと', '- 来月の予算案の作成は担当Aさんが進める', '## 打ち合わせの質（採点）',
+  '目的と結論: 4 | 冒頭で決めることを言いました', '抜け・重なり: 3 | 予算の話を2回やり直しました', '決定事項: 5 | 人を足すと確かめました'].join('\n');
+// 種類を手で選んだ議事録。long なら文字起こしが点を付ける長さ（quality.MIN_SCORE_CHARS）を越える
+function scorePage(t, id, type, long) {
+  const { page, segments } = samplePage(id);
+  for (const b of page.blocks) b.id = `${id}${b.id}`;
+  Object.assign(page, { meetingType: type, typeAuto: false });
+  if (long) segments[1].text = '来月の予算案の作成は担当Aさんが進めることにしました。'.repeat(20);
+  t.seed(page, segments);
+  return id;
+}
+
+test('AQ41・CS-2: mcp.writeSummary の点は、main の要約と同じく設定「打ち合わせの質」に従う（付けない設定・付けない種類では、Claude が書いた採点の節を main と同じに黙って落とす。短ければ注 QN2・読めなければ注 QN1。節が無ければ点も注も無い。知らせが無ければ既定の「すべて」）', T, () => withDb((db, t) => {
+  const SW = require('../src/summaryWrite');
+  const UNREAD_MD = '## 決めたこと\n- 来月の予算案の作成は担当Aさんが進める\n## 打ち合わせの質（採点）\n読めない採点の行';
+  const cases = [
+    // [設定, 種類, 長い, Markdown, 点が付く, 注]
+    ['all', 'standup', true, SCORE_MD, true, ''],
+    ['on', 'standup', true, SCORE_MD, true, ''],
+    [undefined, 'standup', true, SCORE_MD, true, ''],
+    ['off', 'standup', true, SCORE_MD, false, ''],
+    ['on', 'oneonone', true, SCORE_MD, false, ''],
+    ['on', 'interview', true, SCORE_MD, false, ''],
+    ['all', 'oneonone', true, SCORE_MD, true, ''],
+    ['all', 'standup', false, SCORE_MD, false, SW.QUALITY_NOTE_SHORT],
+    ['off', 'standup', false, SCORE_MD, false, ''],
+    ['all', 'standup', true, UNREAD_MD, false, SW.QUALITY_NOTE_UNREAD],
+    ['off', 'standup', true, UNREAD_MD, false, ''],
+    ['all', 'standup', true, '## 決めたこと\n- 来月の予算案の作成は担当Aさんが進める', false, ''],
+  ];
+  cases.forEach(([setting, type, long, md, scored, note], i) => {
+    const id = scorePage(t, `pq${i}`, type, long);
+    const what = JSON.stringify([setting, type, long, i]);
+    ok(mcp(db, 'mcp.writeSummary', { pageId: id, baseRev: revOf(db, id), md }, setting === undefined ? {} : { qualityScore: setting }), what);
+    const p = C.readPage(db, id);
+    assert.strictEqual(Boolean(p.quality), scored, `${what}: 点`);
+    if (scored) assert.ok(p.quality.total > 0, what);
+    assert.strictEqual(p.summaryError, note, `${what}: 注`);
+    assert.ok(!p.blocks.some((b) => /打ち合わせの質|目的と結論|読めない採点/.test(b.text)), `${what}: 採点の節が本文に残った`);
+  });
+}));
+
 // ---------------------------------------------------------------- CS-3（決めたこと 23〜26・F237）: Claude の名前の直し mcp.fixNames
-const fixN = (db, id, pairs) => mcp(db, 'mcp.fixNames', { pageId: id, pairs });
+const fixN = (db, id, pairs, ctx) => mcp(db, 'mcp.fixNames', { pageId: id, pairs }, ctx);
+
+test('AQ40・CS-3: mcp.fixNames は、main が要約を作っている間（making）と要約待ちのページは locked で何も変えない（当たりがあっても）。外れたら書ける。要約の無い議事録・白紙のページは鍵にならない', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const before = C.readPage(db, id);
+  const pairs = [{ from: '担当A', to: '担当B' }];
+  const m = fixN(db, id, pairs, { making: new Set([id]) });
+  assert.deepStrictEqual([m.ok, m.code], [false, 'locked'], 'making のページの名前を直した');
+  assert.deepStrictEqual(C.readPage(db, id), before);
+  assert.deepStrictEqual(snapRows(db, id), []);
+  // 要約待ち
+  const w = db.prepare('select attrs from blocks where id = ?').get(id);
+  db.prepare('update blocks set attrs = ? where id = ?').run(JSON.stringify({ ...JSON.parse(w.attrs), summaryWait: true }), id);
+  const waiting = fixN(db, id, pairs);
+  assert.deepStrictEqual([waiting.ok, waiting.code], [false, 'locked'], '要約待ちのページの名前を直した');
+  assert.deepStrictEqual(snapRows(db, id), []);
+  db.prepare('update blocks set attrs = ? where id = ?').run(w.attrs, id);
+  const r = ok(fixN(db, id, pairs, { making: new Set(['pother']) }), '鍵が外れたら書ける（ほかのページの making は鍵にならない）');
+  assert.ok(r.result.counts.summary + r.result.counts.transcript > 0, JSON.stringify(r.result));
+  // 要約の無い議事録（要約の欄の鍵の none の形）は鍵にならない（AQ40 は「作っている間・要約待ち」だけ）
+  const { page, segments } = samplePage('pn1');
+  Object.assign(page, { blocks: [], summaryError: '' });
+  delete page.route.summary;
+  t.seed(page, segments);
+  const n = ok(fixN(db, 'pn1', pairs), '要約の無い議事録の名前を直せない');
+  assert.strictEqual(n.result.counts.transcript, 1, JSON.stringify(n.result));
+  // 白紙のページ
+  const b = blankPage(db, '担当Aに渡す');
+  assert.strictEqual(ok(fixN(db, b.id, pairs), '白紙のページ').result.counts.summary, 1);
+}));
 
 test('CS-3・F237: 命令: 1回で要約・メモ・発言・担当・「議事録」の参加者が直り、控えは1行（segs は直した発言だけ）・直した発言を指す行の出典が付け直る・タスクの担当は変わらず数・changed の what は names', T, () => withDb((db, t) => {
   const { page, segments } = samplePage('pm1');
