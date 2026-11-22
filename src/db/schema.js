@@ -3,6 +3,9 @@
  *
  * STEPS[n] は版 n-1 から版 n へ上げる SQL。core.open が BEGIN IMMEDIATE の中で1段ずつ流し、user_version を n にする。
  * 出した版の SQL は変えない（後の版は STEPS[2] などを足す。第15回の page_snapshot は版 2 の表として足す）。
+ * 版 2（0.18.0 CW-1。計画 docs/plans/2026-11-18-180.md の決めたこと 9・AQ6 (a)）: 足すのは page_snapshot の表と索引だけ（欄は足さない・版 1 の SQL は変えない）。
+ *   page_snapshot … Claude が書く直前のページの形（Claude の変更を戻すための控え。ページごとに新しい 10 行）。body は claudeSnap.snapOf の JSON、
+ *              what は道具の印、rev_after は書いた後のページの rev。oplog の操作にしない（控えに oplog を当て直しても作り直さない: 決めたこと 13）
  *
  * 表の形 v1（計画 docs/plans/2026-10-19-2a1.md の「表の形 v1」）
  *   blocks   … ページの行（type 'page'。text は題名）とブロックの行。rid は全文検索が指す番号（明示しないと VACUUM で変わりうる）。
@@ -94,6 +97,18 @@ CREATE TRIGGER segments_fts_au AFTER UPDATE OF fold ON segments BEGIN
 END;
 `;
 
-const STEPS = Object.freeze({ 1: V1 });
+const V2 = `
+CREATE TABLE page_snapshot (
+  rid INTEGER PRIMARY KEY,
+  page_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  what TEXT NOT NULL,
+  rev_after INTEGER NOT NULL,
+  body TEXT NOT NULL
+) STRICT;
+CREATE INDEX page_snapshot_page ON page_snapshot(page_id, rid);
+`;
+
+const STEPS = Object.freeze({ 1: V1, 2: V2 });
 
 module.exports = { STEPS };

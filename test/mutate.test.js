@@ -1842,3 +1842,42 @@ test('G3・0.17.1: 0.17.1 の変異が一覧にそろい、IDS_171 は計画の�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.17.1 '), `${id}: why`);
   }
 });
+// 0.18.0（計画 docs/plans/2026-11-18-180.md の「変異の表」の cw-・cs-・ct-・cp-・cu-・xe-・xn- の表）: Claude（MCP）の書く道具と残り・編集の動きと
+// Notion との残りの違い。タスクを作るたびに、作ったタスクの行を表の行の順で足す（作っている間は「表の行の順に並んだ一部」を見る: 0.17.0 の R89 と同じ。
+// 点検 4 の後に、表の全部とちょうど同じかを見る形にする）
+const IDS_180 = [
+  // 0.18.0 Task CW-1 で作った行（表の行の順に。cw-revert-role は CW-2 で役 mcp が入ってから: CR33）
+  'cw-schema-backup', 'cw-schema-backup-fail', 'cw-schema-order', 'cw-snap-same-tx', 'cw-snap-keep10', 'cw-snap-purge', 'cw-snap-kind',
+  'cw-revert-later', 'cw-revert-subpage', 'cw-revert-row', 'cw-revert-trim',
+];
+const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
+function planRows180() {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-18-180.md'), 'utf8');
+  const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異の表」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  return [...table.matchAll(/^\| ((?:cw|cs|ct|cp|cu|xe|xn)-[A-Za-z0-9-]*) \|/gm)].map((m) => m[1]);
+}
+test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の「変異の表」の cw-・cs-・ct-・cp-・cu-・xe-・xn- の行の順に並んだ一部（作っている間）。その頭の変異は IDS_180 にある。どれも決まったテストのファイルを持ち、why が 0.18.0 で始まる。前の版の頭に当たらず、前の版の IDS に 0.18.0 の頭が無い', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_180.filter((id) => !byId.has(id)), [], 'IDS_180 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_180).size, IDS_180.length, 'IDS_180 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_180.test(m.id) && !IDS_180.includes(m.id)).map((m) => m.id), [], 'IDS_180 に無い 0.18.0 の頭の変異がある');
+  const rows = planRows180();
+  assert.strictEqual(rows.length, 162, '計画の 0.18.0 の表（cw- 28・cs- 19・ct- 38・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
+  assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
+    [['cw', 28], ['cs', 19], ['ct', 38], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
+  assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
+  assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
+  assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');
+  // 前の版の頭の照らし（IDS_170 のテストの並びに 0.17.0 の頭と、0.17.1 の od・port を足した物）に当たらない
+  for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/, /^(nd|ps|lb|gv)-/, /^(mt|qm|v|v5)-/, /^i-/, /^rv-/, PREFIX_170, /^(od|port)-/]) {
+    assert.deepStrictEqual(IDS_180.filter((id) => re.test(id)), [], `${re} に当たる 0.18.0 の id`);
+  }
+  for (const ids of [IDS_132, IDS_140, IDS_150, IDS_151, IDS_160, IDS_170, IDS_171]) assert.deepStrictEqual(ids.filter((id) => PREFIX_180.test(id)), [], '前の版の IDS に 0.18.0 の頭');
+  for (const id of IDS_180) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.18.0 '), `${id}: why`);
+  }
+});

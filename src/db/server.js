@@ -28,6 +28,9 @@
  *      meta.jsonMigration があって移行の控えが無ければ（移した直後・落ちた後）、頼みを1つも受ける前にここで snapshot.take（migration）。
  *      開けた後のこの meta の読み書きで SQLITE_CORRUPT・NOTADB が出たら（頁が壊れている）、この起動でまだ戻していなければ
  *      接続を閉じて recover（why 'open'）し、開き直して1度だけやり直す。ほかの誤りは state failed。
+ *   4b. 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 9・F232）: core.open は upgrade: false で開く。版が低い（state old）なら、
+ *      withLock の中で確かめ済みの控え（upgrade）を1つ取り、取れたときだけ core.upgradeTo で版を上げる。取れなければ上げずに state failed
+ *      （「DB: 版を上げる前の控えが取れない（<符号>）」。次の起動でやり直す）。順は 開く → 控え → 版を上げる → 取り込みと 0.17.0 の見回り。
  *   5. migrate.reimport を回し（skippedSig を meta.reimportSkipped と比べて、違えば書き直す）、ready を送ってから待たせた頼みを流す。
  *   state newer（新しい版の NaTsu の DB）は読み取り専用なので、meta も取り込みも書かない。
  *   state failed の間は、子は生きたまま全部の頼みに { ok: false, code: 'unavailable', retry: false } を返す。
@@ -285,7 +288,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   }
 
   function tryOpen() {
-    const o = core.open({ sqlite, file: dbFile(), network });
+    const o = core.open({ sqlite, file: dbFile(), network, upgrade: false });   // 0.18.0 CW-1: 版は控えを取ってから上げる（upgradeOld）
     if (o.selfTest) lastSelfTest = o.selfTest;
     if (o.db) {
       log(`DB: SQLite ${o.selfTest.sqlite}・trigram ${o.selfTest.trigram ? 'OK' : 'NG'}・表の形 v${o.version}・${o.journal}`);
@@ -295,11 +298,14 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     return o;
   }
 
+  // 書ける接続か（版の低い old も、版を上げる前に meta と控えを読み書きする）
+  const writable = (state) => state === 'ok' || state === 'old';
+
   // 開けた（o.db がある）DB を使い始める。戻せずに終えた（fail 済み）なら false。SQLite の誤りは投げる
   async function useOpened(o, restored) {
     db = o.db;
     opened = { state: o.state, version: o.version, journal: o.journal, selfTest: o.selfTest };
-    if (o.state === 'ok') {
+    if (writable(o.state)) {
       const prev = getMeta('cleanShutdown');
       setMeta('cleanShutdown', '0');
       if (prev === '0' && !restored) {
@@ -311,7 +317,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
           if (!o.db) { fail(o.code || 'open'); return false; }
           db = o.db;
           opened = { state: o.state, version: o.version, journal: o.journal, selfTest: o.selfTest };
-          if (o.state === 'ok') setMeta('cleanShutdown', '0');
+          if (writable(o.state)) setMeta('cleanShutdown', '0');
         } else if (r === 'unavailable') {
           log('DB: 落ちた後の確かめを走らせられない。開いたまま進む');
         } else {
@@ -319,7 +325,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
         }
       }
     }
-    if (opened.state === 'ok') {
+    if (writable(opened.state)) {
       // 移した直後の中身だけを持つ控え（頼みを1つも受ける前。移した直後に落ちていたら、次の起動のここで取る）
       if (getMeta('jsonMigration') !== undefined && !S.listBackups({ dataDir, fs }).some((b) => b.kind === 'migration')) {
         await takeSnapshot('migration');
@@ -347,11 +353,30 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
       if (!o.db) { fail(o.code || 'open'); return; }
       if (!(await useOpened(o, true))) return;
     }
+    if (opened.state === 'old' && !(await upgradeOld())) return;   // 0.18.0 CW-1（F232）: 開く → 控え → 版を上げる → 取り込みと見回り
     if (opened.state === 'ok') startup.reimport = runReimport();
     if (opened.state === 'ok') startup.minutes = await gatherMinutes();
     phase = 'ready';
     post({ type: 'ready', ...stateOf() });
     drain();
+  }
+
+  // 0.18.0 CW-1（決めたこと 9・F232）: 版の低い DB は、確かめ済みの控え（upgrade）を取ってから版を上げる（natsu.db.lock の中で。MCP の読み手は待つ）。
+  // 控えが取れなければ上げずに state failed（次の起動でやり直す）。上げられたら state ok・今の版
+  async function upgradeOld() {
+    const r = await S.withLock(dataDir, async () => {
+      const snap = await takeSnapshot('upgrade');
+      if (!snap.ok) return { ok: false, code: snap.check, snap: true };
+      return core.upgradeTo(db);
+    }, { fs, log });
+    if (!r.ok) {
+      log(r.snap ? `DB: 版を上げる前の控えが取れない（${r.code}）` : `DB: 版を上げられない（${r.code}）`);
+      fail(r.snap ? 'upgrade-backup' : r.code);
+      return false;
+    }
+    opened = { ...opened, state: 'ok', version: r.version };
+    log(`DB: 表の形を v${r.version} に上げた`);
+    return true;
   }
 
   async function init(msg) {

@@ -3,11 +3,15 @@
  *
  * Electron を読まない。node:sqlite は open({ sqlite }) の引数で受ける（テストは一時フォルダの DB で、server.js は子のプロセスで使う）。
  *
- * open({ sqlite, file, readOnly, network, steps })
- *   → { db, state: 'ok' | 'newer' | 'failed', version, journal: 'wal' | 'delete', selfTest: { sqlite, trigram }, code? }
+ * open({ sqlite, file, readOnly, network, steps, upgrade = true })
+ *   → { db, state: 'ok' | 'old' | 'newer' | 'failed', version, journal: 'wal' | 'delete', selfTest: { sqlite, trigram }, code? }
  *   開くたびに: busy_timeout=5000・foreign_keys=ON・secure_delete=ON・synchronous=FULL・journal_mode=WAL
  *   （ネットワークの場所か、WAL にできなければ DELETE）。自分の確かめは一時の trigram 表で「予算案」が引けるか。
  *   版 0 から SCHEMA_VERSION まで、STEPS（既定 schema.STEPS。テストだけ steps で差し替える）を BEGIN IMMEDIATE の中で1段ずつ流す。
+ *   上げる先の版は steps のいちばん大きい段（既定は SCHEMA_VERSION。テストは段を1つにして前の版の NaTsu として開く: 0.18.0 CW-1・CR34）。
+ *   0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 9・F232）: upgrade: false なら、版が 1 以上で低くても上げずに state 'old'（今の版のまま・
+ *   書く命令は read-only）。DB のプロセスは控え（upgrade）を取ってから upgradeTo で上げる（上げる前に控えを取る道）。
+ * upgradeTo(db, steps) → { ok: true, version } | { ok: false, code: 'upgrade' }（open と同じ upgrade を1段ずつ。上がれば書ける）
  *   user_version が SCHEMA_VERSION より大きい（新しい版の NaTsu で作った）なら、読み取り専用で開き直して state 'newer'。
  *   開けない・確かめが通らない・版を上げられないなら state 'failed'（接続は閉じて db は null）。
  *
@@ -33,7 +37,7 @@ const schema = require('./schema');
 const V = require('./validate');
 const commands = require('./commands');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;   // 0.18.0 CW-1: 版 2 は page_snapshot（Claude の変更の控え）
 const BUSY_MS = 5000;
 const ROLES = ['app', 'main'];
 const MAIN_ACTORS = ['system', 'recovery', 'migration'];
@@ -100,9 +104,12 @@ function selfTest(db) {
   return out;
 }
 
+// 上げる先の版: steps のいちばん大きい段（既定の schema.STEPS なら SCHEMA_VERSION）
+const topOf = (steps) => Math.max(0, ...Object.keys(steps).map(Number).filter(Number.isSafeInteger));
+
 // 版を1段ずつ上げる。どの段も BEGIN IMMEDIATE の中で SQL と user_version を一緒に確定する（途中で投げたら版も表も上がらない）
 function upgrade(db, from, steps) {
-  for (let v = from + 1; v <= SCHEMA_VERSION; v++) {
+  for (let v = from + 1; v <= topOf(steps); v++) {
     const sql = steps[v];
     if (typeof sql !== 'string') throw new Error('版の上げ方が無い');
     db.exec('BEGIN IMMEDIATE');
@@ -117,7 +124,7 @@ function upgrade(db, from, steps) {
   }
 }
 
-function open({ sqlite, file, readOnly = false, network = false, steps = schema.STEPS } = {}) {
+function open({ sqlite, file, readOnly = false, network = false, steps = schema.STEPS, upgrade: up = true } = {}) {
   const failed = (code, extra = {}) => ({ db: null, state: 'failed', version: null, journal: null, selfTest: { sqlite: '', trigram: false }, code, ...extra });
   const connect = (ro) => {
     const db = new sqlite.DatabaseSync(file, { readOnly: ro, timeout: BUSY_MS, defensive: true });
@@ -134,7 +141,8 @@ function open({ sqlite, file, readOnly = false, network = false, steps = schema.
     let version = Number(pragma(db, 'user_version')) || 0;
     let state = 'ok';
     let ro = Boolean(readOnly);
-    if (version > SCHEMA_VERSION) {
+    const top = topOf(steps);
+    if (version > top) {
       // 新しい版の NaTsu で作った DB: 読み取り専用で開き直し、書く命令は全部断る（表に触れない）
       state = 'newer';
       if (!ro) {
@@ -143,10 +151,13 @@ function open({ sqlite, file, readOnly = false, network = false, steps = schema.
         ro = true;
         journal = setup(db, { readOnly: true, network });
       }
-    } else if (version < SCHEMA_VERSION) {
+    } else if (version < top) {
       if (ro) { close(); return failed('empty', { selfTest: test }); }
-      try { upgrade(db, version, steps); } catch (_) { close(); return failed('upgrade', { selfTest: test }); }
-      version = Number(pragma(db, 'user_version')) || 0;
+      if (up === false && version > 0) state = 'old';   // 0.18.0 CW-1: 中身のある DB は上げずに開く（DB のプロセスが控えを取ってから upgradeTo）。版 0（新しいファイル）はそのまま作る
+      else {
+        try { upgrade(db, version, steps); } catch (_) { close(); return failed('upgrade', { selfTest: test }); }
+        version = Number(pragma(db, 'user_version')) || 0;
+      }
     }
     OPENED.set(db, { state, readOnly: ro });
     return { db, state, version, journal, selfTest: test };
@@ -154,6 +165,17 @@ function open({ sqlite, file, readOnly = false, network = false, steps = schema.
     close();
     return failed(isBusy(e) ? 'busy' : 'open');
   }
+}
+
+// 0.18.0 CW-1（決めたこと 9）: upgrade: false で開いた（state 'old'）接続の版を上げる。上がれば書ける接続にする
+function upgradeTo(db, steps = schema.STEPS) {
+  try {
+    upgrade(db, Number(pragma(db, 'user_version')) || 0, steps);
+  } catch (_) { return { ok: false, code: 'upgrade' }; }
+  const version = Number(pragma(db, 'user_version')) || 0;
+  const was = OPENED.get(db);
+  OPENED.set(db, { state: 'ok', readOnly: Boolean(was && was.readOnly) });
+  return { ok: true, version };
 }
 
 // ---------------------------------------------------------------- 命令の台
@@ -171,6 +193,7 @@ function call(db, req, ctx = {}) {
   if (!ROLES.includes(role) || !Array.isArray(def.roles) || !def.roles.includes(role)) return fail('forbidden');
   const opened = OPENED.get(db);
   if (def.write && opened && (opened.state === 'newer' || opened.readOnly)) return fail('read-only');
+  if (def.write && opened && opened.state === 'old') return fail('read-only');   // 0.18.0 CW-1: 版を上げる前（upgrade: false）は書かない
   if (!isObj(args)) return fail('bad-args');
 
   // actor: 役から決める。main だけが recovery・migration（と system）を名乗れる
@@ -231,4 +254,4 @@ function call(db, req, ctx = {}) {
   }
 }
 
-module.exports = { SCHEMA_VERSION, COMMANDS, open, call, registerForTest, cmdError };
+module.exports = { SCHEMA_VERSION, COMMANDS, open, upgradeTo, call, registerForTest, cmdError };

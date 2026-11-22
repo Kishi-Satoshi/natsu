@@ -70,6 +70,8 @@ const S = require('./search');
 const { LIMITS } = require('./validate');
 // 0.14.0 MB-2（決めたこと 59〜64・R74・R76）: メモの行（素の文字のメモ memo は memoPlain(memoDoc) で作り直す）
 const MD = require('../memoDoc');
+// 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 10〜14）: Claude の変更の控え（page_snapshot）の中身と戻す形
+const CS = require('./claudeSnap');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -119,6 +121,15 @@ const HOT_QUERIES = Object.freeze({
   oplogTx: 'select seq, role, tx, at, actor, action, page_id, ops from oplog where role = ? and tx = ?',
   purgeMark: "select seq from oplog where page_id = ? and action = 'meeting.discard' and instr(ops, '\"op\":\"purge\"') > 0 limit 1",
   pageOplog: 'delete from oplog where page_id = ?',
+  // 0.18.0 CW-1（決めたこと 10〜12）: Claude の変更の控え（page_snapshot。索引 page_snapshot_page(page_id, rid)）
+  snapAdd: 'insert into page_snapshot(page_id, at, what, rev_after, body) values (?, ?, ?, ?, ?)',
+  snapRevAfter: 'update page_snapshot set rev_after = ? where rid = ?',
+  snapTrim: 'delete from page_snapshot where page_id = ? and rid not in (select rid from page_snapshot where page_id = ? order by rid desc limit ?)',
+  snapList: 'select rid, at, what, rev_after from page_snapshot where page_id = ? order by rid desc limit ?',
+  snapOne: 'select rid, body from page_snapshot where rid = ? and page_id = ?',
+  snapFrom: 'select rid, body from page_snapshot where page_id = ? and rid >= ? order by rid',
+  snapDropFrom: 'delete from page_snapshot where page_id = ? and rid >= ?',
+  snapPurge: 'delete from page_snapshot where page_id = ?',
 });
 
 // ---------------------------------------------------------------- 行 → ページ
@@ -843,6 +854,7 @@ function meetingDiscard(db, { pageId }) {
   const l = loadPage(db, pageId, { trashed: true });
   if (l && !isLive(l.page)) return NOTHING;   // 締め済み・会議でないページは消さない（行が無くても印は残す）
   db.prepare(HOT_QUERIES.pageOplog).run(pageId);   // 写しの間の操作（発言の文字を持つ）も残さない
+  db.prepare(HOT_QUERIES.snapPurge).run(pageId);   // 0.18.0 CW-1（決めたこと 11・RF16）: Claude の変更の控え（ページの文字を持つ）も同じトランザクションで消す
   // 0.15.0 PH-2（決めたこと 11・F114）: 消すページを親に持つページの行（普通の流れでは無い: 決めたこと 9）は、同じ命令で最上位へ出してから消す（迷子にしない）
   const kids = pageRowsOf(db).filter((r) => r.parentId === pageId);
   const ops = [...kids.map((r) => topMove(r)), { op: 'purge', id: pageId }];
@@ -3180,6 +3192,56 @@ const DUP = {
     return { ...st, added: dupOps(row).filter((o) => o && o.op === 'add').length };
   },
 };
+// ---------------------------------------------------------------- Claude の変更の控えと戻す（0.18.0 CW-1。計画 docs/plans/2026-11-18-180.md の
+// 決めたこと 10〜14・F233・F234）
+// withSnap(db, pageId, what, fn, ctx, { segIds }): Claude の命令の本体 fn を、書く直前のページの控え（page_snapshot の1行）と同じトランザクションで包む。
+// 控えを足す → fn → 書いた後の rev を rev_after に → ページごとに新しい SNAP_KEEP 行に詰める。fn が投げれば core.call が控えごと戻す。
+// 控えは oplog の操作にしない（決めたこと 13）。無い・ゴミ箱のページは not-found（呼び手が先に照らす）
+function withSnap(db, pageId, what, fn, ctx, { segIds = [] } = {}) {
+  const l = loadPage(db, pageId);
+  if (!l) throw refuse('not-found');
+  const row = (db.prepare(HOT_QUERIES.typeOf).get(pageId) || {}).type === 'row';
+  const body = JSON.stringify(CS.snapOf(l.page, readSegments(db, pageId), { segIds, row }));
+  const putSnap = () => db.prepare(HOT_QUERIES.snapAdd).run(pageId, ctx.now().toISOString(), what, l.page.rev, body).lastInsertRowid;
+  const sid = putSnap();
+  const out = fn();
+  const after = db.prepare(HOT_QUERIES.pageRow).get(pageId);
+  db.prepare(HOT_QUERIES.snapRevAfter).run(after ? after.rev : l.page.rev, sid);
+  db.prepare(HOT_QUERIES.snapTrim).run(pageId, pageId, CS.SNAP_KEEP);
+  return out;
+}
+
+// page.claudeSnaps（役 app・読む）: ページの控えの一覧（新しい順・SNAP_KEEP まで）。later は今のページの rev が書いた後と違う（その後に誰かが書いた）。
+// 無い・ゴミ箱のページは []
+function claudeSnaps(db, a) {
+  const l = loadPage(db, a.id);
+  if (!l) return { result: [] };
+  return { result: db.prepare(HOT_QUERIES.snapList).all(a.id, CS.SNAP_KEEP).map((r) => ({ sid: r.rid, at: r.at, what: r.what, later: r.rev_after !== l.page.rev })) };
+}
+
+// page.claudeRevert（役 app）: 控え sid の形にページを戻す（利用者の新しい書き込み: actor me・1つの命令）。控えにある欄だけを diffPage・diffSegments の差で
+// 書き、戻した控えとそれより新しい控えを消す（CR11）。断る（bad-args）: 無い・ゴミ箱のページ・録音中の写し・ゴミ箱のデータベースの行・そのページに無い控え
+function claudeRevert(db, a, ctx) {
+  const me = db.prepare(HOT_QUERIES.dbRow).get(a.id);
+  const w = me ? forWrite(db, a.id) : null;
+  if (!w || isLive(w.was.page)) throw refuse('bad-args');
+  const host = me.parent_id ? dbOf(db, me.parent_id) : null;
+  if (me.type === 'row' && !host) throw refuse('bad-args');   // データベースのゴミ箱の行
+  const snap = db.prepare(HOT_QUERIES.snapOne).get(a.sid, a.id);
+  if (!snap) throw refuse('bad-args');
+  const segs = readSegments(db, a.id);
+  const body = JSON.parse(snap.body);
+  // 後の控えが直した発言も、戻す時点の文に（CR36）。議事録の控えだけが segs を持つ
+  if (Array.isArray(body.segs)) body.segs = CS.segsFrom(db.prepare(HOT_QUERIES.snapFrom).all(a.id, snap.rid).map((r) => JSON.parse(r.body)));
+  const back = CS.restoreOf(w.page, segs, body, host ? host.cols : null);
+  if (me.type === 'row') back.page.by = { ...(isObj(w.page.by) ? w.page.by : {}), u: whoOf(ctx) };   // 行の最終更新者
+  R.markShortBlocks(back.page.blocks);
+  const ops = [...saveOps(w.was, back.page, ctx.now), ...diffSegments(segs, back.segments, a.id)];
+  applyOps(db, ops);
+  db.prepare(HOT_QUERIES.snapDropFrom).run(a.id, snap.rid);
+  return { ops, pageIds: [a.id], result: readPage(db, a.id) };
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -3272,6 +3334,9 @@ const DEFS = {
     run: pageMove, dupResult: (db) => listPages(db) },
   'page.restore': { roles: ['app'], write: true, args: { id: 'id' },
     run: pageRestore, dupResult: (db) => listPages(db) },
+  // 0.18.0 CW-1（決めたこと 12・14・AQ5 (a)）: Claude の変更の控えの一覧と戻す（役 app だけ。Claude（役 mcp）は戻せない。元に戻すの歩みにしない）
+  'page.claudeSnaps': { roles: ['app'], write: false, args: { id: 'id' }, run: claudeSnaps },
+  'page.claudeRevert': { roles: ['app'], write: true, args: { id: 'id', sid: 'num' }, run: claudeRevert, dupResult: reread },
   'pages.trash': { roles: ['app'], write: false, args: {},
     run: (db) => ({ result: trashHeads(db) }) },
   'block.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', patch: 'patch' },
@@ -3789,4 +3854,4 @@ const lockGuard = (run) => (db, a, ctx) => { if (isLockedDb(db, lockTargetOf(a))
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v.lockBlocked ? { ...v, run: lockGuard(v.run) } : v)]))));
 
-module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump, dbRowCountOf };
+module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, withSnap, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump, dbRowCountOf };

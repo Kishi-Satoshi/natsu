@@ -1411,7 +1411,8 @@ test('MB-2: preload の APP_COMMANDS（58）は役 app の命令と同じ集ま�
   // 0.17.0 LK-1（「意図して変えるテスト」）で意図して直した: データベースのロック db.setLock を足して 66（照らしは同じ）
   // 0.17.0 TK-2（「意図して変えるテスト」）で意図して直した: ［タスクにする］todo.toTask を足して 67（照らしは同じ）
   // 0.17.0 RT-1（「意図して変えるテスト」）で意図して直した: 行のテンプレートの tpl.add・tpl.dup・tpl.remove・tpl.setDefault・row.fromTpl を足して 72（照らしは同じ）
-  assert.strictEqual(names.length, 72);
+  // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して直した: Claude の変更の控えの一覧と戻す page.claudeSnaps・page.claudeRevert を足して 74（照らしは同じ）
+  assert.strictEqual(names.length, 74);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   assert.deepStrictEqual(core.COMMANDS['page.setMemoDoc'].roles, ['app']);
   const { k, givePort } = loadPreload();

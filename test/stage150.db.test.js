@@ -291,9 +291,12 @@ test('PH-2・F121: pages.trash（一緒に消したまとまりの頭だけ・co
   assert.ok(!many.some((x) => x.id === lone), '古いものから外れる');
 }));
 
-test('PH-2・H6・P5: 表の形の版は 1 のまま・STEPS は1段だけ', T, () => {
-  assert.strictEqual(core.SCHEMA_VERSION, 1);
-  assert.deepStrictEqual(Object.keys(schema.STEPS), ['1']);
+// 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して直した: 0.18.0 で版 2（page_snapshot）に上げた。
+// 0.15.0 は上げなかった（ページの木は今の blocks の行と attrs に入れた）意図は名前に残し、版 1 の SQL が 0.15.0 の字のままかを見る
+test('PH-2・H6・P5: 0.15.0 は表の形の版を上げなかった（版 1 の SQL は 0.15.0 の字のまま。0.18.0 で版 2・STEPS は2段）', T, () => {
+  assert.strictEqual(core.SCHEMA_VERSION, 2);
+  assert.deepStrictEqual(Object.keys(schema.STEPS), ['1', '2']);
+  assert.strictEqual(require('node:crypto').createHash('sha256').update(schema.STEPS[1]).digest('hex'), '3c4f1638e5806288d3f9fbedc86af6d8dfddaba6ac8fab0ab8a74c1fc5ba9772');
 });
 
 test('PH-2: T4b: 控えに後の oplog（page.move の最上位へ・page.delete・page.restore を含む）を前へ当て直すと今の表と同じ', T, async () => {
@@ -388,7 +391,8 @@ test('PH-2: preload の 58 の名前・pageMove の引数（afterId が無けれ
   // 0.17.0 LK-1（「意図して変えるテスト」）で意図して直した: データベースのロック db.setLock を足して 66（照らしは同じ）
   // 0.17.0 TK-2（「意図して変えるテスト」）で意図して直した: ［タスクにする］todo.toTask を足して 67（照らしは同じ）
   // 0.17.0 RT-1（「意図して変えるテスト」）で意図して直した: 行のテンプレートの tpl.add・tpl.dup・tpl.remove・tpl.setDefault・row.fromTpl を足して 72（照らしは同じ）
-  assert.strictEqual(names.length, 72);
+  // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して直した: Claude の変更の控えの一覧と戻す page.claudeSnaps・page.claudeRevert を足して 74（照らしは同じ）
+  assert.strictEqual(names.length, 74);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   for (const cmd of ['page.create', 'page.move', 'page.restore', 'pages.trash']) assert.deepStrictEqual(core.COMMANDS[cmd].roles, ['app'], cmd);
   assert.strictEqual(core.COMMANDS['pages.trash'].write, false);

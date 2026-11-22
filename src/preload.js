@@ -35,7 +35,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（67）
   'todo.toTask',
   // 0.17.0 RT-1（決めたこと 66〜70）: 行のテンプレート（72）
-  'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl']);
+  'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl',
+  // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 12・14）: Claude の変更の控えの一覧と戻す（元に戻すの歩みにしない: UNDO_CMDS に入れない）（74）
+  'page.claudeSnaps', 'page.claudeRevert']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -59,7 +61,7 @@ function editStep(req) {
   const step = { cmd: req.cmd, pageId: typeof a.pageId === 'string' ? a.pageId : typeof a.db === 'string' ? a.db : a.id, step: req.tx };
   for (const cb of editSteps) { try { cb(step); } catch (_) { /* 画面の受け口の誤りで答えを止めない */ } }
 }
-const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash', 'db.get', 'db.view', 'col.typeCheck', 'rel.find']);
+const DB_READS = new Set(['pages.list', 'pages.searchFull', 'pages.actionView', 'page.get', 'pages.trash', 'db.get', 'db.view', 'col.typeCheck', 'rel.find', 'page.claudeSnaps']);
 const DB_WAIT_MS = 30000;
 let dbPort = null;
 let dbSeq = 0;
@@ -245,6 +247,9 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 元のデータベースのビューは変えない）。blockInsertDbView は /リンクドビュー（本文の歩み）、dbSetTitle はデータベースの題名（データベースの歩み）
   // 0.17.0 PD-1（決めたこと 32・33）: 空の白紙のページを同じ ID のままデータベースにする（元に戻すの歩み: onEditStep の pageId はそのページ）
   pageToDb: (id) => dbCall('page.toDb', { id }),
+  // 0.18.0 CW-1（決めたこと 12・14）: Claude の変更の控えの一覧（新しい順）と、選んだ控えの形に戻す（画面は CU-1 で呼ぶ）
+  pageClaudeSnaps: (id) => dbCall('page.claudeSnaps', { id }),
+  pageClaudeRevert: (id, sid) => dbCall('page.claudeRevert', { id, sid }),
   dbCreate: (parentId, inline) => dbCall('db.create', { ...(parentId ? { parentId } : {}), ...(inline ? { inline } : {}) }),
   dbGet: (id, linked) => dbCall('db.get', { id, ...(linked ? { linked } : {}) }),
   dbView: (id, viewId, from, count, q, open, linked) => dbCall('db.view', { id, viewId, from, count, ...(q ? { q } : {}), ...(Array.isArray(open) && open.length ? { open } : {}), ...(linked ? { linked } : {}) }),   // 0.16.0 DR-1: open は開いたサブアイテムの行

@@ -32,7 +32,8 @@ test('RF11: v1.db（0.7.0 で出した形）を今の版で開ける・中身が
 // 決まった中身: 一覧（ゴミ箱と取り消した会議は出ない）・飾り・ToDo・会議の種類・メモ・発言の欄・取り消しの印・版
 function checkContents(t, file) {
   const r = t.open(file);
-  assert.deepStrictEqual([r.state, r.version], ['ok', 1], '版 1 の ok で開けない');
+  // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して直した: 版 1 の固定の DB は、今の版（2）に上がって ok で開ける
+  assert.deepStrictEqual([r.state, r.version], ['ok', core.SCHEMA_VERSION], '今の版の ok で開けない');
   const call = (cmd, args) => { const o = core.call(r.db, { role: 'app', cmd, args }, { labels: {} }); assert.ok(o.ok, `${cmd} が ${o.code}`); return o.result; };
   // 一覧は新しい順（今の画面と同じ）
   assert.deepStrictEqual(call('pages.list', {}).map((p) => [p.id, p.title]), [['pfixture000002', titleAt('2026-10-16T01:00:00.000Z')], ['pfixture000001', titleAt('2026-10-15T01:00:00.000Z')]]);
@@ -67,7 +68,7 @@ function checkContents(t, file) {
     'app me page.delete pfixture000003',
     'main system meeting.discard pfixture000004',
   ]);
-  assert.strictEqual(raw.prepare('pragma user_version').get().user_version, 1);
+  assert.strictEqual(raw.prepare('pragma user_version').get().user_version, core.SCHEMA_VERSION);   // 0.18.0 CW-1 で意図して直した（同じ理由）
   return r.db;
 }
 

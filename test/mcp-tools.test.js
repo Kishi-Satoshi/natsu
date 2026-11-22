@@ -118,10 +118,18 @@ test('D57: オフラインモードの会議と印の分からない会議も一
   } finally { m.done(); }
 });
 
-test('MR4: v1.db の写しで、2つの会議がこの順で出る', T, () => {
+// 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 9・F232。「意図して変えるテスト」の「版 1 を見るほかのテスト」に足した）で意図して直した:
+// 表の形が版 2 になったので、版 1 のままの DB は読み取りだけの MCP が old の文で断る（版を上げるのは NaTsu の DB のプロセスだけ）。
+// 固定の DB の中身がこの順で読める意図は、NaTsu が上げた後の写し（core.open で開いて閉じた物）で見る
+test('MR4: v1.db の写しは版を上げるまで old の文。NaTsu が上げた後の写しで、2つの会議がこの順で出る', T, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-mcp-v1-議事録𠮷-'));
   try {
     fs.copyFileSync(path.join(__dirname, 'fixtures', 'db', 'v1.db'), path.join(dir, 'natsu.db'));
+    const old = tools.callTool('list_meetings', {}, { sqlite, dataDir: dir, now: NOW });
+    assert.deepStrictEqual([old.isError, old.code], [true, 'old']);
+    const up = require('../src/db/core').open({ sqlite, file: path.join(dir, 'natsu.db') });
+    assert.strictEqual(up.state, 'ok');
+    up.db.close();
     const r = tools.callTool('list_meetings', {}, { sqlite, dataDir: dir, now: NOW });
     assert.strictEqual(r.isError, false);
     assert.deepStrictEqual(linesOf(r.text).slice(2).map((l) => /ID (\w+)$/.exec(l)[1]), ['pfixture000002', 'pfixture000001']);

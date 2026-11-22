@@ -10,6 +10,7 @@ const sqlite = require('node:sqlite');
 const { MessageChannel } = require('node:worker_threads');
 const { tmpData, electronShape, snapshotTree } = require('./helpers/dbtmp');   // electronShape: worker_threads の口を Electron の形（{ data } と start）に包む
 const { startServer } = require('../src/db/server');
+const core = require('../src/db/core');
 const { withSteps } = require('./helpers/steps');   // 段ごとの時刻を残し、予算を越えたら止まった段を言う（0.7.0 の前）
 
 // 決まった時間ではなく、条件がそろうまで待つ（ほかのレーンのテストで機械が混んでいても落ちない。5 秒で諦める）。
@@ -169,7 +170,8 @@ test('ST10: pages/ に JSON があり natsu.db が無ければ数を送って待
     assert.strictEqual((await w).ok, true);
     assert.ok(s.fromServer.some((m) => m.type === 'progress' && m.done === 2 && m.total === 2), '進み具合を送っていない');
     assert.strictEqual(readyMsg(s).state, 'ok');
-    assert.ok(Number.isInteger(readyMsg(s).pid) && readyMsg(s).version === 1 && readyMsg(s).selfTest.trigram === true);
+    // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して直した: 表の形の版は 2（今の版 SCHEMA_VERSION で作る）
+    assert.ok(Number.isInteger(readyMsg(s).pid) && readyMsg(s).version === core.SCHEMA_VERSION && readyMsg(s).selfTest.trigram === true);
     const backups = fs.readdirSync(path.join(d.dataDir, 'backup')).filter((n) => /-migration\.db\.gz$/.test(n));
     assert.strictEqual(backups.length, 1, '移行の控えが無い');
     const raw = path.join(d.dir, 'mig.db');
@@ -310,7 +312,8 @@ test('ST4: 形の違う頼み・1MB を超える頼みは bad-args。db.status�
       assert.strictEqual((await app.ask({ id: 4, cmd, args: { kind: 'daily' }, tx: 'a:t-000004' })).code, 'forbidden', cmd);
     }
     const st = await main.ask({ id: 5, cmd: 'db.status', args: {} });
-    assert.deepStrictEqual([st.ok, st.result.state, st.result.version, st.result.journal, typeof st.result.pid], [true, 'ok', 1, 'wal', 'number']);
+    // 0.18.0 CW-1（「意図して変えるテスト」）で意図して直した: 表の形の版は今の版（2）
+    assert.deepStrictEqual([st.ok, st.result.state, st.result.version, st.result.journal, typeof st.result.pid], [true, 'ok', core.SCHEMA_VERSION, 'wal', 'number']);
     assert.deepStrictEqual(st.result.startup.reimport, { added: 0, replaced: 0, copied: 0, skipped: 0, broken: 0, badShape: 0, unreadable: 0, skippedChanged: true });
     assert.strictEqual((await main.ask({ id: 6, cmd: 'snapshot.take', args: { kind: 'weekly' } })).code, 'bad-args');
     const snap = await main.ask({ id: 6, cmd: 'snapshot.take', args: { kind: 'daily' } });
@@ -326,7 +329,8 @@ test('ST4: 形の違う頼み・1MB を超える頼みは bad-args。db.status�
     await waitFor(() => seen.length === 1, 'changed');
     assert.deepStrictEqual(s.late, [], '閉じた口に changed を送った（役の表から外していない）');
     assert.ok(s.fromServer.some((m) => m.type === 'log' && /^DB: 起動（番号 \d+）$/.test(m.line)), '実機の 4 で照らす番号の行が無い');
-    assert.ok(s.fromServer.some((m) => m.type === 'log' && /^DB: SQLite [\d.]+・trigram OK・表の形 v1・wal$/.test(m.line)));
+    // 0.18.0 CW-1（「意図して変えるテスト」）で意図して直した: 表の形は v2
+    assert.ok(s.fromServer.some((m) => m.type === 'log' && /^DB: SQLite [\d.]+・trigram OK・表の形 v2・wal$/.test(m.line)));
   } finally { await s.stop(); d.done(); }
 });
 
@@ -334,7 +338,8 @@ test('D7: 新しい版の NaTsu で作った DB は読むだけ（書く命令�
   const d = tmpData({ pages: 1 });
   let s = null;
   try {
-    d.db.exec('pragma user_version = 2');
+    // 0.18.0 CW-1（「意図して変えるテスト」の「newer の場面は版 3 の DB で」）で意図して直した: 今の版が 2 なので、新しい版の DB は 3
+    d.db.exec('pragma user_version = 3');
     d.close();
     s = boot(d);
     await s.ready();

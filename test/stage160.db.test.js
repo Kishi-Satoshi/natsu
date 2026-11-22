@@ -153,9 +153,12 @@ test('DS-2・F135・RF17: 行が1万あっても、pages.list・listedRows・木
   assert.ok(!tree.byId.has('r0') && !(tree.kids.get('pdb') || []).length, '木に行が出た');
 }));
 
-test('DS-2・P8: 表の形の版は 1 のまま・STEPS は1段（データベースは今の blocks の行と attrs に入れる）', () => {
-  assert.strictEqual(core.SCHEMA_VERSION, 1);
-  assert.deepStrictEqual(Object.keys(schema.STEPS), ['1']);
+// 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して直した: 0.18.0 で版 2（page_snapshot だけ）に上げた。
+// 0.16.0 は上げなかった（データベースは今の blocks の行と attrs に入れた）意図は名前に残し、版 2 が blocks に欄を足さないかを見る
+test('DS-2・P8: 0.16.0 は表の形の版を上げなかった（データベースは今の blocks の行と attrs に入れる。0.18.0 の版 2 は page_snapshot だけで blocks に欄を足さない）', () => {
+  assert.strictEqual(core.SCHEMA_VERSION, 2);
+  assert.deepStrictEqual(Object.keys(schema.STEPS), ['1', '2']);
+  assert.ok(!/\bblocks\b/.test(schema.STEPS[2].replace(/page_snapshot/g, '')), '版 2 が blocks の表を変えた');
 });
 
 test('DS-2: T4b: 控えに後の oplog（データベースのページと行の add・set・text・trash・restore・行の本文）を前へ当て直すと今の表と同じ。後ろへ当てると控えの表', T, async () => {
