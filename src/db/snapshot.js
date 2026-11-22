@@ -36,6 +36,8 @@
  * listBackups({ dataDir, fs }) → [{ name, at, ms, kind }]（古い順。名前の形の合うものだけ。.tmp は入らない）
  * isNetworkPath(p) → \\server\share（と \\?\UNC\…）の形なら真（P9。\\?\C:\ と \\.\ は手元の場所）
  * RENAME_WAITS_LONG … 戻すときに、ほかのプロセスが閉じるのを待つ間（合わせて約 6.3 秒）。RENAME_WAITS_SHORT … 控えの .gz の名前の変更（約 0.5 秒）
+ * renameWaiting(fs, from, to, waits, log) → 真偽（名前の変更。掴まれている EPERM・EBUSY・EACCES なら waits の順に待ってやり直す。投げない。
+ *   0.18.0 点検 1: 扉の紙 natsu.door（door.js）も RENAME_WAITS_SHORT で使う）
  * 記録（log）に、段ごとにかかった時間を名前と数だけで書く（0.7.0 の前。CI や利用者の PC で遅くなったとき、どの段で止まったかを残す）:
  *   take   「DB: 控え <kind>・確かめ ok（写し 12ms・一つに 3ms・確かめ 210ms・縮め 30ms・名前 1ms）」・確かめ NG・
  *          「…・取れない（<符号>）・止まった段 <段>（…）」
@@ -419,5 +421,5 @@ function isNetworkPath(p) {
 
 module.exports = {
   take, rotate, oldestKeptAt, recover, classifyOpenError, checkResult, withLock, pruneOplog, isNetworkPath,
-  workerCheck, listBackups, activeSteps, RENAME_WAITS_LONG, RENAME_WAITS_SHORT, LOCK_NAME,
+  workerCheck, listBackups, activeSteps, RENAME_WAITS_LONG, RENAME_WAITS_SHORT, LOCK_NAME, renameWaiting,
 };

@@ -14,7 +14,8 @@
  *   口ごとの役は main が port の知らせで付ける（頼みの中で役を名乗っても変わらない: 役は core.call に口の役だけを渡す）。
  *   0.18.0 CW-2（計画 docs/plans/2026-11-18-180.md の決めたこと 1〜5・F230・F231）: ready の state が ok のときだけ、Claude の書き込みの口（door.js。
  *   名前付きパイプと合い言葉・扉の紙 natsu.door）を開き、握手した口を役 mcp で役の表に入れる（main は口を作らず、頼みを中継しない）。
- *   起動の頭で前の起動の扉の紙を消し、close で口を閉じて紙を消す。door（startServer の引数。テストだけ）は startDoor の platform・rand・limits。
+ *   起動の頭で前の起動の扉の紙（と一時ファイル natsu.door.<番号>.tmp: 点検 1）を消し、close で口を閉じて紙を消す。door（startServer の引数。テストだけ）は
+ *   startDoor の platform・rand・limits。点検 1・AQ36 (a): init の network が真（DB のフォルダがネットワークの場所）なら口を開かず紙も書かない。
  *   口は用意の前（移行の窓の答え待ち・移行中）でも受け、頼みは用意ができるまで届いた順に待たせる。口が close したら役の表から外す。
  *   頼みの形が違う（物でない・id が数でない・cmd が文字でない・args が物でない）・JSON にできない・JSON で 1MB を超えるものは bad-args。
  *
@@ -369,6 +370,8 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
 
   // 0.18.0 CW-2: 握手した口は役 mcp（頼みの中で名乗っても変わらない）。頼みは今の口と同じ受け口
   function openDoor() {
+    // 点検 1・AQ36 (a)「共有のときは口を開かない」: DB のフォルダがネットワークの場所なら口を開かず紙も書かない（パスは記録に書かない）
+    if (network) { log('DB: 書き込みの口を開かない（ネットワークの場所）'); return; }
     door = Door.startDoor({
       ...doorOpts, dataDir, fs, log,
       onOpen: (port) => ports.set(port, 'mcp'),
@@ -380,11 +383,16 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   // 0.18.0 CW-1（決めたこと 9・F232）: 版の低い DB は、確かめ済みの控え（upgrade）を取ってから版を上げる（natsu.db.lock の中で。MCP の読み手は待つ）。
   // 控えが取れなければ上げずに state failed（次の起動でやり直す）。上げられたら state ok・今の版
   async function upgradeOld() {
-    const r = await S.withLock(dataDir, async () => {
-      const snap = await takeSnapshot('upgrade');
-      if (!snap.ok) return { ok: false, code: snap.check, snap: true };
-      return core.upgradeTo(db);
-    }, { fs, log });
+    let r;
+    try {
+      r = await S.withLock(dataDir, async () => {
+        const snap = await takeSnapshot('upgrade');
+        if (!snap.ok) return { ok: false, code: snap.check, snap: true };
+        return core.upgradeTo(db);
+      }, { fs, log });
+    } catch (e) {
+      r = { ok: false, code: codeOf(e), snap: true };   // 点検 1（CR51）: natsu.db.lock を書けない（控えを取る前に止まった）も「控えが取れない」。版は 1 のまま
+    }
     if (!r.ok) {
       log(r.snap ? `DB: 版を上げる前の控えが取れない（${r.code}）` : `DB: 版を上げられない（${r.code}）`);
       fail(r.snap ? 'upgrade-backup' : r.code);
@@ -410,6 +418,12 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     // 0.18.0 CW-2（決めたこと 2・F230）: 前の起動の扉の紙（残っているのは落ちた跡。書く道具を、もういない口へつながせない）
     try { fs.unlinkSync(path.join(dataDir, Door.DOOR_NAME)); } catch (e) {
       if (!e || e.code !== 'ENOENT') log(`DB: 前の扉の紙を消せない（${codeOf(e)}）`);
+    }
+    // 点検 1（CR49）: 前の起動の扉の紙の一時ファイル（合い言葉を持つ。書く途中で落ちた跡）も消す
+    let doorTmps = [];
+    try { doorTmps = fs.readdirSync(dataDir).filter((x) => Door.TMP_RE.test(x)); } catch (_) { doorTmps = []; }
+    for (const x of doorTmps) {
+      try { fs.unlinkSync(path.join(dataDir, x)); } catch (e) { if (!e || e.code !== 'ENOENT') log(`DB: 前の扉の紙を消せない（${codeOf(e)}）`); }
     }
     const size = sizeOf(dbFile());
     if (size === null || size === 0) {

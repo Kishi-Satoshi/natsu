@@ -1846,12 +1846,14 @@ test('G3・0.17.1: 0.17.1 の変異が一覧にそろい、IDS_171 は計画の�
 // Notion との残りの違い。タスクを作るたびに、作ったタスクの行を表の行の順で足す（作っている間は「表の行の順に並んだ一部」を見る: 0.17.0 の R89 と同じ。
 // 点検 4 の後に、表の全部とちょうど同じかを見る形にする）
 const IDS_180 = [
-  // 0.18.0 Task CW-1 で作った行（表の行の順に。cw-revert-role は CW-2 で役 mcp が入ってから: CR33）
-  'cw-schema-backup', 'cw-schema-backup-fail', 'cw-schema-order', 'cw-snap-same-tx', 'cw-snap-keep10', 'cw-snap-purge', 'cw-snap-kind',
-  'cw-revert-later', 'cw-revert-subpage', 'cw-revert-row', 'cw-revert-trim',
-  // 0.18.0 Task CW-2 で作った行（表の行の順に。cw-revert-role は CW-1 の行だが、役 mcp が入ってから殺せる: CR33。cw-client-*・cw-mcp-ro-still は CT-4）
-  'cw-revert-role', 'cw-door-ok-only', 'cw-door-remove', 'cw-door-stale', 'cw-door-token', 'cw-door-hello-first', 'cw-door-role', 'cw-door-cmds',
-  'cw-door-app-claude', 'cw-door-line-max', 'cw-door-conns', 'cw-door-log', 'cw-actor-claude',
+  // 0.18.0 Task CW-1・CW-2 と点検 1 で作った行（表の行の順に）。点検 1（2026-11-22）で足したのは cw-schema-lock-code・cw-schema-autoinc・cw-snap-nochange・
+  // cw-revert-dbview・cw-revert-rel・cw-revert-fit・cw-revert-size・cw-door-network・cw-door-rename-wait・cw-door-tmp・cw-door-tmp-stale・cw-mcp-roles・
+  // cw-door-evict・cw-door-backpressure。cw-revert-role は CW-1 の行だが、役 mcp が入った CW-2 で足した（CR33）。cw-client-*・cw-mcp-ro-still は CT-4
+  'cw-schema-backup', 'cw-schema-backup-fail', 'cw-schema-lock-code', 'cw-schema-order', 'cw-schema-autoinc', 'cw-snap-same-tx', 'cw-snap-keep10', 'cw-snap-purge',
+  'cw-snap-kind', 'cw-snap-nochange', 'cw-revert-later', 'cw-revert-subpage', 'cw-revert-dbview', 'cw-revert-row', 'cw-revert-rel', 'cw-revert-fit', 'cw-revert-trim',
+  'cw-revert-size', 'cw-revert-role', 'cw-door-ok-only', 'cw-door-network', 'cw-door-remove', 'cw-door-stale', 'cw-door-rename-wait', 'cw-door-tmp', 'cw-door-tmp-stale',
+  'cw-door-token', 'cw-door-hello-first', 'cw-door-role', 'cw-door-cmds', 'cw-door-app-claude', 'cw-mcp-roles', 'cw-door-line-max', 'cw-door-conns', 'cw-door-evict',
+  'cw-door-backpressure', 'cw-door-log', 'cw-actor-claude',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {
@@ -1867,9 +1869,10 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   assert.strictEqual(new Set(IDS_180).size, IDS_180.length, 'IDS_180 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_180.test(m.id) && !IDS_180.includes(m.id)).map((m) => m.id), [], 'IDS_180 に無い 0.18.0 の頭の変異がある');
   const rows = planRows180();
-  assert.strictEqual(rows.length, 162, '計画の 0.18.0 の表（cw- 28・cs- 19・ct- 38・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
+  // 点検 1（2026-11-22）で cw- を 14 足した（162 → 176）
+  assert.strictEqual(rows.length, 176, '計画の 0.18.0 の表（cw- 42・cs- 19・ct- 38・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 28], ['cs', 19], ['ct', 38], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 19], ['ct', 38], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');

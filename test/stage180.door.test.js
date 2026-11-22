@@ -25,6 +25,7 @@ core.registerForTest({
   'mcp.c180w': { roles: ['mcp'], write: true, args: { id: 'id', title: 'title' }, run:   // D77: 題名を書く試しの命令
     (db, a, ctx) => core.COMMANDS['page.setTitle'].run(db, { id: a.id, title: a.title }, ctx) },
   'mcp.c180any': { roles: ['mcp', 'app', 'main'], write: false, args: {}, run: () => ({ result: 'read' }) },
+  'mcp.c180big': { roles: ['mcp'], write: false, args: {}, run: () => ({ result: 'x'.repeat(512 * 1024) }) },   // 大きな答え（読まない客の詰まり: 点検 1）
 });
 
 async function waitFor(pred, what, ms = 15000) {
@@ -35,11 +36,11 @@ async function waitFor(pred, what, ms = 15000) {
   }
 }
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-function boot(d, opts = {}) {
+function boot(d, { network = false, ...opts } = {}) {
   const fromServer = [];
   const parent = electronShape.parent((x) => fromServer.push(x));
   startServer({ parentPort: parent, sqlite, runCheck: async () => 'ok', ...opts });
-  parent.emit({ type: 'init', dataDir: d.dataDir, labels: {}, network: false });
+  parent.emit({ type: 'init', dataDir: d.dataDir, labels: {}, network });
   const clients = [];
   const port = (role) => {
     const ch = new MessageChannel();
@@ -140,7 +141,7 @@ test('CW-2・F230: 使えない DB（failed: 版を上げる前の控えが取�
 });
 
 // ---------------------------------------------------------------- 握手と役（F231）
-test('CW-2・F231: 違う合い言葉・形の違う握手・握手なしの頼みは、答えずにすぐ切る。2 秒（試しでは短くした helloMs）の無言でも切る', T, async () => {
+test('CW-2・F231: 違う合い言葉・形の違う握手は、答えずにすぐ切る。2 秒（試しでは短くした helloMs）の無言でも切る', T, async () => {
   const d = tmpData({ pages: 1 });
   d.close();
   let s = boot(d, { door: { limits: { helloMs: 5000 } } });
@@ -151,7 +152,6 @@ test('CW-2・F231: 違う合い言葉・形の違う握手・握手なしの頼�
       [{ hello: 'b'.repeat(64), v: 1 }, '違う合い言葉'],
       [{ hello: p.token, v: 2 }, '形の違う握手'],
       [{ hello: p.token, v: 1, role: 'app' }, '欄の多い握手'],
-      [{ id: 1, cmd: 'mcp.c180any', args: {} }, '握手なしの頼み'],
     ]) {
       const c = dial(p.pipe);
       await c.opened;
@@ -167,6 +167,27 @@ test('CW-2・F231: 違う合い言葉・形の違う握手・握手なしの頼�
     await quiet.opened;
     assert.strictEqual(await withinMs(quiet.next(), 3000), 'CLOSED', '握手の無い無言の口を切らない');
   } finally { await s.stop(); d.done(); }
+});
+
+// 点検 1: 握手の前の頼みは、DB のプロセスの役の表に無い口なので動かない（server.js の onRequest も落とす）。扉はその口を切り、後から正しい握手を
+// 送っても使わせない（待ち時間でなく、後の頼みに答えが来るかで見る）
+test('CW-2・F231・点検 1: 握手の前の頼みは、答えずにすぐ切る（同じ口で後から正しい握手と頼みを送っても答えず・前の頼みも動かない）', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const s = boot(d, { door: { limits: { helloMs: 10000 } } });
+  try {
+    await s.ready();
+    const p = await doorOf(d);
+    const c = dial(p.pipe);
+    await c.opened;
+    c.send(`${JSON.stringify({ id: 1, cmd: 'mcp.c180w', args: { id: d.ids[0], title: '握手の前の頼み' }, tx: 'c:c180-pre-1' })}\n${JSON.stringify({ hello: p.token, v: 1 })}\n${JSON.stringify({ id: 2, cmd: 'mcp.c180any', args: {} })}\n`);   // D77
+    assert.strictEqual(await withinMs(c.next(), 5000), 'CLOSED', '握手の前の頼みで切らない（後の握手で使えた）');
+    assert.ok(s.logs().includes('DB: 書き込みの口 断った（形）'), s.logs().join('\n'));
+    assert.ok(!s.logs().some((x) => x.startsWith('DB: 書き込みの口 つないだ')), s.logs().join('\n'));
+  } finally { await s.stop(); }
+  try {
+    assert.strictEqual(d.peek().db.prepare("select count(*) c from oplog where tx = 'c:c180-pre-1'").get().c, 0, '握手の前の頼みが動いた');
+  } finally { d.done(); }
 });
 
 test('CW-2・F231: 合い言葉が合えば頼みに役 mcp が付き actor は claude（頼みの中で role を書いても変わらない・args.actor は bad-args）。書けたら全部の口に changed', T, async () => {
@@ -319,4 +340,110 @@ test('CW-2: parseDoor・checkHello・pipePath の表（形の違う紙・長い�
     [JSON.stringify([TOKEN]), '配列'], ['{"hello":', '壊れた JSON'], ['', '空'],
   ]) assert.strictEqual(D.checkHello(line, TOKEN), false, what);
   assert.strictEqual(D.checkHello(JSON.stringify({ hello: TOKEN, v: 1 }), 'short'), false, '形の違う合い言葉と比べた');
+});
+
+// ---------------------------------------------------------------- 点検 1（2026-11-22。AQ36・AQ37・CR48〜CR50）
+test('CW-2・点検 1・AQ36: DB のフォルダがネットワークの場所（init の network が真）なら、口を開かず扉の紙も書かない（記録はパスの無い1行。前の紙は消える）', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  fs.writeFileSync(paperOf(d), D.doorText({ pipe: D.pipePath(), token: TOKEN, pid: 1 }));   // 前の起動の紙（落ちた跡）
+  const s = boot(d, { network: true });
+  try {
+    assert.strictEqual((await s.ready()).state, 'ok');
+    await sleep(1000);   // 開いていれば紙は数ミリ秒で書かれる
+    assert.strictEqual(readPaper(d), null, 'ネットワークの場所なのに紙がある（扉を開いた・前の紙が消えない）');
+    assert.deepStrictEqual(fs.readdirSync(d.dataDir).filter((x) => x.startsWith('natsu.door')), []);
+    const logs = s.logs();
+    assert.ok(logs.includes('DB: 書き込みの口を開かない（ネットワークの場所）'), logs.join('\n'));
+    assert.ok(!logs.includes('DB: 書き込みの口を開いた'), logs.join('\n'));
+    for (const l of logs) assert.ok(!l.includes(d.dataDir), `記録にパス: ${l}`);
+  } finally { await s.stop(); d.done(); }
+});
+
+test('CW-2・点検 1・AQ37: 4 つの口がふさがっているとき、握手の前の口があれば、いちばん古いその口を切って新しい口を受ける。4 つとも握手した口なら、新しい口をすぐ切る', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const s = boot(d, { door: { limits: { helloMs: 20000 } } });
+  try {
+    await s.ready();
+    const p = await doorOf(d);
+    const a = await hello(d);
+    const b = await hello(d);
+    const pre1 = dial(p.pipe); await pre1.opened; await sleep(100);   // 握手の前の口（古い方）
+    const pre2 = dial(p.pipe); await pre2.opened; await sleep(100);   // 握手の前の口（新しい方）
+    const n1 = await hello(d);   // 5 つ目: pre1 を切って受ける
+    n1.send({ id: 1, cmd: 'mcp.c180any', args: {} });
+    assert.deepStrictEqual(await withinMs(n1.reply(1), 5000), { id: 1, ok: true, result: 'read' }, '握手の前の古い口があるのに新しい口を受けない');
+    assert.strictEqual(await withinMs(pre1.next(), 5000), 'CLOSED', 'いちばん古い握手の前の口を切らない');
+    assert.strictEqual(pre2.isClosed(), false, '新しい方の握手の前の口を切った');
+    pre2.send({ hello: p.token, v: 1 });
+    pre2.send({ id: 2, cmd: 'mcp.c180any', args: {} });
+    assert.deepStrictEqual(await withinMs(pre2.reply(2), 5000), { id: 2, ok: true, result: 'read' });
+    // 4 つとも握手した口（a・b・n1・pre2）: 新しい口はすぐ切る・握手した口は切らない
+    const x = await hello(d);
+    x.send({ id: 3, cmd: 'mcp.c180any', args: {} });
+    assert.strictEqual(await withinMs(x.next(), 5000), 'CLOSED', '4 つとも握手した口なのに新しい口を受けた');
+    for (const [i, c] of [a, b, n1, pre2].entries()) {
+      c.send({ id: 10 + i, cmd: 'mcp.c180any', args: {} });
+      assert.deepStrictEqual(await withinMs(c.reply(10 + i), 5000), { id: 10 + i, ok: true, result: 'read' }, `握手した口 ${i} を切った`);
+    }
+    assert.ok(s.logs().filter((l) => l === 'DB: 書き込みの口 断った（数）').length >= 2, s.logs().join('\n'));
+  } finally { await s.stop(); d.done(); }
+});
+
+test('CW-2・点検 1: 答えを読まない客（送れずに溜まった分が上限 outBytes を越えた）は切る（DB のプロセスに changed や答えを溜め続けない）', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const s = boot(d, { door: { limits: { outBytes: 1024 * 1024 } } });
+  try {
+    await s.ready();
+    const c = await hello(d);
+    c.sock.pause();   // 読まない客
+    for (let i = 0; i < 12; i += 1) c.send({ id: 100 + i, cmd: 'mcp.c180big', args: {} });   // 答えは 1 つ約 512KB
+    await waitFor(() => s.logs().includes('DB: 書き込みの口 断った（詰まり）'), '詰まりで切る', 5000);
+    c.sock.resume();
+    let got = '';
+    for (let i = 0; i < 20 && got !== 'CLOSED'; i += 1) got = await withinMs(c.next(), 5000);
+    assert.strictEqual(got, 'CLOSED', '詰まった口を切らない');
+    const ok2 = await hello(d);   // ほかの口は使える
+    ok2.send({ id: 1, cmd: 'mcp.c180any', args: {} });
+    assert.deepStrictEqual(await withinMs(ok2.reply(1), 5000), { id: 1, ok: true, result: 'read' });
+  } finally { await s.stop(); d.done(); }
+});
+
+// 扉の紙の名前の変更が掴まれている（Windows のウイルス対策・索引づけ）: snapshot の renameWaiting と同じに待ってやり直す
+const renameFs = (failTimes) => {
+  let left = failTimes;
+  return new Proxy(fs, { get: (t, k) => (k === 'renameSync'
+    ? (from, to) => { if (path.basename(String(to)) === D.DOOR_NAME && left > 0) { left -= 1; throw Object.assign(new Error('EPERM: 試し'), { code: 'EPERM' }); } return t.renameSync(from, to); }
+    : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+};
+test('CW-2・点検 1: 扉の紙の名前の変更が一時だけ掴まれていれば（EPERM）、待ってやり直して紙を書く', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const s = boot(d, { fs: renameFs(2) });
+  try {
+    await s.ready();
+    await waitFor(() => readPaper(d) !== null || s.logs().some((l) => l.startsWith('DB: 扉の紙を書けない')), '扉の紙か、書けない記録');
+    assert.ok(!s.logs().some((l) => l.startsWith('DB: 扉の紙を書けない')), `待たずに諦めた:\n${s.logs().join('\n')}`);
+    const p = await doorOf(d);
+    assert.strictEqual(p.pid, process.pid);
+    assert.ok(s.logs().some((l) => /^DB: 名前の変更を 2 回待った（\d+ms・EPERM）$/.test(l)), s.logs().join('\n'));
+    assert.deepStrictEqual(fs.readdirSync(d.dataDir).filter((x) => x.startsWith('natsu.door')), ['natsu.door']);
+  } finally { await s.stop(); d.done(); }
+});
+
+test('CW-2・点検 1: 扉の紙を書けない（名前の変更がずっと掴まれている）ときは、合い言葉を持つ一時ファイルを消し、口を閉じる。前の起動の一時ファイル natsu.door.<番号>.tmp は起動の頭で消える', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const leftover = path.join(d.dataDir, 'natsu.door.4242.tmp');
+  fs.writeFileSync(leftover, D.doorText({ pipe: D.pipePath(), token: TOKEN, pid: 4242 }));   // 前の起動の一時ファイル（落ちた跡）
+  const s = boot(d, { fs: renameFs(1000) });
+  try {
+    await s.ready();
+    await waitFor(() => s.logs().some((l) => l.startsWith('DB: 扉の紙を書けない')), '紙を書けない');
+    assert.ok(s.logs().includes('DB: 扉の紙を書けない（rename）'), s.logs().join('\n'));
+    assert.deepStrictEqual(fs.readdirSync(d.dataDir).filter((x) => x.startsWith('natsu.door')), [], '合い言葉を持つ一時ファイルが残った・前の一時ファイルが消えない');
+    assert.ok(!s.logs().includes('DB: 書き込みの口を開いた'), s.logs().join('\n'));
+  } finally { await s.stop(); d.done(); }
 });

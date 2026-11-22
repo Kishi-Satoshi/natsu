@@ -466,3 +466,114 @@ test('CW-1: 表の形の版は 2・STEPS は2段（版 1 の SQL は 0.15.0 の�
   assert.deepStrictEqual(Object.keys(schema.STEPS), ['1', '2']);
   assert.strictEqual(require('node:crypto').createHash('sha256').update(schema.STEPS[1]).digest('hex'), '3c4f1638e5806288d3f9fbedc86af6d8dfddaba6ac8fab0ab8a74c1fc5ba9772');
 });
+
+// ---------------------------------------------------------------- 点検 1（2026-11-22。AQ34・CR44〜CR47）
+test('CW-1・点検 1・AQ34: page.claudeRevert はリレーションの列を戻さず（控えの後に結んだリレーションが残る）、今の列の種類・選択肢に合わない控えの値も戻さない（今の値のまま）。合う値は戻る', T, () => withDb((db) => {
+  const r = dbWithRow(db);
+  const other = ok(call(db, 'db.create', {}), 'db.create other').result.id;
+  const target = ok(call(db, 'row.add', { db: other, title: '相手の行' }), 'row.add other').result.id;   // D77: データベースの行の題名
+  const rel = ok(call(db, 'col.add', { db: r.d, type: 'rel', target: other }), 'col.add rel').result.col.id;
+  const sel = ok(call(db, 'col.add', { db: r.d, type: 'select', name: '選ぶ列' }), 'col.add select').result.col.id;
+  ok(call(db, 'col.setOpts', { db: r.d, col: sel, opts: [{ id: 'o1', name: '高', color: 'red' }, { id: 'o2', name: '低', color: 'default' }] }), 'col.setOpts');
+  ok(call(db, 'row.setCell', { db: r.d, id: r.row, col: sel, value: 'o1' }), 'sel o1');
+  ok(call(db, 'row.setCell', { db: r.d, id: r.row, col: r.col2, value: '12' }), 'col2 12');
+  ok(claudeWrite(db, { pageId: r.row, what: 'row', fn: 'cell', db: r.d, col: r.col, text: 'Claude の値' }), 'claude');
+  // 控えの後: リレーションを結ぶ・テキストの列を数値に変えて値を直す・選択肢 o1 を外して o2 にする
+  ok(call(db, 'rel.link', { db: r.d, id: r.row, col: rel, ids: [target] }), 'rel.link');
+  ok(call(db, 'col.setType', { db: r.d, col: r.col2, type: 'number' }), 'setType');
+  ok(call(db, 'row.setCell', { db: r.d, id: r.row, col: r.col2, value: 34 }), 'col2 34');
+  ok(call(db, 'row.setCell', { db: r.d, id: r.row, col: sel, value: 'o2' }), 'sel o2');
+  ok(call(db, 'col.setOpts', { db: r.d, col: sel, opts: [{ id: 'o2', name: '低', color: 'default' }] }), 'drop o1');
+  const targetBefore = db.prepare('select attrs from blocks where id = ?').get(target).attrs;
+  ok(call(db, 'page.claudeRevert', { id: r.row, sid: snapRows(db, r.row)[0].rid }), 'revert');
+  const cells = JSON.parse(db.prepare('select attrs from blocks where id = ?').get(r.row).attrs).cells;
+  assert.strictEqual(cells[r.col], '前の値', '合う値が戻らない');
+  assert.deepStrictEqual(cells[rel], [target], 'リレーションを戻した（控えの後に結んだリレーションが消えた）');
+  assert.strictEqual(cells[r.col2], 34, '今の列の種類に合わない控えの値を書いた');
+  assert.strictEqual(cells[sel], 'o2', '外した選択肢を書いた');
+  assert.strictEqual(db.prepare('select attrs from blocks where id = ?').get(target).attrs, targetBefore, 'ほかの行を変えた');
+}));
+
+test('CW-1・点検 1: page.claudeRevert はリンクドビューの行（ビューの設定を中に持つ）を子ページの行と同じに扱う: 今の行のまま（ビューの設定も今のまま）・控えに無い今の行は本文の最後に残り・今は無い行は戻さない', T, () => withDb((db) => {
+  const blank = blankPage(db);
+  const d = ok(call(db, 'db.create', {}), 'db.create').result.id;
+  const ins = () => ok(call(db, 'block.insertDbView', { pageId: blank.id, afterId: '', db: d }), 'insertDbView').result.blockId;
+  const keep = ins();
+  const gone = ins();
+  ok(claudeWrite(db, { pageId: blank.id, what: 'append', fn: 'block', blockId: blank.blockId, text: 'Claude が書き足した' }), 'claude');
+  ok(call(db, 'view.update', { db: d, viewId: 'v1', linked: keep, patch: { name: '後で付けた名前' } }), 'view.update');
+  ok(call(db, 'block.remove', { pageId: blank.id, blockId: gone }), 'block.remove');
+  const added = ins();
+  const keepNow = C.readPage(db, blank.id).blocks.find((b) => b.id === keep);
+  ok(call(db, 'page.claudeRevert', { id: blank.id, sid: snapRows(db, blank.id)[0].rid }), 'revert');
+  const p = C.readPage(db, blank.id);
+  assert.deepStrictEqual(p.blocks.map((b) => [b.type, b.id === blank.blockId ? b.text : b.id]), [['paragraph', '白紙の本文の一行'], ['dbview', keep], ['dbview', added]],
+    'リンクドビューの行が今のままでない（控えの後に足した行が消えた・消した行が戻った）');
+  assert.deepStrictEqual(p.blocks.find((b) => b.id === keep), keepNow, 'リンクドビューのビューの設定を控えの形に戻した');
+}));
+
+test('CW-1・点検 1: 何も変えなかった Claude の書き込み（操作が空）は控えを残さない（新しい 10 行の控えを押し出さない）', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  for (let i = 0; i < 10; i += 1) ok(claudeWrite(db, { pageId: id, what: 'summary', fn: 'block', blockId: `${id}b2`, text: `直し${i}` }), `write ${i}`);
+  const before = snapRows(db, id);
+  const rev = revOf(db, id);
+  const r = ok(claudeWrite(db, { pageId: id, what: 'summary', fn: 'block', blockId: `${id}b2`, text: '直し9' }), 'same text');
+  assert.strictEqual(JSON.parse(db.prepare('select ops from oplog where tx = ?').get(r.tx).ops).length, 0, '試しの書き込みが何か変えた');
+  assert.strictEqual(revOf(db, id), rev);
+  assert.deepStrictEqual(snapRows(db, id), before, '何も変えないのに控えを足した・古い控えを押し出した');
+}));
+
+test('CW-1・点検 1: page.claudeRevert は、戻した本文が行の上限（2,000 行）を越えるなら、ほかの本文の書き込みと同じ too-big で断り、何も変えない（控えも残る）', T, () => withDb((db) => {
+  const blank = blankPage(db);
+  ok(claudeWrite(db, { pageId: blank.id, what: 'append', fn: 'block', blockId: blank.blockId, text: 'Claude が書き足した' }), 'claude');
+  const sid = snapRows(db, blank.id)[0].rid;
+  const big = Array.from({ length: 2001 }, (_, i) => ({ id: `bbig${i}`, type: 'paragraph', text: `行${i}`, children: [] }));
+  db.prepare('update page_snapshot set body = ? where rid = ?').run(JSON.stringify({ blocks: big }), sid);
+  const before = C.readPage(db, blank.id);
+  const r = call(db, 'page.claudeRevert', { id: blank.id, sid });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'too-big']);
+  assert.deepStrictEqual(C.readPage(db, blank.id), before);
+  assert.strictEqual(snapRows(db, blank.id).length, 1, '断ったのに控えを消した');
+}));
+
+test('CW-1・点検 1・AQ35: page_snapshot の番号は使い回さない（AUTOINCREMENT）: 戻して消えた控えの sid は、後の控えに付かず bad-args（無い控え）', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  ok(claudeWrite(db, { pageId: id, what: 'summary', fn: 'block', blockId: `${id}b2`, text: '一回目' }), 'w1');
+  const sid = snapRows(db, id)[0].rid;
+  ok(call(db, 'page.claudeRevert', { id, sid }), 'revert');
+  assert.deepStrictEqual(snapRows(db, id), []);
+  ok(claudeWrite(db, { pageId: id, what: 'summary', fn: 'block', blockId: `${id}b2`, text: '二回目' }), 'w2');
+  assert.ok(snapRows(db, id)[0].rid > sid, '消えた控えの番号を使い回した');
+  const r = call(db, 'page.claudeRevert', { id, sid });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], '古い sid で新しい控えに戻った');
+  assert.match(schema.STEPS[2], /rid INTEGER PRIMARY KEY AUTOINCREMENT,/);
+}));
+
+test('CW-1・点検 1: natsu.db.lock を書けない（控えを取る前に止まる）ときも、版を上げずに「版を上げる前の控えが取れない」の記録と upgrade-backup で止まり、版は 1 のまま（internal にしない）', T, async () => {
+  const d = v1Data(0);
+  const noLock = new Proxy(fs, { get: (t, k) => (k === 'writeFileSync'
+    ? (p, ...a) => { if (path.basename(String(p)) === S.LOCK_NAME) throw Object.assign(new Error('EACCES: 試し'), { code: 'EACCES' }); return t.writeFileSync(p, ...a); }
+    : (typeof t[k] === 'function' ? t[k].bind(t) : t[k])) });
+  try {
+    const s = boot(d, { fs: noLock });
+    try {
+      const r = await s.ready();
+      assert.strictEqual(r.state, 'failed', s.logs().join('\n'));
+      const logs = s.logs();
+      assert.ok(logs.includes('DB: 版を上げる前の控えが取れない（EACCES）') && logs.includes('DB: 使えない（upgrade-backup）'), logs.join('\n'));
+      assert.ok(!logs.some((x) => x.startsWith('DB: 思わぬ失敗') || x === 'DB: 使えない（internal）'), logs.join('\n'));
+    } finally { await s.stop(); }
+    assert.strictEqual(versionOf(d.file), 1, 'lock を書けないのに版を上げた');
+    assert.deepStrictEqual(backups(d, 'upgrade'), []);
+  } finally { d.done(); }
+});
+
+test('CW-2・点検 1: 役 mcp を持つ命令は、名前が mcp. で始まる命令とちょうど同じ集まりで、mcp.* の命令の役は mcp だけ（試しの命令 registerForTest は core.COMMANDS に入らない）', () => {
+  const names = Object.keys(core.COMMANDS);
+  assert.ok(names.length > 50, '命令の表が読めない');
+  assert.ok(!names.includes('test.c180w') && !names.includes('test.c180old'), '試しの命令が core.COMMANDS に入った');
+  const withMcp = names.filter((k) => core.COMMANDS[k].roles.includes('mcp')).sort();
+  const mcpNamed = names.filter((k) => k.startsWith('mcp.')).sort();
+  assert.deepStrictEqual(withMcp, mcpNamed, '役 mcp を持つ今の命令がある・mcp.* の命令に役 mcp が無い');
+  for (const k of mcpNamed) assert.deepStrictEqual(core.COMMANDS[k].roles, ['mcp'], `${k} の役が mcp だけでない`);
+});

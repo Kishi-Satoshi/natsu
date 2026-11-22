@@ -124,6 +124,7 @@ const HOT_QUERIES = Object.freeze({
   // 0.18.0 CW-1（決めたこと 10〜12）: Claude の変更の控え（page_snapshot。索引 page_snapshot_page(page_id, rid)）
   snapAdd: 'insert into page_snapshot(page_id, at, what, rev_after, body) values (?, ?, ?, ?, ?)',
   snapRevAfter: 'update page_snapshot set rev_after = ? where rid = ?',
+  snapDel: 'delete from page_snapshot where rid = ?',   // 点検 1（CR46）: 何も変えなかった書き込みの控え
   snapTrim: 'delete from page_snapshot where page_id = ? and rid not in (select rid from page_snapshot where page_id = ? order by rid desc limit ?)',
   snapList: 'select rid, at, what, rev_after from page_snapshot where page_id = ? order by rid desc limit ?',
   snapOne: 'select rid, body from page_snapshot where rid = ? and page_id = ?',
@@ -3205,6 +3206,8 @@ function withSnap(db, pageId, what, fn, ctx, { segIds = [] } = {}) {
   const putSnap = () => db.prepare(HOT_QUERIES.snapAdd).run(pageId, ctx.now().toISOString(), what, l.page.rev, body).lastInsertRowid;
   const sid = putSnap();
   const out = fn();
+  // 点検 1（CR46）: 何も変えなかった（操作が空の）書き込みは控えを残さない（新しい 10 行の控えを押し出さない・戻しても何も変わらない控えを並べない）
+  if (!isObj(out) || !Array.isArray(out.ops) || out.ops.length === 0) { db.prepare(HOT_QUERIES.snapDel).run(sid); return out; }
   const after = db.prepare(HOT_QUERIES.pageRow).get(pageId);
   db.prepare(HOT_QUERIES.snapRevAfter).run(after ? after.rev : l.page.rev, sid);
   db.prepare(HOT_QUERIES.snapTrim).run(pageId, pageId, CS.SNAP_KEEP);
@@ -3236,6 +3239,7 @@ function claudeRevert(db, a, ctx) {
   const back = CS.restoreOf(w.page, segs, body, host ? host.cols : null);
   if (me.type === 'row') back.page.by = { ...(isObj(w.page.by) ? w.page.by : {}), u: whoOf(ctx) };   // 行の最終更新者
   R.markShortBlocks(back.page.blocks);
+  pageFits(back.page, ctx);   // 点検 1（CR47）: ほかの本文の書き込みと同じ上限（行の数・ページの大きさ）。越えれば too-big で何も変えない
   const ops = [...saveOps(w.was, back.page, ctx.now), ...diffSegments(segs, back.segments, a.id)];
   applyOps(db, ops);
   db.prepare(HOT_QUERIES.snapDropFrom).run(a.id, snap.rid);
