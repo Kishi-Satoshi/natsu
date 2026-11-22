@@ -413,6 +413,20 @@ module.exports = {
       const p = c.store.getPage('pq1');
       c.out.summaryErrorAfter = p ? p.summaryError : null;
     } },
+  // 0.18.0 CS-2（計画 docs/plans/2026-11-18-180.md の決めたこと 17・F235）: 要約の途中で終了（before-quit）し、要約が終わるまで待つ。
+  // out.trace（客の頼みと setMaking の知らせの順）で、要約を作っている間の印が終わりに外れたかを見る。--claude=slow と FAKE_CLAUDE_DELAY で使う
+  'making-quit': { files: {
+      'settings.json': ({ base }) => pretty({ ...TYPICAL, claudeExe: base.claudeExe }),
+      'data/pages/pq1.json': JSON.stringify({ id: 'pq1', title: titleAt('2026-10-01T00:00:00.000Z'), blocks: [], memo: '', createdAt: '2026-10-01T00:00:00.000Z', summaryError: '', route: { localOnly: true } }),
+      'data/transcripts/pq1.json': JSON.stringify({ id: 'pq1', segments: [{ id: 's1', atMs: 0, durationMs: 3000, text: '本日の議題は進捗の確認です' }] }) },
+    act: async (c) => {
+      const summarizing = c.handlers['page:summarize']({}, 'pq1');
+      c.out.sumStarted = await c.waitFor(() => c.claudeCalls().some((k) => k.kind === 'p'), 5000);
+      c.app.quit = () => {};
+      c.app.emit('before-quit', { preventDefault() {} });
+      c.out.summary = await Promise.race([summarizing.then(() => 'done', () => 'threw'), c.sleep(15000).then(() => 'running')]);
+      c.out.trace = c.trace();
+    } },
   // 壊れたページ（p1）と、ページは無事で文字起こしだけ壊れたページ（p2）。第2a1回 M-2b から、起動では元の JSON に触れない（store.init で
   // 退けない）。移行は退けない読み方で読み、壊れたページは数えて飛ばし、文字起こしだけ壊れたページは「発言なし」で移す（ST10）。
   // 元のファイルは元の名前・元の中身のまま（out.originals に、置いたときと同じ中身かを名前ごとに入れる）

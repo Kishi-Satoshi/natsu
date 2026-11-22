@@ -10,7 +10,8 @@
  *   子 → main: { type: 'ready', state: 'ok' | 'newer' | 'failed', version, journal, selfTest, pid } / { type: 'migrate-plan', counts }
  *              / { type: 'progress', done, total } / { type: 'log', line } / { type: 'closed' }
  *   口の上: 頼み { id, cmd, args, tx? } → 返事 { id, ok: true, result } | { id, ok: false, code, retry }。
- *           書けたら全部の口に { event: 'changed', pageIds, actor }。
+ *           書けたら全部の口に { event: 'changed', pageIds, actor, what? }（what は Claude の命令 mcp.* の道具の印: 0.18.0 CS-2）。
+ *   main → 子: 0.18.0 CS-2 の { type: 'making', ids }（main が要約を作っている間のページ。覚えるだけで書かない。mcp.writeSummary が locked で断る）。
  *   口ごとの役は main が port の知らせで付ける（頼みの中で役を名乗っても変わらない: 役は core.call に口の役だけを渡す）。
  *   0.18.0 CW-2（計画 docs/plans/2026-11-18-180.md の決めたこと 1〜5・F230・F231）: ready の state が ok のときだけ、Claude の書き込みの口（door.js。
  *   名前付きパイプと合い言葉・扉の紙 natsu.door）を開き、握手した口を役 mcp で役の表に入れる（main は口を作らず、頼みを中継しない）。
@@ -94,6 +95,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   let life = Promise.resolve();   // init・migrate・close を1つずつ
   let snapChain = Promise.resolve();   // 控えを1つずつ
   let door = null;   // 0.18.0 CW-2: Claude の書き込みの口（ready の ok の後だけ）
+  let making = new Set();   // 0.18.0 CS-2（決めたこと 17）: main が要約を作っている間のページ（{ type: 'making', ids }。覚えるだけで書かない）
 
   const post = (m) => { try { parentPort.postMessage(m); } catch (_) { /* main が居ない */ } };
   const log = (line) => post({ type: 'log', line });
@@ -159,11 +161,11 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
         .then((out) => reply(port, id, out), () => reply(port, id, failOut('internal')));
       return;
     }
-    const r = core.call(db, { role, cmd: data.cmd, args: data.args, tx: data.tx }, { now, labels, log });
+    const r = core.call(db, { role, cmd: data.cmd, args: data.args, tx: data.tx }, { now, labels, log, making });
     if (!r.ok) { reply(port, id, failOut(r.code, r.retry === true)); return; }
     // 0.14.0 EB-2（決めたこと 6・R59・R75）: 何か変えた命令（と、その送り直し）の答えだけに changed（画面の元に戻すの1歩）
     reply(port, id, r.changed || r.dupChanged ? { ok: true, result: r.result, changed: true } : { ok: true, result: r.result });
-    if (r.changed) broadcast({ event: 'changed', pageIds: r.changed.pageIds, actor: r.changed.actor });
+    if (r.changed) broadcast({ event: 'changed', pageIds: r.changed.pageIds, actor: r.changed.actor, ...(r.changed.what ? { what: r.changed.what } : {}) });   // 0.18.0 CS-2: Claude の命令は what
     if (r.changed && SWEEP_AFTER.includes(`${role} ${data.cmd}`)) sweepMinutes();   // 0.17.0 MG-2（決めたこと 48）: 締め・復旧の後の見回り
   }
   // 0.17.0 点検 2（rv59 軽い 2・R47）: 画面の page.restore（ゴミ箱から最上位に戻した議事録）の後も見回る
@@ -499,6 +501,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     else if (data.type === 'port') addPort(data.role, Array.isArray(e.ports) ? e.ports[0] : undefined);
     else if (data.type === 'migrate') enqueue(() => runMigrate(data));
     else if (data.type === 'close') enqueue(() => close());
+    else if (data.type === 'making') making = new Set(Array.isArray(data.ids) ? data.ids.filter((x) => typeof x === 'string') : []);   // 0.18.0 CS-2: 待たせずに覚える
   });
 }
 

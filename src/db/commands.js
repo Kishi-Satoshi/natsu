@@ -72,6 +72,9 @@ const { LIMITS } = require('./validate');
 const MD = require('../memoDoc');
 // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 10〜14）: Claude の変更の控え（page_snapshot）の中身と戻す形
 const CS = require('./claudeSnap');
+// 0.18.0 CS-2（決めたこと 15・17〜22）: Claude の要約の書き戻しも、main の［要約を生成］と同じ要約の作り方（summaryWrite.prepareSummary）を通る
+const SW = require('../summaryWrite');
+const TL = require('../mcp/timeline');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -3246,6 +3249,63 @@ function claudeRevert(db, a, ctx) {
   return { ops, pageIds: [a.id], result: readPage(db, a.id) };
 }
 
+// ---------------------------------------------------------------- Claude の要約の書き戻し（0.18.0 CS-2。計画 docs/plans/2026-11-18-180.md の
+// 決めたこと 17〜22・F235・F236）
+// mcp.writeSummary（役 mcp）: Claude が書いた Markdown を、main の［要約を生成］と同じ作り方（prepareSummary: 写しを落とす・印・担当と期限の裏付け・
+// 出典は今の文字起こしと照らして付け直す）で要約の行にし、書く直前の形を控えに取って（withSnap）要約の行を作り直す。
+// 断る: 無い・ゴミ箱・録音中の写し（listedRows の外）は not-found、白紙のページ・データベース・データベースの行は bad-args（要約が無い）、
+// main が要約を作っている間（ctx.making）と要約の欄の鍵（要約待ちなど: summaryLockedPage）は locked、読んだ版（baseRev）が今と違えば conflict、
+// 本文が上限（行の数・ページの大きさ）を越えれば too-big。採点の節があり文字起こしが短くなければ Claude Code の要約と同じに点を読み、無ければ前の点を消す
+function claudeSummaryAnswer(p, edited) {
+  const st = R.citeStatOf(p.blocks || []);
+  const notes = typeof p.summaryError === 'string' && p.summaryError ? p.summaryError.split('\n') : [];
+  return { title: p.title, rows: BT.flattenBlocks(p.blocks || []).length, cited: st.linked, citable: st.total, edited, notes };
+}
+function mcpWriteSummary(db, a, ctx) {
+  const raw = db.prepare(HOT_QUERIES.dbRow).get(a.pageId);
+  if (!raw || (raw.trashed_at !== null && raw.trashed_at !== undefined)) throw refuse('not-found');
+  if (raw.type === 'row') throw refuse('bad-args');   // データベースの行のページ（要約が無い。append_to_page で書き足す: CT-2）
+  if (!listedRows(db).some((r) => r.id === a.pageId)) throw refuse('not-found');   // 録音中の写し・ゴミ箱の行の中のページ
+  const l = loadPage(db, a.pageId);
+  if (!l) throw refuse('not-found');
+  if (isBlankPage(l.page) || isDbPage(l.page)) throw refuse('bad-args');
+  if (ctx.making.has(a.pageId)) throw refuse('locked');   // main が要約を作っている間（作り終えた要約が Claude の要約を黙って上書きしない）
+  if (summaryLockedPage(db, l.page)) throw refuse('locked');   // 要約待ちなど（D69。待っている要約で Claude の要約を追い越さない: CR14）
+  if (l.page.rev !== a.baseRev) throw refuse('conflict');
+  return withSnap(db, a.pageId, 'summary', () => {
+    const w = forWrite(db, a.pageId);
+    const p = w.page;
+    const edited = p.summaryEdited === true;
+    if (a.meetingType !== undefined) setTypePage(p, { type: a.meetingType, preset: false }, ctx.now());   // 手で選んだのと同じ（決めたこと 20）
+    const segs = readSegments(db, a.pageId);
+    const rows = TL.timelineOf(segs.filter((x) => !x.failed && !x.pending));
+    const plain = rows.map((r) => r.text).join('\n');
+    const asked = quality.splitScore(a.md).found > 0;
+    const score = asked && plain.length >= quality.MIN_SCORE_CHARS;
+    const template = memoTypes.buildTemplate({ meetingType: p.meetingType, score, labeled: rows.some((r) => TL.srcLabel(r)) });
+    const made = SW.prepareSummary({ md: a.md, page: p, segments: segs, segmentsAtStart: segs, score, template, at: ctx.now().toISOString() });
+    p.blocks = made.blocks;
+    keepTaskMarks(w.was.page, p);   // 作り直した同じ文の ToDo に［タスクにする］の印を引き継ぐ（page.put と同じ: 0.17.0 R67）
+    p.citeStat = made.citeStat;
+    p.actionStat = made.actionStat;
+    if (made.quality) p.quality = made.quality; else delete p.quality;   // 点は要約と組（古い要約の点を残さない: 決めたこと 22）
+    p.summaryError = [made.scoreNote || (asked && !score ? SW.QUALITY_NOTE_SHORT : '')].filter(Boolean).join('\n');
+    p.summaryEdited = true;   // ［要約を再生成］で Claude の要約を消す前に、0.13.0 の確かめが出る（決めたこと 19）
+    p.route = { ...(isObj(p.route) ? p.route : {}), summary: { by: 'claude', at: ctx.now().toISOString() } };
+    pageFits(p, ctx);
+    const ops = saveOps(w.was, p, ctx.now);
+    applyOps(db, ops);
+    return { ops, pageIds: [a.pageId], what: 'summary', result: claudeSummaryAnswer(readPage(db, a.pageId), edited) };
+  }, ctx);
+}
+// 送り直し（同じ tx）の答え: 今の中身から作り直す。手で直した要約だったかは、1回目が summaryEdited を書いたか（書いていなければ前から真）で読む
+function writeSummaryDup(db, a, row) {
+  const p = readPage(db, a.pageId);
+  if (!p) return null;
+  const ops = JSON.parse(row.ops || '[]');
+  return claudeSummaryAnswer(p, !ops.some((o) => o && o.op === 'set' && o.key === 'summaryEdited'));
+}
+
 const DEFS = {
   // ---- 読む（app と main）
   'pages.list': { roles: ['app', 'main'], write: false, args: { q: 'text?' },
@@ -3341,6 +3401,8 @@ const DEFS = {
   // 0.18.0 CW-1（決めたこと 12・14・AQ5 (a)）: Claude の変更の控えの一覧と戻す（役 app だけ。Claude（役 mcp）は戻せない。元に戻すの歩みにしない）
   'page.claudeSnaps': { roles: ['app'], write: false, args: { id: 'id' }, run: claudeSnaps },
   'page.claudeRevert': { roles: ['app'], write: true, args: { id: 'id', sid: 'num' }, run: claudeRevert, dupResult: reread },
+  // 0.18.0 CS-2（決めたこと 17〜22）: Claude の要約の書き戻し（役 mcp だけ: CR42）
+  'mcp.writeSummary': { roles: ['mcp'], write: true, args: { pageId: 'id', baseRev: 'int', md: 'mdText', meetingType: 'meetingTypeArg?' }, run: mcpWriteSummary, dupResult: writeSummaryDup },
   'pages.trash': { roles: ['app'], write: false, args: {},
     run: (db) => ({ result: trashHeads(db) }) },
   'block.update': { roles: ['app', 'main'], write: true, args: { pageId: 'id', blockId: 'id', patch: 'patch' },

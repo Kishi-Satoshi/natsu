@@ -31,6 +31,8 @@ const dropTemplateEcho = minutes.dropTemplateEcho || ((b) => b);
 
 // 採点の節を読めなかったときの注（0.11.0 Q-3 の QN1。Claude Code の要約と Claude の書き戻しで同じ文）
 const QUALITY_NOTE_UNREAD = 'この要約には打ち合わせの質の点を付けていません（AI の答えの形を読み取れなかったため）。要約はそのまま使えます。［要約を再生成］でもう一度付けられます。';
+// 文字起こしが短くて点を付けなかったときの注（QN2。0.18.0 CS-2 で main から移した: Claude の書き戻しも同じ文）
+const QUALITY_NOTE_SHORT = '文字起こしが短いため、打ち合わせの質の点は付けていません。';
 
 // 出典の印1つ（s<数>、か [s<数>](住所)）と、行の終わりの印の括弧
 const MARK = String.raw`(?:\[s\d{1,6}\]\([^()\s]*\)|s\d{1,6})`;
@@ -77,4 +79,4 @@ function prepareSummary({ md: answer, page = {}, segments, segmentsAtStart = seg
     droppedAssignee: grounded.droppedAssignee, droppedDue: grounded.droppedDue };
 }
 
-module.exports = { QUALITY_NOTE_UNREAD, stripCiteMarks, prepareSummary };
+module.exports = { QUALITY_NOTE_UNREAD, QUALITY_NOTE_SHORT, stripCiteMarks, prepareSummary };

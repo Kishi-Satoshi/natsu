@@ -217,7 +217,9 @@ function call(db, req, ctx = {}) {
 
   const now = typeof ctx.now === 'function' ? ctx.now : () => new Date();
   // 0.13.1 NR2: 記録（log。件数だけを書く）も命令に渡す（page.get が組めない行の数を書く）
-  const runCtx = { now, labels: isObj(ctx.labels) ? ctx.labels : {}, role, actor, tx: def.write ? tx : undefined, log: typeof ctx.log === 'function' ? ctx.log : undefined };
+  const runCtx = { now, labels: isObj(ctx.labels) ? ctx.labels : {}, role, actor, tx: def.write ? tx : undefined, log: typeof ctx.log === 'function' ? ctx.log : undefined,
+    // 0.18.0 CS-2（決めたこと 17）: main が知らせた「要約を作っている間」のページ（DB のプロセスは覚えるだけ。Claude の書き戻しが locked で断る）
+    making: ctx.making instanceof Set ? ctx.making : new Set() };
   let begun = false;
   try {
     db.exec(def.write ? 'BEGIN IMMEDIATE' : 'BEGIN');
@@ -250,6 +252,7 @@ function call(db, req, ctx = {}) {
     }
     const res = { ok: true, result: Object.hasOwn(out, 'result') ? out.result : null };
     if (pageIds.length) res.changed = { pageIds, actor };
+    if (pageIds.length && typeof out.what === 'string' && out.what) res.changed.what = out.what;   // 0.18.0 CS-2: Claude の命令（mcp.*）の道具の印
     return res;
   } catch (e) {
     if (begun) { try { db.exec('ROLLBACK'); } catch (_) { /* 戻せなくても答える */ } }

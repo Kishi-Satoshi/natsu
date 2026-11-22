@@ -9,6 +9,7 @@
  *       state() → 'starting' | 'migrating' | 'ready' | 'read-only' | 'down', onReady(fn), migrate(go), close({ timeoutMs }) → Promise }
  *   start: fork(serverPath, [], { serviceName: 'NaTsu DB' }) で子を起こし、{ type: 'init', dataDir, labels, network } と、
  *     自分用の口（役 main）を { type: 'port', role: 'main' } で渡す。
+ *   setMaking(ids): 0.18.0 CS-2。要約を作っている間のページを子へ { type: 'making', ids }（返事を待たない。起こし直した子にも知らせ直す）。
  *   call: 用意の前（starting・migrating）と起こし直しの間の頼みは待ち行列に入れ、時間切れは数えない。用意ができたら届いた順に送る。
  *     送った後の時間切れは読む命令 15 秒・書く命令 30 秒（retry で失敗）。書く命令の tx は呼び手が渡さなければ
  *     'm:' + cmd + ':' + 時刻 + 乱数 を作る（呼ぶたびに別）。失敗は Error（message は符号そのもの）に .code と .retry。
@@ -70,6 +71,7 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
   let stopping = false;        // 自分で止めた印（kill の番号は 0 なので、番号では分からない）
   let closing = null;
   let migrateGo = false;
+  let making = [];             // 0.18.0 CS-2: 要約を作っている間のページ（setMaking）
   const readyFns = [];
   const closedWaiters = [];
   const exitWaiters = [];
@@ -189,6 +191,7 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
     try {
       c.postMessage({ ...init, type: 'init' });
       c.postMessage({ type: 'port', role: 'main' }, [ch.port1]);
+      if (making.length) c.postMessage({ type: 'making', ids: making.slice() });   // 0.18.0 CS-2: 起こし直した子にも、要約を作っている間のページを知らせ直す
     } catch (_) { /* 子がもう居ない: exit で起こし直す */ }
   }
 
@@ -220,6 +223,13 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
       noteSendFail(cmd, args, err);
     }
     return undefined;
+  }
+
+  // 0.18.0 CS-2（計画 docs/plans/2026-11-18-180.md の決めたこと 17・CR5）: 要約を作っている間のページ（main の doRunSummary の頭と終わり）を子に知らせる。
+  // 子は覚えるだけで書かない（Claude の要約の書き戻しを locked で断る）。返事は待たない。起こし直した子にも spawn で知らせ直す
+  function setMaking(ids) {
+    making = Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : [];
+    if (child && !closing) { try { child.postMessage({ type: 'making', ids: making.slice() }); } catch (_) { /* 子が居ない: 起こし直しで送る */ } }
   }
 
   function rendererPort() {
@@ -275,6 +285,7 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
     start() { if (phase === 'idle' && !closing) spawn(); },
     call,
     send,
+    setMaking,
     rendererPort,
     state: () => (phase === 'idle' ? 'starting' : phase),
     onReady(fn) {

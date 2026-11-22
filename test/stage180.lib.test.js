@@ -163,3 +163,11 @@ test('CS-1・F236: 同じ Markdown と同じページで、prepareSummary の答
     }
   }
 });
+
+// ---------------------------------------------------------------- CS-2
+test('CS-2: routeLabel の表に「🤖 要約: Claude（本人）」（今の2つの札は同じ字）', () => {
+  assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'claude', at: '2026-11-22T00:00:00.000Z' } }, ''), ['🤖 要約: Claude（本人）']);
+  assert.deepStrictEqual(lib.routeLabel({ stt: { cloud: 2, local: 0, provider: 'openai' }, summary: { by: 'claude' } }, 'OpenAI'), ['☁ 文字起こし: クラウド（OpenAI）2', '🤖 要約: Claude（本人）']);
+  assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'claude-code' } }, ''), ['✨ 要約: Claude Code']);
+  assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'local' } }, ''), ['🖥 要約: PC（オフライン）']);
+});

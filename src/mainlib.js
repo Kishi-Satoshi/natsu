@@ -1421,6 +1421,7 @@ function routeLabel(route, providerLabel) {
   const by = route.summary && typeof route.summary === 'object' ? route.summary.by : '';
   if (by === 'claude-code') out.push('✨ 要約: Claude Code');
   else if (by === 'local') out.push('🖥 要約: PC（オフライン）');
+  else if (by === 'claude') out.push('🤖 要約: Claude（本人）');   // 0.18.0 CS-2（決めたこと 19）: Claude デスクトップが書き戻した要約（mcp.writeSummary）
   return out;
 }
 

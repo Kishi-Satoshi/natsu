@@ -2238,7 +2238,9 @@ process.on('exit', () => {
         };
         // 第1d回 A-9 の点検（--restart-during=closing）: main の db.close は、場面が releaseClose() を呼ぶまで閉じ始めない
         const close = restartDuring === 'closing' ? (o) => new Promise((r) => { releaseClose = () => r(c.close(o)); }) : c.close;
-        return { ...c, call, close, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
+        // 0.18.0 CS-2: 要約を作っている間の知らせ（setMaking）も trace に残す（{ kind: 'making', ids }。頼みとの順を見る）
+        const setMaking = (ids) => { trace.push({ kind: 'making', ids: Array.isArray(ids) ? [...ids] : ids }); return c.setMaking(ids); };
+        return { ...c, call, close, setMaking, send: (cmd, args) => { trace.push({ kind: 'send', cmd }); return c.send(cmd, args); } };
       } };
     }
     // 第1d回 A-9: 取り込みは数えるだけ（本当には取りに行かない・アプリのフォルダを書き換えない）

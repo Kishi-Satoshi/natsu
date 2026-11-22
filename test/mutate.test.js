@@ -1854,8 +1854,9 @@ const IDS_180 = [
   'cw-revert-size', 'cw-revert-role', 'cw-door-ok-only', 'cw-door-network', 'cw-door-remove', 'cw-door-stale', 'cw-door-rename-wait', 'cw-door-tmp', 'cw-door-tmp-stale',
   'cw-door-token', 'cw-door-hello-first', 'cw-door-role', 'cw-door-cmds', 'cw-door-app-claude', 'cw-mcp-roles', 'cw-door-line-max', 'cw-door-conns', 'cw-door-evict',
   'cw-door-backpressure', 'cw-door-log', 'cw-actor-claude',
-  // 0.18.0 Task CS-1（要約の作り方の部品）。cs-sum-cite は CS-2 の行（赤になるテストが CS-2 の「s999 を指さない」）
-  'cs-sum-pipeline', 'cs-sum-strip', 'cs-sum-ground', 'cs-sum-mark',
+  // 0.18.0 Task CS-1（要約の作り方の部品）・CS-2（Claude の要約の書き戻しと making）
+  'cs-sum-pipeline', 'cs-sum-strip', 'cs-sum-cite', 'cs-sum-ground', 'cs-sum-mark', 'cs-sum-making', 'cs-sum-wait', 'cs-sum-base', 'cs-sum-live', 'cs-sum-blank',
+  'cs-making-signal',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

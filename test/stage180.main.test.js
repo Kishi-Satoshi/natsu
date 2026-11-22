@@ -15,8 +15,8 @@ const lib = require('../src/mainlib');
 const R = require('../src/pagerules');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
-const sceneRun = (args, timeout = 30000) => new Promise((resolve, reject) => {
-  execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01' }, maxBuffer: 1 << 24, timeout },
+const sceneRun = (args, timeout = 30000, env = {}) => new Promise((resolve, reject) => {
+  execScene(process.execPath, [RUN, ...args], { env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', ...env }, maxBuffer: 1 << 24, timeout },
     (err, stdout, stderr) => {
       if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
       resolve(JSON.parse(stdout.trim().split('\n').pop()));
@@ -50,4 +50,39 @@ test('CS-1・F236: Claude Code の偽の答えで［要約を生成］→ 保存
   assert.ok(!q.sumBlocks.some((x) => /出典/.test(x.text)), q.sumBlocks.map((x) => x.text).join('\n'));
   assert.deepStrictEqual(shapeOf(q), shapeOf(p), '出典の印を書いた答えの保存が、印の無い答えと違う');
   for (const o of [a, b]) assert.ok(!o.engineLog.some((l) => /出典|結合テスト|s999/.test(l)), '記録に要約の文や出典の印が出た');
+});
+
+// ---------------------------------------------------------------- CS-2
+// main の客の trace（helpers/mainrun.js）: 要約を作っている間の知らせ（making）と、頼み（call・ack）の順
+const makingsOf = (o) => o.trace.filter((x) => x.kind === 'making').map((x) => x.ids);
+function makingAround(o, id) {
+  const tr = o.trace;
+  const on = tr.findIndex((x) => x.kind === 'making' && x.ids.includes(id));
+  assert.ok(on >= 0, `making が届いていない: ${JSON.stringify(tr.filter((x) => x.kind !== 'draft'))}`);
+  // ページを読む前: making の次の頼みが、そのページの読み（page.get）
+  assert.deepStrictEqual(tr.slice(on + 1).find((x) => x.kind === 'call'), { kind: 'call', cmd: 'page.get' }, 'making より先にページを読んだ');
+  const off = tr.findIndex((x, i) => i > on && x.kind === 'making' && !x.ids.includes(id));
+  assert.ok(off > on, 'making が外れていない');
+  return { on, off };
+}
+
+test('CS-2・F235: ［要約を生成］の間、DB のプロセスに making が届き（ページを読む前）、終わると外れる。Claude Code が失敗しても・終了の中断でも外れる', T, async () => {
+  const [good, bad, quit] = await Promise.all([
+    sceneRun(['text', '--sum', '--claude=ok', '--segs=1']),
+    sceneRun(['text', '--sum', '--claude=limit', '--segs=1']),
+    sceneRun(['text', '--json-scene=making-quit', '--claude=slow'], 40000, { FAKE_CLAUDE_DELAY: '1500' }),
+  ]);
+  const id = good.pages[0].id;
+  assert.deepStrictEqual(makingsOf(good), [[id], []]);
+  const g = makingAround(good, id);
+  const lastPut = good.trace.map((x) => `${x.kind} ${x.cmd}`).lastIndexOf('ack page.put');
+  assert.ok(lastPut > g.on && lastPut < g.off, '要約の書き戻しの後に外していない');
+  const bid = bad.pages[0].id;
+  assert.ok(bad.pages[0].summaryError, '前提: Claude Code が失敗した');
+  assert.deepStrictEqual(makingsOf(bad), [[bid], []]);
+  makingAround(bad, bid);
+  assert.ok(quit.sumStarted, JSON.stringify(quit));
+  assert.notStrictEqual(quit.summary, 'running', '要約が終わらない');
+  assert.deepStrictEqual(makingsOf(quit), [['pq1'], []]);
+  makingAround(quit, 'pq1');
 });

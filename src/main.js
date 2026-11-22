@@ -2847,7 +2847,7 @@ async function summarizeWithClaude(plain, memo, template) {
 // ---------------------------------------------------------------- 要約
 // 0.11.0 Q-3: 打ち合わせの質の注（要約の欄の summaryError の行として足す）
 // 読めなかったときの注（QN1）は summaryWrite.QUALITY_NOTE_UNREAD（0.18.0 CS-1: Claude の書き戻しと同じ文）
-const QUALITY_NOTE_SHORT = '文字起こしが短いため、打ち合わせの質の点は付けていません。';
+const QUALITY_NOTE_SHORT = SW.QUALITY_NOTE_SHORT;   // 0.18.0 CS-2: 文は summaryWrite（Claude の書き戻しと同じ文）
 // 0.10.0 LS-2（D59）: 要約は利用者の Claude Code だけ（summarizeWithClaude）。手元の llama の要約（llmChat・generateMinutes）は外した
 // 0.11.0 M-2（決めたこと 14）: 要約の書式（型の見出し・決まり・締め・次に気をつけること・OUTPUT_RULE）は memoTypes.buildTemplate の1か所。
 // doRunSummary が1回だけ作り、Claude Code に渡す文と、写しを落とす文（dropTemplateEcho）の両方に同じ文字列を渡す（別々に組み立てるとずれる）
@@ -5557,7 +5557,7 @@ function restartBlockNow() {
 // 要約の生成 → ブロック化 → 出典付与 → 保存
 const BLANK_SUMMARY_TEXT = '白紙のページは要約できません';
 const DB_SUMMARY_TEXT = 'データベースのページは要約できません';
-async function doRunSummary(pageId) {
+async function doRunSummaryNow(pageId) {
   // どの経路で抜けても進捗表示と録音状態を必ず解除する
   const clearUi = () => {
     sendToMainWin('meeting:progress', { message: '' });
@@ -5743,6 +5743,21 @@ async function doRunSummary(pageId) {
     clearUi();
     sendToMainWin('page:updated', { page: latest, segments });
     return { ok: false, error: again ? SUMMARY_WAIT_TEXT : e.message, wait: again };
+  }
+}
+
+// 0.18.0 CS-2（計画 docs/plans/2026-11-18-180.md の決めたこと 17・CR5）: 要約を作っている間は、ページを読む前から終わり（成功・失敗・投げた・
+// 終了の中断のどれでも）まで、DB のプロセスにそのページを making として知らせる（Claude の要約の書き戻し mcp.writeSummary を locked で断る。
+// main の書き戻しは読み直して要約の行を丸ごと置くので、作っている間に Claude が書くと黙って上書きされる）。DB のプロセスは覚えるだけで書かない
+const summaryMaking = new Set();
+async function doRunSummary(pageId) {
+  summaryMaking.add(pageId);
+  db.setMaking([...summaryMaking]);
+  try {
+    return await doRunSummaryNow(pageId);
+  } finally {
+    summaryMaking.delete(pageId);
+    db.setMaking([...summaryMaking]);
   }
 }
 

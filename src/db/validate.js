@@ -24,7 +24,8 @@ const LIMITS = { blocks: 2000, segments: 5000, bytes: 1024 * 1024, text: 100000,
   dbRows: 10000, dbCols: 100, dbViews: 20, dbAttrs: 256 * 1024, pasteCells: 2000,
   // 0.16.0 DL-1（決めたこと 40）: 1つの本文に置けるデータベースの表（インラインとリンクドビュー。速さのため）
   dbTables: 10,
-  tpls: 20 };   // 0.17.0 RT-1（決めたこと 66）: 1つのデータベースの行のテンプレート
+  tpls: 20,   // 0.17.0 RT-1（決めたこと 66）: 1つのデータベースの行のテンプレート
+  mdText: 60000 };   // 0.18.0 CS-2: Claude が渡す Markdown の字の数
 const RESERVED_BLOCK = ['id', 'type', 'text', 'rich', 'children'];
 const RESERVED_PAGE = ['id', 'title', 'blocks', 'createdAt', 'updatedAt', 'children', 'type', 'text', 'rich'];
 const RESERVED_SEG = ['id', 'atMs', 'durationMs', 'text', 'failed'];
@@ -229,6 +230,8 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   ids: (v) => { if (!Array.isArray(v) || v.length > LIMITS.blocks || !v.every((x) => typeof x === 'string' && ID_RE.test(x))) throw bad('ids'); return [...v]; },
   idOrEmpty: (v) => { if (v !== '' && (typeof v !== 'string' || !ID_RE.test(v))) throw bad('id'); return v; },
   text: (v) => { if (!isStr(v, LIMITS.text)) throw bad('text'); return v; },
+  // 0.18.0 CS-2（計画 docs/plans/2026-11-18-180.md の「受け渡す名前と形」）: Claude が渡す Markdown（1〜60,000 字の文字）
+  mdText: (v) => { if (typeof v !== 'string' || v.length < 1 || v.length > LIMITS.mdText) throw bad('mdText'); return v; },
   title: (v) => { if (!isStr(v, LIMITS.title)) throw bad('title'); return v; },
   short: (v) => { if (!isStr(v, SHORT)) throw bad('short'); return v; },
   name: (v) => { if (typeof v !== 'string' || !NAME_RE.test(v)) throw bad('name'); return v; },

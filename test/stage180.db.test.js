@@ -577,3 +577,122 @@ test('CW-2・点検 1: 役 mcp を持つ命令は、名前が mcp. で始まる�
   assert.deepStrictEqual(withMcp, mcpNamed, '役 mcp を持つ今の命令がある・mcp.* の命令に役 mcp が無い');
   for (const k of mcpNamed) assert.deepStrictEqual(core.COMMANDS[k].roles, ['mcp'], `${k} の役が mcp だけでない`);
 });
+
+// ---------------------------------------------------------------- CS-2（決めたこと 17〜22・F235・F236）: Claude の要約の書き戻し mcp.writeSummary
+// 役 mcp の頼み（ctx に main が知らせた「要約を作っている間」の making を渡せる）
+const mcp = (db, cmd, args, ctx = {}, tx = txOf('mcp')) => { tick(); return { ...core.call(db, { role: 'mcp', cmd, args, tx }, { now, labels: {}, ...ctx }), tx }; };
+// 発言 s2「来月の予算案の作成は担当Aさんが進めることにしました」・s3「見積書は月末までに先方へ送る予定です」（samplePage）に当たる要約
+const SUM_MD = [
+  '## 決めたこと',
+  '- 来月の予算案の作成は担当Aさんが進める（出典: s999）',
+  '## ToDo',
+  '- [ ] 見積書を月末までに先方へ送る（担当: 担当A / 期限: 月末）（出典: [s999](https://natsu.example/open#p=pm1&a=t:s999-s999)）',
+].join('\n');
+const writeSum = (db, id, more = {}, ctx = {}, tx) => mcp(db, 'mcp.writeSummary', { pageId: id, baseRev: revOf(db, id), md: SUM_MD, ...more }, ctx, tx);
+const oplogOf = (db, tx) => { const r = db.prepare('select actor, action, page_id from oplog where tx = ?').get(tx); return r ? { ...r } : null; };
+
+test('CS-2・F235: mcp.writeSummary は baseRev が今のページの rev と違えば conflict で何も変えない。同じなら書け、控えが1行（what summary）・oplog の actor は claude・changed の what は summary', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const before = C.readPage(db, id);
+  const bad = mcp(db, 'mcp.writeSummary', { pageId: id, baseRev: before.rev + 1, md: SUM_MD });
+  assert.deepStrictEqual([bad.ok, bad.code], [false, 'conflict']);
+  assert.deepStrictEqual(C.readPage(db, id), before, '古い rev で書いた');
+  assert.deepStrictEqual(snapRows(db, id), []);
+  const r = ok(writeSum(db, id), 'mcp.writeSummary');
+  assert.deepStrictEqual(r.changed, { pageIds: [id], actor: 'claude', what: 'summary' });
+  assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.writeSummary', page_id: id });
+  const snaps = snapRows(db, id);
+  assert.deepStrictEqual(snaps.map((s) => [s.what, s.rev_after]), [['summary', revOf(db, id)]]);
+  assert.deepStrictEqual(JSON.parse(snaps[0].body).blocks.map((b) => b.text), before.blocks.map((b) => b.text), '控えが書く前の要約でない');
+  const p = C.readPage(db, id);
+  assert.deepStrictEqual(p.blocks.map((b) => `${b.type}:${b.text}`), ['heading:決めたこと', 'bullet:来月の予算案の作成は担当Aさんが進める', 'heading:ToDo', 'todo:見積書を月末までに先方へ送る']);
+  assert.deepStrictEqual(r.result, { title: before.title, rows: 4, cited: p.citeStat.linked, citable: p.citeStat.total, edited: false, notes: [] });
+  assert.ok(p.citeStat.total > 0 && p.citeStat.linked > 0, JSON.stringify(p.citeStat));
+}));
+
+test('CS-2・F235: making（main が要約を作っている間）・要約待ちのページは locked で何も変えず、外れたら書ける。録音中の写し・ゴミ箱・無いページは not-found。白紙のページ・データベース・データベースの行は bad-args', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const rev = revOf(db, id);
+  const locked = writeSum(db, id, {}, { making: new Set([id]) });
+  assert.deepStrictEqual([locked.ok, locked.code], [false, 'locked'], 'making のページに書いた');
+  assert.strictEqual(revOf(db, id), rev);
+  assert.deepStrictEqual(snapRows(db, id), []);
+  ok(writeSum(db, id, {}, { making: new Set(['pother']) }), 'ほかのページの making は鍵にならない');
+  // 要約待ち（D69）
+  const { page: wp, segments: ws } = samplePage('pw1');
+  for (const b of wp.blocks) b.id = `pw1${b.id}`;
+  wp.summaryWait = true;
+  t.seed(wp, ws);
+  const w = writeSum(db, 'pw1');
+  assert.deepStrictEqual([w.ok, w.code], [false, 'locked'], '要約待ちのページに書いた');
+  assert.deepStrictEqual(snapRows(db, 'pw1'), []);
+  // 録音中の写し（listedRows の外）
+  const { page: lp, segments: ls } = samplePage('pl1');
+  for (const b of lp.blocks) b.id = `pl1${b.id}`;
+  lp.meeting = { phase: 'recording' };
+  t.seed(lp, ls);
+  const live = writeSum(db, 'pl1');
+  assert.deepStrictEqual([live.ok, live.code], [false, 'not-found'], '録音中の写しに書いた');
+  // 白紙のページ・データベース・データベースの行
+  const blank = blankPage(db).id;
+  const { d, row } = dbWithRow(db);
+  for (const x of [blank, d, row]) {
+    const r = writeSum(db, x);
+    assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args'], `${x} に要約を書いた`);
+    assert.deepStrictEqual(snapRows(db, x), []);
+  }
+  // ゴミ箱・無いページ
+  ok(call(db, 'page.delete', { id }), 'page.delete');
+  const gone = mcp(db, 'mcp.writeSummary', { pageId: id, baseRev: revOf(db, id), md: SUM_MD });
+  assert.deepStrictEqual([gone.ok, gone.code], [false, 'not-found'], 'ゴミ箱のページに書いた');
+  const none = mcp(db, 'mcp.writeSummary', { pageId: 'pnone1', baseRev: 0, md: SUM_MD });
+  assert.deepStrictEqual([none.ok, none.code], [false, 'not-found']);
+}));
+
+test('CS-2・F236: Markdown に無い発言の「（出典: s999）」を書いても、行の出典は照合の答えだけ（s999 を指さず、今の文字起こしの s2・s3 が付く）。印は文に残らない', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  ok(writeSum(db, id), 'mcp.writeSummary');
+  const p = C.readPage(db, id);
+  const all = p.blocks.flatMap((b) => (Array.isArray(b.cites) ? b.cites : []));
+  assert.ok(!all.includes('s999'), JSON.stringify(all));
+  assert.deepStrictEqual(p.blocks.filter((b) => b.type !== 'heading').map((b) => b.cites), [['s2'], ['s3']]);
+  assert.ok(!p.blocks.some((b) => /出典/.test(b.text)), '出典の印が文に残った');
+}));
+
+test('CS-2: 書いた後: route.summary.by は claude・summaryEdited は真・meetingType を渡すと typeAuto: false で替わる・採点の節が無ければ前の quality が消える・本文が 2,000 行を越えると too-big・「議事録」の表の「要約」の列が新しい最初の要点', T, () => withDb((db, t) => {
+  const { page, segments } = samplePage('pm1');
+  for (const b of page.blocks) b.id = `pm1${b.id}`;
+  page.quality = { total: 12, max: 25, axes: [], at: '2026-11-01T00:00:00.000Z' };
+  page.summaryEdited = true;
+  t.seed(page, segments);
+  const r = ok(writeSum(db, 'pm1', { meetingType: 'standup' }), 'mcp.writeSummary');
+  assert.strictEqual(r.result.edited, true, '手で直した要約を書き換えたことが答えに無い');
+  const p = C.readPage(db, 'pm1');
+  assert.deepStrictEqual([p.route.summary.by, typeof p.route.summary.at], ['claude', 'string']);
+  assert.deepStrictEqual(p.route.stt, page.route.stt, '文字起こしの経路が変わった');
+  assert.deepStrictEqual([p.summaryEdited, p.meetingType, p.typeAuto, p.summaryError, p.summaryWait === true], [true, 'standup', false, '', false]);
+  assert.strictEqual(p.quality, undefined, '採点の節の無い要約で前の点が残った');
+  // 長すぎる本文
+  const big = mcp(db, 'mcp.writeSummary', { pageId: 'pm1', baseRev: revOf(db, 'pm1'), md: Array.from({ length: 2001 }, (_, i) => `- 行${i}`).join('\n') });
+  assert.deepStrictEqual([big.ok, big.code], [false, 'too-big']);
+  // 「議事録」データベースの「要約」の列（議事録から読む列）
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  const mdb = db.prepare("select id, attrs from blocks where type = 'page' and instr(attrs, '\"minutes\"') > 0").get();
+  const viewId = JSON.parse(mdb.attrs).views[0].id;
+  const msumOf = () => ok(call(db, 'db.view', { id: mdb.id, viewId, from: 0, count: 50 }), 'db.view').result.rows.find((x) => x.id === 'pm1').msum;
+  assert.strictEqual(msumOf(), '来月の予算案の作成は担当Aさんが進める');
+  ok(mcp(db, 'mcp.writeSummary', { pageId: 'pm1', baseRev: revOf(db, 'pm1'), md: '## 決めたこと\n- 見積書を月末までに先方へ送る' }), '2回目');
+  assert.strictEqual(msumOf(), '見積書を月末までに先方へ送る', '「議事録」の「要約」の列が古いまま');
+}));
+
+test('CS-2: 同じ tx の送り直しは dup で、2回目は控えも oplog も増えず、答えは同じ形', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const tx = txOf('mcp');
+  const a = ok(writeSum(db, id, {}, {}, tx), '1回目');
+  const n = db.prepare('select count(*) c from oplog').get().c;
+  const b = mcp(db, 'mcp.writeSummary', { pageId: id, baseRev: 0, md: SUM_MD }, {}, tx);
+  assert.deepStrictEqual([b.ok, b.dup], [true, true]);
+  assert.deepStrictEqual(b.result, a.result, '送り直しの答えが違う');
+  assert.strictEqual(db.prepare('select count(*) c from oplog').get().c, n);
+  assert.strictEqual(snapRows(db, id).length, 1);
+}));

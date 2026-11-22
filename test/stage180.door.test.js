@@ -56,7 +56,9 @@ function boot(d, { network = false, ...opts } = {}) {
     await waitFor(() => fromServer.some((x) => x.type === 'closed'), 'closed');
     for (const c of clients.splice(0)) c.close();
   };
-  return { port, ready, stop, logs };
+  // 0.18.0 CS-2: main が送る「要約を作っている間」の知らせ（parentPort の { type: 'making', ids }）
+  const making = (ids) => parent.emit({ type: 'making', ids });
+  return { port, ready, stop, logs, making };
 }
 const paperOf = (d) => path.join(d.dataDir, D.DOOR_NAME);
 const readPaper = (d) => { try { return fs.readFileSync(paperOf(d), 'utf8'); } catch (_) { return null; } };
@@ -445,5 +447,31 @@ test('CW-2・点検 1: 扉の紙を書けない（名前の変更がずっと掴
     assert.ok(s.logs().includes('DB: 扉の紙を書けない（rename）'), s.logs().join('\n'));
     assert.deepStrictEqual(fs.readdirSync(d.dataDir).filter((x) => x.startsWith('natsu.door')), [], '合い言葉を持つ一時ファイルが残った・前の一時ファイルが消えない');
     assert.ok(!s.logs().includes('DB: 書き込みの口を開いた'), s.logs().join('\n'));
+  } finally { await s.stop(); d.done(); }
+});
+
+// ---------------------------------------------------------------- CS-2（決めたこと 17・F235）: main の making の知らせと Claude の要約の書き戻し
+test('CS-2・F235: main が parentPort で知らせた making のページへの mcp.writeSummary は、扉の口から頼んでも locked。外す知らせの後は書け、全部の口の changed に what: summary が付く', T, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const s = boot(d);
+  try {
+    await s.ready();
+    const id = d.ids[0];
+    const main = s.port('main');
+    const seen = []; main.onEvent((e) => seen.push(e));
+    const { page } = (await main.ask({ id: 1, cmd: 'page.get', args: { id } })).result;
+    const md = '## 決めたこと\n- 来月の予算案の作成は担当Aさんが進める';
+    s.making([id]);
+    const c = await hello(d);
+    c.send({ id: 1, cmd: 'mcp.writeSummary', args: { pageId: id, baseRev: page.rev, md }, tx: 'c:c180-cs2-0001' });
+    assert.deepStrictEqual(await c.reply(1), { id: 1, ok: false, code: 'locked', retry: false }, '要約を作っている間のページに書いた');
+    s.making([]);
+    c.send({ id: 2, cmd: 'mcp.writeSummary', args: { pageId: id, baseRev: page.rev, md }, tx: 'c:c180-cs2-0002' });
+    const w = await c.reply(2);
+    assert.deepStrictEqual([w.ok, w.changed, w.result.rows], [true, true, 2], JSON.stringify(w));
+    c.close();
+    await waitFor(() => seen.length > 0, 'changed');
+    assert.deepStrictEqual(seen, [{ event: 'changed', pageIds: [id], actor: 'claude', what: 'summary' }]);
   } finally { await s.stop(); d.done(); }
 });
