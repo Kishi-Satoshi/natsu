@@ -1849,6 +1849,9 @@ const IDS_180 = [
   // 0.18.0 Task CW-1 で作った行（表の行の順に。cw-revert-role は CW-2 で役 mcp が入ってから: CR33）
   'cw-schema-backup', 'cw-schema-backup-fail', 'cw-schema-order', 'cw-snap-same-tx', 'cw-snap-keep10', 'cw-snap-purge', 'cw-snap-kind',
   'cw-revert-later', 'cw-revert-subpage', 'cw-revert-row', 'cw-revert-trim',
+  // 0.18.0 Task CW-2 で作った行（表の行の順に。cw-revert-role は CW-1 の行だが、役 mcp が入ってから殺せる: CR33。cw-client-*・cw-mcp-ro-still は CT-4）
+  'cw-revert-role', 'cw-door-ok-only', 'cw-door-remove', 'cw-door-stale', 'cw-door-token', 'cw-door-hello-first', 'cw-door-role', 'cw-door-cmds',
+  'cw-door-app-claude', 'cw-door-line-max', 'cw-door-conns', 'cw-door-log', 'cw-actor-claude',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

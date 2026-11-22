@@ -22,6 +22,9 @@
  *   本体 → oplog の1行 → COMMIT。本体が投げたら ROLLBACK して internal、SQLITE_BUSY なら busy（retry: true）。
  *   本体が cmdError(code) を投げたら、その符号（not-found・conflict・bad-args）で返す（conflict だけ retry: true）。
  *   actor は役から（app → me、main → system。main は args.actor に recovery・migration を渡せる）。
+ *   0.18.0 CW-2（計画 docs/plans/2026-11-18-180.md の決めたこと 4・F231）: 役 mcp（DB のプロセスの書き込みの口: src/db/door.js）は actor claude（名乗れない:
+ *   args.actor は bad-args）。役 mcp が呼べるのは役の表に mcp のある命令だけ。名前が mcp. で始まる命令は役 mcp だけ（画面と main が Claude を名乗れない。
+ *   命令の役の表が緩くても台が断る）。
  *   命令の表の1行: { roles, write, args（validate.checkArgs の spec）, run(db, args, ctx) → { ops, pageIds, result },
  *                   dupResult?(db, args, oplogRow, ctx), pageOf?(args), after?: 'checkpoint' }
  *   dupResult は送り直し（dup）の答えを今の中身から作り直す（ctx は run と同じ。page.get の形の routeText に labels が要る）。
@@ -39,7 +42,7 @@ const commands = require('./commands');
 
 const SCHEMA_VERSION = 2;   // 0.18.0 CW-1: 版 2 は page_snapshot（Claude の変更の控え）
 const BUSY_MS = 5000;
-const ROLES = ['app', 'main'];
+const ROLES = ['app', 'main', 'mcp'];   // 0.18.0 CW-2: mcp は Claude（MCP のプロセス）の書き込みの口
 const MAIN_ACTORS = ['system', 'recovery', 'migration'];
 const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked', 'stale', 'too-big', 'has-rows'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）。stale: 元に戻す歩みの後に変わった（0.14.0 EB-2）。too-big: 命令の後のページが上限を越える（0.14.0 EK-2 直し: R129）。has-rows: 行のあるデータベースは白紙のページに戻さない（0.17.0 PD-1 直し: rv58 軽い 1）
 
@@ -191,13 +194,15 @@ function call(db, req, ctx = {}) {
   const def = lookup(cmd);
   if (!def) return fail('unknown-cmd');
   if (!ROLES.includes(role) || !Array.isArray(def.roles) || !def.roles.includes(role)) return fail('forbidden');
+  if (role !== 'mcp' && cmd.startsWith('mcp.')) return fail('forbidden');   // 0.18.0 CW-2: Claude の命令は役 mcp だけ
   const opened = OPENED.get(db);
   if (def.write && opened && (opened.state === 'newer' || opened.readOnly)) return fail('read-only');
   if (def.write && opened && opened.state === 'old') return fail('read-only');   // 0.18.0 CW-1: 版を上げる前（upgrade: false）は書かない
   if (!isObj(args)) return fail('bad-args');
 
-  // actor: 役から決める。main だけが recovery・migration（と system）を名乗れる
+  // actor: 役から決める。main だけが recovery・migration（と system）を名乗れる。0.18.0 CW-2: 役 mcp は claude
   let actor = role === 'main' ? 'system' : 'me';
+  if (role === 'mcp') actor = 'claude';   // 0.18.0 CW-2（決めたこと 4）: Claude の書き込みの口
   let rest = args;
   if (Object.hasOwn(args, 'actor')) {
     if (role !== 'main' || !MAIN_ACTORS.includes(args.actor)) return fail('bad-args');

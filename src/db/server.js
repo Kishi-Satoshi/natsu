@@ -12,6 +12,9 @@
  *   口の上: 頼み { id, cmd, args, tx? } → 返事 { id, ok: true, result } | { id, ok: false, code, retry }。
  *           書けたら全部の口に { event: 'changed', pageIds, actor }。
  *   口ごとの役は main が port の知らせで付ける（頼みの中で役を名乗っても変わらない: 役は core.call に口の役だけを渡す）。
+ *   0.18.0 CW-2（計画 docs/plans/2026-11-18-180.md の決めたこと 1〜5・F230・F231）: ready の state が ok のときだけ、Claude の書き込みの口（door.js。
+ *   名前付きパイプと合い言葉・扉の紙 natsu.door）を開き、握手した口を役 mcp で役の表に入れる（main は口を作らず、頼みを中継しない）。
+ *   起動の頭で前の起動の扉の紙を消し、close で口を閉じて紙を消す。door（startServer の引数。テストだけ）は startDoor の platform・rand・limits。
  *   口は用意の前（移行の窓の答え待ち・移行中）でも受け、頼みは用意ができるまで届いた順に待たせる。口が close したら役の表から外す。
  *   頼みの形が違う（物でない・id が数でない・cmd が文字でない・args が物でない）・JSON にできない・JSON で 1MB を超えるものは bad-args。
  *
@@ -61,6 +64,7 @@ const C = require('./commands');
 const M = require('./migrate');
 const S = require('./snapshot');
 const V = require('./validate');
+const Door = require('./door');
 
 const DB_NAME = 'natsu.db';
 const ROLES = ['app', 'main'];
@@ -75,7 +79,7 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.workerCheck, env = process.env, fs = nodeFs, waits } = {}) {
+function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.workerCheck, env = process.env, fs = nodeFs, waits, door: doorOpts = {} } = {}) {
   let phase = 'idle';   // idle → starting → migrate-wait → migrating → ready | failed → closed
   let dataDir = null;
   let labels = {};
@@ -88,6 +92,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   const startup = { migrated: null, restored: null, reimport: null, minutes: null };
   let life = Promise.resolve();   // init・migrate・close を1つずつ
   let snapChain = Promise.resolve();   // 控えを1つずつ
+  let door = null;   // 0.18.0 CW-2: Claude の書き込みの口（ready の ok の後だけ）
 
   const post = (m) => { try { parentPort.postMessage(m); } catch (_) { /* main が居ない */ } };
   const log = (line) => post({ type: 'log', line });
@@ -359,6 +364,17 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     phase = 'ready';
     post({ type: 'ready', ...stateOf() });
     drain();
+    if (opened.state === 'ok') openDoor();   // 0.18.0 CW-2（決めたこと 2・F230）: 書けない DB（newer・failed）に頼ませない
+  }
+
+  // 0.18.0 CW-2: 握手した口は役 mcp（頼みの中で名乗っても変わらない）。頼みは今の口と同じ受け口
+  function openDoor() {
+    door = Door.startDoor({
+      ...doorOpts, dataDir, fs, log,
+      onOpen: (port) => ports.set(port, 'mcp'),
+      onClose: (port) => ports.delete(port),
+      onRequest: (port, data) => onRequest(port, data),
+    });
   }
 
   // 0.18.0 CW-1（決めたこと 9・F232）: 版の低い DB は、確かめ済みの控え（upgrade）を取ってから版を上げる（natsu.db.lock の中で。MCP の読み手は待つ）。
@@ -390,6 +406,10 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
     try { fs.mkdirSync(dataDir, { recursive: true }); } catch (_) { /* 無ければ開くときに分かる */ }
     try { fs.unlinkSync(path.join(dataDir, S.LOCK_NAME)); } catch (e) {
       if (!e || e.code !== 'ENOENT') log(`DB: 前の lock を消せない（${codeOf(e)}）`);
+    }
+    // 0.18.0 CW-2（決めたこと 2・F230）: 前の起動の扉の紙（残っているのは落ちた跡。書く道具を、もういない口へつながせない）
+    try { fs.unlinkSync(path.join(dataDir, Door.DOOR_NAME)); } catch (e) {
+      if (!e || e.code !== 'ENOENT') log(`DB: 前の扉の紙を消せない（${codeOf(e)}）`);
     }
     const size = sizeOf(dbFile());
     if (size === null || size === 0) {
@@ -438,6 +458,7 @@ function startServer({ parentPort, sqlite, now = () => new Date(), runCheck = S.
   }
 
   async function close() {
+    if (door) { const d = door; door = null; await d.close(); }   // 0.18.0 CW-2: 先に口を閉じて紙を消す（閉じる間に Claude の頼みを受けない）
     await snapChain;
     if (db && opened && opened.state === 'ok') {
       try { setMeta('cleanShutdown', '1'); } catch (e) { log(`DB: 閉じる印を書けない（${codeOf(e)}）`); }
