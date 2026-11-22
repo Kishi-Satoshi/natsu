@@ -28,17 +28,14 @@ const net = require('net');
 globalThis.fetch = require('./mainlib').loopbackOnlyFetch(globalThis.fetch);
 
 const store = require('./store');
-const cite = require('./cite');
-const { attachCitations } = cite;
-// 要約中に文字起こしが編集されていても、出典は「要約の材料にした配列」と「いまの配列」の
-// 両方を見て付ける（cite.attachCitationsAcross。#4）。まだ無い版では従来どおり今の配列だけ。
-const attachAcross = cite.attachCitationsAcross || ((b, f) => attachCitations(b, f.filter((s) => !s.failed)));
+// 0.18.0 CS-1（計画 docs/plans/2026-11-18-180.md の決めたこと 15・16）: 要約の作り方（写しを落とす・印・担当と期限の裏付け・出典・点）は
+// summaryWrite.prepareSummary の1か所（Claude の書き戻しと同じ部品）。出典は要約の材料にした配列と今の配列の両方から付ける（#4）
+const SW = require('./summaryWrite');
 const mtype = require('./meetingType');
 const memoTypes = require('./memoTypes');
 const memoDoc = require('./memoDoc');   // 0.14.0 MB-3: メモの行（照らし・素の文字・雛形の行）
 const dictTidy = require('./dictTidy');   // 0.14.0 DQ-1。0.15.1 ND-2 から会議の区間の文のつなぎ言葉の決まり（dropFillers）だけを使う
 const quality = require('./quality');
-const { enrichActionBlocks, groundActionFields } = require('./actions');
 const updater = require('./updater');
 const { chooseDisplayMedia } = require('./loopback');
 // オンラインの文字起こし（第1c回 OL1〜OL4）: オンラインかの判定と経路・OpenAI と同じ形の口・鍵の保管
@@ -71,13 +68,8 @@ const { makeSecrets } = require('./secrets');
 const relay = require('./relay');
 const security = require('./security');
 const RENDERER_PAGES = { app: path.join(__dirname, 'renderer', 'app.html'), overlay: path.join(__dirname, 'renderer', 'overlay.html'), nudge: path.join(__dirname, 'renderer', 'nudge.html') };
-const minutes = require('./minutes');
 // オンラインの要約（第1c回 OL5）: 利用者の Claude Code を子のプロセスで呼ぶ部品
 const claudeCli = require('./claude-cli');
-const { markdownToBlocks, dropRedundantEmpty } = minutes;
-// テンプレートの写し（見出しだけ・雛形そのまま）を落とす。minutes.js 側に
-// まだ無い版でも動くよう、無ければ素通しにする。
-const dropTemplateEcho = minutes.dropTemplateEcho || ((b) => b);
 const { defaultSettings, readSettings, pickSavable, isSettingsShape, isEmailShape, SETTING_RULES } = require('./settings');
 // DB の外の JSON（設定・履歴）を読む・退ける・書く部品（第1a回 JS1〜JS3・JS6）
 const J = require('./jsonfile');
@@ -103,7 +95,7 @@ const {
   publicSegments, settledSegments, pendingDurationMs, recoverSegments, staleSegbufDirs, EtaTracker, chooseDraftName,
   skipPendingSegments, startSegmentMode, segmentModeNext, segmentBaseMs, nextLiveSegmentMs,
   stallAfter, stallStep, sttProblemOf, problemForRoute, notifyGate,
-  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, memoEvidence, typesForView,
+  idleEnginesToStop, silentWav, wavLevelDbfs, mergeSummaryType, typesForView,
   sameShas, keepPrevious, candStamp, repairIdsOf, pathUsedBy, fetchMinutesLeft,
   pickDefaultPath,
   cloudLikely, offlineChosen, startPlan, KEPT_CODES, keptCodeFor, KEPT_SUMMARY_TEXT, SUMMARY_WAIT_TEXT, summaryRetryPick,
@@ -2854,7 +2846,7 @@ async function summarizeWithClaude(plain, memo, template) {
 
 // ---------------------------------------------------------------- 要約
 // 0.11.0 Q-3: 打ち合わせの質の注（要約の欄の summaryError の行として足す）
-const QUALITY_NOTE_UNREAD = 'この要約には打ち合わせの質の点を付けていません（AI の答えの形を読み取れなかったため）。要約はそのまま使えます。［要約を再生成］でもう一度付けられます。';
+// 読めなかったときの注（QN1）は summaryWrite.QUALITY_NOTE_UNREAD（0.18.0 CS-1: Claude の書き戻しと同じ文）
 const QUALITY_NOTE_SHORT = '文字起こしが短いため、打ち合わせの質の点は付けていません。';
 // 0.10.0 LS-2（D59）: 要約は利用者の Claude Code だけ（summarizeWithClaude）。手元の llama の要約（llmChat・generateMinutes）は外した
 // 0.11.0 M-2（決めたこと 14）: 要約の書式（型の見出し・決まり・締め・次に気をつけること・OUTPUT_RULE）は memoTypes.buildTemplate の1か所。
@@ -5673,57 +5665,26 @@ async function doRunSummary(pageId) {
   try {
     // Claude Code が断った・失敗したら、理由を要約の欄に書いて終える（下の catch。手元の llama へは行かない: D1・D59）
     const { md: answer, truncatedParts, finalTruncated } = await summarizeWithClaude(labeled, page.memo, template);
-    // 0.11.0 Q-3（決めたこと 30・32）: 採点の節はいつも本文から外す（頼まなかった採点の節も、2つ以上の節も、本文に残さない）
-    const split = quality.splitScore(answer);
-    const md = split.body;
-    // 「特になし」の混入を先に落とす。ここで落とさないと
-    // 「- [ ] 特になし」がアクション1件として数えられてしまう。
-    // 続けて、テンプレートの見出し・雛形をそのまま写した行も落とす。
-    // 0.11.0 M-3（決めたこと 17・18・22・23）: 写しを落とした後に印を付ける（見出しに直す・根拠の無い見出しを未確認へ畳む・チェックは 3 件まで・
-    // 印の行は出典の照合から外す）。engine.log には数だけ（要約の文は書かない）
-    const marked = memoTypes.markBlocks(dropTemplateEcho(dropRedundantEmpty(markdownToBlocks(md)), template), { meetingType: page.meetingType });
-    const blocks = marked.blocks;
-    if (marked.dropped || marked.folded) engineLog(`要約: 抜け・重なりチェック ${marked.dropped} 件を捨てた・未確認にまとめた見出し ${marked.folded} 個`);
-    // 担当・期限を先に抜く。出典の突き合わせは
-    // 「（担当: ○○ / 期限: ○○）」を落とした本文に対して行いたい。
-    // 書式が残ったままだと、その語がクエリに混ざって一致がぶれる。
-    enrichActionBlocks(blocks, new Date(page.createdAt));
-    // 文字起こしとメモに出てこない担当・期限は外す（推測で埋めない。モデルが指示に反して書くことがある）。
-    // engine.log には数だけを書く（名前は機微。engine.log は不具合報告に添付されうる）
-    // メモのうち、要約タイプを選んだときに入るアジェンダの雛形の行は裏付けにしない（「次回までのアクション」で
-    // 作り話の「期限: 次回」が通ってしまう）。mainlib.memoEvidence
-    const grounded = groundActionFields(blocks, `${plain}\n${memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])}`);
-    const actStat = grounded.stat;
-    if (grounded.droppedAssignee || grounded.droppedDue) {
-      engineLog(`要約: 文字起こしに無い担当 ${grounded.droppedAssignee} 件・期限 ${grounded.droppedDue} 件を外しました`);
-    }
-    // 要約は数分かかる。その間に文字起こしが編集されているかもしれないので、
-    // 出典は読み込み時の配列ではなく、いまディスクにある文字起こしに対して付ける。
-    // 画面へ返す segments も同じもの（古い配列を返すと、編集した行が画面上で戻る）。
+    // 0.18.0 CS-1（計画 docs/plans/2026-11-18-180.md の決めたこと 15・16）: 要約の作り方（採点の節を外す・出典の印を外す・写しを落とす・印・
+    // 担当と期限の裏付け・出典・点）は summaryWrite.prepareSummary の1か所。Claude の書き戻し（DB の mcp.writeSummary）も同じ部品を通る。
+    // 要約は数分かかる。その間に文字起こしが編集されているかもしれないので、出典は読み込み時の配列ではなく、いまディスクにある文字起こしに対して付ける
+    // （要約の材料にした配列（入口）と今の配列の両方を渡す: #4）。画面へ返す segments も同じもの（古い配列を返すと、編集した行が画面上で戻る）。
     const now = await db.call('page.get', { id: pageId });
     const fresh = now ? now.segments : [];   // ページが消えていれば下の saveIfExists が null を返して捨てる
-    // 要約の材料にした配列（入口）と今の配列の両方を渡す（#4。cite.attachCitationsAcross）
-    const stat = attachAcross(blocks, fresh, segmentsAtStart);
+    const made = SW.prepareSummary({ md: answer, page, segments: fresh, segmentsAtStart, score, template });
+    const { blocks, citeStat: stat, actionStat: actStat } = made;
     segments = fresh;
-    // 0.11.0 Q-3（決めたこと 29〜34）: 点（付けるときだけ）。AI の3つの軸を厳しく読み、ToDo の具体さと型の埋まり具合は数え、合計は数え直す。
-    // AI の軸の理由は一時のブロックにして出典を付ける（ページのブロックと出典の数には入れない）。engine.log には点と符号だけ（理由の文は書かない）
-    let q = null; let scoreNote = '';
-    if (score) {
-      const parsed = quality.parseScore(split.lines, quality.AI_AXES, { found: split.found });
-      if (parsed.ok) {
-        const cites = {};
-        for (const a of quality.AI_AXES) {
-          const tmp = [{ id: `q-${a.key}`, type: 'bullet', text: parsed.ai[a.key].reason, cites: [] }];
-          attachAcross(tmp, fresh, segmentsAtStart);
-          cites[a.key] = Array.isArray(tmp[0].cites) ? tmp[0].cites.filter((c) => typeof c === 'string') : [];
-        }
-        q = quality.buildQuality({ ai: parsed.ai, todo: quality.todoAxis(blocks), fill: quality.fillAxis(blocks, { headings: memoTypes.sectionsOf(page.meetingType), key: memoTypes.headingKey }), cites, at: new Date().toISOString() });
-        engineLog(`打ち合わせの質: 付けた ${q.total}/25`);
-      } else {
-        scoreNote = QUALITY_NOTE_UNREAD;
-        engineLog(`打ち合わせの質: 付けない（読めない（${parsed.code}））`);
-      }
-    } else if (wantScore) {
+    // engine.log には数だけ（要約の文・名前・点の理由の文は書かない）
+    if (made.dropped || made.folded) engineLog(`要約: 抜け・重なりチェック ${made.dropped} 件を捨てた・未確認にまとめた見出し ${made.folded} 個`);
+    if (made.droppedAssignee || made.droppedDue) {
+      engineLog(`要約: 文字起こしに無い担当 ${made.droppedAssignee} 件・期限 ${made.droppedDue} 件を外しました`);
+    }
+    // 0.11.0 Q-3（決めたこと 29〜34）: 点（付けるときだけ）。読めなければ注 QN1（made.scoreNote）
+    const q = made.quality;
+    let scoreNote = made.scoreNote;
+    if (q) engineLog(`打ち合わせの質: 付けた ${q.total}/25`);
+    else if (score) engineLog(`打ち合わせの質: 付けない（読めない（${made.scoreCode}））`);
+    else if (wantScore) {
       scoreNote = QUALITY_NOTE_SHORT;
       engineLog('打ち合わせの質: 付けない（短い）');
     } else {

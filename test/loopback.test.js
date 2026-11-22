@@ -209,7 +209,10 @@ test('openStream の待ち明けに、押された停止・破棄を踏み越え
 
 test('要約の後処理と文字起こしの設定が main.js に結線されている', () => {
   const m = code(main);
-  assert.match(m, /dropRedundantEmpty\(markdownToBlocks\(md\)\)/, '「特になし」の後処理が通っていない');
+  // 0.18.0 CS-1（計画 docs/plans/2026-11-18-180.md の決めたこと 15・M31）で意図して直した: 要約の作り方は src/summaryWrite.js の prepareSummary の1か所。
+  // main はそれを呼び、「特になし」の後処理はそこで見る
+  assert.match(m, /SW\.prepareSummary\(\{ md: answer, /, '要約の作り方の部品を通っていない');
+  assert.match(code(fs.readFileSync(path.join(ROOT, 'src/summaryWrite.js'), 'utf8')), /dropRedundantEmpty\(markdownToBlocks\(md\)\)/, '「特になし」の後処理が通っていない');
   assert.match(m, /form\.append\('carry_initial_prompt', 'true'\)/, '語彙のヒントが区間全体に効かない');
   assert.match(m, /const autoType = mtype\.detectType\(/, '自動判定を常に走らせていない');
   assert.match(m, /saved\.autoType = page\.autoType/, '自動判定の結果を保存していない');

@@ -960,12 +960,18 @@ test('#35/#49 ホットキーは片方ずつ登録し、失敗を画面とトレ
   assert.ok(!/settings\.(hotkey|meetingHotkey)/.test(tray), 'トレイが設定のキーを出している（退避中は効かないキーが表示される）');
 });
 
+// 0.18.0 CS-1（計画 docs/plans/2026-11-18-180.md の決めたこと 15・M31）で意図して直した: 要約の作り方（写しを落とす・印・裏付け・出典）は
+// src/summaryWrite.js の prepareSummary の1か所に出した（Claude の書き戻しと同じ部品）。写しを落とす結線と裏付けの文はそこで見る。
+// doRunSummary は同じ書式（template）を prepareSummary に渡す
+const summaryWrite = read('src/summaryWrite.js');
+const prepBody = fnBody(code(summaryWrite), 'function prepareSummary(', '\n}\n');
 test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEcho が無ければ素通し）', () => {
-  assert.match(main, /const dropTemplateEcho = minutes\.dropTemplateEcho \|\| \(\(b\) => b\)/);
+  assert.match(summaryWrite, /const dropTemplateEcho = minutes\.dropTemplateEcho \|\| \(\(b\) => b\)/);
   // 0.11.0 M-2（決めたこと 14）で意図して直した: 書式は doRunSummary が memoTypes.buildTemplate で1回だけ作り（template）、
   // 写しを落とす文と Claude Code に渡す文（summarizeWithClaude の buildClaudeInput）に同じ文字列を渡す（別々に組み立てるとずれる）
-  assert.match(main, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), template\)/);
+  assert.match(prepBody, /dropTemplateEcho\(dropRedundantEmpty\(markdownToBlocks\(md\)\), template\)/);
   const run = fnBody(code(main), 'async function doRunSummary', '\n}\n');
+  assert.ok(run.includes('SW.prepareSummary({ md: answer, page, segments: fresh, segmentsAtStart, score, template })'), 'doRunSummary が同じ書式を要約の作り方の部品に渡していない');
   assert.strictEqual((run.match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary の中で書式を1回だけ作っていない');
   assert.strictEqual((code(main).match(/buildTemplate\(/g) || []).length, 1, 'doRunSummary のほかで書式を作っている');
   // 0.12.0 SP-4（決めたこと 143・R27）で意図して直した: Claude Code へは札を付けた文（labeled。札が1つも無い会議は plain と同じ文）を同じ書式で渡す
@@ -974,8 +980,8 @@ test('#18 テンプレートの写しを落とす結線（minutes.dropTemplateEc
   assert.ok(sw.includes('lib.buildClaudeInput({ memoText, plain, template })'), 'Claude Code に渡す文が受けた書式を使っていない');
   assert.ok(!/minutesTemplate|OUTPUT_RULE/.test(code(main)), 'main.js に前の書式の関数が残っている');
   // 0.11.0 M-3: 写しを落とした後に印を付け（markBlocks）、担当・期限の裏付けから型の雛形の行も外す（memoTypes.presetLines）
-  assert.ok(run.includes('memoTypes.markBlocks(dropTemplateEcho('), '写しを落とした後に印を付けていない');
-  assert.ok(run.includes('memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])'), '型の雛形の行を裏付けから外していない');
+  assert.ok(prepBody.includes('memoTypes.markBlocks(dropTemplateEcho('), '写しを落とした後に印を付けていない');
+  assert.ok(prepBody.includes('memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])'), '型の雛形の行を裏付けから外していない');
 });
 
 // ---------------------------------------------------------------- 第2段（D: 小さな直し）
@@ -1105,12 +1111,13 @@ test('#23 初期プロンプトは予算（UTF-8 バイト）に収め、辞書�
   assert.ok(preload.includes("  promptInfo: () => ipcRenderer.invoke('prompt:info'),"), 'preload の promptInfo が無い');
 });
 
-test('#4 出典は要約の材料にした配列と今の配列の両方から付ける（cite 側が無ければ従来どおり）', () => {
-  assert.match(main, /const attachAcross = cite\.attachCitationsAcross \|\| \(\(b, f\) => attachCitations\(b, f\.filter\(\(s\) => !s\.failed\)\)\)/,
-    'cite.attachCitationsAcross への切り替え（無ければ素通し）が無い');
+test('#4 出典は要約の材料にした配列と今の配列の両方から付ける', () => {
+  // 0.18.0 CS-1（M31）で意図して直した: 出典を付けるのは prepareSummary（cite.attachCitationsAcross は今の cite.js にあるので、無いときの素通しは外した）。
+  // doRunSummary は入口で読んだ配列と、要約の後に読み直した今の配列の両方を渡す
   const run = fnBody(code(main), 'async function doRunSummary', '\nlet hotkeyState');
   assert.ok(run.includes('const segmentsAtStart = segments;'), '入口で読んだ配列を取っておいていない');
-  assert.ok(run.includes('const stat = attachAcross(blocks, fresh, segmentsAtStart);'), '両方の配列を渡していない');
+  assert.ok(run.includes("const now = await db.call('page.get', { id: pageId });") && run.includes('segments: fresh, segmentsAtStart'), '両方の配列を渡していない');
+  assert.ok(prepBody.includes('const citeStat = cite.attachCitationsAcross(blocks, fresh, start);'), '両方の配列で出典を付けていない');
 });
 
 // ---------------------------------------------------------------- 第2段（A: 音声の退避・復旧・背圧・進捗・打ち切り）
@@ -1395,12 +1402,13 @@ test('whisper のバイナリはリリース一覧から探す（固定URLは 40
 });
 
 test('要約の担当・期限の裏付けは、文字起こしと、アジェンダの雛形を除いたメモで照らす（0.1.2）', () => {
-  const run = fnBody(code(main), 'async function doRunSummary(', '\n}\n');
+  // 0.18.0 CS-1（M31）で意図して直した: 要約の作り方は summaryWrite.prepareSummary の1か所（doRunSummary はそれを呼ぶ）
+  const run = prepBody;
   // 0.11.0 M-3（決めたこと 25）で意図して変えた: 型の雛形の行（memoTypes.presetLines）も裏付けから外す
   assert.ok(run.includes('groundActionFields(blocks, `${plain}\\n${memoEvidence(page.memo, [...mtype.listTypes(), ...memoTypes.presetLines()])}`)'),
     '裏付けに雛形入りのメモをそのまま渡している');
   assert.ok(run.indexOf('enrichActionBlocks(blocks') < run.indexOf('groundActionFields(blocks'), '担当・期限を抜く前に照らしている');
-  assert.ok(run.indexOf('groundActionFields(blocks') < run.indexOf('attachAcross(blocks'), '出典の照合の後に照らしている（外した担当名で照合がぶれる）');
+  assert.ok(run.indexOf('groundActionFields(blocks') < run.indexOf('attachCitationsAcross(blocks'), '出典の照合の後に照らしている（外した担当名で照合がぶれる）');
 });
 
 
