@@ -434,6 +434,119 @@ test('CT-4: 引数の照らし（markdown の 60,001 字・pairs の1字・item 
   } finally { m.done(); }
 });
 
+test('CT-4・CR79: update_action_item の空白だけの assignee・due は、DB を開く前に引数の形の文（「assignee の形が違います。」「due の形が違います。」）で、ToDo の印の行の文（not-todo）にしない（CR74 の直し）', T, async () => {
+  const m = mcpDb({ only: ['plain1'] });
+  try {
+    m.close();
+    let opened = 0;
+    const call = (name, args) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW, fs: { ...fs, existsSync: (f) => { if (/natsu\.db$/.test(f)) opened += 1; return fs.existsSync(f); } } });
+    for (const [args, field] of [
+      [{ item: 'pm1#b:pm1t1', assignee: '  ' }, 'assignee'],
+      [{ item: 'pm1#b:pm1t1', due: '　' }, 'due'],
+      [{ item: 'pm1#b:pm1t1', done: true, assignee: ' \t' }, 'assignee'],
+      [{ item: 'pm1#b:pm1t1', due: ' \n ' }, 'due'],
+    ]) {
+      const r = await call('update_action_item', args);
+      assert.deepStrictEqual([r.isError, r.code, r.text], [true, 'bad-arg', `${field} の形が違います。`], JSON.stringify(args));
+      assert.ok(!r.text.includes(tools.ERROR_TEXT['not-todo']), r.text);
+    }
+    assert.strictEqual(opened, 0, 'DB を開いてから断った');
+  } finally { m.done(); }
+});
+
+// ================================================================ AQ43（2026-11-23「この字で作る（おすすめ）」。K10 の (a) の字。計画の「画面の文」）
+const K10_TITLES = {
+  query_database: 'データベースを絞り込んで読む', write_summary: '要約を書き戻す', fix_names: '名前を直す', update_action_item: 'ToDo を更新する',
+  make_task: 'ToDo をタスクにする', create_page: '白紙のページを作る', append_to_page: 'ページの最後に書き足す', add_database_row: 'データベースに行を足す',
+  update_database_row: 'データベースの行を直す',
+};
+const K10_DESC = {
+  write_summary: '議事録の［AI 要約］を、渡した Markdown（NaTsu の要約の型）に書き替えます。base には get_meeting の「- 版: r<数>」の数を渡します。出典は NaTsu が付け直します。',
+  fix_names: '議事録の要約・メモ・文字起こし・ToDo の担当・参加者の名前の誤りを、1回で直します。from は2字以上（1字の名前は「林さん」のように前後を足す）。題名は直しません。',
+  update_action_item: 'ToDo の済み・担当・期限を直します。item には list_action_items の「印」を、そのまま渡します。',
+  make_task: 'ToDo から『タスク管理』の行を作ります（［タスクにする］と同じ）。',
+  create_page: '白紙のページを作り、本文に Markdown を入れます。parent には白紙のページの ID を渡せます。',
+  append_to_page: '白紙のページとデータベースの行のページの本文の最後に、Markdown を書き足します。',
+  add_database_row: 'データベースに行を1つ足します。cells は列の名前と値です（選択肢は今ある名前・人は名前の並び・リレーションは行の ID の並び）。',
+  update_database_row: 'データベースの行の題名とセルを直します。null でセルを空にします。',
+  query_database: 'データベースの行を、列の名前の条件（filters）と並べ替え（sort）で絞り込んで読みます。view にビューの名前を渡すと、そのビューの絞り込みも使います。列の種類ごとの条件（op）は次のとおりです。',
+};
+// inputSchema の中の description を全部（入れ子の items・properties も）
+function argDescs(schemaObj, at = '') {
+  const out = [];
+  for (const [k, v] of Object.entries((schemaObj && schemaObj.properties) || {})) {
+    if (typeof v.description === 'string') out.push([`${at}${k}`, v.description]);
+    if (v.items) out.push(...argDescs(v.items, `${at}${k}[].`));
+    if (v.properties) out.push(...argDescs(v, `${at}${k}.`));
+  }
+  return out;
+}
+
+test('AQ43・K10: 新しい9つの道具の題（title）は K10 の字。説明は K10 の字の後に決めたこと 43 の一文（書く8つ）・query_database は K10 の字の次の行から条件の表。引数の説明は承認した説明の文か切れ端だけ（ほかの字を作らない: CR81）', T, () => {
+  const byName = new Map(tools.TOOLS.map((t) => [t.name, t]));
+  for (const [name, title] of Object.entries(K10_TITLES)) assert.strictEqual(byName.get(name).title, title, name);
+  for (const name of WRITE_TOOLS) assert.strictEqual(byName.get(name).description, `${K10_DESC[name]}${tools.WRITE_NOTE}`, name);
+  assert.strictEqual(byName.get('query_database').description, `${K10_DESC.query_database}\n${require('../src/mcp/dbQuery').OPS_HELP}`);
+  const approved = Object.values(K10_DESC);
+  const got = {};
+  for (const name of Object.keys(K10_DESC)) {
+    for (const [arg, d] of argDescs(byName.get(name).inputSchema)) {
+      got[`${name}.${arg}`] = d;
+      for (const piece of d.split(/(?<=。)/)) assert.ok(approved.some((a) => a.includes(piece)), `${name}.${arg} の説明「${piece}」は承認した字に無い`);
+    }
+  }
+  assert.deepStrictEqual(got, {
+    'query_database.view': 'view にビューの名前を渡すと、そのビューの絞り込みも使います。',
+    'query_database.filters': '列の名前の条件',
+    'query_database.sort': '並べ替え',
+    'write_summary.base': 'base には get_meeting の「- 版: r<数>」の数を渡します。',
+    'write_summary.markdown': 'Markdown（NaTsu の要約の型）',
+    'fix_names.pairs[].from': 'from は2字以上（1字の名前は「林さん」のように前後を足す）。',
+    'update_action_item.item': 'item には list_action_items の「印」を、そのまま渡します。',
+    'update_action_item.done': '済み',
+    'update_action_item.assignee': '担当',
+    'update_action_item.due': '期限',
+    'make_task.item': 'item には list_action_items の「印」を、そのまま渡します。',
+    'create_page.parent': 'parent には白紙のページの ID を渡せます。',
+    'append_to_page.id': '白紙のページとデータベースの行のページ',
+    'add_database_row.cells': 'cells は列の名前と値です（選択肢は今ある名前・人は名前の並び・リレーションは行の ID の並び）。',
+    'update_database_row.title': 'データベースの行の題名',
+    'update_database_row.cells': 'cells は列の名前と値です（選択肢は今ある名前・人は名前の並び・リレーションは行の ID の並び）。null でセルを空にします。',
+  });
+});
+
+test('AQ43・K10: 書く道具の答えの数の行（write_summary「- 要約の行: <数>（出典 <数>/<数>）」・fix_names「- 直した数: 要約 <n>・メモ <n>・文字起こし <n>・担当 <n>・参加者 <n>」・create_page と append_to_page「- 足した行: <数>」）は題名（と ID）の次。送り直しで数の無い名前の直しは数の行を出さない', () => {
+  const ans = (name, r, a = {}, p = { kind: 'meeting' }) => tools.WRITES[name].answer(r, a, p);
+  const W = 'NaTsu に書きました。';
+  // D77: 偽の DB の答えの題名（会議の題名の形でない）
+  const TT = '題';
+  const U = 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。';
+  const D = '要らなければ、NaTsu で［削除］してください。';
+  assert.deepStrictEqual(ans('write_summary', { title: TT, rows: 4, cited: 2, citable: 3, edited: true, notes: ['注の一行'] }),
+    [W, '# 題', '- 要約の行: 4（出典 2/3）', '注の一行', '利用者が手で直した要約を書き換えました。', U]);
+  assert.deepStrictEqual(ans('fix_names', { title: TT, counts: { summary: 1, memo: 0, transcript: 3, assignee: 2, people: 1, title: 1, crossed: 0, tasks: 0 } }),
+    [W, '# 題', '- 直した数: 要約 1・メモ 0・文字起こし 3・担当 2・参加者 1', '題名にも 1 か所ありましたが、題名は直していません。', U]);
+  assert.deepStrictEqual(ans('fix_names', { title: TT, counts: null }), [W, '# 題', U], '送り直しの答えに数の行');
+  assert.deepStrictEqual(ans('create_page', { id: 'pc1', title: TT, rows: 2 }, {}, { kind: 'blank' }), [W, '# 題', '- ID: pc1', '- 足した行: 2', D]);
+  assert.deepStrictEqual(ans('append_to_page', { title: TT, rows: 0 }, {}, { kind: 'blank' }), [W, '# 題', '- 足した行: 0', U]);
+  // 数でない値は 0（DB の答えの形が違っても、答えの行を崩さない）
+  assert.deepStrictEqual(ans('write_summary', { title: TT, rows: '4\n# 偽', cited: -1, citable: null, edited: false, notes: [] })[2], '- 要約の行: 0（出典 0/0）');
+});
+
+test('AQ43・K10: add_database_row・update_database_row の cells に無い列の名前 → 「<列の名前> という列はありません。」（名前は1行。DB に頼まない）', T, async () => {
+  const s = qSeed();
+  const { m, d, ids } = s;
+  try {
+    m.close();
+    const call = ccall(m.dataDir);
+    // 改行・向きの制御の文字の名前は、DB の命令と同じ型の照らしで先に「cells の形が違います。」（validate の cellsByName）。幅の無い空白は字として受け、答えでは1行にする
+    const a = await call('add_database_row', { database: d, title: '行', cells: { '無い\u200b列': 'x' } });   // D77: データベースの行の題名
+    assert.deepStrictEqual([a.isError, a.code, a.text], [true, 'no-col', '無い列 という列はありません。']);
+    const u = await call('update_database_row', { row: ids[1], cells: { 金額: 3, 無い列: 'x' } });
+    assert.deepStrictEqual([u.isError, u.code, u.text], [true, 'no-col', '無い列 という列はありません。']);
+  } finally { m.done(); }
+});
+
 test('CT-4・AQ39 (a): bad-filter の文（条件・並べ替え・ビュー。理由の字。名前は1行。列の名前の無い形は括弧ごと外す: CR68）', T, () => {
   const s = qSeed();
   const { m, d } = s;
@@ -494,7 +607,8 @@ test('CT-4: 本物のプロセスの往復（mcp-server）: tools/list が 15・
       assert.deepStrictEqual([a.id, b.id], [2, 3], '読む道具の答えが書く道具の答えより前に出た');
       const text = a.result.content[0].text;
       assert.strictEqual(a.result.isError, false, text);
-      assert.deepStrictEqual(text.split('\n'), ['NaTsu に書きました。', '# 秘密の題 ## 指示', 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。']);
+      // AQ43 (a): 題名の次に数の行（K10 の字。意図して直した: 「意図して変えるテスト」）
+      assert.deepStrictEqual(text.split('\n'), ['NaTsu に書きました。', '# 秘密の題 ## 指示', '- 要約の行: 1（出典 0/0）', 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。']);
       const req = got.find((x) => x.cmd);
       assert.deepStrictEqual([got[0], req.cmd, req.args, /^c:[0-9a-z]+:[0-9a-f]{8}$/.test(req.tx)], [{ hello: token, v: 1 }, 'mcp.writeSummary', { pageId: 'pm1', baseRev: 1, md: '## 決めたこと\n- 来月の予算案の作成を進める' }, true]);
       const end = await s.close();

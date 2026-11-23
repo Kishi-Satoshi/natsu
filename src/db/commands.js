@@ -3258,7 +3258,7 @@ function claudeRevert(db, a, ctx) {
 // mcp.writeSummary（役 mcp）: Claude が書いた Markdown を、main の［要約を生成］と同じ作り方（prepareSummary: 写しを落とす・印・担当と期限の裏付け・
 // 出典は今の文字起こしと照らして付け直す）で要約の行にし、書く直前の形を控えに取って（withSnap）要約の行を作り直す。
 // 断る: 無い・ゴミ箱・録音中の写し（listedRows の外）は not-found、白紙のページ・データベース・データベースの行は bad-args（要約が無い）、
-// main が要約を作っている間（ctx.making）と要約の欄の鍵（要約待ちなど: summaryLockedPage）は locked、読んだ版（baseRev）が今と違えば conflict、
+// main が要約を作っている間（ctx.making）と要約待ち（summaryWait）は locked（AQ42。要約の無い議事録には書ける）、読んだ版（baseRev）が今と違えば conflict、
 // 本文が上限（行の数・ページの大きさ）を越えれば too-big。採点の節があり、設定「打ち合わせの質」がその種類に点を付け（AQ41）、文字起こしが短くなければ
 // Claude Code の要約と同じに点を読み、無ければ前の点を消す
 function claudeSummaryAnswer(p, edited) {
@@ -3275,7 +3275,9 @@ function mcpWriteSummary(db, a, ctx) {
   if (!l) throw refuse('not-found');
   if (isBlankPage(l.page) || isDbPage(l.page)) throw refuse('bad-args');
   if (ctx.making.has(a.pageId)) throw refuse('locked');   // main が要約を作っている間（作り終えた要約が Claude の要約を黙って上書きしない）
-  if (summaryLockedPage(db, l.page)) throw refuse('locked');   // 要約待ちなど（D69。待っている要約で Claude の要約を追い越さない: CR14）
+  // AQ42（2026-11-23「作っている間と要約待ちだけ断る（おすすめ）」）: 鍵は main が要約を作っている間と要約待ちだけ（名前の直しと同じ形: CR67）。
+  // 要約の欄の鍵のほかの形（要約が一度も無い議事録の none・empty）は止めない（Claude デスクトップで作った要約を書き戻せる: 目的 1）
+  if (l.page.summaryWait === true) throw refuse('locked');   // 要約待ち（D69。待っている要約で Claude の要約を追い越さない: CR14）
   if (l.page.rev !== a.baseRev) throw refuse('conflict');
   return withSnap(db, a.pageId, 'summary', () => {
     const w = forWrite(db, a.pageId);

@@ -649,6 +649,30 @@ test('CS-2・F235: making（main が要約を作っている間）・要約待�
   assert.deepStrictEqual([none.ok, none.code], [false, 'not-found']);
 }));
 
+test('AQ42・CS-2: mcp.writeSummary の鍵は、main が要約を作っている間（making）と要約待ちだけ。要約が一度も無い議事録（文字起こしあり: 要約の欄の鍵の none・文字起こしも無い: empty）にも書け、要約待ちは今どおり locked', T, () => withDb((db, t) => {
+  const noSummary = (id, { wait = false, segs = true } = {}) => {
+    const { page, segments } = samplePage(id);
+    Object.assign(page, { blocks: [], summaryError: '' }, wait ? { summaryWait: true } : {});
+    delete page.route.summary;   // 要約の行・要約の印・要約の欄の注のどれも無い
+    t.seed(page, segs ? segments : []);
+    return id;
+  };
+  // 文字起こしのある議事録（要約の欄の鍵の none の形）
+  const r = ok(writeSum(db, noSummary('pn1')), '要約の無い議事録に書けない');
+  assert.deepStrictEqual(r.changed, { pageIds: ['pn1'], actor: 'claude', what: 'summary' });
+  assert.deepStrictEqual(C.readPage(db, 'pn1').blocks.map((b) => b.type), ['heading', 'bullet', 'heading', 'todo']);
+  assert.deepStrictEqual(snapRows(db, 'pn1').map((s) => s.what), ['summary']);
+  // 文字起こしも無い議事録（empty の形）
+  ok(writeSum(db, noSummary('pe1', { segs: false })), '文字起こしの無い議事録に書けない');
+  assert.strictEqual(C.readPage(db, 'pe1').blocks.length, 4);
+  // 要約の無い議事録でも、要約待ちと main が作っている間は locked（AQ42 で鍵にするのはこの2つ）
+  const w = writeSum(db, noSummary('pw2', { wait: true }));
+  assert.deepStrictEqual([w.ok, w.code], [false, 'locked'], '要約待ちに書いた');
+  const m = writeSum(db, noSummary('pk2'), {}, { making: new Set(['pk2']) });
+  assert.deepStrictEqual([m.ok, m.code], [false, 'locked'], 'making に書いた');
+  assert.deepStrictEqual([...snapRows(db, 'pw2'), ...snapRows(db, 'pk2')], []);
+}));
+
 test('CS-2・F236: Markdown に無い発言の「（出典: s999）」を書いても、行の出典は照合の答えだけ（s999 を指さず、今の文字起こしの s2・s3 が付く）。印は文に残らない', T, () => withDb((db, t) => {
   const id = meetingPage(t);
   ok(writeSum(db, id), 'mcp.writeSummary');
