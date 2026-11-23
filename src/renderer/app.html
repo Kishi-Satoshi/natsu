@@ -1545,7 +1545,7 @@
     </div>
   </div>
   <!-- 0.15.0 PH-6（決めたこと 31・32・BQ6 (a)）: ゴミ箱の窓（一緒に消したまとまりの頭の行・消した日時・中のページ n・［戻す］）。見た目は［移動先…］と同じ浮く部品 -->
-  <div class="movepop" id="trashPop" role="dialog" aria-modal="true" aria-labelledby="trashPopHead" hidden>
+  <div class="movepop" id="trashPop" role="dialog" aria-modal="true" aria-labelledby="trashPopHead" aria-describedby="trashNote" hidden>
     <div class="mpbox">
       <div class="mphead" id="trashPopHead">ゴミ箱</div>
       <div class="tpnote" id="trashNote">ゴミ箱のページは、戻すまで一覧と検索と Claude には出ません</div>
@@ -1553,7 +1553,7 @@
     </div>
   </div>
   <!-- 0.18.0 CU-1（決めたこと 50・F234）: ［Claude の変更を戻す］の窓（控えの新しい順の行・時刻と道具の言葉・行ごとの［この前に戻す］）。見た目はゴミ箱の窓と同じ浮く部品。描くのは textContent だけ -->
-  <div class="movepop" id="claudePop" role="dialog" aria-modal="true" aria-labelledby="claudePopHead" hidden>
+  <div class="movepop" id="claudePop" role="dialog" aria-modal="true" aria-labelledby="claudePopHead" aria-describedby="claudeNote" hidden>
     <div class="mpbox">
       <div class="mphead" id="claudePopHead">Claude の変更を戻す</div>
       <div class="tpnote" id="claudeNote">Claude が書き換える前の形を、ページごとに 10 回分まで PC の中に残しています</div>
@@ -1958,7 +1958,7 @@
               <div class="setpop-body">
                 <p class="setpop-head">Claude に「10/20 の議事録を読んでレポートして」のように頼めます。</p>
                 <ul>
-                  <li>Claude は、頼んだときだけ、要約の書き戻し・名前の直し・ToDo とタスクの更新・白紙のページへの書き込み・データベースへの行の追加をします（消すことはしません）。書き換えは、ページの「···」の［Claude の変更を戻す］で戻せます。</li>
+                  <li>Claude は、頼んだときだけ、要約の書き戻し・名前の直し・ToDo とタスクの更新・白紙のページへの書き込み・データベースへの行の追加と直しをします（消すことはしません）。書き換えは、ページの「···」の［Claude の変更を戻す］で戻せます。</li>
                   <li>NaTsu を閉じている間は、Claude は読むだけで、書けません。</li>
                   <li>Claude に頼むと、Claude が読んだ議事録の題名・要約・メモ・文字起こしは、Claude（Anthropic）へ送られます（オフラインモードで録った会議も同じです）。</li>
                   <li>1on1・面談の議事録を扱う前に、Claude の設定のプライバシーで、会話をモデルの学習に使わない設定にしてください。</li>
@@ -6823,7 +6823,7 @@
   // 満杯の本文の知らせも同じ: R38・R51。親だけを選ぶので本文の行は新しい親の本文の最後: 決めたこと 45・48）、Esc で閉じてフォーカスを戻す。探す語は覚えない
   const MOVE_TOP = 'いちばん上へ';
   const MOVE_SHOW_MAX = 200;   // 描く候補の数（探す語で絞る）
-  function popOpen() { return Boolean(movePop) || newPopOn || trashOn || iconPopOn; }   // 0.15.0 PL-3: アイコンの選びも   // PH-6: ゴミ箱の窓も   // PH-5 直し 2（R56 I-1）: ［移動先…］か「新しいページ」の窓が開いている
+  function popOpen() { return Boolean(movePop) || newPopOn || trashOn || iconPopOn || claudePopOn; }   // 0.18.0 点検 3（CR111）: ［Claude の変更を戻す］の窓も   // 0.15.0 PL-3: アイコンの選びも   // PH-6: ゴミ箱の窓も   // PH-5 直し 2（R56 I-1）: ［移動先…］か「新しいページ」の窓が開いている
   let movePop = null;          // 開いているとき { id, from（戻すフォーカス）, tree（木の行から開いたらその ID）, cands, rows, at }
   const moveFold = (s) => String(s ?? '').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/\s+/g, '');
   function moveCands(id) {
@@ -7007,7 +7007,7 @@
   // PH-5 直し 2（R56 M-2）: 窓の中を押してもフォーカスを項目から外さない（キーは項目の並びで受ける。項目は押すと click で動く）
   $('newPop').addEventListener('mousedown', (ev) => { if (keepPopFocus(ev, [])) ev.preventDefault(); });
   document.addEventListener('keydown', (ev) => {
-    if (trashOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も開かない
+    if (trashOn || claudePopOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も開かない（0.18.0 点検 3・CR111: ［Claude の変更を戻す］の窓も）
     if (iconPopOn) return;   // 0.15.0 PL-3: アイコンの選びの間も開かない
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || regenAsking) return;   // Ctrl+Shift+N: 変換中・設定・検索・［移動先…］・確かめの間は開かない
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
@@ -7017,7 +7017,7 @@
   });
   // Ctrl+Shift+U（決めたこと 26・K-31）: 開いているページの親のページへ（今のタブ）。いちばん上のページでは何もしない
   document.addEventListener('keydown', (ev) => {
-    if (trashOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も何もしない
+    if (trashOn || claudePopOn) return;   // 0.15.0 PH-6: ゴミ箱の窓の間も何もしない（0.18.0 点検 3・CR111: ［Claude の変更を戻す］の窓も）
     if (iconPopOn) return;   // 0.15.0 PL-3: アイコンの選びの間も何もしない
     if (imeEnter(ev) || settingsOpen() || palOpen || movePop || newPopOn || regenAsking) return;
     if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return;
@@ -8053,11 +8053,63 @@
     if (a.length) claudeSnaps.set(id, a); else claudeSnaps.delete(id);
     return a;
   }
-  // 開いているページの打ちかけの文を送り終える（答えまで待つ）。Claude が作り直した行に書けなかったら真
-  async function claudeSettle(id) {
+  // 開いているページの打ちかけの文を送り終える（答えまで待つ）。Claude が作り直した行に書けなかったら真。
+  // 0.18.0 点検 3（CR108）: fresh（claude:wrote の後）は、送る前に今のページを読み直して行ごとに比べる（claudeRebase）。
+  // 0.18.0 点検 3（CR109）: 送り終えの印は呼ぶごとの物（続けて来た知らせの呼びが、ほかの呼びの印を消さない）。claude:wrote は1つずつ順に受ける
+  async function claudeSettle(id, fresh = false) {
     if (!id || id !== curId) return false;
-    claudeFlush = { lost: false };
-    try { flushEdits(); await editsSettled(); return claudeFlush.lost; } finally { claudeFlush = null; }
+    const f = { lost: false };
+    claudeFlush = f;
+    try {
+      if (fresh && await claudeRebase(id)) f.lost = true;
+      flushEdits(); await editsSettled(); return f.lost;
+    } finally { if (claudeFlush === f) claudeFlush = null; }
+  }
+  let claudeChain = Promise.resolve();
+  function claudeWroteNext(m) { const p = claudeChain.then(() => claudeWrote(m)); claudeChain = p.catch(() => {}); return p; }
+  // 0.18.0 点検 3（CR108）: Claude が書いた後の打ちかけ。今のページ（pageGet）と、行が描いた時の形（el._b）を比べ、Claude がその行の中で直した行
+  // （名前の直しなど）の打ちかけは送らず、Claude の文のままにする（打ちかけは入らなかったと知らせる: CR96 の字）。消えた行は今どおり保存の答えが空で分かる。
+  // メモは page.setMemoDoc がメモの全部を置き換えるので、打った行だけを今の memoDoc の上に行の ID で載せ直して送る（tg.doc を今の行に。Claude が直した
+  // ほかの行を戻さない）。文字起こしの直している行も同じ（Claude が直した発言なら Claude の文のまま）
+  const claudeSame = (x, b) => Boolean(x && b) && x.text === b.text && sameRich(x.rich, b.rich);
+  function claudeTyped(el) {
+    const txt = el._txt; const b = el._b;
+    if (!txt || !b || isFixedB(b) || b.type === 'divider') return false;
+    const memoRow = Boolean(rowsBoxOf(el) && rowsBoxOf(el)._memoTg);
+    const v = memoRow ? txt.textContent.trimEnd() : txt.textContent.trim();
+    const rich = richPatch(txt, b);
+    if (rich) return !((v === b.text && sameRich(rich, b.rich)) || (txt.textContent === b.text && sameRich(rowRich(txt), b.rich)));
+    return v !== b.text && txt.textContent !== b.text;
+  }
+  async function claudeRebase(id) {
+    await editsSettled();
+    let r = null;
+    try { r = await window.koeApp.pageGet(id); } catch (_) { r = null; }
+    if (!r || !r.page || id !== curId) return false;
+    let lost = false;
+    const now = new Map(flattenBlocks(r.page.blocks || []).map((b) => [b.id, b]));
+    for (const el of editRows($('pNote'))) {
+      const x = el._b ? now.get(el._b.id) : null;
+      if (!x || !claudeTyped(el) || claudeSame(x, el._b)) continue;
+      paintBlock(el._txt, el._b); lost = true;
+    }
+    const tg = memoTgOf(memoKeyOf(id));
+    if (tg && tg.pageId === id) {
+      const doc = memoDocOfPage(r.page);
+      const rows = new Map(flattenBlocks(doc).map((b) => [b.id, b]));
+      for (const el of editRows(tg.box)) {
+        if (!claudeTyped(el) || claudeSame(rows.get(el._b.id), el._b)) continue;
+        paintBlock(el._txt, el._b); lost = true;
+      }
+      tg.doc = doc;
+      for (const b of flattenBlocks(doc)) tg.rows.add(b);
+    }
+    const ed = $('pScript').querySelector('.seg.editing');
+    const t = ed ? ed.querySelector('.txt') : null;
+    const cur = ed ? curSegs.find((x) => x && x.id === ed.dataset.seg) : null;
+    const got = ed && Array.isArray(r.segments) ? r.segments.find((x) => x && x.id === ed.dataset.seg) : null;
+    if (t && cur && got && got.text !== cur.text && t.textContent.trim() !== String(cur.text || '').trim()) { t.textContent = String(cur.text || ''); lost = true; }
+    return lost;
   }
   // 開いているページを読み直す（見ていた欄はそのまま）
   async function claudeReopen(id) {
@@ -8078,8 +8130,9 @@
     const what = m && typeof m.what === 'string' ? m.what : '';
     if (!ids.length) return;
     let lost = false;
-    if (curId && ids.includes(curId)) { const id = curId; lost = await claudeSettle(id); await claudeReopen(id); }
+    if (curId && ids.includes(curId)) { const id = curId; lost = await claudeSettle(id, true); await claudeReopen(id); }
     for (const st of [...dbTables.values()]) if (ids.includes(st.id)) dbLoad(true, st);   // 開いているデータベースの表（同じ印なら描き直さない）
+    if (claudePopOn && ids.includes(claudePopId)) await claudePopReread();   // 0.18.0 点検 3（CR106）: 開いている［Claude の変更を戻す］の窓の行も
     if (what === 'create') { const id = ids[0]; toast(`Claude が「${await claudeTitleOf(id)}」を作りました`, { label: '開く', run: () => openPageTab(id) }); return; }
     if (what === 'addRow') { const row = ids[1]; if (row) toast(`Claude が「${await claudeTitleOf(ids[0])}」に行を足しました`, { label: '開く', run: () => openPageTab(row) }); return; }
     if (!Object.hasOwn(CLAUDE_WORDS, what)) return;
@@ -8091,21 +8144,32 @@
   const claudeAsk = (s) => (s.later
     ? `Claude が${claudeTime(s.at)}に${CLAUDE_WORDS[s.what]}前の形に戻します。この後の Claude の変更と、あなたの直しも戻ります。よろしいですか？`
     : `Claude が${claudeTime(s.at)}に${CLAUDE_WORDS[s.what]}前の形に戻します。よろしいですか？`);
-  async function claudeDoRevert(id, s) {
-    try { await window.koeApp.pageClaudeRevert(id, s.sid); } catch (_) { toast(CLAUDE_BACK_BAD); return; }
-    await readSnaps(id);
-    await claudeReopen(id);
-    await refreshList();
-    for (const st of [...dbTables.values()]) dbLoad(true, st);   // 行を戻したら、その行を見せている表も
-    toast(CLAUDE_BACK);
+  // 0.18.0 点検 3（CR106）: 確かめは今の控えで（控えを読み直し、sid の行で。無くなっていれば確かめずに戻せなかった字）。DB には確かめた時のページの版（rev）を
+  // 渡し、確かめの間に Claude か利用者が書いていれば（stale）読み直して、今の文（later）でもう一度確かめる。pop なら「はい」で窓を閉じる。戻したら真
+  async function claudeAskRevert(id, sid, pop = false) {
+    for (;;) {
+      const s = (await readSnaps(id)).find((x) => x.sid === sid);
+      if (!s) { if (pop) closeClaudePop(false); toast(CLAUDE_BACK_BAD); return false; }
+      if (!confirm(claudeAsk(s))) return false;
+      if (pop) closeClaudePop(false);
+      let code = '';
+      try { await window.koeApp.pageClaudeRevert(id, sid, s.rev); } catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
+      if (code === 'stale') continue;
+      if (code) { toast(CLAUDE_BACK_BAD); return false; }
+      await readSnaps(id);
+      await claudeReopen(id);
+      await refreshList();
+      for (const st of [...dbTables.values()]) dbLoad(true, st);   // 行を戻したら、その行を見せている表も
+      toast(CLAUDE_BACK);
+      return true;
+    }
   }
   // 左下の知らせの［戻す］: 打ちかけを送ってから、そのページの一番新しい控えで
   async function claudeUndoLast(id) {
     await claudeSettle(id);
     const s = (await readSnaps(id))[0];
     if (!s) { toast(CLAUDE_BACK_BAD); return; }
-    if (!confirm(claudeAsk(s))) return;
-    await claudeDoRevert(id, s);
+    await claudeAskRevert(id, s.sid);
   }
   // ［Claude の変更を戻す］の窓（#claudePop）。↑↓・Home・End・Tab（中で回る）で［この前に戻す］を移り、Enter で押す（ボタンの既定）。Esc と後ろの全面で閉じて「···」へ
   let claudePopOn = false;
@@ -8116,7 +8180,8 @@
     if (claudePopOn || !id) return;
     await claudeSettle(id);   // 打ちかけを送ってから読む（later を今の形で）
     const snaps = await readSnaps(id);
-    if (!snaps.length || id !== curId) return;
+    if (id !== curId) return;
+    if (!snaps.length) { toast(CLAUDE_BACK_BAD); return; }   // 0.18.0 点検 3（CR112）: 控えが無くなっていた（ほかの所で戻した）
     popCloseAll('modal');
     claudePopOn = true; claudePopId = id; claudeRows = snaps;
     $('claudePop').hidden = false;   // 先に見せてから［この前に戻す］にフォーカス
@@ -8142,6 +8207,16 @@
     const el = btns[Math.max(0, Math.min(at, btns.length - 1))];
     if (el) el.focus();
   }
+  // 0.18.0 点検 3（CR106）: 窓を開いている間に Claude がそのページに書いたら、行を読み直して描き直す（フォーカスの位置は保つ。空になれば閉じる）
+  async function claudePopReread() {
+    const id = claudePopId;
+    const at = Math.max(0, claudeButtons().indexOf(document.activeElement));
+    const snaps = await readSnaps(id);
+    if (!claudePopOn || claudePopId !== id) return;
+    if (!snaps.length) { closeClaudePop(true); return; }
+    claudeRows = snaps;
+    renderClaudePop(at);
+  }
   function closeClaudePop(back) {
     if (!claudePopOn) return;
     claudePopOn = false; claudePopId = null; claudeRows = [];
@@ -8151,10 +8226,9 @@
   }
   async function claudePick(i) {
     const s = claudeRows[i]; const id = claudePopId;
-    if (!s || !id || !confirm(claudeAsk(s))) return;
-    closeClaudePop(false);
-    await claudeDoRevert(id, s);
-    focusAlive($('pMore'), $('pTitle'));
+    if (!s || !id) return;
+    await claudeAskRevert(id, s.sid, true);
+    if (!claudePopOn) focusAlive($('pMore'), $('pTitle'));
   }
   $('claudeList').onkeydown = (ev) => {
     if (imeEnter(ev)) return;
@@ -17944,7 +18018,7 @@
     if (!p.message) { e.style.display = 'none'; return; }
     e.style.display = ''; e.textContent = p.message;
   });
-  window.koeApp.onClaudeWrote((m) => { claudeWrote(m); });   // 0.18.0 CU-1（決めたこと 48・49）: Claude が書いた（main が DB の知らせから送る）
+  window.koeApp.onClaudeWrote((m) => { claudeWroteNext(m); });   // 0.18.0 点検 3（CR109）: 1つずつ順に   // 0.18.0 CU-1（決めたこと 48・49）: Claude が書いた（main が DB の知らせから送る）
   window.koeApp.onPagesUpdated(() => { refreshList(); refreshTrash(); for (const st of [...dbTables.values()]) dbLoad(true, st); });   // 0.16.0 DV-1: 開いている表も読み直す（同じ印なら描き直さない）   // 0.15.0 PH-6: ほかの窓・Claude の変更でゴミ箱も
   // main が開かせるページ（会議を終えた・知らせを押した）。記録中のタブがあればそれをページのタブに替え、無ければページのタブで開く
   // 0.13.0 RDY-3（RD13）: 受けはこの1か所。記録中のタブが録音の前のページなら置き換えずに新しいタブで開く（次の会議の準備を消さない: F86）

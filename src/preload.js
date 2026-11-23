@@ -249,7 +249,7 @@ contextBridge.exposeInMainWorld('koeApp', {
   pageToDb: (id) => dbCall('page.toDb', { id }),
   // 0.18.0 CW-1（決めたこと 12・14）: Claude の変更の控えの一覧（新しい順）と、選んだ控えの形に戻す（画面は CU-1 で呼ぶ）
   pageClaudeSnaps: (id) => dbCall('page.claudeSnaps', { id }),
-  pageClaudeRevert: (id, sid) => dbCall('page.claudeRevert', { id, sid }),
+  pageClaudeRevert: (id, sid, rev) => dbCall('page.claudeRevert', rev === undefined ? { id, sid } : { id, sid, rev }),   // 0.18.0 点検 3（CR106）: rev は確かめた時の版
   dbCreate: (parentId, inline) => dbCall('db.create', { ...(parentId ? { parentId } : {}), ...(inline ? { inline } : {}) }),
   dbGet: (id, linked) => dbCall('db.get', { id, ...(linked ? { linked } : {}) }),
   dbView: (id, viewId, from, count, q, open, linked) => dbCall('db.view', { id, viewId, from, count, ...(q ? { q } : {}), ...(Array.isArray(open) && open.length ? { open } : {}), ...(linked ? { linked } : {}) }),   // 0.16.0 DR-1: open は開いたサブアイテムの行

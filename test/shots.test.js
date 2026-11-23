@@ -1410,7 +1410,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 変わる画面は足した NEW_180 の4枚（RETAKE_180）。値を今の app.html に合わせた（前の値は a075d8f2…）
   // 0.18.0 CH-1（決めたこと 52・CR104）: カード「Claude との連携（MCP）」の頭の1行と吹き出しの2行。変わる画面は項目「要約」を写す RETAKEN_180 の6枚（RETAKE にある）。
   // 値を今の app.html に合わせた（前の値は af722a52…）
-  assert.strictEqual(sha, 'c2f9934da047ccd0a5bf4833a1756a55ea31f7eb3fa7cffa0e1e5f9a0eed7f9f',
+  // 0.18.0 点検 3（CR106〜CR113・AQ46）: Claude の書き込みの知らせと［Claude の変更を戻す］の直し（<script> の中）・#claudePop と #trashPop の aria-describedby
+  // （見た目は変わらない）・吹き出しの1行目の「データベースへの行の追加と直し」（AQ46 (a)。変わる画面は RETAKEN_180 の項目「要約」の画面で、RETAKE にある）。
+  // 値を今の app.html に合わせた（前の値は c2f9934d…）
+  assert.strictEqual(sha, '98eff969484fe345d049ba72c37d350866b06a8924aa20dbda953972fd5f89d0',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

@@ -3231,15 +3231,17 @@ function claudeSnaps(db, a) {
   const l = loadPage(db, a.id);
   if (!l) return { result: [] };
   return { result: db.prepare(HOT_QUERIES.snapList).all(a.id, CS.SNAP_KEEP).map((r) => ({ sid: r.rid, at: r.at, what: r.what,
-    ...(Number.isSafeInteger(r.count) && r.count > 0 ? { count: r.count } : {}), later: r.rev_after !== l.page.rev })) };   // 0.18.0 CU-1: count は名前の直しの直した数
+    ...(Number.isSafeInteger(r.count) && r.count > 0 ? { count: r.count } : {}), later: r.rev_after !== l.page.rev, rev: l.page.rev })) };   // 0.18.0 CU-1: count は名前の直しの直した数。点検 3（CR106）: rev は読んだ時のページの版
 }
 
 // page.claudeRevert（役 app）: 控え sid の形にページを戻す（利用者の新しい書き込み: actor me・1つの命令）。控えにある欄だけを diffPage・diffSegments の差で
-// 書き、戻した控えとそれより新しい控えを消す（CR11）。断る（bad-args）: 無い・ゴミ箱のページ・録音中の写し・ゴミ箱のデータベースの行・そのページに無い控え
+// 書き、戻した控えとそれより新しい控えを消す（CR11）。断る（bad-args）: 無い・ゴミ箱のページ・録音中の写し・ゴミ箱のデータベースの行・そのページに無い控え。
+// 点検 3（CR106）: rev（利用者が確かめた時に page.claudeSnaps で読んだページの版）を渡したら、今の版と違えば stale（確かめの後に Claude か利用者が書いた）
 function claudeRevert(db, a, ctx) {
   const me = db.prepare(HOT_QUERIES.dbRow).get(a.id);
   const w = me ? forWrite(db, a.id) : null;
   if (!w || isLive(w.was.page)) throw refuse('bad-args');
+  if (a.rev !== undefined && a.rev !== w.was.page.rev) throw refuse('stale');
   const host = me.parent_id ? dbOf(db, me.parent_id) : null;
   if (me.type === 'row' && !host) throw refuse('bad-args');   // データベースのゴミ箱の行
   const snap = db.prepare(HOT_QUERIES.snapOne).get(a.sid, a.id);
@@ -3604,14 +3606,15 @@ function mcpUpdateRow(db, a, ctx) {
     if (a.title !== undefined) ops.push(...cellOps(r, TITLE_COL, a.title));
     for (const [k, v] of Object.entries(plain)) ops.push(...cellOps(r, colIn(d.cols, k), v));
     if (ops.length) { ops.push(...touchOps(r, ctx)); applyOps(db, ops); }
-    const pageIds = new Set(ops.length ? [a.id, d.id] : []);
+    // 点検 3（CR107）: 知らせの頭はいつも直した行（画面の［戻す］が頭のページを戻す: CR97）。リレーションだけを直したときも、データベースより先に
+    const pageIds = new Set([a.id, d.id]);
     for (const [colId, ids] of rels) {
       const e = setRelCell(db, d, a.id, colId, ids, ctx);
       ops.push(...e.ops);
       for (const p of e.pageIds) pageIds.add(p);
     }
     const now = db.prepare(HOT_QUERIES.dbRow).get(a.id);
-    return { ops, pageIds: [...pageIds], what: 'row', result: { title: now.text, db: d.id } };
+    return { ops, pageIds: ops.length ? [...pageIds] : [], what: 'row', result: { title: now.text, db: d.id } };
   }, ctx);
 }
 // 列の値の見せる文字（dbDump の行と同じ: 題名の列のほかで、空でないもの）→ [[列の名前, 文字]]
@@ -3772,7 +3775,7 @@ const DEFS = {
     run: pageRestore, dupResult: (db) => listPages(db) },
   // 0.18.0 CW-1（決めたこと 12・14・AQ5 (a)）: Claude の変更の控えの一覧と戻す（役 app だけ。Claude（役 mcp）は戻せない。元に戻すの歩みにしない）
   'page.claudeSnaps': { roles: ['app'], write: false, args: { id: 'id' }, run: claudeSnaps },
-  'page.claudeRevert': { roles: ['app'], write: true, args: { id: 'id', sid: 'num' }, run: claudeRevert, dupResult: reread },
+  'page.claudeRevert': { roles: ['app'], write: true, args: { id: 'id', sid: 'num', rev: 'num?' }, run: claudeRevert, dupResult: reread },   // 点検 3（CR106）: rev
   // 0.18.0 CS-2（決めたこと 17〜22）: Claude の要約の書き戻し（役 mcp だけ: CR42）
   'mcp.writeSummary': { roles: ['mcp'], write: true, args: { pageId: 'id', baseRev: 'int', md: 'mdText', meetingType: 'meetingTypeSel?' }, run: mcpWriteSummary, dupResult: writeSummaryDup },
   // 0.18.0 CS-3（決めたこと 23〜26）: Claude の名前の直し（役 mcp だけ）。送り直しの答えは counts: null（直した後なので当たりは数え直さない: CR61）

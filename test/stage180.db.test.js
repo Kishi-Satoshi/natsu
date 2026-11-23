@@ -336,7 +336,9 @@ test('CW-1・F234: page.claudeSnaps は新しい順（sid・at・what・later）
   const at2 = new Date(clock).toISOString();
   const rids = snapRows(db, id).map((x) => x.rid);
   const list = ok(call(db, 'page.claudeSnaps', { id }), 'snaps').result;
-  assert.deepStrictEqual(list, [{ sid: rids[1], at: at2, what: 'names', later: false }, { sid: rids[0], at: at1, what: 'summary', later: true }]);
+  // 点検 3（CR106）で意図して直した: 行に読んだ時のページの版（rev）を足した（page.claudeRevert に渡して、確かめの後の変わりを見分ける）
+  const rev = C.readPage(db, id).rev;
+  assert.deepStrictEqual(list, [{ sid: rids[1], at: at2, what: 'names', later: false, rev }, { sid: rids[0], at: at1, what: 'summary', later: true, rev }]);
   ok(call(db, 'page.setTitle', { id, title: '利用者が付け直した題' }), 'setTitle');   // 利用者が付け直した題名（D77）
   assert.deepStrictEqual(ok(call(db, 'page.claudeSnaps', { id }), 'snaps').result.map((x) => x.later), [true, true], '後で書いても later が偽');
   for (const role of ['mcp', 'main']) assert.strictEqual(core.call(db, { role, cmd: 'page.claudeSnaps', args: { id } }, { now }).code, 'forbidden', role);
@@ -1387,4 +1389,44 @@ test('CU-1・F234: page.claudeSnaps の名前の直しの行に count（直し�
   // 戻しても count の欄はページに入らない（控えにある欄だけを戻す）
   ok(call(db, 'page.claudeRevert', { id, sid: list[0].sid }), 'revert');
   assert.ok(!Object.hasOwn(C.readPage(db, id), 'count'), '戻したページに count が入った');
+}));
+
+// ---------------------------------------------------------------- 点検 3（2026-11-23。CR106〜。持ち主の決まり「実装中の確かめは Notion に合わせるかおすすめを選ぶ」）
+test('CU-1・点検 3・F234: page.claudeSnaps の行は今のページの版（rev）を持つ。page.claudeRevert に確かめた時の版（rev）を渡すと、その後に Claude か利用者が書いていれば stale で断り何も変えない（控えも残る）。今の版なら戻る。rev を渡さなければ今どおり', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  ok(claudeWrite(db, { pageId: id, what: 'summary', fn: 'block', blockId: `${id}b2`, text: '一回目' }), 'w1');
+  const s = ok(call(db, 'page.claudeSnaps', { id }), 'snaps').result[0];
+  assert.strictEqual(s.rev, C.readPage(db, id).rev, 'page.claudeSnaps の行に今の版が無い');
+  // 確かめている間に Claude が書いた
+  ok(claudeWrite(db, { pageId: id, what: 'names', fn: 'block', blockId: `${id}b3`, text: '二回目' }), 'w2');
+  const page0 = JSON.stringify(C.readPage(db, id));
+  const r = call(db, 'page.claudeRevert', { id, sid: s.sid, rev: s.rev });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'stale'], '確かめた後に変わったページを戻した');
+  assert.strictEqual(JSON.stringify(C.readPage(db, id)), page0, '断ったのにページが変わった');
+  assert.strictEqual(snapRows(db, id).length, 2, '断ったのに控えを消した');
+  // 確かめている間に利用者が書いた（題名だけでも）
+  const s2 = ok(call(db, 'page.claudeSnaps', { id }), 'snaps2').result[1];
+  ok(call(db, 'page.setTitle', { id, title: '利用者が付け直した題' }), 'setTitle');   // 利用者が付け直した題名（D77）
+  assert.deepStrictEqual((({ ok: o, code }) => [o, code])(call(db, 'page.claudeRevert', { id, sid: s2.sid, rev: s2.rev })), [false, 'stale'], '利用者が書いた後に戻した');
+  // 読み直した今の版なら戻る
+  const s3 = ok(call(db, 'page.claudeSnaps', { id }), 'snaps3').result[1];
+  assert.strictEqual(s3.sid, s2.sid);
+  ok(call(db, 'page.claudeRevert', { id, sid: s3.sid, rev: s3.rev }), 'revert');
+  assert.deepStrictEqual(snapRows(db, id), [], '戻した控えと新しい控えを消していない');
+  // rev を渡さない（今の形）は版を見ない
+  ok(claudeWrite(db, { pageId: id, what: 'summary', fn: 'block', blockId: `${id}b2`, text: '三回目' }), 'w3');
+  ok(call(db, 'page.setTitle', { id, title: '後の題' }), 'setTitle2');   // 利用者が付け直した題名（D77）
+  ok(call(db, 'page.claudeRevert', { id, sid: snapRows(db, id)[0].rid }), 'revert(rev なし)');
+}));
+
+test('CU-1・点検 3・CR97: Claude の mcp.updateRow の知らせ（changed.pageIds）の頭はいつも直した行のページ（リレーションだけを直したときも。データベース・相手の行は後ろ）。何も変えなければ知らせない', T, () => withDb((db) => {
+  const x = rowDb(db);
+  const id = ok(addRow(db, { db: x.d, title: '前の題', cells: { 関連: [x.ra] } }), 'mcp.addRow').result.id;   // D77: データベースの行の題名
+  const rel = ok(mcp(db, 'mcp.updateRow', { id, cells: { 関連: [x.rb] } }), 'リレーションだけ');
+  assert.strictEqual(rel.changed.pageIds[0], id, `頭が直した行でない: ${JSON.stringify(rel.changed.pageIds)}`);
+  assert.ok(rel.changed.pageIds.includes(x.d) && rel.changed.pageIds.includes(x.rb), 'データベース・相手の行が知らせに無い');
+  assert.strictEqual(new Set(rel.changed.pageIds).size, rel.changed.pageIds.length, '知らせに重なり');
+  const both = ok(mcp(db, 'mcp.updateRow', { id, title: '新しい題', cells: { 関連: [x.ra] } }), '題名とリレーション');   // D77: データベースの行の題名
+  assert.strictEqual(both.changed.pageIds[0], id);
+  assert.strictEqual(ok(mcp(db, 'mcp.updateRow', { id, cells: { 関連: [x.ra] } }), '同じ値').changed, undefined, '何も変えないのに知らせた');
 }));

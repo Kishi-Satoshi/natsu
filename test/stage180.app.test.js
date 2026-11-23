@@ -46,8 +46,9 @@ const AT3 = '2026-11-18T01:45:00.000Z';
 const SUM_MD = '## 決めたこと\n- 予算案は来月に回す';
 
 // 見本: 議事録 pm1（要約・ToDo・発言。担当A の名前）・白紙のページ（本文に1行）・データベース「名簿」と行1つ（本文に1行）
-async function seeded() {
+async function seeded(returns) {
   return realApp({
+    ...(returns ? { returns } : {}),
     seed: (t) => { const { page, segments } = samplePage('pm1'); t.seed(page, segments); },
     before: (call) => {
       const B = call('page.create', {}).id;
@@ -224,7 +225,8 @@ test('CU-1・F234: #claudePop の行（時刻・道具の言葉・数。新し�
   } finally { l.done(); }
 });
 
-test('CU-1・F234: ［この前に戻す］→ 後で直した所がある控え（later）は確かめの文が違う。いいえで呼ばない・はいで pageClaudeRevert(id, sid) の1回 → 読み直して「戻しました」', T, async () => {
+// 点検 3（CR106）で意図して直した: pageClaudeRevert に確かめた時のページの版（rev）を渡す（id, sid, rev）
+test('CU-1・F234: ［この前に戻す］→ 後で直した所がある控え（later）は確かめの文が違う。いいえで呼ばない・はいで pageClaudeRevert(id, sid, rev) の1回 → 読み直して「戻しました」', T, async () => {
   const l = await seeded();
   try {
     threeWrites(l);
@@ -246,7 +248,7 @@ test('CU-1・F234: ［この前に戻す］→ 後で直した所がある控え
     assert.strictEqual($(l, 'claudePop').hidden, false, 'いいえで窓が閉じた');
     yes = true;
     await clickEl(l, popBtns(l)[1], 240);
-    assert.deepStrictEqual(l.called('pageClaudeRevert').map((c) => c.args), [['pm1', snaps[1].sid]], 'はいで戻す命令が1回でない');
+    assert.deepStrictEqual(l.called('pageClaudeRevert').map((c) => c.args), [['pm1', snaps[1].sid, snaps[1].rev]], 'はいで戻す命令が1回でない');
     assert.strictEqual($(l, 'claudePop').hidden, true, '戻したら窓を閉じる');
     assert.strictEqual(toastOf(l), '戻しました');
     // 名前を直す前の形（要約の書き戻しも戻る: その後の控え）。画面も読み直した
@@ -266,12 +268,13 @@ test('CU-1・F244: 左下の知らせの［戻す］は、そのページの一�
     await open(l, 'pm1');
     const s = claude(l, 'mcp.writeSummary', { pageId: 'pm1', baseRev: revOf(l, 'pm1'), md: SUM_MD }, AT3);
     l.fire('onClaudeWrote', s.wrote); await l.drain(200);
-    const sid = l.call('page.claudeSnaps', { id: 'pm1' })[0].sid;
+    const { sid, rev } = l.call('page.claudeSnaps', { id: 'pm1' })[0];
     const asked = [];
     l.window.confirm = (m) => { asked.push(m); return true; };
     await clickEl(l, toastBtn(l), 240);
     assert.deepStrictEqual(asked, [`Claude が${hm(AT3)}に要約を書き戻した前の形に戻します。よろしいですか？`]);
-    assert.deepStrictEqual(l.called('pageClaudeRevert').map((c) => c.args), [['pm1', sid]]);
+    // 点検 3（CR106）で意図して直した: 確かめた時のページの版（rev）も渡す
+    assert.deepStrictEqual(l.called('pageClaudeRevert').map((c) => c.args), [['pm1', sid, rev]]);
     assert.ok(rowsOf(l).some((e) => e.dataset.id === 'b2'), '戻した形を描いていない');
     assert.strictEqual(toastOf(l), '戻しました');
     assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -301,7 +304,312 @@ test('CU-1・F244: 0.14.0 の Ctrl+Z: 自分で直した要約の行を Claude �
   } finally { l.done(); }
 });
 
+// ---------------------------------------------------------------- 点検 3（2026-11-23。CR106〜CR114。持ち主の決まり「実装中の確かめは Notion に合わせるかおすすめを選ぶ」）
+const ASK = (at, words) => `Claude が${hm(at)}に${words}前の形に戻します。よろしいですか？`;
+const ASK_LATER = (at, words) => `Claude が${hm(at)}に${words}前の形に戻します。この後の Claude の変更と、あなたの直しも戻ります。よろしいですか？`;
+const BACK_BAD = 'Claude の変更を戻せませんでした。';
+const openPop = async (l) => { await clickEl(l, $(l, 'pMore'), 40); await clickEl(l, moreItem(l, UNDO_ITEM), 200); };
+const toasts = (l) => {
+  const te = $(l, 'toast');
+  let cur = te.textContent;
+  const seen = [];
+  Object.defineProperty(te, 'textContent', { configurable: true, get: () => cur, set: (v) => { cur = v; seen.push(String(v)); } });
+  return seen;
+};
+const memoRow = (l, id) => $(l, 'pMemo').querySelectorAll('.blk').find((e) => e.dataset.id === id);
+const segTxt = (l, id) => $(l, 'pScript').querySelectorAll('.seg').find((e) => e.dataset.seg === id).querySelector('.txt');
+
+test('CU-1・点検 3・F234: 窓を開いている間に Claude が同じページに書いたら（claude:wrote）、窓の行を読み直して描き直す。前からある行の確かめは「後で直した所」の文', T, async () => {
+  const l = await seeded();
+  try {
+    await open(l, 'pm1');
+    const a = claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    l.fire('onClaudeWrote', a.wrote); await l.drain(200);
+    await openPop(l);
+    assert.deepStrictEqual(popRows(l).map((r) => r.querySelector('.tpt').textContent), [`${hm(AT1)} ToDo を更新した`], '前提: 窓の行');
+    const n = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2);
+    l.fire('onClaudeWrote', n.wrote); await l.drain(200);
+    assert.strictEqual($(l, 'claudePop').hidden, false, '窓が閉じた');
+    assert.deepStrictEqual(popRows(l).map((r) => r.querySelector('.tpt').textContent.replace(/（\d+ か所）$/, '')), [`${hm(AT2)} 名前を直した`, `${hm(AT1)} ToDo を更新した`], '窓の行を読み直していない');
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); return false; };
+    await clickEl(l, popBtns(l)[1]);
+    assert.deepStrictEqual(asked, [ASK_LATER(AT1, 'ToDo を更新した')], '前からある行の確かめが「後で直した所」の文でない');
+    assert.deepStrictEqual(l.called('pageClaudeRevert'), []);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・F234: ［この前に戻す］は控えを読み直してから確かめる: 窓を開いた後に利用者が書いたら「後で直した所」の文。控えが無くなっていたら確かめずに「Claude の変更を戻せませんでした。」', T, async () => {
+  const l = await seeded();
+  try {
+    claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    await open(l, 'pm1');
+    await openPop(l);
+    l.call('page.setTitle', { id: 'pm1', title: '後で付けた題' });   // 窓を開いた後にほかの所で書いた（D77 の外。試しの字）
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); return false; };
+    await clickEl(l, popBtns(l)[0]);
+    assert.deepStrictEqual(asked, [ASK_LATER(AT1, 'ToDo を更新した')], '開いた時の控えのまま確かめた');
+    // 窓を開いている間に控えが無くなった（ほかの所で戻した）
+    const sid = l.call('page.claudeSnaps', { id: 'pm1' })[0].sid;
+    l.call('page.claudeRevert', { id: 'pm1', sid });
+    await clickEl(l, popBtns(l)[0], 200);
+    assert.strictEqual(asked.length, 1, '無い控えで確かめた');
+    assert.deepStrictEqual(l.called('pageClaudeRevert'), [], '無い控えで戻す命令を送った');
+    assert.strictEqual(toastOf(l), BACK_BAD);
+    assert.strictEqual($(l, 'claudePop').hidden, true, '控えが無くなったのに窓を開いたまま');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・F234: 確かめている間に Claude が書いたら、DB が古い版（rev）を stale で断り、読み直して「後で直した所」の文でもう一度確かめる（窓の［この前に戻す］と左下の［戻す］）', T, async () => {
+  // 窓
+  let l = await seeded();
+  try {
+    claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    await open(l, 'pm1');
+    await openPop(l);
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); if (asked.length === 1) claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2); return true; };
+    const sid = l.call('page.claudeSnaps', { id: 'pm1' })[0].sid;
+    await clickEl(l, popBtns(l)[0], 300);
+    assert.deepStrictEqual(asked, [ASK(AT1, 'ToDo を更新した'), ASK_LATER(AT1, 'ToDo を更新した')], '確かめの間の Claude の書き込みを言わずに戻した');
+    const calls = l.called('pageClaudeRevert').map((c) => c.args);
+    assert.deepStrictEqual(calls.map((c) => c.slice(0, 2)), [['pm1', sid], ['pm1', sid]]);
+    assert.ok(calls.every((c) => Number.isSafeInteger(c[2])) && calls[0][2] !== calls[1][2], `確かめた版を渡していない: ${JSON.stringify(calls)}`);
+    assert.strictEqual(toastOf(l), '戻しました');
+    const page = l.call('page.get', { id: 'pm1' }).page;
+    assert.ok(page.blocks.some((b) => b.id === 'b4' && b.checked === false && b.assignee === '担当A'), '戻っていない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  // 左下の［戻す］
+  l = await seeded();
+  try {
+    await open(l, 'pm1');
+    const s = claude(l, 'mcp.writeSummary', { pageId: 'pm1', baseRev: revOf(l, 'pm1'), md: SUM_MD }, AT3);
+    l.fire('onClaudeWrote', s.wrote); await l.drain(200);
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); if (asked.length === 1) claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2); return asked.length === 1; };
+    await clickEl(l, toastBtn(l), 300);
+    assert.deepStrictEqual(asked, [ASK(AT3, '要約を書き戻した'), ASK_LATER(AT3, '要約を書き戻した')], '確かめの間の Claude の書き込みを言わずに戻した');
+    assert.strictEqual(l.called('pageClaudeRevert').length, 1, '2回目の確かめで「いいえ」なのに戻した');
+    assert.ok(JSON.stringify(l.call('page.get', { id: 'pm1' }).page.blocks).includes('予算案は来月に回す'), '断ったのに戻した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・F244: メモの打ちかけは、Claude が直した今のメモの上に行ごとに載せて送る（Claude が直したほかの行を戻さない）。打っていた行を Claude が直していたら、Claude の文のままにして「…打ちかけの文は入りませんでした」', T, async () => {
+  const l = await seeded();
+  try {
+    l.call('page.setMemoDoc', { id: 'pm1', doc: [{ id: 'm1', type: 'paragraph', text: '担当Aの議題' }, { id: 'm2', type: 'paragraph', text: '二つ目の行' }] });
+    await open(l, 'pm1');
+    $(l, 'paneBtnMemo').onclick(); await l.drain();
+    const memoOf = () => l.call('page.get', { id: 'pm1' }).page.memoDoc.map((b) => [b.id, b.text]);
+    // ほかの行の打ちかけ: Claude の直しの上に載る
+    let t = memoRow(l, 'm2')._txt;
+    t.focus(); t.textContent = '二つ目の行に足した';
+    const n1 = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2);
+    assert.ok(n1.result.counts.memo > 0, '前提: メモを直した');
+    l.fire('onClaudeWrote', n1.wrote); await l.drain(200);
+    assert.deepStrictEqual(memoOf(), [['m1', '担当Bの議題'], ['m2', '二つ目の行に足した']], 'Claude が直したメモの行を戻した・打ちかけが入らない');
+    assert.match(toastOf(l), /を書き換えました（名前を直した）戻す$/);
+    // 打っていた行を Claude が直した: Claude の文のまま
+    t = memoRow(l, 'm1')._txt;
+    t.focus(); t.textContent = '担当Bの議題を直す';
+    const n2 = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当B', to: '担当C' }] }, AT3);
+    l.fire('onClaudeWrote', n2.wrote); await l.drain(200);
+    assert.deepStrictEqual(memoOf(), [['m1', '担当Cの議題'], ['m2', '二つ目の行に足した']], 'Claude が直した行を打ちかけで黙って上書きした');
+    assert.strictEqual(toastOf(l), `${LOST}戻す`);
+    assert.strictEqual(memoRow(l, 'm1')._txt.textContent, '担当Cの議題', '画面が Claude の文でない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・F244: 要約の行・文字起こしの行の打ちかけを、Claude がその行の中で直していたら（名前の直し）、Claude の文のままにして「…打ちかけの文は入りませんでした」。直していない行の打ちかけは入る', T, async () => {
+  const l = await seeded();
+  try {
+    await open(l, 'pm1');
+    let t = txtOf(l, 'b2'); t.focus(); t.textContent = '来月の予算案の作成を担当Aが進める（確認）';
+    t = txtOf(l, 'b3'); t.focus(); t.textContent = '了解しました';
+    const n1 = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2);
+    l.fire('onClaudeWrote', n1.wrote); await l.drain(200);
+    const textOf = (id) => l.call('page.get', { id: 'pm1' }).page.blocks.find((b) => b.id === id).text;
+    assert.deepStrictEqual([textOf('b2'), textOf('b3')], ['来月の予算案の作成を担当Bが進める', '了解しました'], 'Claude が直した要約の行を打ちかけで上書きした・直していない行の打ちかけが入らない');
+    assert.strictEqual(toastOf(l), `${LOST}戻す`);
+    // 文字起こし
+    $(l, 'paneBtnScript').onclick(); await l.drain();
+    // 偽 DOM の focus・blur は受け口を呼ばないので、本物と同じく呼ぶ（直している印 .editing と、blur での保存）
+    t = segTxt(l, 's2'); t.focus(); t.onfocus(); t.blur = () => t.onblur(); t.textContent = '来月の予算案の作成は担当Bさんが進めることにしました（追記）';
+    const n2 = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当B', to: '担当C' }] }, AT3);
+    l.fire('onClaudeWrote', n2.wrote); await l.drain(200);
+    const seg = l.call('page.get', { id: 'pm1' }).segments.find((x) => x.id === 's2').text;
+    assert.strictEqual(seg, '来月の予算案の作成は担当Cさんが進めることにしました', 'Claude が直した発言を打ちかけで上書きした');
+    assert.strictEqual(toastOf(l), `${LOST}戻す`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3: 打ちかけを送っている間に claude:wrote が続けて2つ来ても投げず、知らせはどちらも出る（1つずつ順に）', T, async () => {
+  const l = await seeded();
+  try {
+    await open(l, 'pm1');
+    const title = l.call('page.get', { id: 'pm1' }).page.title;
+    const t = txtOf(l, 'b3'); t.focus(); t.textContent = '了解しました';
+    const seen = toasts(l);
+    const a = claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    const n = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2);
+    l.fire('onClaudeWrote', a.wrote);
+    l.fire('onClaudeWrote', n.wrote);
+    await l.drain(400);
+    assert.deepStrictEqual(l.errors.map(fmt), [], '続けて来た知らせで投げた');
+    assert.deepStrictEqual(seen, [`Claude が「${title}」を書き換えました（ToDo を更新した）`, `Claude が「${title}」を書き換えました（名前を直した）`]);
+    assert.ok(l.call('page.get', { id: 'pm1' }).page.blocks.some((b) => b.id === 'b3' && b.text === '了解しました'), '打ちかけが入らない');
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3: #claudePop の間は Ctrl+W・Ctrl+Tab・Ctrl+P・Ctrl+\\・Ctrl+Shift+N・Ctrl+Shift+U で後ろを替えない・閉じない・開かない（ゴミ箱の窓と同じ）。窓は説明を aria-describedby で指す（ゴミ箱の窓も）', T, async () => {
+  const l = await seeded();
+  try {
+    const { B } = l.made;
+    const K = l.call('page.create', { parentId: B }).id;   // 親のある白紙のページ（Ctrl+Shift+U で親へ移れる）
+    claude(l, 'mcp.appendPage', { pageId: K, md: '- 書き足した行' }, AT1);
+    await open(l, 'pm1');
+    $(l, 'plist').querySelectorAll('.pitem').find((r) => r.dataset.pid === B).dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain(120);
+    await open(l, K);
+    const tabs = () => $(l, 'tabbar').querySelectorAll('.tabitem').map((x) => x.dataset.key);
+    const before = tabs();
+    assert.strictEqual(before.length, 2, `前提: タブが2つ: ${before}`);
+    const act0 = $(l, 'tabbar').querySelector('.tabitem.active').dataset.key;
+    await openPop(l);
+    assert.strictEqual($(l, 'claudePop').hidden, false, '前提: 窓');
+    const side0 = $(l, 'sideExpand').hidden;
+    const g0 = l.called('pageGet').length;
+    for (const k of [{ key: 'w', code: 'KeyW', ctrlKey: true }, { key: 'Tab', code: 'Tab', ctrlKey: true }, { key: 'p', code: 'KeyP', ctrlKey: true }, { key: '\\', code: 'Backslash', ctrlKey: true },
+      { key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true }, { key: 'U', code: 'KeyU', ctrlKey: true, shiftKey: true }]) { l.key(k); await l.drain(); }
+    assert.deepStrictEqual(tabs(), before, '窓の後ろのタブを閉じた');
+    assert.strictEqual($(l, 'tabbar').querySelector('.tabitem.active').dataset.key, act0, '窓の後ろのタブを替えた');
+    assert.strictEqual($(l, 'palette').hidden, true, '窓の上に検索の窓を開いた');
+    assert.strictEqual($(l, 'sideExpand').hidden, side0, '窓の後ろのサイドバーを畳んだ');
+    assert.strictEqual($(l, 'newPop').hidden, true, '窓の間に「新しいページ」を開いた');
+    assert.strictEqual(l.called('pageGet').length, g0, '窓の間にほかのページへ移った');
+    assert.strictEqual($(l, 'claudePop').hidden, false, '窓が閉じた');
+    assert.strictEqual($(l, $(l, 'claudePop').getAttribute('aria-describedby')).textContent, NOTE, '窓の説明を指していない');
+    assert.strictEqual($(l, 'trashPop').getAttribute('aria-describedby'), 'trashNote', 'ゴミ箱の窓の説明を指していない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・CR100: Claude の書き込みの読み直しで、見ていた欄（文字起こし・メモ）のまま', T, async () => {
+  const l = await seeded();
+  try {
+    await open(l, 'pm1');
+    $(l, 'paneBtnScript').onclick(); await l.drain();
+    const a = claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    l.fire('onClaudeWrote', a.wrote); await l.drain(200);
+    assert.strictEqual($(l, 'paneBtnScript').getAttribute('aria-selected'), 'true', '読み直しで［AI 要約］の欄へ移った');
+    $(l, 'paneBtnMemo').onclick(); await l.drain();
+    const n = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2);
+    l.fire('onClaudeWrote', n.wrote); await l.drain(200);
+    assert.strictEqual($(l, 'paneBtnMemo').getAttribute('aria-selected'), 'true', '読み直しで［AI 要約］の欄へ移った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・CR102: 窓を開くときと左下の［戻す］は、打ちかけを送り終えてから控えを読む（窓: 行の文の保存の後に page.claudeSnaps・［戻す］: 確かめは「後で直した所」の文）', T, async () => {
+  let l = await seeded();
+  try {
+    claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    await open(l, 'pm1');
+    const t = txtOf(l, 'b3'); t.focus(); t.textContent = '了解しました';
+    const c0 = l.calls.length;
+    await openPop(l);
+    const order = l.calls.slice(c0).map((c) => c.method).filter((m) => m === 'blockUpdate' || m === 'pageClaudeSnaps');
+    assert.deepStrictEqual(order.slice(0, 2), ['blockUpdate', 'pageClaudeSnaps'], `打ちかけを送る前に控えを読んだ: ${order}`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  l = await seeded();
+  try {
+    await open(l, 'pm1');
+    const s = claude(l, 'mcp.writeSummary', { pageId: 'pm1', baseRev: revOf(l, 'pm1'), md: SUM_MD }, AT3);
+    l.fire('onClaudeWrote', s.wrote); await l.drain(200);
+    const row = rowsOf(l)[1];
+    const t = row.querySelector('.txt'); t.focus(); t.textContent = `${t.textContent}（直した）`;
+    const asked = [];
+    l.window.confirm = (m) => { asked.push(m); return false; };
+    await clickEl(l, toastBtn(l), 240);
+    assert.deepStrictEqual(asked, [ASK_LATER(AT3, '要約を書き戻した')], '打ちかけを送る前に控えを読んだ（あなたの直しも戻ることを言わない）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・CR98: 戻す命令が断られたら（Claude の変更を戻せないとき）、左下に「Claude の変更を戻せませんでした。」', T, async () => {
+  const l = await seeded({ pageClaudeRevert: () => Promise.reject(new Error('bad-args')) });
+  try {
+    claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    await open(l, 'pm1');
+    await openPop(l);
+    l.window.confirm = () => true;
+    await clickEl(l, popBtns(l)[0], 240);
+    assert.strictEqual(l.called('pageClaudeRevert').length, 1, '前提: 戻す命令を送った');
+    assert.strictEqual(toastOf(l), BACK_BAD);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・CR103: 道具の印の無い知らせ（決まった8つの外の what）は、開いているページを読み直すだけで、左下に知らせを出さない', T, async () => {
+  const l = await seeded();
+  try {
+    await open(l, 'pm1');
+    const seen = toasts(l);
+    const g0 = l.called('pageGet').length;
+    l.fire('onClaudeWrote', { pageIds: ['pm1'], what: 'zzz' }); await l.drain(200);
+    l.fire('onClaudeWrote', { pageIds: ['pm1'] }); await l.drain(200);
+    assert.ok(l.called('pageGet').length > g0, '開いているページを読み直していない');
+    assert.deepStrictEqual(seen, [], '道具の印の無い知らせで左下に出した');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・CR96: 飾りのある行の打ちかけも、Claude が行を作り直していて書けなければ「…打ちかけの文は入りませんでした」', T, async () => {
+  const l = await seeded();
+  try {
+    l.call('block.update', { pageId: 'pm1', blockId: 'b3', patch: { rich: [{ t: '了解', m: ['b'] }] } });
+    await open(l, 'pm1');
+    const t = txtOf(l, 'b3'); t.focus(); t.textContent = '了解しました';
+    const s = claude(l, 'mcp.writeSummary', { pageId: 'pm1', baseRev: revOf(l, 'pm1'), md: SUM_MD }, AT3);
+    l.fire('onClaudeWrote', s.wrote); await l.drain(200);
+    assert.ok(l.called('blockUpdate').some((c) => c.args[1] === 'b3' && c.args[2] && Array.isArray(c.args[2].rich)), '前提: 飾りのある行の形（rich）で送った');
+    assert.strictEqual(toastOf(l), `${LOST}戻す`);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('CU-1・点検 3・F234: #claudePop の Tab・Shift+Tab は窓の中で回る（最後の［この前に戻す］の次は最初・最初の前は最後）。控えが無くなっていたら窓を開かず「Claude の変更を戻せませんでした。」', T, async () => {
+  const l = await seeded();
+  try {
+    threeWrites(l);
+    await open(l, 'pm1');
+    await openPop(l);
+    const btns = popBtns(l);
+    btns[2].focus();
+    const e1 = l.key({ key: 'Tab' }, $(l, 'claudeList')); await l.drain();
+    assert.ok(e1.defaultPrevented && active(l) === btns[0], '最後の次が最初でない');
+    const e2 = l.key({ key: 'Tab', shiftKey: true }, $(l, 'claudeList')); await l.drain();
+    assert.ok(e2.defaultPrevented && active(l) === btns[2], '最初の前が最後でない');
+    l.key({ key: 'Escape' }, $(l, 'claudeList')); await l.drain();
+    // ほかの所で全部戻した後に「···」の項目を押す
+    const snaps = l.call('page.claudeSnaps', { id: 'pm1' });
+    l.call('page.claudeRevert', { id: 'pm1', sid: snaps[snaps.length - 1].sid });
+    await openPop(l);
+    assert.strictEqual($(l, 'claudePop').hidden, true, '控えが無いのに窓を開いた');
+    assert.strictEqual(toastOf(l), BACK_BAD, '控えが無くなっていたのに何も言わない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 // ---------------------------------------------------------------- CH-1（決めたこと 52）
+// 0.18.0 点検 3（持ち主の答え AQ46「「行の追加と直し」に直す（おすすめ）」）で意図して直した: 吹き出しの1行目の「データベースへの行の追加」を「データベースへの行の追加と直し」に
 test('CH-1: 設定のカード「Claude との連携（MCP）」の頭の1行と、吹き出しの2行（決めたこと 52）。行の名前「Claude デスクトップから読む」と注意の1行は今のまま', T, async () => {
   const l = await seeded();
   try {
@@ -310,7 +618,7 @@ test('CH-1: 設定のカード「Claude との連携（MCP）」の頭の1行と
     assert.deepStrictEqual(lead, ['Claude デスクトップから議事録を読み、頼んだときは書き戻せるようにします。', '※ 読んだ議事録は Claude（Anthropic）へ送られます。']);
     const items = $(l, 'setPopMcp').querySelectorAll('li').map((li) => li.textContent);
     assert.deepStrictEqual(items.slice(0, 3), [
-      'Claude は、頼んだときだけ、要約の書き戻し・名前の直し・ToDo とタスクの更新・白紙のページへの書き込み・データベースへの行の追加をします（消すことはしません）。書き換えは、ページの「···」の［Claude の変更を戻す］で戻せます。',
+      'Claude は、頼んだときだけ、要約の書き戻し・名前の直し・ToDo とタスクの更新・白紙のページへの書き込み・データベースへの行の追加と直しをします（消すことはしません）。書き換えは、ページの「···」の［Claude の変更を戻す］で戻せます。',
       'NaTsu を閉じている間は、Claude は読むだけで、書けません。',
       'Claude に頼むと、Claude が読んだ議事録の題名・要約・メモ・文字起こしは、Claude（Anthropic）へ送られます（オフラインモードで録った会議も同じです）。',
     ]);
