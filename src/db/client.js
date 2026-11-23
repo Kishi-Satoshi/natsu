@@ -32,7 +32,8 @@
  *   close({ timeoutMs = 3000 }): 止めた印を立て、{ type: 'close' } を送って closed（か終わり）を待ち、kill() してその終わりを待つ。
  *     待ちはどれも timeoutMs まで。後の頼みは db-down。
  *   onEvent に渡すもの: { type: 'lost', code } / { type: 'down', why: 'crash' | 'failed' } / { type: 'migrate-plan', counts, auto }
- *     / { type: 'progress', done, total } / { type: 'changed', pageIds, actor }（DB が全部の口に流す知らせ。自分の口に来たもの）
+ *     / { type: 'progress', done, total } / { type: 'changed', pageIds, actor, what? }（DB が全部の口に流す知らせ。自分の口に来たもの。what は Claude の命令の
+ *     道具の印: 0.18.0 CU-1）
  *   子の { type: 'log', line } は log(line) に渡す（engine.log へ）。子の 'error'（Electron の FatalError など）は記録だけ
  *   （「DB: 子の致命的な失敗（型）」。起こし直しは 'exit' で決める）。
  */
@@ -111,7 +112,7 @@ function makeDbClient({ fork, Channel, serverPath, init = {}, log = () => {}, ti
   function onReply(data) {
     if (!data || typeof data !== 'object') return;
     if (typeof data.event === 'string') {
-      if (data.event === 'changed') emit({ type: 'changed', pageIds: data.pageIds, actor: data.actor });
+      if (data.event === 'changed') emit({ type: 'changed', pageIds: data.pageIds, actor: data.actor, ...(typeof data.what === 'string' ? { what: data.what } : {}) });   // 0.18.0 CU-1: Claude の命令の道具の印
       return;
     }
     const e = entries.get(data.id);

@@ -227,6 +227,27 @@ const OPEN_TODO_TASK = `(async () => {
   if (document.activeElement !== bs[1]) throw new Error('［タスクにする］にフォーカスが入らない');
   return 1;
 })()`;
+// 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」）: 1行目のページを開き（題名が出るまで待つ）、ほかの手を続ける。
+// 手の中で待つ物が出なければ投げて「撮れない」の NG にする
+const OPEN_CLAUDE_AT = (then) => `(async () => {
+  document.querySelector('#plist .pitem').click();
+  const until = async (ok, what) => { for (let i = 0; i < 50 && !ok(); i++) await new Promise((r) => setTimeout(r, 100)); if (!ok()) throw new Error(what); };
+  await until(() => document.getElementById('pTitle').textContent !== '', 'ページが開かない');
+  const item = () => [...document.querySelectorAll('#pMenu .mitem')].find((b) => b.textContent === 'Claude の変更を戻す');
+  ${then}
+  return 1;
+})()`;
+// 0.18.0 CU-1: Claude が要約を書き戻した議事録（左下の知らせは events の claude:wrote）。［AI 要約］の欄
+const OPEN_CLAUDE_PAGE = OPEN_CLAUDE_AT(`document.getElementById('paneBtnNote').click();
+  await until(() => document.getElementById('toast').classList.contains('show'), '左下の知らせが出ない');`);
+// 0.18.0 CU-1: 控えのあるページの「···」（［削除］の前に［Claude の変更を戻す］）
+const OPEN_CLAUDE_MENU = OPEN_CLAUDE_AT(`document.getElementById('pMore').click();
+  await until(() => item(), '［Claude の変更を戻す］が無い');`);
+// 0.18.0 CU-1: ［Claude の変更を戻す］の窓（3 行）
+const OPEN_CLAUDE_POP = OPEN_CLAUDE_AT(`document.getElementById('pMore').click();
+  await until(() => item(), '［Claude の変更を戻す］が無い');
+  item().click();
+  await until(() => !document.getElementById('claudePop').hidden && document.querySelectorAll('#claudeList .tprow').length === 3, '窓が開かない');`);
 // 0.17.0 TK-1: いちばん上の「タスク管理」を開く（ビュー「マイタスク」）
 const OPEN_TASKS_DB = OPEN_DB_AT(`if (document.querySelector('#plist .pitem').dataset.pid !== 'pk0') throw new Error('「タスク管理」がいちばん上でない');`);
 // 0.17.0 LK-1: ロック中のデータベースを開いて「···」を開く（灰色の［削除］）。印と［削除］が無ければ投げて「撮れない」の NG にする
@@ -764,6 +785,13 @@ const SCREENS = [
   // 0.17.0 RT-2（計画 docs/plans/2026-11-13-170.md の「撮る画面」）: ［＋ 新しい行］の右の ▾ の窓（テンプレート2つ・既定の札・「空白のページ」・［＋ 新しいテンプレート］）
   { name: 'db-template-light', page: 'app', theme: 'light', get answers() { const a = dbAnswers(); return { ...a, 'koeApp.dbGet': { ...a['koeApp.dbGet'], tpls: { list: [{ id: 'rt1', title: '定例の見本' }, { id: 'rt2', title: '見積もりの見本' }], base: 'rt1', defaults: { v1: 'rt1' } } } }; }, act: OPEN_DB_TPL },
   { name: 'todo-task-light', page: 'app', theme: 'light', get answers() { return { 'koeApp.pageGet': { page: { ...PAGE, blocks: PAGE.blocks.map((b) => (b.id === 'b6' ? { ...b, task: 'rk1' } : b)) }, segments: SEGMENTS } }; }, act: OPEN_TODO_TASK },
+  // 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」・決めたこと 49〜51）: Claude が要約を書き戻した議事録（プロパティの行の「🤖 要約: Claude（本人）」と
+  // 左下の知らせ［戻す］）・控えのあるページの「···」（［削除］の前に［Claude の変更を戻す］）・［Claude の変更を戻す］の窓の明暗（3 行）。種に控えのあるページは
+  // この4枚の答えだけ（ほかの画面の種は控え無しのまま: pageClaudeSnaps の答えが無い）
+  { name: 'page-claude-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, events: [['onClaudeWrote', { pageIds: ['p1'], what: 'summary' }]], act: OPEN_CLAUDE_PAGE },
+  { name: 'page-menu-claude-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_MENU },
+  { name: 'claude-pop-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_POP },
+  { name: 'claude-pop-dark', page: 'app', theme: 'dark', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_POP },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -909,7 +937,9 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.17.0（版を 0.17.0 に上げる commit。Task G の後半: R103）: 持ち主が見比べ（新しい画面 14 枚・選びの窓の2枚・KQ6 の3枚の 19 枚）に「画面 OK（おすすめ）」（2026-11-17）と答え、
 // 持ち主が目で見ないほかの 127 枚は機械の確かめ（違いの所の一覧・はみ出し 0・揺れ 0・CSP の違反 0）で見たので、決めたこと 97 の直しの後の CI run 44186931475（af2de86）の
 // artifact 14374239081 の .after.png（146 枚: 違いのあった 132 枚と新しい 14 枚）をバイトのまま基準にし、空に戻した（基準は 235 枚）
-const RETAKE = new Set([]);
+// 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」）: Claude の要約の札と左下の知らせ・控えのあるページの「···」・［Claude の変更を戻す］の窓の明暗の
+// 4枚を足した（まだ基準が無い）。控えの無いページの「···」と札の無いページは今と同じ形なので、ほかの画面は変わらない（決めたこと 50・51）
+const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -1328,6 +1358,21 @@ function moveAnswers() {
 function lookAnswers(look) {
   const a = fixtures()['koeApp.pageGet'];
   return { 'koeApp.pageGet': { ...a, page: { ...a.page, look } } };
+}
+
+/**
+ * 0.18.0 CU-1（決めたこと 49〜51）: Claude が要約を書き戻した議事録（main が page:get に添える routeText の「🤖 要約: Claude（本人）」）と、その控え3つ
+ * （DB の page.claudeSnaps の形。新しい順: 要約を書き戻した・名前を直した（12 か所）・ToDo を更新した。時刻は止めた時計より前の決まった日）
+ */
+function claudeAnswers() {
+  return {
+    'koeApp.pageGet': { page: { ...PAGE, route: { summary: { by: 'claude' } }, routeText: lib.routeLabel({ summary: { by: 'claude' } }, '') }, segments: SEGMENTS },
+    'koeApp.pageClaudeSnaps': [
+      { sid: 3, at: '2026-10-17T01:20:00.000Z', what: 'summary', later: false },
+      { sid: 2, at: '2026-10-17T01:10:00.000Z', what: 'names', count: 12, later: true },
+      { sid: 1, at: '2026-10-17T01:05:00.000Z', what: 'action', later: true },
+    ],
+  };
 }
 
 /** 0.15.0 PH-6: ゴミ箱の頭の行（DB の pages.trash の形。消した新しい順。白紙のページは中のページ 3 つと一緒に・議事録は1つで） */

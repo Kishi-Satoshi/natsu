@@ -94,3 +94,21 @@ test('AQ41・CS-2: main は、設定「打ち合わせの質」を DB のプロ�
   assert.strictEqual(q[0], 'on', `起動で今の値を知らせていない: ${JSON.stringify(q)}`);
   assert.deepStrictEqual(q.filter((v, i) => i === 0 || v !== q[i - 1]), ['on', 'off', 'on'], `設定の保存で変わった値を知らせていない: ${JSON.stringify(q)}`);
 });
+
+// ---------------------------------------------------------------- CU-1（決めたこと 48・F244）
+// Claude の書き込みは、MCP のプロセスと同じ扉の客（src/mcp/door.js）で DB のプロセスの扉へ頼む（役 mcp・actor claude）。白紙のページの題名と本文は試しの字
+test('CU-1・F244: DB の changed（actor: claude）で本体の窓に claude:wrote（{ pageIds, what }）と pages:updated。actor me・system の changed では送らない（今の動きのまま）', T, async () => {
+  const o = await sceneRun(['text', `--mcp-steps=${JSON.stringify([
+    ['claude-door', 'mcp.createPage', { title: '次回の議題（試し）', md: '- 一つ目' }, 400],   // 白紙のページの題名（D77 の外。試しの字）
+    ['db-event', { type: 'changed', pageIds: ['pz1'], actor: 'me' }],
+    ['db-event', { type: 'changed', pageIds: ['pz1'], actor: 'system' }],
+  ])}`]);
+  const door = o.ipc.find(([k]) => k === 'door')[1];
+  assert.strictEqual(door.ok, true, `扉の頼みが通らない: ${JSON.stringify(door)}`);
+  const id = door.result.id;
+  const [claude, me, system] = o.wrote;
+  assert.deepStrictEqual(claude.map(([ch]) => ch), ['claude:wrote', 'pages:updated'], `Claude の書き込みの知らせ: ${JSON.stringify(claude)}`);
+  assert.deepStrictEqual(claude[0][1], { pageIds: [id], what: 'create' }, '窓へ渡す形（題名は送らない）');
+  assert.ok(claude[1][1].includes(id), '一覧に作ったページが無い');
+  assert.deepStrictEqual([me, system], [[], []], 'actor me・system の changed で窓へ送った');
+});

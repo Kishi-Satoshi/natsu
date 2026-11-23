@@ -405,6 +405,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   onMeetingLevel: (cb) => ipcRenderer.on('meeting:level', (_e, p) => cb(p)),
   onMeetingProgress: (cb) => ipcRenderer.on('meeting:progress', (_e, p) => cb(p)),
   onPagesUpdated: (cb) => ipcRenderer.on('pages:updated', (_e, p) => cb(p)),
+  // 0.18.0 CU-1（決めたこと 48・49）: Claude が書いた知らせ { pageIds, what }（what は道具の印。題名は画面が引く）
+  onClaudeWrote: (cb) => ipcRenderer.on('claude:wrote', (_e, m) => cb(m)),
   // 0.13.0 ED-5（EQ22 (a)）: ID の文字（前に出す）か { id, saved }（締めの保存の印）。2つ目は照らした真偽の1つだけ。形の違う値は渡さない
   onPageOpen: (cb) => ipcRenderer.on('page:open', (_e, v) => {
     if (typeof v === 'string') cb(v, { saved: false });

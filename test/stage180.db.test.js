@@ -1372,3 +1372,19 @@ test('点検 2・CR94: Claude の Markdown（validate の mdText）の 60,000 �
   assert.strictEqual(V.checkArgs({ md: 'mdText' }, { md: `${'あ'.repeat(59999)}𠮷𠮷` }).ok, false);
   assert.strictEqual(V.checkArgs({ md: 'mdText' }, { md: '' }).ok, false);
 });
+
+// ---------------------------------------------------------------- CU-1（決めたこと 50・受け渡す形の page.claudeSnaps の count: CR95・M38）
+test('CU-1・F234: page.claudeSnaps の名前の直しの行に count（直した数の和: 要約・メモ・文字起こし・担当・参加者）。ほかの道具の行と、控えから戻す形には count が入らない', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  ok(claudeWrite(db, { pageId: id, what: 'summary', fn: 'block', blockId: `${id}b2`, text: '一回目' }), 'w1');
+  const r = ok(fixN(db, id, [{ from: '担当A', to: '担当B' }]), 'mcp.fixNames');
+  const c = r.result.counts;
+  const n = c.summary + c.memo + c.transcript + c.assignee + c.people;
+  assert.ok(n > 1, `前提: 直した数: ${JSON.stringify(c)}`);
+  const list = ok(call(db, 'page.claudeSnaps', { id }), 'snaps').result;
+  assert.deepStrictEqual(list.map((x) => [x.what, x.count]), [['names', n], ['summary', undefined]]);
+  assert.ok(!Object.hasOwn(list[1], 'count'), '名前の直しでない行に count');
+  // 戻しても count の欄はページに入らない（控えにある欄だけを戻す）
+  ok(call(db, 'page.claudeRevert', { id, sid: list[0].sid }), 'revert');
+  assert.ok(!Object.hasOwn(C.readPage(db, id), 'count'), '戻したページに count が入った');
+}));

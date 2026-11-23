@@ -1871,6 +1871,8 @@ const IDS_180 = [
   'ct-mcp-k10-title', 'ct-mcp-k10-desc', 'ct-mcp-k10-sum', 'ct-mcp-k10-fix', 'ct-mcp-k10-rows', 'ct-mcp-k10-nocol', 'ct-mcp-act-blank', 'ct-mcp-act-same', 'ct-mcp-task-has', 'ct-mcp-fix-found', 'ct-mcp-append-empty', 'ct-mcp-task-empty', 'ct-mcp-md-too-big',
   // 0.18.0 Task CP-1（指示書: MCP のプロンプト）
   'cp-prompt-list', 'cp-prompt-nodata', 'cp-prompt-topic', 'cp-prompt-score',
+  // 0.18.0 Task CU-1（Claude の書き込みの知らせ・［Claude の変更を戻す］・印）。cu-snap-count は CU-1 で足した（CR95）
+  'cu-wrote-forward', 'cu-wrote-flush', 'cu-wrote-table', 'cu-menu-snaps', 'cu-toast', 'cu-pop-confirm', 'cu-pop-ime', 'cu-label', 'cu-snap-count',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {
@@ -1888,10 +1890,11 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   const rows = planRows180();
   // 点検 1（2026-11-22）で cw- を 14 足した（162 → 176）。持ち主の答え AQ38〜AQ41（2026-11-22）で cs- を 6・ct- を 1 足した（176 → 183）。
   // CT-4 で ct- を 3 足した（183 → 186）。持ち主の答え AQ42〜AQ44（2026-11-23）と CT-4 の直し（CR79）で cs- を 1・ct- を 7 足した（186 → 194）。
-  // 点検 2（2026-11-23）の読む答えの直しで cs- を 1・ct- を 3 足した（194 → 198）。書く道具の答えと照らしの直しで cs- を 4・ct- を 8 足した（198 → 210）
-  assert.strictEqual(rows.length, 210, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
+  // 点検 2（2026-11-23）の読む答えの直しで cs- を 1・ct- を 3 足した（194 → 198）。書く道具の答えと照らしの直しで cs- を 4・ct- を 8 足した（198 → 210）。
+  // CU-1 で cu- を 1 足した（cu-snap-count: CR95。210 → 211）
+  assert.strictEqual(rows.length, 211, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 10・xe- 34・xn- 30）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 10], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');

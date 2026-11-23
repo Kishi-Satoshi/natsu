@@ -306,7 +306,15 @@ function onDbEvent(ev) {
   } else if (ev.type === 'progress') {
     migrateBand = true;
     sendToMainWin('meeting:progress', { message: `議事録を移しています… ${ev.done}/${ev.total}` });
-  }
+  } else if (ev.type === 'changed' && ev.actor === 'claude') claudeWrote(ev);   // 0.18.0 CU-1: ほかの actor の changed は今どおり読み捨てる
+}
+// 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の決めたこと 48・F244）: Claude（扉の役 mcp）が書いたら、本体の窓に claude:wrote { pageIds, what }
+// （what は DB の知らせの道具の印。題名は送らない: 画面が引く）と、一覧の pages:updated を送る。Windows の知らせ・音は出さない
+async function claudeWrote(ev) {
+  const pageIds = Array.isArray(ev.pageIds) ? ev.pageIds.filter((x) => typeof x === 'string') : [];
+  if (!pageIds.length) return;
+  sendToMainWin('claude:wrote', { pageIds, what: typeof ev.what === 'string' ? ev.what : '' });
+  try { sendToMainWin('pages:updated', await db.call('pages.list', {})); } catch (e) { engineLog(`議事録の一覧を読めませんでした: ${errCode(e)}`); }
 }
 function clearMigrateBand() {
   if (!migrateBand) return;

@@ -133,7 +133,8 @@ const HOT_QUERIES = Object.freeze({
   snapRevAfter: 'update page_snapshot set rev_after = ? where rid = ?',
   snapDel: 'delete from page_snapshot where rid = ?',   // 点検 1（CR46）: 何も変えなかった書き込みの控え
   snapTrim: 'delete from page_snapshot where page_id = ? and rid not in (select rid from page_snapshot where page_id = ? order by rid desc limit ?)',
-  snapList: 'select rid, at, what, rev_after from page_snapshot where page_id = ? order by rid desc limit ?',
+  snapList: "select rid, at, what, rev_after, json_extract(body, '$.count') as count from page_snapshot where page_id = ? order by rid desc limit ?",   // 0.18.0 CU-1: 直した数（CR95）
+  snapCount: "update page_snapshot set body = json_set(body, '$.count', ?) where rid = ?",   // 0.18.0 CU-1（CR95）: 名前の直しの直した数（窓の行の「（12 か所）」）
   snapOne: 'select rid, body from page_snapshot where rid = ? and page_id = ?',
   snapFrom: 'select rid, body from page_snapshot where page_id = ? and rid >= ? order by rid',
   snapDropFrom: 'delete from page_snapshot where page_id = ? and rid >= ?',
@@ -3217,16 +3218,20 @@ function withSnap(db, pageId, what, fn, ctx, { segIds = [] } = {}) {
   if (!isObj(out) || !Array.isArray(out.ops) || out.ops.length === 0) { db.prepare(HOT_QUERIES.snapDel).run(sid); return out; }
   const after = db.prepare(HOT_QUERIES.pageRow).get(pageId);
   db.prepare(HOT_QUERIES.snapRevAfter).run(after ? after.rev : l.page.rev, sid);
+  // 0.18.0 CU-1（決めたこと 50・CR95）: 命令が直した数を返したら（名前の直し）、控えの body の count に（page.claudeSnaps が読む。restoreOf は読まない）
+  if (Number.isSafeInteger(out.snapCount) && out.snapCount > 0) db.prepare(HOT_QUERIES.snapCount).run(out.snapCount, sid);
   db.prepare(HOT_QUERIES.snapTrim).run(pageId, pageId, CS.SNAP_KEEP);
   return out;
 }
 
 // page.claudeSnaps（役 app・読む）: ページの控えの一覧（新しい順・SNAP_KEEP まで）。later は今のページの rev が書いた後と違う（その後に誰かが書いた）。
+// count は名前の直しの直した数（0.18.0 CU-1。ほかの道具の行には無い）。
 // 無い・ゴミ箱のページは []
 function claudeSnaps(db, a) {
   const l = loadPage(db, a.id);
   if (!l) return { result: [] };
-  return { result: db.prepare(HOT_QUERIES.snapList).all(a.id, CS.SNAP_KEEP).map((r) => ({ sid: r.rid, at: r.at, what: r.what, later: r.rev_after !== l.page.rev })) };
+  return { result: db.prepare(HOT_QUERIES.snapList).all(a.id, CS.SNAP_KEEP).map((r) => ({ sid: r.rid, at: r.at, what: r.what,
+    ...(Number.isSafeInteger(r.count) && r.count > 0 ? { count: r.count } : {}), later: r.rev_after !== l.page.rev })) };   // 0.18.0 CU-1: count は名前の直しの直した数
 }
 
 // page.claudeRevert（役 app）: 控え sid の形にページを戻す（利用者の新しい書き込み: actor me・1つの命令）。控えにある欄だけを diffPage・diffSegments の差で
@@ -3372,7 +3377,7 @@ function mcpFixNames(db, a, ctx) {
     pageFits(p, ctx);
     const ops = [...saveOps(w.was, p, ctx.now), ...diffSegments(segs, f.segments, a.pageId)];
     applyOps(db, ops);
-    return { ops, pageIds: [a.pageId], what: 'names', result };
+    return { ops, pageIds: [a.pageId], what: 'names', result, snapCount: c.summary + c.memo + c.transcript + c.assignee + c.people };   // 0.18.0 CU-1（CR95）: 控えの直した数
   }, ctx, { segIds: f.segIds });
 }
 

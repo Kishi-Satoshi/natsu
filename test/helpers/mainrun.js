@@ -494,6 +494,8 @@ const { titleAt } = require('./titles');
 //     --packaged・--protocol-default … app.isPackaged を真に・isDefaultProtocolClient を真に（LN-3。呼んだ口は out.protocolCalls）
 //     --argv=<JSON> … main を読む前の process.argv（[execPath, ...JSON]。LN-4 のリンクで起こされた形）
 //     --mcp-steps=<JSON> … 起動の後に手順を順に行い、出力して終える: ["status"]・["register"]・["unregister"]（mcp: の IPC。答えは out.ipc に）・
+//                        ["claude-door", 命令, 引数, 待つ ms]（0.18.0 CU-1: 扉の客で DB に Claude の書き込みを頼む）・["db-event", 知らせ, 待つ ms]（main の客の onEvent へ直に。
+//                        どちらも、その後に本体の窓へ送った claude:wrote と pages:updated（一覧は ID の並び）を out.wrote に1つずつ）・
 //                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: bootConfigs（0.10.1 CD-4: 手順の前の claudeConfigs）・claudeConfigs（roaming・msix・data・data2 ごとに text（BOM も含む）・
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
@@ -2103,6 +2105,7 @@ process.on('exit', () => {
   };
   const orig = Module._load;
   let dbClient = null;   // main の客（第2a1回 M-2b）
+  let dbOnEvent = null;   // 0.18.0 CU-1: main が客に渡した onEvent（--mcp-steps の ["db-event", 知らせ] で、DB の知らせを直に渡す）
   const trace = [];   // 第2a1回 M-3: 客の頼みと下書きの書き消しの順（out.trace）
   // 0.10.1 CD-2: --claude-race。NaTsu が Claude デスクトップの設定ファイルを書いた直後に、Claude が好みの設定を1つ足して書き戻した形にする
   // 0.10.1 2回目の点検の直し: 手順 claude-busy-reads で決めた回数だけ、Claude の設定ファイルの readFileSync を EBUSY にする
@@ -2217,6 +2220,7 @@ process.on('exit', () => {
     if (req === './db/client' && rest[0] && rest[0].filename === MAIN) {
       const mod = orig.call(this, req, ...rest);
       return { ...mod, makeDbClient: (...a) => {
+        dbOnEvent = a[0] && typeof a[0].onEvent === 'function' ? a[0].onEvent : null;
         const c = mod.makeDbClient(...a);
         dbClient = c;
         const delayMs = scene && scene.dbDelayMs ? scene.dbDelayMs : dbDelayFlag;
@@ -3161,6 +3165,19 @@ process.on('exit', () => {
       // 0.10.0 LN-4: 2つ目の起動（Windows がリンクで NaTsu を起こした）と、引数の付いた IPC
       else if (k === 'second-instance') { appEvents.emit('second-instance', {}, a[0], ''); await sleep(20); }
       else if (k === 'ipc-raw') out.ipc.push([a[0], handlers[a[0]] ? await handlers[a[0]]({}, a[1]) : 'no-such-channel']);
+      // 0.18.0 CU-1: Claude の書き込み（MCP のプロセスと同じ扉の客 src/mcp/door.js で、DB のプロセスの扉へ頼む。役 mcp・actor claude）と、
+      // DB の知らせを main の客の onEvent へ直に渡す（actor me・system の changed）。その後に本体の窓へ送ったもの（claude:wrote・pages:updated）を out.wrote に
+      else if (k === 'claude-door' || k === 'db-event') {
+        const from = sent.length;
+        if (k === 'claude-door') {
+          const D = require(path.join(ROOT, 'src', 'mcp', 'door'));
+          for (let i = 0; i < 200 && !D.readDoor(path.join(userData, 'data')); i += 1) await sleep(50);   // DB の用意と扉の紙を待つ（10 秒まで）
+          out.ipc.push(['door', await D.callDoor({ dataDir: path.join(userData, 'data'), cmd: a[0], args: a[1], tx: D.newTx() })]);
+        } else dbOnEvent(a[0]);
+        await sleep(a[k === 'claude-door' ? 2 : 1] || 200);
+        (out.wrote = out.wrote || []).push(sent.slice(from).filter(([ch]) => ch === 'claude:wrote' || ch === 'pages:updated')
+          .map(([ch, p]) => (ch === 'pages:updated' ? [ch, Array.isArray(p) ? p.map((x) => x && x.id) : null] : [ch, p])));
+      }
       else throw new Error(`mainrun: --mcp-steps の手順 ${k} が読めない`);
     }
     await sleep(30);
