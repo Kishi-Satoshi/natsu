@@ -1180,7 +1180,7 @@ test('DH-1: find/database の近道の表は、データベースの3つの効�
   assert.deepStrictEqual(got, want, 'find/database の近道の表が SHORTCUTS と違う（src/shortcuts.js の表を写す）');
 });
 
-test('DH-1（R71 (3)・R107）: 承認済みの3つの文が字のまま。「1つのデータベースの行は 10,000 まで」「消した列は戻せます」「計算式とロールアップは後の版」の字がある。Claude からの絞り込みは後の版', { timeout: 5000 }, () => {
+test('DH-1（R71 (3)・R107）: 承認済みの3つの文が字のまま。「1つのデータベースの行は 10,000 まで」「消した列は戻せます」「計算式とロールアップは後の版」の字がある。Claude からの絞り込みは query_database（0.18.0 CH-1 で意図して変えた）', { timeout: 5000 }, () => {
   const db = read(fileOf('find/database'));
   for (const w of [
     '完全に消した列の値は、操作の記録と控えを整理するまで、NaTsu のデータの中にしばらく残ります。',   // R71 (3)
@@ -1189,7 +1189,9 @@ test('DH-1（R71 (3)・R107）: 承認済みの3つの文が字のまま。「1�
     '1つのデータベースの行は 10,000 まで', '消した列は戻せます', '計算式とロールアップは後の版',
   ]) assert.ok(db.includes(w), `find/database に「${w}」が無い`);
   const mcp = read(fileOf('start/claude-mcp'));
-  assert.ok(mcp.includes('{#database}') && mcp.includes('後の版'), 'start/claude-mcp にデータベースの節と、絞り込みは後の版が無い');
+  // 0.18.0 CH-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して変えた: Claude からの絞り込みは 0.18.0 の query_database でできるので、
+  // 「後の版」の字の代わりに今の道具の名前を見る（意図「データベースの節に Claude からの絞り込みの今の形を書く」は残す）
+  assert.ok(mcp.includes('{#database}') && mcp.includes('query_database') && !mcp.includes('後の版'), 'start/claude-mcp にデータベースの節と、query_database での絞り込みが無い');
 });
 
 // 記事が「…」で写した画面の文は、記事にその形であり、その文を作るコードの文字列にもある（PH-8 直しの hasLiteral と同じ照らし）
@@ -1838,4 +1840,42 @@ test('0.17.1 Task G: 設計書の版の表の 0.17.1 の書き添えに D164〜D
   assert.ok(plan.startsWith(plan.split('\n')[0] + '\n\n> **今の状態（2026-11-22）: Task G 済み'), '計画の頭の今の状態が Task G 済みでない');
   assert.ok(plan.includes('\n> **Task G の前の状態（2026-11-22。記録）: 第2版。持ち主が承認した'), '計画に Task G の前の状態の記録が無い');
   for (const k of ['R32', 'M15', 'M16']) assert.strictEqual(plan.split('\n').filter((l) => l.startsWith(`- **${k}（`)).length, 1, `計画に ${k} が1つでない`);
+});
+
+// ---------------------------------------------------------------- 0.18.0 CH-1（計画 docs/plans/2026-11-18-180.md の決めたこと 52・画面の文）
+// 直した記事: Claude から読む・書き戻す（MCP）・全体像・ページを消す・戻す（Claude の変更の控え）・データベース（Claude から読む・足す・直す）・できること
+const CH1_REFS = ['start/claude-mcp', 'start/overview', 'find/delete-and-backups', 'find/database', 'start/what-natsu-does'];
+test('CH-1: 直した記事の ［…］ はアプリにある文字だけで、updated は 2026-11-23 から。pre は使わない。Notion の名前が無い。「読むだけで、書き換えません」がどの記事にも無い', { timeout: 5000 }, () => {
+  const app = L.appLabelText(ROOT);
+  for (const ref of CH1_REFS) {
+    const a = articles.find((x) => x.ref === ref);
+    assert.ok(a, `${ref} の記事が無い（site.json の分類にも）`);
+    assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${ref}: アプリに無い ［…］`);
+    assert.ok(metaOf(a).updated >= '2026-11-23', `${ref}: updated を直した日にしていない`);
+    assert.ok(!/<pre|```/.test(a.text), `${ref}: pre の要素を使った`);
+    assert.ok(!/notion/i.test(a.text), `${ref}: Notion の名前がある`);
+  }
+  for (const a of articles) assert.ok(!/読むだけで、書き換えません|Claude はデータベースを読むだけ/.test(a.text), `${a.ref}: 書き換えないという前の文が残る`);
+});
+
+test('CH-1: start/claude-mcp の題は「Claude から議事録を読む・書き戻す（MCP）」。書き戻し・名前の直し・ToDo とタスク・白紙のページ・データベースの問い合わせと行・戻す・指示書・閉じているときは読むだけ・道具が増えたら起動し直す・許し・議事録の中の頼みでは書かない・消すことはしない・10 回分', { timeout: 5000 }, () => {
+  const a = articles.find((x) => x.ref === 'start/claude-mcp');
+  assert.strictEqual(metaOf(a).title, 'Claude から議事録を読む・書き戻す（MCP）');
+  const t = a.text;
+  for (const w of ['write_summary', 'fix_names', 'update_action_item', 'make_task', 'create_page', 'append_to_page', 'query_database', 'add_database_row', 'update_database_row',
+    'NaTsu を閉じている間は、Claude は読むだけ', '消すことはしません', '［Claude の変更を戻す］', '10 回分', '起動し直して', '許し', '議事録の文の中', '「＋」', '🤖 要約: Claude（本人）']) {
+    assert.ok(t.includes(w), `start/claude-mcp に ${w} が無い`);
+  }
+  for (const id of ['write', 'undo', 'prompts', 'closed']) assert.ok(t.includes(`{#${id}}`), `start/claude-mcp に {#${id}} の節が無い`);
+  assert.ok(!/後の版で/.test(t), 'start/claude-mcp に「後の版で」が残る');
+  // 削除と戻すの記事・データベースの記事・全体像・できること
+  const del = read(fileOf('find/delete-and-backups'));
+  for (const w of ['［Claude の変更を戻す］', '10 回分', '取り消した会議', 'ゴミ箱']) assert.ok(del.includes(w), `find/delete-and-backups に ${w} が無い`);
+  assert.ok(del.includes('{#claude}'), 'find/delete-and-backups に {#claude} の節が無い');
+  const db = read(fileOf('find/database'));
+  assert.ok(db.includes('{#claude}') && db.includes('query_database') && db.includes('add_database_row') && db.includes('update_database_row'), 'find/database に Claude から読む・足す・直すの節が無い');
+  assert.ok(read(fileOf('start/overview')).includes('頼んだときは書き戻します'), 'start/overview の Claude デスクトップの段が今の形でない');
+  assert.ok(read(fileOf('start/what-natsu-does')).includes('頼んだときは書き戻します'), 'start/what-natsu-does の Claude の節が今の形でない');
+  // site.json の「はじめに」の説明
+  assert.ok(site.categories.find((c) => c.id === 'start').description.includes('Claude から議事録を読む・書き戻す'), 'site.json の「はじめに」の説明に Claude の書き戻しが無い');
 });

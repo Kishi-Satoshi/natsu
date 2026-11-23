@@ -2,7 +2,7 @@
   "title": "NaTsu ヘルプセンター",
   "askNote": "解決しないときは Teams の NaTsu のチャンネルで聞いてください",
   "categories": [
-    { "id": "start", "title": "はじめに", "description": "NaTsu の全体像・はじめかた・できることと、インストール・ログイン・Claude Code の用意", "icon": "start", "articles": ["overview", "getting-started", "what-natsu-does", "install-update", "login", "claude-code", "claude-mcp", "tester-guide"] },
+    { "id": "start", "title": "はじめに", "description": "NaTsu の全体像・はじめかた・できることと、インストール・ログイン・Claude Code の用意・Claude から議事録を読む・書き戻す", "icon": "start", "articles": ["overview", "getting-started", "what-natsu-does", "install-update", "login", "claude-code", "claude-mcp", "tester-guide"] },
     { "id": "record", "title": "会議を記録する", "description": "録音の始め方と止め方・一時停止・外に出したくない会議・文字起こしの状態・会議の検出の通知", "icon": "record", "articles": ["start-stop", "pause", "pc-only", "status-line", "meeting-detect"] },
     { "id": "summary", "title": "要約と出典", "description": "要約の作られ方・会議の種類とメモの型・打ち合わせの質・出典リンク・要約とメモの行の書き直し（飾り・貼り付け・元に戻す）", "icon": "summary", "articles": ["how-summaries", "summary-types", "meeting-quality", "citations", "edit-summary"] },
     { "id": "dictation", "title": "音声入力", "description": "NaTsu の音声入力は 0.15.1 でなくなりました。代わりに Windows の音声入力を使う", "icon": "dictation", "articles": ["dictation"] },

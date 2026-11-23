@@ -939,7 +939,10 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // artifact 14374239081 の .after.png（146 枚: 違いのあった 132 枚と新しい 14 枚）をバイトのまま基準にし、空に戻した（基準は 235 枚）
 // 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」）: Claude の要約の札と左下の知らせ・控えのあるページの「···」・［Claude の変更を戻す］の窓の明暗の
 // 4枚を足した（まだ基準が無い）。控えの無いページの「···」と札の無いページは今と同じ形なので、ほかの画面は変わらない（決めたこと 50・51）
-const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark']);
+// 0.18.0 CH-1（計画の「取り直す画面（RETAKE）」・決めたこと 52・CR104）: カード「Claude との連携（MCP）」の頭の1行と吹き出しの文が変わるので、項目「要約」を写す画面
+// （今の基準がある6枚。0.10.0 で頭の1行を変えたときの4枚と、頭の1行が写る・捲り棒のつまみが変わりうる settings-mcp-running-light・settings-quality-light）を取り直す
+const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark',
+  'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

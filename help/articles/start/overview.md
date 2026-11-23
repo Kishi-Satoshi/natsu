@@ -1,7 +1,7 @@
 ---
 title: NaTsu の全体像
 description: 画面のどこに何があるか、1回の会議で何が起きるか、音声と文字がどこへ行きどこに保存されるかを、画面の写真と図で説明する
-updated: 2026-11-15
+updated: 2026-11-23
 sources: README.md, src/renderer/app.html, src/renderer/overlay.html, src/main.js, src/mcp-config.js, tools/help-appshots.js, docs/plans/2026-10-24-130.md
 related: start/what-natsu-does, record/start-stop, record/pc-only
 ---
@@ -80,7 +80,7 @@ NaTsu は、会議を録音して文字起こしし、要約まで作る Windows
 4. **OpenAI:** 音声を文字にします。
 5. **ご自分の Claude Code:** 会議が終わると、NaTsu が文字起こしの文とメモを渡し、Claude Code が Claude（Anthropic）で要約を作ります。
 6. **Anthropic（Claude）:** 要約を作ります。Claude デスクトップから議事録を読んでもらうときも、Claude が読んだ文はここへ送られます。
-7. **Claude デスクトップ:** NaTsu を登録すると、議事録を読めます。読むだけで、書き換えません。
+7. **Claude デスクトップ:** NaTsu を登録すると、議事録を読めます。頼んだときは書き戻します（NaTsu を閉じている間は読むだけです。書き換えはページの「···」の ［Claude の変更を戻す］ で戻せます）。
 
 | とき | 音声の行き先 | 文字起こし | 要約 |
 | --- | --- | --- | --- |

@@ -1,7 +1,7 @@
 ---
 title: ページを消す・戻す・毎日の控え
-description: 「···」の［削除］でページをゴミ箱へ入れる（中のページも一緒に）。データベースとその行も。［ゴミ箱］から戻す。消した中身の行き先と、毎日の控え・保存が壊れたときの戻り方
-updated: 2026-11-15
+description: 「···」の［削除］でページをゴミ箱へ入れる（中のページも一緒に）。［ゴミ箱］から戻す。消した中身の行き先と、Claude の変更の控え・毎日の控え・保存が壊れたときの戻り方
+updated: 2026-11-23
 sources: CHANGELOG.md, README.md, src/renderer/app.html, src/main.js, src/db/snapshot.js, src/db/commands.js
 related: find/search, find/page-tree, record/start-stop
 ---
@@ -47,6 +47,14 @@ Claude デスクトップに NaTsu を登録していると、ページを消し
 
 > [!NOTE]
 > ゴミ箱のページの中身は、保存のファイルに残ります。今の版には、ゴミ箱を空にする・ゴミ箱のページを開いて見る画面はありません。
+
+## Claude の変更の控え {#claude}
+
+Claude（[Claude から議事録を読む・書き戻す](start/claude-mcp.md#write)）が議事録・白紙のページ・データベースの行を書き換える前の形を、ページごとに 10 回分まで、この PC の中に残します。ページの「···」の ［Claude の変更を戻す］ で、その形に戻せます（[書き換えを戻す](start/claude-mcp.md#undo)）。
+
+- ゴミ箱に入れても控えは残ります。ゴミ箱から戻したページでも ［Claude の変更を戻す］ を使えます。
+- 録音中に ［破棄］ で捨てた会議（取り消した会議）は、控えも一緒に消えます。
+- 10 回分を越えると、古い控えから消えます。
 
 ## 毎日の控え {#backup}
 

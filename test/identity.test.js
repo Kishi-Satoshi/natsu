@@ -802,6 +802,9 @@ test('0.14.0: CHANGELOG の 0.14.0 の節（計画の下書きから移した）
 // 0.15.0（計画 docs/plans/2026-11-03-150.md の「CHANGELOG の 0.15.0 の節（下書き）」。Task G の後半: R79）: 版を 0.15.0 に上げる commit で、下書きを持ち主が読む言葉に直し、
 // 日付つきの見出し（## natsu-v0.15.0 （2026-11-07））で CHANGELOG.md の頭（0.14.0 の節の上）へ移した。ページの中のページ・白紙のページ・本文の子ページの行（BQ3・BQ10〜BQ13）・
 // サイドバーの木・パンくず・Ctrl+Shift+N（BQ7）・ゴミ箱（BQ6）・ページのアイコン（BQ9）と見た目・白紙のページを Claude から読む（BQ8）を書く。計画には「移した」の1行だけを残す
+// 0.18.0 CH-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・M43）で意図して変えた: 記事 start/claude-mcp の題を「Claude から議事録を読む・書き戻す（MCP）」に
+// 替えた。出した版の CHANGELOG の節の字（前の題）は直さないので、前の版の節の照らしは、その記事の今の題を出した時の題に読み替える（意図「引いた記事の題は記事の題と同じ」は残す）
+const titleWas = (t) => (t === 'Claude から議事録を読む・書き戻す（MCP）' ? 'Claude から議事録を読む（MCP）' : t);
 test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）は日付つきの見出しで CHANGELOG の頭（0.14.0 の節の上）にあり、ページの階層・本文の子ページの行・木・パンくず・Ctrl+Shift+N・ゴミ箱・アイコンと見た目・Claude を書き、引いた［…］はどれも src/ にある', () => {
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
@@ -833,7 +836,7 @@ test('0.15.0: CHANGELOG の 0.15.0 の節（計画の下書きから移した）
   const now = (n) => n.replace(/^(?:📄|🎙️) /u, '');
   for (const n of names) assert.ok(src.includes(now(n)), `0.15.0 の節の［${n}］が src/ に無い`);
   const titles = ['find/page-tree', 'find/page-look', 'find/delete-and-backups', 'find/search', 'settings/hotkeys', 'start/claude-mcp']
-    .map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
+    .map((f) => titleWas((read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]));
   for (const t of titles) assert.ok(t && sec.includes(`「${t}」`), `0.15.0 の節にヘルプの記事「${t}」が無い`);
 });
 
@@ -910,7 +913,7 @@ test('0.16.0: CHANGELOG の 0.16.0 の節（計画の下書きから移した）
   assert.deepStrictEqual(names, ['更新して再起動', 'データベース', 'ゴミ箱', 'リンクを写す']);
   for (const n of names) assert.ok(src.includes(n), `0.16.0 の節の［${n}］が src/ に無い`);
   // 引いたヘルプの記事の題（ヘルプセンターの1行）
-  const titles = ['find/database', 'find/page-tree', 'find/search', 'find/delete-and-backups', 'settings/hotkeys', 'start/claude-mcp', 'start/overview'].map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
+  const titles = ['find/database', 'find/page-tree', 'find/search', 'find/delete-and-backups', 'settings/hotkeys', 'start/claude-mcp', 'start/overview'].map((f) => titleWas((read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]));
   assert.deepStrictEqual(titles, ['データベース（表とリスト）', 'ページの中のページ・白紙のページ', '議事録を探す', 'ページを消す・戻す・毎日の控え', 'ホットキー', 'Claude から議事録を読む（MCP）', 'NaTsu の全体像']);
   for (const t of titles) assert.ok(sec.includes(`「${t}」`), `0.16.0 の節にヘルプの記事「${t}」が無い`);
 });
@@ -957,7 +960,7 @@ test('0.17.0: CHANGELOG の 0.17.0 の節（承認した下書きから移した
   for (const n of names) assert.ok(src.includes(n), `0.17.0 の節の［${n}］が src/ に無い`);
   // 引いたヘルプの記事の題（ヘルプセンターの1行）
   const files = ['find/minutes-db', 'find/tasks', 'find/page-look', 'find/database', 'summary/edit-summary', 'find/page-tree', 'find/search', 'find/delete-and-backups', 'record/start-stop', 'settings/hotkeys', 'start/claude-mcp', 'start/overview'];
-  const titles = files.map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
+  const titles = files.map((f) => titleWas((read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]));
   assert.deepStrictEqual(titles, ['「議事録」データベース', 'タスク管理と行のテンプレート', 'ページのアイコンと見た目', 'データベース（表とリスト）', '要約を書き直す', 'ページの中のページ・白紙のページ', '議事録を探す', 'ページを消す・戻す・毎日の控え', '録音を始める・止める', 'ホットキー', 'Claude から議事録を読む（MCP）', 'NaTsu の全体像']);
   for (const t of titles) assert.ok(sec.includes(`「${t}」`), `0.17.0 の節にヘルプの記事「${t}」が無い`);
 });

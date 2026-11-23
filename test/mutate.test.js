@@ -1873,6 +1873,8 @@ const IDS_180 = [
   'cp-prompt-list', 'cp-prompt-nodata', 'cp-prompt-topic', 'cp-prompt-score',
   // 0.18.0 Task CU-1（Claude の書き込みの知らせ・［Claude の変更を戻す］・印）。cu-snap-count は CU-1 で足した（CR95）
   'cu-wrote-forward', 'cu-wrote-flush', 'cu-wrote-table', 'cu-menu-snaps', 'cu-toast', 'cu-pop-confirm', 'cu-pop-ime', 'cu-label', 'cu-snap-count',
+  // 0.18.0 Task CH-1（ヘルプと設定のカードの文）
+  'cu-card-text',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

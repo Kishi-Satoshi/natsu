@@ -300,3 +300,22 @@ test('CU-1・F244: 0.14.0 の Ctrl+Z: 自分で直した要約の行を Claude �
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- CH-1（決めたこと 52）
+test('CH-1: 設定のカード「Claude との連携（MCP）」の頭の1行と、吹き出しの2行（決めたこと 52）。行の名前「Claude デスクトップから読む」と注意の1行は今のまま', T, async () => {
+  const l = await seeded();
+  try {
+    const card = $(l, 'mcpCard');
+    const lead = card.querySelector('.setlead').querySelectorAll('.desc').map((d) => d.textContent);
+    assert.deepStrictEqual(lead, ['Claude デスクトップから議事録を読み、頼んだときは書き戻せるようにします。', '※ 読んだ議事録は Claude（Anthropic）へ送られます。']);
+    const items = $(l, 'setPopMcp').querySelectorAll('li').map((li) => li.textContent);
+    assert.deepStrictEqual(items.slice(0, 3), [
+      'Claude は、頼んだときだけ、要約の書き戻し・名前の直し・ToDo とタスクの更新・白紙のページへの書き込み・データベースへの行の追加をします（消すことはしません）。書き換えは、ページの「···」の［Claude の変更を戻す］で戻せます。',
+      'NaTsu を閉じている間は、Claude は読むだけで、書けません。',
+      'Claude に頼むと、Claude が読んだ議事録の題名・要約・メモ・文字起こしは、Claude（Anthropic）へ送られます（オフラインモードで録った会議も同じです）。',
+    ]);
+    assert.ok(!items.some((t) => t.includes('読むだけで、書き換えません')), '前の文が残る');
+    assert.ok(card.querySelector('[data-row="Claude デスクトップから読む"]'), '行の名前「Claude デスクトップから読む」が無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

@@ -1,7 +1,7 @@
 ---
 title: NaTsu でできること
 description: 会議の録音・文字起こし・要約・出典リンク。オンラインとオフラインで何が違うか
-updated: 2026-11-07
+updated: 2026-11-23
 sources: README.md, INSTALL.md, src/renderer/app.html, src/main.js, docs/plans/2026-10-24-130.md
 related: start/getting-started, start/install-update, start/login
 ---
@@ -42,7 +42,7 @@ NaTsu は、会議を録音して文字起こしし、要約まで作る Windows
 
 ## Claude から読む {#claude}
 
-Claude デスクトップに NaTsu を登録すると、Claude に「10/20 の議事録を読んで、レポートして」のように頼めます。Claude は議事録を読むだけで、書き換えません。Claude に頼むと、Claude が読んだ議事録の文は Claude（Anthropic）へ送られます（[Claude から議事録を読む](start/claude-mcp.md)）。
+Claude デスクトップに NaTsu を登録すると、Claude に「10/20 の議事録を読んで、レポートして」のように頼めます。Claude は議事録を読み、頼んだときは書き戻します（消すことはしません。書き換えはページの「···」の ［Claude の変更を戻す］ で戻せます）。Claude に頼むと、Claude が読んだ議事録の文は Claude（Anthropic）へ送られます（[Claude から議事録を読む・書き戻す](start/claude-mcp.md)）。
 
 ## このヘルプを開く {#help}
 

@@ -262,7 +262,9 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 // 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」）で意図して変えた: Claude の要約の札と左下の知らせ・控えのあるページの「···」・
 // ［Claude の変更を戻す］の窓の明暗の4枚を足した（NEW_180。まだ基準が無い。Task G の前に基準にする）。取り直し待ちは 0.18.0 の表の画面（RETAKE_180）
 const NEW_180 = ['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark'];
-const RETAKE_180 = [...NEW_180];
+// 0.18.0 CH-1（決めたこと 52・CR104）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行と吹き出しの文が変わるので、項目「要約」を写す今の基準がある6枚を取り直す（RETAKEN_180）
+const RETAKEN_180 = ['settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light'];
+const RETAKE_180 = [...NEW_180, ...RETAKEN_180];
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
 // 0.18.0 CU-1 で意図して直した: 0.18.0 で足した画面（NEW_180）は 0.17.0 の画面に数えない
 const RETAKE_170 = SH.SCREENS.filter((s) => s.page === 'app' && !NEW_180.includes(s.name)).map((s) => s.name);
@@ -865,6 +867,7 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   const table180 = plan180.slice(plan180.indexOf('## 取り直す画面（RETAKE）'), plan180.indexOf('\n## ', plan180.indexOf('## 取り直す画面（RETAKE）') + 5));
   for (const n of RETAKE_180) assert.ok(table180.includes(`\`${n}\``), `0.18.0 の計画の「取り直す画面」の表に ${n} が無い`);
   for (const n of NEW_180) assert.ok(!fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準がもうある（足した画面は Task G の前に基準にする）`);
+  for (const n of RETAKEN_180) assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `取り直す ${n} の基準が無い`);
   assert.strictEqual(RETAKE_170.length, 149);
   assert.strictEqual(ADDED_170.length, 146);
   assert.ok(ADDED_170.every((n) => SH.SCREENS.find((x) => x.name === n).page === 'app'), '録音バーかパネルの画面が 0.17.0 の画面にある');
@@ -1405,7 +1408,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の決めたこと 48〜51・CR95〜CR103）: Claude の書き込みの知らせ（claude:wrote の受け口・読み直し・左下の［戻す］［開く］）・
   // 控えのあるページの「···」の［Claude の変更を戻す］と窓 #claudePop（隠した div を #trashPop の後ろに足した）。控えの無いページの「···」は今と同じで、撮る今の画面の種に控えは無いので変わらず、
   // 変わる画面は足した NEW_180 の4枚（RETAKE_180）。値を今の app.html に合わせた（前の値は a075d8f2…）
-  assert.strictEqual(sha, 'af722a5203522258ee985806d54a52f79a1bd761b1bb2efc62fac0384dbe2561',
+  // 0.18.0 CH-1（決めたこと 52・CR104）: カード「Claude との連携（MCP）」の頭の1行と吹き出しの2行。変わる画面は項目「要約」を写す RETAKEN_180 の6枚（RETAKE にある）。
+  // 値を今の app.html に合わせた（前の値は af722a52…）
+  assert.strictEqual(sha, 'c2f9934da047ccd0a5bf4833a1756a55ea31f7eb3fa7cffa0e1e5f9a0eed7f9f',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

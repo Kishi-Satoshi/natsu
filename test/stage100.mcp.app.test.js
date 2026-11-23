@@ -38,10 +38,14 @@ const shownRows = (l) => l.byId.get('tabSettings').querySelectorAll('[data-row]'
 const openSummary = async (o) => { const l = await open(o); await l.drain(); await click(l, 'tabBtnSettings'); await pick(l, 'summary'); return l; };
 
 // 持ち主の答え（2026-10-23）で意図して変えた: Claude Code の登録は作らない（D64）ので、頭の1行から「Claude Code」を外す
-const C0 = 'Claude デスクトップから議事録を読めるようにします。';
+// 0.18.0 CH-1（計画 docs/plans/2026-11-18-180.md の決めたこと 52・「意図して変えるテスト」）で意図して変えた: 頭の1行に「頼んだときは書き戻せる」・吹き出しの
+// 「読むだけで、書き換えません」を2行（頼んだときだけ書く・消さない・［Claude の変更を戻す］で戻せる／閉じている間は読むだけ）に替えた
+const C0 = 'Claude デスクトップから議事録を読み、頼んだときは書き戻せるようにします。';
 const C2 = '※ 読んだ議事録は Claude（Anthropic）へ送られます。';
 const C3 = 'Claude デスクトップの設定に NaTsu の MCP を足します。';
-const POP = ['Claude に「10/20 の議事録を読んでレポートして」のように頼めます。', 'Claude は議事録を読むだけで、書き換えません。',
+const POP = ['Claude に「10/20 の議事録を読んでレポートして」のように頼めます。',
+  'Claude は、頼んだときだけ、要約の書き戻し・名前の直し・ToDo とタスクの更新・白紙のページへの書き込み・データベースへの行の追加をします（消すことはしません）。書き換えは、ページの「···」の［Claude の変更を戻す］で戻せます。',
+  'NaTsu を閉じている間は、Claude は読むだけで、書けません。',
   'Claude に頼むと、Claude が読んだ議事録の題名・要約・メモ・文字起こしは、Claude（Anthropic）へ送られます（オフラインモードで録った会議も同じです）。',
   '1on1・面談の議事録を扱う前に、Claude の設定のプライバシーで、会話をモデルの学習に使わない設定にしてください。',
   '登録の前と、NaTsu を入れ直す前は、Claude デスクトップを終了してください（タスクトレイのアイコンからも）。',

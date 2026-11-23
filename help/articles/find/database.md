@@ -1,8 +1,8 @@
 ---
 title: データベース（表とリスト）
-description: 行と列でまとめるデータベース。作り方・表とリスト・ビュー（並べ替え・絞り込み・グループ）・列の種類・消した列・リレーション・サブアイテム・インラインの表とリンクドビュー・行のページ・表のキー・上限
-updated: 2026-11-16
-sources: src/renderer/app.html, src/db/commands.js, src/dbModel.js, src/dbView.js, src/db/validate.js, src/shortcuts.js
+description: 行と列でまとめるデータベース。作り方・表とリスト・ビュー・列の種類・消した列・リレーション・サブアイテム・インラインの表・行のページ・表のキー・Claude から読む・足す・直す・上限
+updated: 2026-11-23
+sources: src/renderer/app.html, src/db/commands.js, src/dbModel.js, src/dbView.js, src/db/validate.js, src/shortcuts.js, src/mcp/tools.js, src/mcp/dbQuery.js
 related: find/page-tree, find/delete-and-backups, settings/hotkeys
 ---
 
@@ -173,6 +173,17 @@ related: find/page-tree, find/delete-and-backups, settings/hotkeys
 | [[Ctrl+Enter]] | その行のページを開く（つなぐ・外すはしない） |
 
 選んだセルで [[Shift+F10]] を押しても、行のメニューが開きます。ほかのキーは [ホットキー](settings/hotkeys.md#in-app) を見てください。
+
+## Claude から読む・足す・直す {#claude}
+
+Claude デスクトップに NaTsu を登録すると（[Claude から議事録を読む・書き戻す](start/claude-mcp.md)）、Claude はデータベースを読み、頼んだときは行を足し、直します。
+
+- **query_database:** 列の名前の条件と並べ替えで、行を絞り込んで読みます。ビューの名前を渡すと、そのビューの絞り込みも使います。読めない条件は外さずに、どの条件を読めなかったかを Claude に返します。
+- **add_database_row:** 行を1つ足します。選択肢の列には今ある選択肢だけを書き、新しい選択肢は作りません。「議事録」には足しません。ロック中のデータベースにも足せます。
+- **update_database_row:** 行の題名とセルを直します。NaTsu が書く列（作成日時・作成者など）は書けません。
+
+- Claude が足した行の作成者・直した行の最終更新者は「Claude」と出ます。
+- Claude は、データベース・列・行を消しません。直した行は、行のページの「···」の ［Claude の変更を戻す］ で戻せます（[書き換えを戻す](start/claude-mcp.md#undo)）。Claude が足した行は、要らなければ ［削除］ でゴミ箱へ入れてください。
 
 ## 上限 {#limits}
 
