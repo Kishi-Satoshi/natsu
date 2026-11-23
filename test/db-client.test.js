@@ -118,6 +118,34 @@ test('ST7: 子の error（致命的な失敗）を受け止めて記録し、mai
   } finally { await c.close({ timeoutMs: 2000 }); d.done(); }
 });
 
+// 0.18.0 点検 2（計画 docs/plans/2026-11-18-180.md の CR86・変異 cs-making-resend）: 要約を作っている間のページ（setMaking）も、起こした子・起こし直した子に
+// init の後で知らせ直す（落ちて起こし直した DB のプロセスが making を忘れると、作っている間の議事録に Claude の書き戻しが通る: 決めたこと 17）
+test('0.18.0 点検 2・CS-2: setMaking は子に { type: "making", ids } を送り、起こし直した子にも init の後に知らせ直す（quality と同じ）', { timeout: 15000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  const base = trackFork(fakeFork({ crashAfterRequests: 1 }));   // 1つ目の頼みを書いた直後、返事の前に落ちる
+  const sent = [];
+  const fork = (...a) => {
+    const ch = base(...a);
+    const pm = ch.postMessage.bind(ch);
+    ch.postMessage = (m, t) => { sent.push(m && m.type === 'making' ? `making:${m.ids.join(',')}` : m && m.type); return pm(m, t); };
+    return ch;
+  };
+  const c = makeDbClient({ fork, Channel: FakeChannel, serverPath: require.resolve('../src/db/server'), init: { dataDir: d.dataDir, labels: {}, network: false } });
+  made.clients.push(c);
+  c.setMaking([d.ids[0]]);   // 起こす前に知らせたページも、起こした子に init の後で送る
+  c.start();
+  try {
+    await c.call('page.setTitle', { id: d.ids[0], title: '落ちる前に送った' }, { tx: 'm:title:cs2-mk-01' });   // D77
+    assert.strictEqual(base.starts(), 2, '前提: 起こし直した');
+    const inits = sent.reduce((a, t, i) => (t === 'init' ? [...a, i] : a), []);
+    assert.strictEqual(inits.length, 2);
+    inits.forEach((at, k) => assert.ok(sent.slice(at, inits[k + 1]).includes(`making:${d.ids[0]}`), `${k + 1} 番目の子の init の後に making が無い: ${JSON.stringify(sent)}`));
+    const n = sent.length;
+    c.setMaking([]);
+    assert.deepStrictEqual(sent.slice(n), ['making:'], '起こし直した後の変更を送っていない');
+  } finally { await c.close({ timeoutMs: 2000 }); d.done(); }
+});
+
 test('0.18.0 AQ41: setQualityScore は子に { type: "quality", setting } を送り、起こし直した子にも init の後に知らせ直す（making と同じ）', { timeout: 15000 }, async () => {
   const d = tmpData({ pages: 1 });
   const base = trackFork(fakeFork({ crashAfterRequests: 1 }));   // 1つ目の頼みを書いた直後、返事の前に落ちる

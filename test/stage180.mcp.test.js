@@ -380,7 +380,8 @@ test('CT-4・F243: get_meeting・get_meetings の議事録の頭に「- 版: r<r
     m.close();
     assert.ok(linesOf(call('list_action_items').text).some((l) => l.endsWith('｜印 pm2#b:pm2t1')), 'ゴミ箱のタスクの印が出た');
     // 足した所を外すと、ほかの行は1文字も同じ（足す前の形は前の版の sha256 のテスト: stage150・stage160 の withoutCt4）
-    assert.strictEqual(withoutCt4(`- 版: r3\n- [ ] a｜印 p1#b:b1｜タスク r1\n- [ ] b｜印 p2#b:b2`), '- [ ] a\n- [ ] b');
+    // 点検 2（CR92）: 版の行は頭の「- ID:」の直前でだけ外す（ほかの所の版の行は残る: 「点検 2・CR92」のテスト）
+    assert.strictEqual(withoutCt4(`- 版: r3\n- ID: p1\n- [ ] a｜印 p1#b:b1｜タスク r1\n- [ ] b｜印 p2#b:b2`), '- ID: p1\n- [ ] a\n- [ ] b');
   } finally { m.done(); }
 });
 
@@ -711,4 +712,136 @@ test('CP-1: 本物のプロセスの往復（mcp-server）: 握手の版でも�
       for (const l of s.raw().split('\n').filter(Boolean)) assert.strictEqual(JSON.parse(l).jsonrpc, '2.0', l.slice(0, 100));
     } finally { s.kill(); }
   } finally { m.done(); }
+});
+
+// ================================================================ 点検 2（2026-11-23。計画の CR84〜。持ち主の決まり「実装中の確かめは Notion に合わせるかおすすめを選ぶ」で決めた）
+const { titleAt } = require('./helpers/titles');
+
+test('点検 2・CR84: query_database は1つの答えにいつも1行を出す（12,000 字に1行も入らない長い行は、行の頭から切って切った所に「（長いので、ここで切りました）」を置き、末の「｜ID <行の ID>」は残す）。続きの offset はいつも進み、全部の行がちょうど1回ずつ出る', T, () => {
+  const s = qSeed();
+  const { m, d, memo, ids } = s;
+  try {
+    const memo2 = m.call('app', 'col.add', { db: d, type: 'text', name: 'メモ2' }).col.id;
+    for (let i = 0; i < 11; i += 1) {
+      m.call('app', 'row.setCell', { db: d, id: ids[i], col: memo, value: '長'.repeat(10000) });
+      m.call('app', 'row.setCell', { db: d, id: ids[i], col: memo2, value: '短'.repeat(10000) });
+    }
+    m.close();
+    const call = callOn(m);
+    const seen = [];
+    let off = 0;
+    for (let k = 0; k < 12 && off < 11; k += 1) {
+      const r = call('query_database', { database: d, limit: 100, ...(off ? { offset: off } : {}) });
+      assert.strictEqual(r.isError, false, r.text.slice(0, 200));
+      assert.ok(r.text.length <= tools.MAX_RESULT_CHARS, String(r.text.length));
+      const got = idsIn(r.text);
+      assert.strictEqual(got.length, 1, `1行も出ない・2行以上: ${r.text.slice(0, 200)}`);
+      assert.strictEqual(r.count, 1);
+      const row = linesOf(r.text).find((l) => l.endsWith(`｜ID ${got[0]}`));
+      assert.ok(row.includes(F.CUT_NOTE) && /^- 行 \d+｜/.test(row), row.slice(0, 80));
+      const tail = linesOf(r.text).pop();
+      if (off + 1 < 11) assert.strictEqual(tail, `続き: offset ${off + 1}`, '続きが進まない');
+      else assert.ok(!tail.startsWith('続き:'), tail);
+      seen.push(got[0]);
+      off += 1;
+    }
+    assert.strictEqual(seen.length, 11);
+    assert.strictEqual(new Set(seen).size, 11);
+  } finally { m.done(); }
+});
+
+// ToDo の多い議事録（px1）: 長い ToDo（13,000 字。期限がいちばん早い）1つと、行の長い ToDo n 個
+function manyTodos(n) {
+  const m = mcpDb({ only: [] });
+  const at = '2026-10-10T01:00:00.000Z';
+  const blocks = [{ id: 'pxlong', type: 'todo', text: `長い${'文'.repeat(13000)}`, checked: false, assignee: '担当A', dueRaw: '1/1', due: '2026-01-01', dueApprox: false }];
+  for (let i = 0; i < n; i += 1) blocks.push({ id: `pt${i}`, type: 'todo', text: `${String(i).padStart(3, '0')} ${'資料の確認と配布の準備を進める'.repeat(8)}`, checked: false, assignee: '担当B', dueRaw: '12/1', due: '2026-12-01', dueApprox: false });
+  m.call('main', 'meeting.finalize', { pageId: 'px1', page: { title: titleAt(at), date: '2026-10-10', createdAt: at, durationSec: 60, memo: '', blocks }, segments: [] });
+  m.close();
+  return m;
+}
+
+test('点検 2・CR84・CR91: list_action_items は1つの答えにいつも1行を出し（1行も入らない長い ToDo は文を切って「（長いので、ここで切りました）」、担当・期限・会議・印は残す）、印の付いた長い行でも件数と続きの offset が合い、全部の ToDo がちょうど1回ずつ出る', T, () => {
+  const m = manyTodos(250);
+  try {
+    const call = callOn(m);
+    const first = call('list_action_items', { limit: 200 });
+    assert.strictEqual(first.isError, false, first.text.slice(0, 200));
+    const fl = linesOf(first.text);
+    assert.strictEqual(fl[1], '開いた ToDo 251 件（期限の近い順）');
+    assert.deepStrictEqual([fl.length, first.count, fl[3]], [4, 1, '続き: offset 1'], fl.map((l) => l.slice(0, 60)).join('\n'));
+    assert.ok(fl[2].startsWith('- [ ] 長い文') && fl[2].includes(`文${F.CUT_NOTE}｜担当: 担当A｜期限: 2026-01-01｜会議: `) && fl[2].endsWith('（ID px1）｜印 px1#b:pxlong'), fl[2].slice(-120));
+    assert.ok(first.text.length <= tools.MAX_RESULT_CHARS);
+    const marks = ['pxlong'];
+    let off = 1;
+    for (let k = 0; k < 20 && off < 251; k += 1) {
+      const r = call('list_action_items', { limit: 200, offset: off });
+      const ll = linesOf(r.text).slice(2);
+      const rows = ll.filter((l) => l.startsWith('- [ ] '));
+      assert.ok(r.text.length <= tools.MAX_RESULT_CHARS, String(r.text.length));
+      assert.ok(rows.length >= 1 && rows.length < 200, String(rows.length));
+      assert.strictEqual(r.count, rows.length, '件数が行の数と合わない');
+      for (const l of rows) {
+        const mk = /｜印 px1#b:(pt\d+)$/.exec(l);
+        assert.ok(mk && !l.includes(F.CUT_NOTE), l.slice(-80));
+        marks.push(mk[1]);
+      }
+      off += rows.length;
+      const tail = ll[ll.length - 1];
+      if (off < 251) assert.strictEqual(tail, `続き: offset ${off}`);
+      else assert.ok(tail.startsWith('- [ ] '), tail);
+    }
+    assert.strictEqual(marks.length, 251);
+    assert.strictEqual(new Set(marks).size, 251, '同じ ToDo が2回出た');
+  } finally { m.done(); }
+});
+
+test('点検 2・CR87: get_meeting・get_meetings の議事録と白紙のページ・行のページの ToDo の行の末にも「｜印 <ID>#b:<行>」（済みの ToDo も）と、タスクにした ToDo の「｜タスク <行の ID>」（list_action_items と同じ形。ゴミ箱のタスクは出さない）。ToDo でない行には付かない', T, () => {
+  const s = qSeed();
+  const { m, d, ids } = s;
+  try {
+    m.call('main', 'minutes.gather', { first: true });
+    const p2 = m.call('main', 'meeting.finalize', { pageId: 'pm2', page: { title: titleAt('2026-10-19T01:00:00.000Z'), date: '2026-10-19', createdAt: '2026-10-19T01:00:00.000Z', durationSec: 60, memo: '',
+      blocks: [{ id: 'pm2t1', type: 'todo', text: '会場を押さえる', checked: false }] }, segments: [] });
+    void p2;
+    const task = m.call('app', 'todo.toTask', { pageId: 'pm2', blockId: 'pm2t1' }).id;
+    m.call('app', 'block.update', { pageId: 'pm1', blockId: 'pm1t1', patch: { checked: true } });
+    const top = m.call('app', 'page.create', {}).id;
+    const tb = m.call('app', 'block.insert', { pageId: top, afterBlockId: '', type: 'todo' }).blockId;
+    m.call('app', 'block.update', { pageId: top, blockId: tb, patch: { text: '机を並べる' } });
+    const rb = m.call('app', 'block.insert', { pageId: ids[1], afterBlockId: '', type: 'todo' }).blockId;
+    m.call('app', 'block.update', { pageId: ids[1], blockId: rb, patch: { text: '倉庫の鍵を返す', checked: true } });
+    m.close();
+    const call = callOn(m);
+    const todoOf = (text) => linesOf(text).filter((l) => /^\s*- \[[ x]\] /.test(l));
+    const g1 = todoOf(call('get_meeting', { id: 'pm1' }).text);
+    assert.strictEqual(g1.length, 1, g1.join('\n'));
+    assert.ok(g1[0].startsWith('- [x] 見積書を月末までに先方へ送る（担当: 担当A／期限: 2026-10-31（目安））（出典: ') && g1[0].endsWith('）｜印 pm1#b:pm1t1'), g1[0]);
+    assert.deepStrictEqual(todoOf(call('get_meeting', { id: 'pm2' }).text), [`- [ ] 会場を押さえる（担当: 要確認／期限: 要確認）｜印 pm2#b:pm2t1｜タスク ${task}`]);
+    const many = todoOf(call('get_meetings', { ids: ['pm1', 'pm2'] }).text);
+    assert.deepStrictEqual(many.map((l) => /｜印 .*$/.exec(l)[0]), ['｜印 pm1#b:pm1t1', `｜印 pm2#b:pm2t1｜タスク ${task}`]);
+    assert.deepStrictEqual(todoOf(call('get_meeting', { id: top }).text), [`- [ ] 机を並べる（担当: 要確認／期限: 要確認）｜印 ${top}#b:${tb}`]);
+    assert.deepStrictEqual(todoOf(call('get_meeting', { id: ids[1] }).text), [`- [x] 倉庫の鍵を返す（担当: 要確認／期限: 要確認）｜印 ${ids[1]}#b:${rb}`]);
+    // ToDo でない行（見出し・箇条書き・頭の行）には付かない
+    for (const id of ['pm1', 'pm2', top, ids[1]]) {
+      for (const l of linesOf(call('get_meeting', { id }).text)) if (!/^\s*- \[[ x]\] /.test(l)) assert.ok(!l.includes('｜印 '), l);
+    }
+    // タスクの行をゴミ箱へ入れると「｜タスク」は出ない
+    const tdb = m.open().prepare('select parent_id from blocks where id = ?').get(task).parent_id;
+    m.call('app', 'rows.trash', { db: tdb, ids: [task] });
+    m.close();
+    assert.deepStrictEqual(todoOf(call('get_meeting', { id: 'pm2' }).text), ['- [ ] 会場を押さえる（担当: 要確認／期限: 要確認）｜印 pm2#b:pm2t1']);
+    void d;
+  } finally { m.done(); }
+});
+
+test('点検 2・CR92: withoutCt4 は「- 版: r<数>」を頭の位置（「- ID:」の直前）でだけ外し、「｜印 …」「｜タスク …」は ToDo の行の末でだけ外す（ほかの所に出た版の行と印は残り、比べが赤になる）', () => {
+  assert.strictEqual(withoutCt4('# 題\n- 場所: 上\n- 版: r3\n- ID: p1\n## 要約\n- [x] a（担当: 要確認）｜印 p1#b:b1｜タスク r1\n  - [ ] b｜印 p1#b:b2\n- [ ] c｜印 p2#b:b3'),
+    '# 題\n- 場所: 上\n- ID: p1\n## 要約\n- [x] a（担当: 要確認）\n  - [ ] b\n- [ ] c');
+  // 頭でない所の版の行・ID の前でない版の行・ToDo でない行の印は残す
+  assert.strictEqual(withoutCt4('# 題\n- ID: p1\n## 要約\n- 版: r3\n- ID: p2'), '# 題\n- ID: p1\n## 要約\n- 版: r3\n- ID: p2');
+  assert.strictEqual(withoutCt4('# 題\n- 版: r3\n- 日付: x'), '# 題\n- 版: r3\n- 日付: x');
+  assert.strictEqual(withoutCt4('- a｜印 p1#b:b1\n### 見出し｜印 p1#b:b2'), '- a｜印 p1#b:b1\n### 見出し｜印 p1#b:b2');
+  // get_meetings のように会議が続くときは、会議ごとの頭（「# 」の後）で外す
+  assert.strictEqual(withoutCt4('# A\n- 版: r1\n- ID: a\n## 要約\n# B\n- 版: r2\n- ID: b'), '# A\n- ID: a\n## 要約\n# B\n- ID: b');
 });

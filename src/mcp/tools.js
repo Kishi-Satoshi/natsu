@@ -547,7 +547,19 @@ function getRow(db, args, all) {
   if (args.transcript_from) return { error: 'no-seg' };
   const places = placesOf(shownOf(all));
   const place = [places.place(r.dbId), F.titleLine({ title: r.dbTitle, kind: 'database' })].filter(Boolean).join(' / ');
-  return { text: F.rowMarkdown(r, { place, subTitle: places.kidTitle(args.id), budget: MAX_RESULT_CHARS }), count: 1 };
+  return { text: F.rowMarkdown(r, { place, subTitle: places.kidTitle(args.id), budget: MAX_RESULT_CHARS, mark: todoMark(db, args.id) }), count: 1 };
+}
+
+// 0.18.0 点検 2（CR87）: 議事録・白紙のページ・行のページの ToDo の行の末の印（list_action_items と同じ「｜印 <ID>#b:<行>」「｜タスク <行の ID>」。
+// どちらも NaTsu が決めた頭で始まり、DB の ID の形のときだけ。済みの ToDo も、行のページの ToDo も update_action_item・make_task に渡せる）
+function todoMark(db, pageId) {
+  return (b) => {
+    const out = [];
+    if (ID_RE.test(pageId) && ID_RE.test(b.id)) out.push(`｜印 ${pageId}#b:${b.id}`);
+    const task = b.task ? commands.liveTaskOf(db, { task: b.task }) : null;
+    if (task && ID_RE.test(task)) out.push(`｜タスク ${task}`);
+    return out.join('');
+  };
 }
 
 // get_meeting（決めたこと 114）。一覧に出す行に無い ID（無い・ゴミ箱・録音中の写し）は not-found（0.18.0 CT-3: データベースの行の ID は行のページ）
@@ -560,7 +572,7 @@ function getMeeting(db, args, { now }) {
   if (!page) return { error: 'not-found' };
   const segments = commands.readSegments(db, args.id);
   if (args.transcript_from && !segments.some((s) => s.id === args.transcript_from)) return { error: 'no-seg' };
-  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS, place: places.place(args.id), subTitle: places.kidTitle(args.id), dump: dumpOf(db, page, now) });
+  const md = F.meetingMarkdown(page, segments, { includeTranscript: Boolean(args.include_transcript), from: args.transcript_from || null, budget: MAX_RESULT_CHARS, place: places.place(args.id), subTitle: places.kidTitle(args.id), dump: dumpOf(db, page, now), mark: todoMark(db, args.id) });
   return { text: md.text, count: 1 };
 }
 
@@ -609,7 +621,7 @@ function getMeetings(db, args, { now }) {
     if (!page) continue;
     const segments = commands.readSegments(db, id);
     const from = k === startIdx && startSeg && segments.some((s) => s.id === startSeg) ? startSeg : null;
-    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false, place: places.place(id), subTitle: places.kidTitle(id), dump: dumpOf(db, page, now) };
+    const opts = { includeTranscript: Boolean(args.include_transcript), from, header: false, place: places.place(id), subTitle: places.kidTitle(id), dump: dumpOf(db, page, now), mark: todoMark(db, id) };
     const full = F.meetingMarkdown(page, segments, { ...opts, budget: 1e9 });
     if (full.text.length <= left) {
       parts.push(full.text);
@@ -725,6 +737,7 @@ function listActionItems(db, args, { now }) {
     if (ID_RE.test(a.pageId) && ID_RE.test(a.blockId)) parts.push(`印 ${a.pageId}#b:${a.blockId}`);
     const task = a.task ? commands.liveTaskOf(db, { task: a.task }) : null;
     if (task && ID_RE.test(task)) parts.push(`タスク ${task}`);
+    if (!lines.length) { const one = F.cutRow(`- [ ] ${parts[0]}`, `｜${parts.slice(1).join('｜')}`, MAX_RESULT_CHARS - size - 1 - 40); size += 1 + one.length; lines.push(one); continue; }   // 点検 2（CR84）: 1つの答えにいつも1行（入らない ToDo は文を切る。続きはいつも進む）
     const line = `- [ ] ${parts.join('｜')}`;
     if (size + 1 + line.length + 40 > MAX_RESULT_CHARS) break;
     size += 1 + line.length;
@@ -748,6 +761,7 @@ function queryDatabase(db, args, { now }) {
   const lines = [];
   let size = head.join('\n').length;
   for (const row of r.rows) {
+    if (!lines.length) { const one = F.queryRowFit(row, MAX_RESULT_CHARS - size - 1 - 40); size += 1 + one.length; lines.push(one); continue; }   // 点検 2（CR84）: 1つの答えにいつも1行（入らない行は切る。続きはいつも進む）
     const line = F.queryRowLine(row);
     if (size + 1 + line.length + 40 > MAX_RESULT_CHARS) break;
     size += 1 + line.length;

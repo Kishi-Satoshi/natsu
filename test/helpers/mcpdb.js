@@ -174,10 +174,20 @@ const TITLES = Object.freeze({ plain1: titleAt('2026-10-18T01:00:00.000Z'), plai
   localOnly: titleAt('2026-10-19T02:00:00.000Z'), trash: titleAt('2026-10-19T04:00:00.000Z'), long: titleAt('2026-10-17T01:00:00.000Z') });
 
 // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45 と「意図して変えるテスト」）: 読む道具の答えに足した所（議事録の頭の「- 版: r<rev>」の行と、
-// list_action_items の行の末の「｜印 <ID>#b:<行の ID>」「｜タスク <行の ID>」）を外した答え。前の版の答え（sha256 も）と比べ、ほかの行が1文字も同じかを見る
+// ToDo の行の末の「｜印 <ID>#b:<行の ID>」「｜タスク <行の ID>」）を外した答え。前の版の答え（sha256 も）と比べ、ほかの行が1文字も同じかを見る。
+// 点検 2（CR87・CR92）: 版の行は出す所（会議の頭（「# 」の行から最初の「## 」の前まで）の「- ID:」の直前）でだけ外し、印とタスクは ToDo の行
+// （list_action_items の行と、get_meeting・get_meetings の ToDo の行。字下げも）の末でだけ外す（ほかの所に出た版の行と印は残り、比べが赤になる）
 function withoutCt4(text) {
-  return String(text).split('\n').filter((l) => !/^- 版: r\d+$/.test(l))
-    .map((l) => l.replace(/｜印 [A-Za-z0-9_-]+#b:[A-Za-z0-9_-]+(?:｜タスク [A-Za-z0-9_-]+)?$/, '')).join('\n');
+  const lines = String(text).split('\n');
+  let head = true;
+  const out = [];
+  lines.forEach((l, i) => {
+    if (/^# /.test(l)) head = true;
+    else if (/^## /.test(l)) head = false;
+    if (head && /^- 版: r\d+$/.test(l) && /^- ID: /.test(lines[i + 1] || '')) return;
+    out.push(/^\s*- \[[ x]\] /.test(l) ? l.replace(/｜印 [A-Za-z0-9_-]+#b:[A-Za-z0-9_-]+(?:｜タスク [A-Za-z0-9_-]+)?$/, '') : l);
+  });
+  return out.join('\n');
 }
 
 module.exports = { mcpDb, SEED_NAMES, FORGE, FAILED_MARK, TITLES, withoutCt4 };

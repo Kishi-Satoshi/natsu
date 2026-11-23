@@ -300,7 +300,8 @@ function propLines(page, place = '', dump = null) {
 // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も）。番号は親ごと。トグルは「- 」、トグル見出しは見出しの決まり
 // 0.15.0 PH-7（決めたこと 34）: 白紙のページは「## 本文」。本文の子ページの行は「- 📄 題名（中のページ）」（subTitle(id) は呼び手が DB から読んで1行にした題名。
 // 一覧に出ないページ（ゴミ箱・無い）は null で、行を出さない。行の ID は出さない）
-function summaryLines(page, subTitle = () => null) {
+// 0.18.0 点検 2（CR87）: mark(b) は ToDo の行の末に足す NaTsu の印（「｜印 <ID>#b:<行>」と「｜タスク <行の ID>」。呼び手が DB を読んで作る。無ければ ''）
+function summaryLines(page, subTitle = () => null, mark = () => '') {
   const blank = isBlank(page);
   const out = [blank ? '## 本文' : '## 要約'];
   // 2026-10-28 の点検 4（NR40）: 見出しは下げない（4つ以上の空白の行はコードの塊になる）。見出しの後の行は見出しの段から数え直す（blockEdit.blocksMarkdown と同じ）
@@ -316,7 +317,7 @@ function summaryLines(page, subTitle = () => null) {
       else if (b.type === 'subpage') { const t = subTitle(b.page); if (t) out.push(`${pad}- 📄 ${t}（中のページ）`); }
       else {
         const l = blockLine(b, page.id, nums.get(b.id));
-        if (l) out.push(`${pad}${l}`);
+        if (l) out.push(`${pad}${l}${b.type === 'todo' ? mark(b) : ''}`);
       }
       if (Array.isArray(b.children) && b.children.length) walk(b.children, depth + 1);
     }
@@ -346,11 +347,11 @@ function queryRowLine(r) {
 }
 // 0.18.0 CT-3（決めたこと 39）: 行の ID で読む行のページ（題名・場所（データベースの場所と名前）・版・ID・リンク・「## 行」（列の値。dbLines の行と同じ形）・
 // 「## 本文」（白紙のページの本文と同じ形））。r は commands.claudeRowOf の答え。place・subTitle は呼び手が1行にしたもの
-function rowMarkdown(r, { place = '', subTitle, budget = 12000 } = {}) {
+function rowMarkdown(r, { place = '', subTitle, budget = 12000, mark } = {}) {
   const page = r.page;
   const head = [NOTICE, `# ${safeLine(page.title || '') || BLANK_UNTITLED}`, ...(place ? [`- 場所: ${place}`] : []), `- 版: r${Number(page.rev) || 0}`, `- ID: ${page.id}`, ...linkLine(page.id)].join('\n');
   const vals = r.vals.map(([n, v]) => [safeLine(n), safeLine(v)]).filter((x) => x[1] !== '');
-  const rest = ['## 行', `- ${[safeLine(r.title) || BLANK_UNTITLED, ...vals.map(([n, v]) => `${n}: ${v}`)].join('｜')}`, ...summaryLines({ ...page, kind: 'blank' }, subTitle)];
+  const rest = ['## 行', `- ${[safeLine(r.title) || BLANK_UNTITLED, ...vals.map(([n, v]) => `${n}: ${v}`)].join('｜')}`, ...summaryLines({ ...page, kind: 'blank' }, subTitle, mark)];
   return [head, fitLines(rest, budget - head.length - 1)].join('\n');
 }
 // 0.11.0 T-6（決めたこと 40）: 要約の後の点の節（軸の名前・点・理由・出典の印）。点が無い・壊れていれば []
@@ -371,7 +372,7 @@ function fitLines(lines, budget) {
 }
 // 0.15.0 PH-7（決めたこと 34）: place は子ページの場所の文・subTitle は本文の子ページの行の題名（どちらも呼び手が1行にしたもの）。
 // 白紙のページは頭・「## 本文」だけ（メモと文字起こしは無い: BQ2）
-function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true, place = '', subTitle, dump = null } = {}) {
+function meetingMarkdown(page, segments, { includeTranscript = false, from = null, budget = 12000, header = true, place = '', subTitle, dump = null, mark } = {}) {
   const segs = sortSegs(Array.isArray(segments) ? segments : []);
   // 0.12.0 SP-4（決めたこと 138）: 文字起こしの行はタイムラインの行（parts のある区間は文ごとの行）。「全 N 発言」と transcript_from は発言のまま
   const rows = timelineItems(segments);
@@ -387,8 +388,8 @@ function meetingMarkdown(page, segments, { includeTranscript = false, from = nul
   } else {
     take([...head, ...propLines(page, place, dump)].join('\n'));
     if (isDb(page)) { take(fitLines(dbLines(dump), left)); return { text: parts.join('\n'), next: null }; }   // 0.16.0 DX-3: データベースは頭・列・行だけ
-    if (isBlank(page)) { take(fitLines(summaryLines(page, subTitle), left)); return { text: parts.join('\n'), next: null }; }
-    take(fitLines([...summaryLines(page, subTitle), ...qualityLinesOf(page)], left - SECTION_RESERVE * 2));
+    if (isBlank(page)) { take(fitLines(summaryLines(page, subTitle, mark), left)); return { text: parts.join('\n'), next: null }; }
+    take(fitLines([...summaryLines(page, subTitle, mark), ...qualityLinesOf(page)], left - SECTION_RESERVE * 2));
     take(fitLines(memoLines(page), left - SECTION_RESERVE));
   }
   let next = null;
@@ -425,6 +426,21 @@ function meetingMarkdown(page, segments, { includeTranscript = false, from = nul
   return { text: parts.join('\n'), next };
 }
 
+// 0.18.0 点検 2（CR84）: 1つの答えに1行も入らない長い行（body + tail）を budget 字に入れる。body の頭から切り、切った所に CUT_NOTE を置き、
+// tail（行の末の NaTsu の印や ID）は切らずに残す。入るならそのまま。サロゲートの片割れは残さない
+function cutRow(body, tail, budget) {
+  if (body.length + tail.length <= budget) return `${body}${tail}`;
+  let head = body.slice(0, Math.max(0, budget - tail.length - CUT_NOTE.length));
+  if (/[\ud800-\udbff]$/.test(head)) head = head.slice(0, -1);
+  return `${head}${CUT_NOTE}${tail}`;
+}
+// query_database の1行を budget 字に入れる（末の「｜ID <行の ID>」は残す）
+function queryRowFit(r, budget) {
+  const line = queryRowLine(r);
+  const tail = `｜ID ${r.id}`;
+  return line.endsWith(tail) ? cutRow(line.slice(0, -tail.length), tail, budget) : cutRow(line, '', budget);
+}
+
 // 文字の数が budget を越えないように、行の切れ目で切る → { text, cut }
 function cut(text, budget) {
   if (text.length <= budget) return { text, cut: false };
@@ -439,4 +455,4 @@ function cut(text, budget) {
   return { text: out.join('\n'), cut: true };
 }
 
-module.exports = { BLANK_LABEL, BLANK_UNTITLED, isBlank, DB_UNTITLED, DB_MORE, dbLabel, isDb, titleLine, dbLines, queryRowLine, rowMarkdown, linkLine, UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };
+module.exports = { BLANK_LABEL, BLANK_UNTITLED, isBlank, DB_UNTITLED, DB_MORE, dbLabel, isDb, titleLine, dbLines, queryRowLine, queryRowFit, cutRow, rowMarkdown, linkLine, UNDECIDED_LABEL, typeLabel, sortSegs, meetingMarkdown, CUT_NOTE, clock, today, weekdayOf, dateWithDay, header, safeLine, quoteLines, meetingLine, sttOf, blockLine, segmentText, segPrefix, segmentLine, timelineItems, labelPrefix, rowLine, segmentLines, timeOf, placeText, placeLink, stateLine, cut, NOTICE, KEPT_TEXT, FAILED_TEXT };

@@ -12,7 +12,7 @@ const rpc = require('../src/mcp/rpc');
 const meetingType = require('../src/meetingType');
 const minutes = require('../src/minutes');
 const { titleAt } = require('./helpers/titles');
-const { mcpDb, TITLES } = require('./helpers/mcpdb');
+const { mcpDb, TITLES, withoutCt4 } = require('./helpers/mcpdb');
 
 const T = { timeout: 5000 };
 const NOW = () => new Date('2026-10-21T03:00:00.000Z');
@@ -428,7 +428,9 @@ test('MR4: get_meeting は題名・プロパティ・要約（### に下げた�
     for (const l of ['- 長さ: 1:00', '- 会議の種類: 自動（決まらなかったので会議の要点の型）', '- 文字起こし: クラウド', '- 要約: Claude Code', '- 出典: 2/2', '- ID: pm1', `- リンク: ${'https://natsu-help.natsu-code.workers.dev'}/open#p=pm1`]) assert.ok(lines.includes(l), l);
     assert.ok(!r.text.includes('openai'));
     // LN-2（D72・D78）で意図して変えた: 要点の出典は押すと NaTsu でその発言が開くリンク
-    assert.match(r.text, /^## 要約\n### 決めたこと\n- 来月の予算案の作成を進める（出典: \[s2\]\(https:\/\/natsu-help\.natsu-code\.workers\.dev\/open#p=pm1&a=t:s2-s2\)）\n- \[ \] 見積書を月末までに先方へ送る（担当: 担当A／期限: 2026-10-31（目安））（出典: \[s3\]\([^)]+&a=t:s3-s3\)）\n## メモ\n> 週次のメモ\n## 文字起こし\ninclude_transcript: true で読めます（全 3 発言）。$/m);
+    // 0.18.0 点検 2（計画 docs/plans/2026-11-18-180.md の CR87）で意図して直した: ToDo の行の末の「｜印 …」を withoutCt4 で外して比べる（印は下で見る）
+    assert.ok(linesOf(r.text).some((l) => l.startsWith('- [ ] 見積書を月末までに先方へ送る') && l.endsWith('｜印 pm1#b:pm1t1')), r.text);
+    assert.match(withoutCt4(r.text), /^## 要約\n### 決めたこと\n- 来月の予算案の作成を進める（出典: \[s2\]\(https:\/\/natsu-help\.natsu-code\.workers\.dev\/open#p=pm1&a=t:s2-s2\)）\n- \[ \] 見積書を月末までに先方へ送る（担当: 担当A／期限: 2026-10-31（目安））（出典: \[s3\]\([^)]+&a=t:s3-s3\)）\n## メモ\n> 週次のメモ\n## 文字起こし\ninclude_transcript: true で読めます（全 3 発言）。$/m);
     assert.deepStrictEqual(sectionsOf(r.text), ['要約', 'メモ', '文字起こし']);
     const t = call('get_meeting', { id: 'pm1', include_transcript: true });
     assert.match(t.text, /^## 文字起こし（s1〜s3／全 3 発言）\ns1 \[0:00\] はじめに週次の確認をします\ns2 \[0:20\] 来月の予算案の作成を進めることにしました\ns3 \[0:40\] 見積書は月末までに先方へ送る予定です$/m);
@@ -933,7 +935,7 @@ test('0.11.0 T-6（決めたこと 40）: get_meeting・get_meetings のプロ�
     const call = callOn(m);
     for (const r of [call('get_meeting', { id: 'pm1' }), call('get_meetings', { ids: ['pm1'] })]) {
       assert.strictEqual(r.isError, false);
-      const lines = linesOf(r.text);
+      const lines = linesOf(withoutCt4(r.text));   // 0.18.0 点検 2（CR87）で意図して直した: ToDo の行の末の「｜印 …」と頭の版の行を外して比べる
       const at = lines.indexOf('- 会議の種類: 商談');
       assert.ok(at > 0, r.text);
       assert.deepStrictEqual(lines.slice(at + 1, at + 3), ['- メモの型: 商談の確認（BANTC）', '- 打ち合わせの質: 18 / 25']);

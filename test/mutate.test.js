@@ -1855,17 +1855,18 @@ const IDS_180 = [
   'cw-door-token', 'cw-door-hello-first', 'cw-door-role', 'cw-door-cmds', 'cw-door-app-claude', 'cw-mcp-roles', 'cw-door-line-max', 'cw-door-conns', 'cw-door-evict',
   'cw-door-backpressure', 'cw-door-log', 'cw-actor-claude', 'cw-client-closed', 'cw-client-resend-tx', 'cw-client-path', 'cw-mcp-ro-still',
   // 0.18.0 持ち主の答え AQ38〜AQ41（2026-11-22）で足した cs-sum-score-setting・cs-score-*・cs-names-locked・ct-q-hits も表の行の順に。
-  // 持ち主の答え AQ42〜AQ44（2026-11-23）で足した cs-sum-nosum・ct-mcp-k10-* と、CT-4 の直し（CR79）の ct-mcp-act-blank も
+  // 持ち主の答え AQ42〜AQ44（2026-11-23）で足した cs-sum-nosum・ct-mcp-k10-* と、CT-4 の直し（CR79）の ct-mcp-act-blank も。
+  // 点検 2（2026-11-23）で足した cs-making-resend・ct-q-one-row・ct-mcp-act-one-row・ct-mcp-todo-mark も
   // 0.18.0 Task CS-1（要約の作り方の部品）・CS-2（Claude の要約の書き戻しと making）・CS-3（Claude の名前の直し）・CT-1（Claude の ToDo とタスク）・CT-2（Claude の白紙のページと書き足し）・CT-3（データベースの問い合わせと行）
   'cs-sum-pipeline', 'cs-sum-strip', 'cs-sum-cite', 'cs-sum-ground', 'cs-sum-mark', 'cs-sum-making', 'cs-sum-wait', 'cs-sum-nosum', 'cs-sum-base', 'cs-sum-live', 'cs-sum-blank',
-  'cs-sum-score-setting', 'cs-making-signal', 'cs-score-signal', 'cs-score-save', 'cs-score-resend', 'cs-score-server', 'cs-names-min', 'cs-names-title', 'cs-names-recite',
+  'cs-sum-score-setting', 'cs-making-signal', 'cs-making-resend', 'cs-score-signal', 'cs-score-save', 'cs-score-resend', 'cs-score-server', 'cs-names-min', 'cs-names-title', 'cs-names-recite',
   'cs-names-rich', 'cs-names-zero', 'cs-names-assignee', 'cs-names-people', 'cs-names-tasks', 'cs-names-locked',
   'ct-act-todo-only', 'ct-act-no-clear', 'ct-act-task-keep', 'ct-act-locked', 'ct-task-once', 'ct-task-actor',
   'ct-create-row', 'ct-create-parent-live', 'ct-create-title-line', 'ct-create-db-parent', 'ct-append-blank-only', 'ct-append-end', 'ct-append-row', 'ct-append-tpl',
-  'ct-q-bad-cond', 'ct-q-filter-map', 'ct-q-trash', 'ct-q-tpl', 'ct-q-safe', 'ct-q-limit', 'ct-q-minutes', 'ct-q-hits', 'ct-add-minutes', 'ct-add-readonly', 'ct-add-option',
+  'ct-q-bad-cond', 'ct-q-filter-map', 'ct-q-trash', 'ct-q-tpl', 'ct-q-safe', 'ct-q-limit', 'ct-q-minutes', 'ct-q-hits', 'ct-q-one-row', 'ct-add-minutes', 'ct-add-readonly', 'ct-add-option',
   'ct-add-lock', 'ct-add-max', 'ct-add-rel-live', 'ct-add-actor', 'ct-up-minutes-title', 'ct-up-readonly', 'ct-up-null', 'ct-row-read',
   // 0.18.0 Task CT-4（MCP の書く道具と扉の客）。cw-client-*・cw-mcp-ro-still は上の cw- の並びに
-  'ct-mcp-instr', 'ct-mcp-annot', 'ct-mcp-safe', 'ct-mcp-rev-line', 'ct-mcp-act-anchor', 'ct-mcp-closed', 'ct-mcp-network', 'ct-mcp-filter-text', 'ct-mcp-order',
+  'ct-mcp-instr', 'ct-mcp-annot', 'ct-mcp-safe', 'ct-mcp-rev-line', 'ct-mcp-act-anchor', 'ct-mcp-act-one-row', 'ct-mcp-todo-mark', 'ct-mcp-closed', 'ct-mcp-network', 'ct-mcp-filter-text', 'ct-mcp-order',
   'ct-mcp-k10-title', 'ct-mcp-k10-desc', 'ct-mcp-k10-sum', 'ct-mcp-k10-fix', 'ct-mcp-k10-rows', 'ct-mcp-k10-nocol', 'ct-mcp-act-blank',
   // 0.18.0 Task CP-1（指示書: MCP のプロンプト）
   'cp-prompt-list', 'cp-prompt-nodata', 'cp-prompt-topic', 'cp-prompt-score',
@@ -1885,10 +1886,11 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_180.test(m.id) && !IDS_180.includes(m.id)).map((m) => m.id), [], 'IDS_180 に無い 0.18.0 の頭の変異がある');
   const rows = planRows180();
   // 点検 1（2026-11-22）で cw- を 14 足した（162 → 176）。持ち主の答え AQ38〜AQ41（2026-11-22）で cs- を 6・ct- を 1 足した（176 → 183）。
-  // CT-4 で ct- を 3 足した（183 → 186）。持ち主の答え AQ42〜AQ44（2026-11-23）と CT-4 の直し（CR79）で cs- を 1・ct- を 7 足した（186 → 194）
-  assert.strictEqual(rows.length, 194, '計画の 0.18.0 の表（cw- 42・cs- 26・ct- 49・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
+  // CT-4 で ct- を 3 足した（183 → 186）。持ち主の答え AQ42〜AQ44（2026-11-23）と CT-4 の直し（CR79）で cs- を 1・ct- を 7 足した（186 → 194）。
+  // 点検 2（2026-11-23）の読む答えの直しで cs- を 1・ct- を 3 足した（194 → 198）
+  assert.strictEqual(rows.length, 198, '計画の 0.18.0 の表（cw- 42・cs- 27・ct- 52・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 42], ['cs', 26], ['ct', 49], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 27], ['ct', 52], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');

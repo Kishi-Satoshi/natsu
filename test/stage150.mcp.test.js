@@ -99,7 +99,7 @@ test('PH-7・BQ8 (a)・F116: 白紙のページが一覧に「白紙のページ
     assert.ok(rl.includes('- 白紙のページ'), read.text);
     assert.deepStrictEqual(rl.filter((l) => l.startsWith('## ')), ['## 本文'], read.text);
     assert.ok(rl.includes('- 段取り表の下書きを書く'), read.text);
-    assert.ok(rl.includes('- [ ] ひな形の段取り表を作る（担当: 要確認／期限: 要確認）'), read.text);
+    assert.ok(rl.some((l) => l.startsWith(`- [ ] ひな形の段取り表を作る（担当: 要確認／期限: 要確認）｜印 ${top}#b:`)), read.text);   // 0.18.0 点検 2（計画 docs/plans/2026-11-18-180.md の CR87）で意図して直した: ToDo の行の末に印
     assert.ok(rl.includes(`- 📄 ${KID_LINE}（中のページ）`), read.text);
     for (const no of ['- 長さ', '- 会議の種類', '- メモの型', '要約はまだ', 'メモはありません', '文字起こし']) assert.ok(!read.text.includes(no), `${no}: ${read.text}`);
     // いくつか読むでも同じ形（頭の注意の行は無い）
