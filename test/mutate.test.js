@@ -1867,6 +1867,8 @@ const IDS_180 = [
   // 0.18.0 Task CT-4（MCP の書く道具と扉の客）。cw-client-*・cw-mcp-ro-still は上の cw- の並びに
   'ct-mcp-instr', 'ct-mcp-annot', 'ct-mcp-safe', 'ct-mcp-rev-line', 'ct-mcp-act-anchor', 'ct-mcp-closed', 'ct-mcp-network', 'ct-mcp-filter-text', 'ct-mcp-order',
   'ct-mcp-k10-title', 'ct-mcp-k10-desc', 'ct-mcp-k10-sum', 'ct-mcp-k10-fix', 'ct-mcp-k10-rows', 'ct-mcp-k10-nocol', 'ct-mcp-act-blank',
+  // 0.18.0 Task CP-1（指示書: MCP のプロンプト）
+  'cp-prompt-list', 'cp-prompt-nodata', 'cp-prompt-topic', 'cp-prompt-score',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

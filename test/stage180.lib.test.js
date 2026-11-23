@@ -357,3 +357,66 @@ test('CT-3: OPS_HELP は FILTER_OPS から作った、列の種類の名前ご�
     assert.deepStrictEqual(line.split(': ')[1].split('・'), ops, type);
   }
 });
+
+// ---------------------------------------------------------------- CP-1（決めたこと 47・AQ7 (a)・AQ44 (a)・F243）: Claude デスクトップの指示書（MCP のプロンプト）
+const PR = require('../src/mcp/prompts');
+const SUM_LEAD = 'get_meeting を include_transcript で読み、この書式で書き、write_summary に meeting_type を付けて書き戻す。';
+const textOfPrompt = (name, args) => { const r = PR.promptMessages(name, args); assert.ok(r, `${name} が断られた`); assert.strictEqual(r.length, 1); assert.strictEqual(r[0].role, 'user'); assert.strictEqual(r[0].content.type, 'text'); return r[0].content.text; };
+
+test('CP-1: 指示書は 10 個（要約タイプ 7 つ「<種類>の型で要約して書き戻す」と、資料・横断・ToDo のまとめ）。並びはいつも同じ・名前は英字の決まった形・題は「画面の文」の字・引数は決まった形', () => {
+  assert.deepStrictEqual(PR.PROMPTS.map((p) => p.name), [...mtype.SELECTABLE.map((k) => `summary_${k}`), 'make_material', 'cross_topic', 'todo_digest']);
+  assert.deepStrictEqual(PR.PROMPTS.map((p) => p.title), [
+    '朝会・内部定例会の型で要約して書き戻す', '部会・報告会の型で要約して書き戻す', 'ブレスト・意見交換の型で要約して書き戻す', '1on1の型で要約して書き戻す',
+    '採用面接・事前面談の型で要約して書き戻す', '商談の型で要約して書き戻す', 'プレゼン形式の型で要約して書き戻す',
+    '指した会議から資料を作る', '話題で過去の会議を横断する', 'ToDo と決定事項をまとめる',
+  ]);
+  for (const p of PR.PROMPTS) assert.ok(/^[a-z_]{1,40}$/.test(p.name) && Object.isFrozen(p), p.name);
+  assert.deepStrictEqual(PR.PROMPTS.map((p) => p.arguments.map((a) => `${a.name}${a.required ? '!' : '?'}`).join(',')),
+    [...mtype.SELECTABLE.map(() => 'meeting!'), 'meetings!', 'topic!', 'from?,to?']);
+  // 引数の説明は 0.10.0 の道具の引数の字をそのまま（CR83）
+  const descs = Object.fromEntries(PR.PROMPTS.flatMap((p) => p.arguments.map((a) => [a.name, a.description])));
+  assert.deepStrictEqual(descs, {
+    meeting: '議事録の ID か、NaTsu の［リンクを写す］の住所', meetings: '会議の ID か、NaTsu の［リンクを写す］の住所の並び', topic: '探す語（空白で区切る）',
+    from: 'この日の会議から（YYYY-MM-DD。両端を含む）', to: 'この日の会議まで（YYYY-MM-DD。両端を含む）',
+  });
+});
+
+test('CP-1・AQ44 (a): 要約タイプの指示書の本文は K11 の字の手順・照らした ID・種類の鍵・「書式:」と memoTypes.buildTemplate（score なし・labeled）の書式だけ。点の節を持たない（RF71・CR22）', () => {
+  for (const k of mtype.SELECTABLE) {
+    const text = textOfPrompt(`summary_${k}`, { meeting: ' pm1 ' });
+    const fmt = memoTypes.buildTemplate({ meetingType: k, score: false, labeled: true });
+    assert.strictEqual(text, [SUM_LEAD, '議事録の ID: pm1', `meeting_type: ${k}`, '書式:', fmt].join('\n'), k);
+    assert.ok(!text.includes(quality.SCORE_TEMPLATE) && !text.includes('打ち合わせの質'), `${k}: 点の節がある`);
+  }
+  // NaTsu の［リンクを写す］の住所も ID にして入れる（住所そのものは入れない）
+  const link = textOfPrompt('summary_sales', { meeting: 'natsu://page/pm2' });
+  assert.ok(link.includes('議事録の ID: pm2\n') && !link.includes('natsu://'), link.slice(0, 200));
+});
+
+test('CP-1・AQ44 (a): 資料・横断・ToDo と決定事項の指示書の本文は K11 の字。ToDo のまとめは日付の範囲が無ければ「（<from>〜<to> の会議の分）」を外し、list_action_items と query_database（『タスク管理』）の手順を持つ', () => {
+  assert.strictEqual(textOfPrompt('make_material', { meetings: 'pm1 pm2、natsu://page/pm3,pm1' }),
+    '次の会議を get_meetings で読み、要点を資料（見出しと箇条書き）にまとめてください。使った箇所ごとに出典を書いてください。会議: pm1・pm2・pm3');
+  assert.strictEqual(textOfPrompt('cross_topic', { topic: '  見積の値引き ' }),
+    'search_passages で「見積の値引き」を、言い換えも使って何回か探し、会議をまたいで、いつ・何が話され・どう決まったかを日付の順にまとめてください。使った箇所ごとに出典を書いてください。');
+  const tail = '読み、query_database で『タスク管理』の済んでいない行も読んで、ToDo と決定事項を担当ごとにまとめてください。';
+  assert.strictEqual(textOfPrompt('todo_digest', {}), `list_action_items で開いた ToDo を${tail}`);
+  assert.strictEqual(textOfPrompt('todo_digest', { from: '', to: ' ' }), `list_action_items で開いた ToDo を${tail}`, '空の任意の引数は無いのと同じ');
+  assert.strictEqual(textOfPrompt('todo_digest', { from: '2026-11-01', to: '2026-11-30' }), `list_action_items で開いた ToDo を（2026-11-01〜2026-11-30 の会議の分）${tail}`);
+  assert.strictEqual(textOfPrompt('todo_digest', { from: '2026-11-01' }), `list_action_items で開いた ToDo を（2026-11-01〜 の会議の分）${tail}`);
+  assert.strictEqual(textOfPrompt('todo_digest', { to: '2026-11-30' }), `list_action_items で開いた ToDo を（〜2026-11-30 の会議の分）${tail}`);
+});
+
+test('CP-1・F243: 引数の照らし: 形の違う meeting・meetings（21 個・リンクでない文字）・本当に無い日・from が to より後・知らない名前・知らない引数・必須の無い頼みは null（rpc が -32602）。topic の改行・向きの制御の文字は1行にされ、201 字は null（200 字は通る・𠮷 は1字）', () => {
+  for (const [name, args] of [
+    ['summary_standup', {}], ['summary_standup', { meeting: '' }], ['summary_standup', { meeting: '../pm1' }], ['summary_standup', { meeting: 'pm1', extra: 'x' }],
+    ['summary_standup', { meeting: 3 }], ['summary_general', { meeting: 'pm1' }], ['nothing', {}], ['summary_standup', null],
+    ['make_material', { meetings: Array.from({ length: 21 }, (_, i) => `pm${i}`).join(' ') }], ['make_material', { meetings: 'pm1 見積' }], ['make_material', { meetings: ' ' }],
+    ['cross_topic', { topic: 'あ'.repeat(201) }], ['cross_topic', { topic: ' \n ' }], ['cross_topic', {}],
+    ['todo_digest', { from: '2026-02-30' }], ['todo_digest', { from: '2026/11/01' }], ['todo_digest', { from: '2026-11-30', to: '2026-11-01' }], ['todo_digest', { at: '2026-11-01' }],
+  ]) assert.strictEqual(PR.promptMessages(name, args), null, `${name} ${JSON.stringify(args).slice(0, 60)}`);
+  assert.ok(PR.promptMessages('make_material', { meetings: Array.from({ length: 20 }, (_, i) => `pm${i}`).join(' ') }), '20 個は通る');
+  const t = textOfPrompt('cross_topic', { topic: '見積\nの\u202e値引き\u2028の件' });
+  assert.ok(t.startsWith('search_passages で「見積 の値引き の件」を') && !/[\n\u2028\u202e]/.test(t.split('\n')[0]) && !t.includes('\n'), JSON.stringify(t));
+  assert.ok(textOfPrompt('cross_topic', { topic: '𠮷'.repeat(200) }).includes('𠮷'.repeat(200)));
+  assert.strictEqual(PR.promptMessages('cross_topic', { topic: '𠮷'.repeat(201) }), null);
+});

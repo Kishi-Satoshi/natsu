@@ -620,3 +620,95 @@ test('CT-4: 本物のプロセスの往復（mcp-server）: tools/list が 15・
     } finally { s.kill(); }
   } finally { server.close(); try { fs.unlinkSync(sock); } catch (_) { /* 無い */ } m.done(); }
 });
+
+// ================================================================ CP-1（決めたこと 47・AQ7 (a)・AQ44 (a)・F243）: 指示書（MCP のプロンプト）
+const PR = require('../src/mcp/prompts');
+const META_NEW = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {} };
+function rpcSession() {
+  const s = rpc.createSession({ version: '0.18.0', tools: [], call: () => ({ text: '', isError: false }) });
+  return (obj) => { const out = s.handle(JSON.stringify(obj)); assert.ok(Array.isArray(out) && out.length === 1, JSON.stringify(obj)); return JSON.parse(out[0]); };
+}
+
+test('CP-1: 2つの版のどちらでも、能力に prompts・prompts/list に 10 個（並びはいつも同じ・PROMPTS のまま）・prompts/get は messages。知らない名前・形の違う引数・握手の前は -32602', T, () => {
+  // 握手の版
+  const old = rpcSession();
+  assert.strictEqual(old({ jsonrpc: '2.0', id: 0, method: 'prompts/list' }).error.code, -32602, '握手の前に答えた');
+  const init = old({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } });
+  assert.deepStrictEqual(init.result.capabilities, { tools: {}, prompts: {} });
+  const l1 = old({ jsonrpc: '2.0', id: 2, method: 'prompts/list' });
+  assert.deepStrictEqual(l1.result, { prompts: JSON.parse(JSON.stringify(PR.PROMPTS)) });
+  assert.strictEqual(l1.result.prompts.length, 10);
+  const g1 = old({ jsonrpc: '2.0', id: 3, method: 'prompts/get', params: { name: 'cross_topic', arguments: { topic: '値引き' } } });
+  assert.deepStrictEqual(g1.result, { messages: PR.promptMessages('cross_topic', { topic: '値引き' }) });
+  assert.strictEqual(g1.result.resultType, undefined);
+  // 新しい版
+  const neu = rpcSession();
+  const d = neu({ jsonrpc: '2.0', id: 'd', method: 'server/discover', params: { _meta: META_NEW } });
+  assert.deepStrictEqual(d.result.capabilities, { tools: {}, prompts: {} });
+  const l2 = neu({ jsonrpc: '2.0', id: 4, method: 'prompts/list', params: { _meta: META_NEW } });
+  assert.deepStrictEqual(l2.result.prompts.map((p) => p.name), PR.PROMPTS.map((p) => p.name));
+  assert.strictEqual(l2.result.resultType, 'complete');
+  const g2 = neu({ jsonrpc: '2.0', id: 5, method: 'prompts/get', params: { name: 'summary_review', arguments: { meeting: 'pm1' }, _meta: META_NEW } });
+  assert.strictEqual(g2.result.resultType, 'complete');
+  assert.ok(g2.result.messages[0].content.text.includes('議事録の ID: pm1\nmeeting_type: review\n'), g2.result.messages[0].content.text.slice(0, 200));
+  // 知らない名前・形の違う引数・名前が無い・引数が文字でない
+  for (const params of [
+    { name: 'nothing', arguments: {} }, { name: 'summary_review', arguments: { meeting: '../x' } }, { name: 'summary_review' }, {},
+    { name: 'cross_topic', arguments: { topic: 'あ'.repeat(201) } }, { name: 'todo_digest', arguments: 'x' }, { name: 3 },
+  ]) {
+    const r = neu({ jsonrpc: '2.0', id: 6, method: 'prompts/get', params: { ...params, _meta: META_NEW } });
+    assert.deepStrictEqual(r.error, { code: -32602, message: 'Invalid params' }, JSON.stringify(params));
+  }
+  // 知らない名前の方法は今どおり -32601
+  assert.strictEqual(neu({ jsonrpc: '2.0', id: 7, method: 'prompts/nothing', params: { _meta: META_NEW } }).error.code, -32601);
+});
+
+test('CP-1・F243: 指示書は DB を開かない（NATSU_DATA_DIR に DB があっても core.open が0回）・本文に議事録の題名・要約・メモ・文字起こしの文が無く、照らした ID だけが入る', T, () => {
+  const m = mcpDb({ only: ['plain1'] });
+  const core = require('../src/db/core');
+  const open = core.open;
+  const was = process.env.NATSU_DATA_DIR;
+  let opened = 0;
+  try {
+    m.close();
+    process.env.NATSU_DATA_DIR = m.dataDir;
+    core.open = (...a) => { opened += 1; return open(...a); };
+    const send = rpcSession();
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {} } });
+    const texts = [];
+    for (const p of PR.PROMPTS) {
+      const args = { meeting: { meeting: 'pm1' }, meetings: { meetings: 'pm1' }, topic: { topic: '予算案' }, from: {} }[p.arguments[0].name];
+      const r = send({ jsonrpc: '2.0', id: 2, method: 'prompts/get', params: { name: p.name, arguments: args } });
+      texts.push(r.result.messages[0].content.text);
+    }
+    assert.strictEqual(opened, 0, '指示書が DB を開いた');
+    const all = texts.join('\n');
+    for (const no of [TITLES.plain1, '来月の予算案の作成は担当Aさんが進める', '見積書は月末までに先方へ送る']) assert.ok(!all.includes(no), `指示書に議事録の文: ${no}`);
+    assert.ok(texts.slice(0, 7).every((t) => t.includes('議事録の ID: pm1\n')) && texts[7].endsWith('会議: pm1'), '照らした ID が入らない');
+  } finally {
+    core.open = open;
+    if (was === undefined) delete process.env.NATSU_DATA_DIR; else process.env.NATSU_DATA_DIR = was;
+    m.done();
+  }
+});
+
+test('CP-1: 本物のプロセスの往復（mcp-server）: 握手の版でも新しい版でも能力に prompts・prompts/list が 10・prompts/get の本文。標準出力は JSON-RPC の行だけ', { timeout: 30000 }, async () => {
+  const m = mcpDb({ only: ['plain1'] });
+  try {
+    m.close();
+    const s = mcpRun({ dataDir: m.dataDir });
+    try {
+      s.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } });
+      assert.deepStrictEqual((await s.next()).result.capabilities, { tools: {}, prompts: {} });
+      s.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+      s.send({ jsonrpc: '2.0', id: 2, method: 'prompts/list' });
+      assert.deepStrictEqual((await s.next()).result.prompts.map((p) => p.name), PR.PROMPTS.map((p) => p.name));
+      s.send({ jsonrpc: '2.0', id: 3, method: 'prompts/get', params: { name: 'todo_digest', arguments: { from: '2026-10-01', to: '' } } });
+      assert.strictEqual((await s.next()).result.messages[0].content.text, PR.promptMessages('todo_digest', { from: '2026-10-01' })[0].content.text);
+      s.send({ jsonrpc: '2.0', id: 4, method: 'server/discover', params: { _meta: META_NEW } });
+      assert.deepStrictEqual((await s.next()).result.capabilities, { tools: {}, prompts: {} });
+      assert.strictEqual((await s.close()).code, 0);
+      for (const l of s.raw().split('\n').filter(Boolean)) assert.strictEqual(JSON.parse(l).jsonrpc, '2.0', l.slice(0, 100));
+    } finally { s.kill(); }
+  } finally { m.done(); }
+});

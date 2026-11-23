@@ -2,12 +2,14 @@
 // MCP の会話（0.10.0 Task S-1。計画 docs/plans/2026-10-20-100.md の「受け渡す名前と形」。純粋: 入出力に触れない）。
 // 2026-07-28 の形（握手なし・要求ごとの params._meta の版と clientCapabilities・server/discover・resultType）と、
 // それより前の initialize の握手の形（2025-11-25・2025-06-18・2025-03-26）の両方に答える（dual-era: RF65）。
-// createSession({ version, tools, call }) → { handle(line) → string[] | Promise<string[]> }。line は1行（改行なし）、答えは書く行の配列（0 か 1）。
+// createSession({ version, tools, call, prompts }) → { handle(line) → string[] | Promise<string[]> }。line は1行（改行なし）、答えは書く行の配列（0 か 1）。
+// 0.18.0 CP-1（決めたこと 47）: 能力 prompts と prompts/list・prompts/get（指示書は src/mcp/prompts.js。純粋で DB を開かない）。
 // 0.18.0 CT-4（決めたこと 42・CR12）: 書く道具の call は Promise を返す（扉の答えを待つ）。そのときだけ handle も Promise を返す（読む道具は今どおり同期）。
 // 答えを頼みの順に書くのは呼び手（server.js）。
 // 状態は「握手の版」（null か LEGACY の1つ）だけ。出す行は JSON.stringify だけで作る（改行は \n に逃げる）。
 // 誤りの message は英語の短い決まった文（客の記録のため）。投げた文は出さない（-32603 は 'Internal error' だけ: 決めたこと 32・64）。
 const { ICON_PNG_BASE64 } = require('./icon');
+const PROMPTS = require('./prompts');
 
 const SUPPORTED = Object.freeze(['2026-07-28']);
 const LEGACY = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26']);
@@ -46,7 +48,10 @@ const ERR = Object.freeze({
   internal: [-32603, 'Internal error'],
 });
 
-function createSession({ version, tools = [], call } = {}) {
+// 0.18.0 CP-1: どちらの版でも同じ能力（tools と prompts）
+const CAPABILITIES = () => ({ tools: {}, prompts: {} });
+
+function createSession({ version, tools = [], call, prompts = PROMPTS } = {}) {
   const info = serverInfo(version);
   const toolNames = new Set(tools.map((t) => t.name));
   let legacy = null;   // 握手の版（initialize の後）
@@ -79,18 +84,24 @@ function createSession({ version, tools = [], call } = {}) {
       if (!isObj(params)) return fail(id, 'params');
       const asked = params.protocolVersion;
       legacy = typeof asked === 'string' && LEGACY.includes(asked) ? asked : LEGACY[0];
-      return ok(id, { protocolVersion: legacy, capabilities: { tools: {} }, serverInfo: info, instructions: INSTRUCTIONS });
+      return ok(id, { protocolVersion: legacy, capabilities: CAPABILITIES(), serverInfo: info, instructions: INSTRUCTIONS });
     }
     if (method === 'server/discover') {
       const e = eraOf(params, { needMeta: true });
       if (e.error) return fail(id, ...e.error);
-      return ok(id, { resultType: 'complete', supportedVersions: [...ALL_VERSIONS], capabilities: { tools: {} }, instructions: INSTRUCTIONS, _meta: { [META_SERVER]: info } });
+      return ok(id, { resultType: 'complete', supportedVersions: [...ALL_VERSIONS], capabilities: CAPABILITIES(), instructions: INSTRUCTIONS, _meta: { [META_SERVER]: info } });
     }
-    if (method === 'ping' || method === 'tools/list' || method === 'tools/call') {
+    if (method === 'ping' || method === 'tools/list' || method === 'tools/call' || method === 'prompts/list' || method === 'prompts/get') {
       if (params !== undefined && !isObj(params)) return fail(id, 'params');
       const e = eraOf(params);
       if (e.error) return fail(id, ...e.error);
       if (method === 'ping') return ok(id, shaped(e.era, {}));
+      // 0.18.0 CP-1: 指示書の一覧と本文（知らない名前・形の違う引数は -32602）
+      if (method === 'prompts/list') return ok(id, shaped(e.era, { prompts: prompts.PROMPTS }));
+      if (method === 'prompts/get') {
+        const messages = params && typeof params.name === 'string' ? prompts.promptMessages(params.name, params.arguments) : null;
+        return messages ? ok(id, shaped(e.era, { messages })) : fail(id, 'params');
+      }
       if (method === 'tools/list') return ok(id, shaped(e.era, { tools }));
       const name = params && params.name;
       const args = params ? params.arguments : undefined;

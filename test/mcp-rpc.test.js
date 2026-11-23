@@ -33,7 +33,7 @@ test('MR2: 握手の版: initialize（2025-11-25）→ 同じ版・tools の能�
   const init = send(req(1, 'initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'claude', version: '1' } }));
   assert.strictEqual(init.id, 1);
   assert.strictEqual(init.result.protocolVersion, '2025-11-25');
-  assert.deepStrictEqual(init.result.capabilities, { tools: {} });
+  assert.deepStrictEqual(init.result.capabilities, { tools: {}, prompts: {} });   // 0.18.0 CP-1: 指示書の能力（意図して直した）
   assert.strictEqual(init.result.serverInfo.name, 'natsu');
   assert.strictEqual(init.result.serverInfo.title, 'NaTsu の議事録');
   assert.strictEqual(init.result.serverInfo.version, '0.10.0');
@@ -62,7 +62,7 @@ test('MR2: 新しい版: server/discover（_meta の版 2026-07-28）→ support
   const r = send(req(7, 'server/discover', { _meta: meta() }));
   assert.deepStrictEqual(r.result.supportedVersions, ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26']);
   assert.strictEqual(r.result.resultType, 'complete');
-  assert.deepStrictEqual(r.result.capabilities, { tools: {} });
+  assert.deepStrictEqual(r.result.capabilities, { tools: {}, prompts: {} });   // 0.18.0 CP-1: 指示書の能力（意図して直した）
   assert.strictEqual(r.result.instructions, rpc.INSTRUCTIONS);
   assert.strictEqual(r.result._meta['io.modelcontextprotocol/serverInfo'].name, 'natsu');
   assert.strictEqual(r.result._meta['io.modelcontextprotocol/serverInfo'].version, '0.10.0');

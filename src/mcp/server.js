@@ -29,11 +29,13 @@ const memoTypes = require('../memoTypes');
 // 0.18.0 CT-4: 書く道具の扉の客と問い合わせの読み替え（後から require しない）
 const door = require('./door');
 const dbQuery = require('./dbQuery');
+// 0.18.0 CP-1: 指示書（MCP のプロンプト。純粋で DB を開かない）
+const prompts = require('./prompts');
 const pkg = require('../../package.json');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 // 頭で読んだ部品（使う所はそれぞれの部品の中。ここでは後から require しないために読むだけ）
-const LOADED = Object.freeze({ format, passages, core, commands, search, pagerules, meetingType, quality, memoTypes, door, dbQuery });
+const LOADED = Object.freeze({ format, passages, core, commands, search, pagerules, meetingType, quality, memoTypes, door, dbQuery, prompts });
 
 function errLine(text) {
   try { process.stderr.write(`${text}\n`); } catch (_) { /* 標準エラーが閉じている */ }
@@ -80,7 +82,7 @@ function main({ tools: toolList = tools.TOOLS, call = null } = {}) {
     if (r && typeof r.then === 'function') return Promise.resolve(r).then(logged, () => logged(readErr()));
     return logged(r);
   };
-  const session = rpc.createSession({ version: pkg.version, tools: toolList, call: wrapped });
+  const session = rpc.createSession({ version: pkg.version, tools: toolList, call: wrapped, prompts });
   errLine(`NaTsu MCP: 起動（NaTsu ${pkg.version}・MCP ${[...rpc.SUPPORTED, ...rpc.LEGACY].join(' / ')}）`);
 
   let buf = '';
