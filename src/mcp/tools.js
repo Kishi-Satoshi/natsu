@@ -24,6 +24,8 @@ const DOOR = require('./door');
 const core = require('../db/core');
 const V = require('../db/validate');
 const BT = require('../blockTree');
+// 0.18.0 点検 2（CR85）: 書き足す Markdown が行になるか（DB の命令と同じ読み方。呼ぶだけ）
+const { markdownToBlocks } = require('../minutes');
 
 const MAX_RESULT_CHARS = 12000;
 // 箇所の検索の候補（決めたこと 71）: 語ごとに引く行の上限と、読んで箇所に切る会議の数。テストだけ callTool の第3引数で小さくできる（環境変数ではない: 決めたこと 33）
@@ -60,6 +62,8 @@ const ERROR_TEXT = Object.freeze({
   'not-blank': 'append_to_page で書き足せるのは白紙のページとデータベースの行のページだけです。',
   'too-big': '長すぎて書けません（本文は 2,000 行まで、markdown は 60,000 文字まで、データベースは 1 万行まで）。',
   'not-todo': 'その印の行は ToDo ではありません。list_action_items の印を、そのまま渡してください。',
+  // 0.18.0 点検 2（CR88。実装中の確かめの持ち主の決まり（2026-11-23）で取りまとめ役が選んだ字）: make_task の文の無い ToDo
+  'empty-todo': '文の無い ToDo は、タスクにできません。',
   'minutes-row': '『議事録』には行を足せません。会議は NaTsu で録音すると入ります。',
 });
 // 決めたこと 46: conflict の文（新しい版を差し込む）
@@ -191,7 +195,7 @@ const TOOLS = Object.freeze([
   },
   {
     name: 'write_summary', title: '要約を書き戻す', description: writeDesc('write_summary'),
-    inputSchema: schema({ id: { type: 'string' }, base: { type: 'integer', minimum: 0, description: 'base には get_meeting の「- 版: r<数>」の数を渡します。' }, markdown: { type: 'string', minLength: 1, maxLength: V.LIMITS.mdText, description: 'Markdown（NaTsu の要約の型）' }, meeting_type: { type: 'string', enum: [...meetingType.SELECTABLE, 'auto'] } }, ['id', 'base', 'markdown']),
+    inputSchema: schema({ id: { type: 'string' }, base: { type: 'integer', minimum: 0, description: 'base には get_meeting の「- 版: r<数>」の数を渡します。' }, markdown: { type: 'string', minLength: 1, maxLength: V.LIMITS.mdText, description: 'Markdown（NaTsu の要約の型）' }, meeting_type: { type: 'string', enum: [...meetingType.SELECTABLE] } }, ['id', 'base', 'markdown']),
     annotations: WRITE_ANNOTATIONS(true),
   },
   {
@@ -778,6 +782,10 @@ const UNDO_HINT = 'NaTsu のページの「···」→［Claude の変更を戻
 const DELETE_HINT = '要らなければ、NaTsu で［削除］してください。';
 const EDITED_NOTE = '利用者が手で直した要約を書き換えました。';
 const NO_HIT = '見つかりませんでした。';   // 決めたこと 24（名前の直しで、どこにも当たらなかった。誤りでなく答え）
+// 0.18.0 点検 2（CR85。実装中の確かめの持ち主の決まり（2026-11-23）で取りまとめ役が選んだ字）: 何も変えなかった答え
+// （「書きました」と戻し方は言わない）
+const HAS_TASK = 'この ToDo には、もうタスクがあります。';
+const SAME_VALUE = '今の値と同じなので、変えませんでした。';
 const titleOf = (x, kind) => `# ${F.titleLine({ title: x, kind })}`;
 const idLine = (id) => (typeof id === 'string' && ID_RE.test(id) ? [`- ID: ${id}`] : []);
 const countN = (n) => (Number.isSafeInteger(n) && n > 0 ? n : 0);
@@ -834,6 +842,7 @@ const WRITES = {
     badArgs: 'id',
     answer: (r, a, p) => {
       const c = r.counts;
+      if (!c && r.found === false) return [NO_HIT];   // 点検 2（CR85）: 送り直しで、1回目に当たりが無く何も書かなかった
       if (!c) return [WROTE, titleOf(r.title, p.kind), UNDO_HINT];   // 送り直し（同じ tx）の答え: 直した後なので数え直さない（CR61 (5)）
       const hit = countN(c.summary) + countN(c.memo) + countN(c.transcript) + countN(c.assignee) + countN(c.people);
       if (!hit) return [NO_HIT, ...fixNotes(c)];
@@ -847,15 +856,15 @@ const WRITES = {
     field: { pageId: 'item', blockId: 'item', done: 'done', assignee: 'assignee', dueRaw: 'due' },
     look: (db, a) => todoLook(db, a),
     badArgs: 'not-todo',
-    answer: (r, a, p) => [WROTE, titleOf(r.title, p.kind), ...(typeof r.task === 'string' && ID_RE.test(r.task) ? [`タスク（ID ${r.task}）のステータスは update_database_row で変えられます。`] : []), UNDO_HINT],
+    answer: (r, a, p) => (r.same === true ? [SAME_VALUE] : [WROTE, titleOf(r.title, p.kind), ...(typeof r.task === 'string' && ID_RE.test(r.task) ? [`タスク（ID ${r.task}）のステータスは update_database_row で変えられます。`] : []), UNDO_HINT]),
   },
   make_task: {
     cmd: 'mcp.makeTask',
     dbArgs: (a) => ({ ...itemOf(a.item) }),
     field: { pageId: 'item', blockId: 'item' },
-    look: (db, a) => todoLook(db, a),
+    look: (db, a) => todoLook(db, a, true),
     badArgs: 'not-todo',
-    answer: (r, a, p) => [WROTE, titleOf(p.title, p.kind), ...idLine(r.id), DELETE_HINT, UNDO_HINT],
+    answer: (r, a, p) => (r.made === false ? [HAS_TASK, ...idLine(r.id)] : [WROTE, titleOf(p.title, p.kind), ...idLine(r.id), DELETE_HINT, UNDO_HINT]),
   },
   create_page: {
     cmd: 'mcp.createPage',
@@ -874,6 +883,7 @@ const WRITES = {
     cmd: 'mcp.appendPage',
     dbArgs: (a) => ({ pageId: a.id, md: a.markdown }),
     field: { pageId: 'id', md: 'markdown' },
+    rows: true,   // 点検 2（CR85）: 行にならない Markdown（空白と改行だけ）は DB を開く前に断る（何も書かずに「書きました」と答えない）
     look: (db, a) => {
       const t = commands.claudeTargetOf(db, a.id);
       if (!t) return notFound;
@@ -916,13 +926,15 @@ const WRITES = {
     answer: (r, a, p) => [WROTE, titleOf(r.title, p.kind), UNDO_HINT],
   },
 };
-// ToDo の印 → ページと ToDo の行を読む（ToDo でない・無い行は not-todo: 決めたこと 46）
-function todoLook(db, a) {
+// ToDo の印 → ページと ToDo の行を読む（ToDo でない・無い行は not-todo: 決めたこと 46）。needText（make_task）: 文の無い ToDo は empty-todo
+//（todo.toTask と同じ見方。点検 2・CR88）
+function todoLook(db, a, needText = false) {
   const it = itemOf(a.item);
   const t = it ? commands.claudeTargetOf(db, it.pageId) : null;
   if (!t || t.kind === 'database') return notFound;
   const b = BT.flattenBlocks(Array.isArray(t.page.blocks) ? t.page.blocks : []).find((x) => x && x.id === it.blockId);
   if (!b || b.type !== 'todo') return { error: 'not-todo' };
+  if (needText && !String(b.text || '').trim()) return { error: 'empty-todo' };
   return { title: t.title, kind: kindOf(t) };
 }
 // DB の符号 → 文（決めたこと 46）。bad-args は道具ごと（badArgs）。そのほかの DB の失敗（busy ほか）は読み手と同じ文
@@ -946,6 +958,9 @@ async function callWrite(name, args, ctx) {
   const a = checked.args;
   const badArg = (field) => ({ text: `${field} の形が違います。`, isError: true, code: 'bad-arg' });
   if (w.need && !w.need(a)) return badArg('arguments');
+  // 点検 2（CR94）: markdown の 60,000 字（コードポイント。道具の表の maxLength と同じ数え方）を越えたら、引数の形の文でなく長すぎの文
+  if (typeof a.markdown === 'string' && V.cpCount(a.markdown) > V.LIMITS.mdText) return isErr({ text: ERROR_TEXT['too-big'], code: 'too-big' });
+  if (w.rows && !markdownToBlocks(a.markdown).length) return badArg('markdown');
   const dbArgs = w.dbArgs(a);
   const v = V.checkArgs(core.COMMANDS[w.cmd].args, dbArgs);   // DB の命令と同じ型（同じ照らしを2つにしない）。DB を開く前に断る
   if (!v.ok) return badArg(w.field[v.field] || 'arguments');

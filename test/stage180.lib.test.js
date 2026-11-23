@@ -420,3 +420,16 @@ test('CP-1・F243: 引数の照らし: 形の違う meeting・meetings（21 個�
   assert.ok(textOfPrompt('cross_topic', { topic: '𠮷'.repeat(200) }).includes('𠮷'.repeat(200)));
   assert.strictEqual(PR.promptMessages('cross_topic', { topic: '𠮷'.repeat(201) }), null);
 });
+
+test('点検 2・CR93: fixNames の飾りの区切りをまたぐ当たりは、次の字から探し直す（重なった区切りの中の当たりも置き換え、またいだ所だけを crossed に1つ数える。重なったまたぎは1か所）', () => {
+  const r = NF.fixNames({ blocks: [{ id: 'x', type: 'bullet', text: 'さささん', rich: [{ t: 'さ' }, { t: 'ささん', m: ['b'] }] }] }, [], [{ from: 'ささ', to: '佐々' }]);
+  assert.deepStrictEqual(r.page.blocks[0].rich, [{ t: 'さ' }, { t: '佐々ん', m: ['b'] }], '重なった区切りの中の当たりを置き換えない');
+  assert.strictEqual(r.page.blocks[0].text, 'さ佐々ん');
+  assert.deepStrictEqual([r.counts.summary, r.counts.crossed], [1, 1]);
+  // 重なったまたぎは1か所（区切りが3つ）
+  const t = NF.fixNames({ blocks: [{ id: 'y', type: 'bullet', text: 'xあああy', rich: [{ t: 'xあ' }, { t: 'あ' }, { t: 'あy', m: ['i'] }] }] }, [], [{ from: 'ああ', to: 'いい' }]);
+  assert.deepStrictEqual([t.counts.summary, t.counts.crossed], [0, 1]);
+  // またがない当たりは今どおり
+  const u = NF.fixNames({ blocks: [{ id: 'z', type: 'bullet', text: '担当は山田と山田', rich: [{ t: '担当は山' }, { t: '田と山田', m: ['b'] }] }] }, [], [{ from: '山田', to: '山本' }]);
+  assert.deepStrictEqual([u.page.blocks[0].rich, u.counts.summary, u.counts.crossed], [[{ t: '担当は山' }, { t: '田と山本', m: ['b'] }], 1, 1]);
+});

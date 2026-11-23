@@ -3420,7 +3420,7 @@ function mcpUpdateAction(db, a, ctx) {
   }
   const task = liveTaskOf(db, b);
   const result = { title: w.page.title, ...(task ? { task } : {}) };
-  if (JSON.stringify(b) === before) return { ops: [], pageIds: [], result };   // 同じ値: 書かない（rev・更新の時刻・控えは変わらない: 決めたこと 56）
+  if (JSON.stringify(b) === before) return { ops: [], pageIds: [], result: { ...result, same: true } };   // 同じ値: 書かない（rev・更新の時刻・控えは変わらない: 決めたこと 56）。点検 2（CR85）: 答えに same
   return withSnap(db, a.pageId, 'action', () => {
     w.page.summaryEdited = true;   // 要約の欄の手直しと同じ（block.setAction の summary: true）
     if (row) w.page.by = { ...(isObj(w.page.by) ? w.page.by : {}), u: whoOf(ctx) };   // 行の最終更新者（Claude）
@@ -3429,11 +3429,12 @@ function mcpUpdateAction(db, a, ctx) {
     return { ops, pageIds: [a.pageId], what: 'action', result };
   }, ctx);
 }
-function actionDup(db, a) {
+// 点検 2（CR85）: 1回目が同じ値で何も書かなかった（oplog の操作が空の行）なら、送り直しの答えにも same
+function actionDup(db, a, row) {
   const p = readPage(db, a.pageId);
   const h = p ? BT.locate(p.blocks, a.blockId) : null;
   const task = h ? liveTaskOf(db, h.b) : null;
-  return p ? { title: p.title, ...(task ? { task } : {}) } : null;
+  return p ? { title: p.title, ...(task ? { task } : {}), ...(dupOps(row).length ? {} : { same: true }) } : null;
 }
 // mcp.makeTask（役 mcp）: ［タスクにする］（todo.toTask）と同じ部品で「タスク管理」の行を作り（無ければ「タスク管理」も）、ToDo に印を付ける。作成者は
 // Claude（actor）。もうタスクがあれば何もせずその行の ID（made 偽）。控えは ToDo のページの1行（戻すのは印だけ: CR13）。
@@ -3768,10 +3769,11 @@ const DEFS = {
   'page.claudeSnaps': { roles: ['app'], write: false, args: { id: 'id' }, run: claudeSnaps },
   'page.claudeRevert': { roles: ['app'], write: true, args: { id: 'id', sid: 'num' }, run: claudeRevert, dupResult: reread },
   // 0.18.0 CS-2（決めたこと 17〜22）: Claude の要約の書き戻し（役 mcp だけ: CR42）
-  'mcp.writeSummary': { roles: ['mcp'], write: true, args: { pageId: 'id', baseRev: 'int', md: 'mdText', meetingType: 'meetingTypeArg?' }, run: mcpWriteSummary, dupResult: writeSummaryDup },
+  'mcp.writeSummary': { roles: ['mcp'], write: true, args: { pageId: 'id', baseRev: 'int', md: 'mdText', meetingType: 'meetingTypeSel?' }, run: mcpWriteSummary, dupResult: writeSummaryDup },
   // 0.18.0 CS-3（決めたこと 23〜26）: Claude の名前の直し（役 mcp だけ）。送り直しの答えは counts: null（直した後なので当たりは数え直さない: CR61）
   'mcp.fixNames': { roles: ['mcp'], write: true, args: { pageId: 'id', pairs: 'namePairs' }, run: mcpFixNames,
-    dupResult: (db, a) => { const p = readPage(db, a.pageId); return p ? { title: p.title, counts: null } : null; } },
+    // 点検 2（CR85）: 送り直しは数え直さない（CR61 (5)）が、1回目に当たりが無く何も書かなかった（oplog の操作が空の行）なら found: false
+    dupResult: (db, a, row) => { const p = readPage(db, a.pageId); return p ? { title: p.title, counts: null, ...(dupOps(row).length ? {} : { found: false }) } : null; } },
   // 0.18.0 CT-1（決めたこと 27・28・D149）: Claude の ToDo の更新と［タスクにする］（役 mcp だけ）
   'mcp.updateAction': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id', done: 'bool?', assignee: 'short?', dueRaw: 'short?' }, run: mcpUpdateAction, dupResult: actionDup },
   'mcp.makeTask': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id' }, run: mcpMakeTask,

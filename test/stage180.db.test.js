@@ -1329,3 +1329,46 @@ test('CT-3・F241: mcp.updateRow の「議事録」の行（議事録）は「�
   assert.deepStrictEqual([r.result.db, C.readPage(db, id).cells[people], C.readPage(db, id).title], [mdb.id, ['担当A', '担当B'], title]);
   assert.deepStrictEqual(snapRows(db, id).map((s) => s.what), ['row']);
 }));
+
+// ================================================================ 点検 2（2026-11-23。計画の CR85・CR89・CR94。持ち主の決まり「実装中の確かめは Notion に合わせるかおすすめを選ぶ」で決めた）
+test('点検 2・CR85: mcp.updateAction の同じ値（何も変えない）は答えに same: true（送り直しの答えも oplog の操作の空の行から同じに）。変えたときは same を付けない', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const title = C.readPage(db, id).title;
+  const tx1 = txOf('mcp');
+  const a = ok(act(db, id, 'pm1b4', { done: true }, {}, tx1), '変える');
+  assert.deepStrictEqual(a.result, { title });
+  assert.deepStrictEqual(act(db, id, 'pm1b4', { done: false }, {}, tx1).result, { title }, '変えた送り直しに same');
+  const tx2 = txOf('mcp');
+  const same = ok(act(db, id, 'pm1b4', { done: true }, {}, tx2), '同じ値');
+  assert.deepStrictEqual(same.result, { title, same: true });
+  const again = act(db, id, 'pm1b4', { done: true }, {}, tx2);
+  assert.deepStrictEqual([again.dup, again.result], [true, { title, same: true }], '同じ値の送り直しの答え');
+}));
+
+test('点検 2・CR85: mcp.fixNames の送り直し（同じ tx）は、1回目に何も直さなかった（当たりが無かった）なら答えに found: false（書いたときは今どおり counts: null だけ）', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const title = C.readPage(db, id).title;
+  const tx = txOf('mcp');
+  const a = ok(mcp(db, 'mcp.fixNames', { pageId: id, pairs: [{ from: '該当なしの名前', to: '担当B' }] }, {}, tx), '1回目（当たりなし）');
+  assert.strictEqual(a.result.counts.summary, 0);
+  const b = mcp(db, 'mcp.fixNames', { pageId: id, pairs: [{ from: '該当なしの名前', to: '担当B' }] }, {}, tx);
+  assert.deepStrictEqual([b.ok, b.dup, b.result], [true, true, { title, counts: null, found: false }]);
+}));
+
+test('点検 2・CR89: mcp.writeSummary の meetingType は選べる種類だけ（auto は bad-args で何も変えない。決めたこと 20: 種類は渡すか今のまま）。page.setType の auto は今どおり', T, () => withDb((db, t) => {
+  const id = meetingPage(t);
+  const rev = revOf(db, id);
+  const r = writeSum(db, id, { meetingType: 'auto' });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'bad-args']);
+  assert.strictEqual(revOf(db, id), rev);
+  ok(call(db, 'page.setType', { id, type: 'auto' }), 'page.setType auto');
+}));
+
+test('点検 2・CR94: Claude の Markdown（validate の mdText）の 60,000 字はコードポイントで数える（𠮷 は1字。道具の inputSchema の maxLength と同じ数え方）', () => {
+  const V = require('../src/db/validate');
+  assert.strictEqual(V.checkArgs({ md: 'mdText' }, { md: '𠮷'.repeat(60000) }).ok, true, '6 万字の 𠮷 を断った');
+  assert.strictEqual(V.checkArgs({ md: 'mdText' }, { md: 'あ'.repeat(60000) }).ok, true);
+  assert.strictEqual(V.checkArgs({ md: 'mdText' }, { md: 'あ'.repeat(60001) }).ok, false);
+  assert.strictEqual(V.checkArgs({ md: 'mdText' }, { md: `${'あ'.repeat(59999)}𠮷𠮷` }).ok, false);
+  assert.strictEqual(V.checkArgs({ md: 'mdText' }, { md: '' }).ok, false);
+});

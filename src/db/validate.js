@@ -38,6 +38,8 @@ const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;   // ブロックの型・会議の種�
 const TXS_MAX = 50;                         // 0.14.0 EB-2: 1回の edit.revert に渡す歩みの tx の数
 // 0.18.0 CT-2: 1行の文字に入れない字（改行・制御の文字・行と段落の区切り・向きの制御の文字。src/nameFix.js の照らしと同じ字の並び）
 const LINE_CTRL_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+// 0.18.0 点検 2（CR94）: 字の数（コードポイント。サロゲートの組は1字）
+const cpCount = (v) => v.length - (v.match(/[\ud800-\udbff][\udc00-\udfff]/g) || []).length;
 const SHORT = 500;                          // 担当・期限の文字・検索の語などの短い文字
 // 0.13.0 ED-2（計画 docs/plans/2026-10-24-130.md の決めたこと 9。持ち主の試作の命令ごとの照らし）: 画面の書く命令（block.*）の型は決まった表
 // （blockEdit.TYPE_KEYS）だけ。main の page.put・meeting.* は今の NAME_RE のまま（新しい版の型を古い版で壊さない）
@@ -257,7 +259,8 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   // 0.18.0 CS-2（計画 docs/plans/2026-11-18-180.md の「受け渡す名前と形」）: Claude が渡す Markdown（1〜60,000 字の文字）
   // 0.18.0 CS-3: 名前の直しの組（照らしは src/nameFix.js の checkPairs の1か所。memoDoc と同じく読むのは使う時: memoDoc が validate を読むため）
   namePairs: (v) => require('../nameFix').checkPairs(v),
-  mdText: (v) => { if (typeof v !== 'string' || v.length < 1 || v.length > LIMITS.mdText) throw bad('mdText'); return v; },
+  // 点検 2（CR94）: 字の数はコードポイントで数える（道具の inputSchema の maxLength と同じ数え方。𠮷 は1字）
+  mdText: (v) => { if (typeof v !== 'string' || v.length < 1 || cpCount(v) > LIMITS.mdText) throw bad('mdText'); return v; },
   title: (v) => { if (!isStr(v, LIMITS.title)) throw bad('title'); return v; },
   // 0.18.0 CT-2（決めたこと 30・F243）: Claude が付ける白紙のページの題名（1行・1〜200 字（コードポイント）・空白だけ・改行・制御の文字・行と段落の区切り・
   // 向きの制御の文字は断る: サイドバーとタブを崩させない）
@@ -269,6 +272,8 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   name: (v) => { if (typeof v !== 'string' || !NAME_RE.test(v)) throw bad('name'); return v; },
   // 0.11.0 M-4（持ち主の試作の命令ごとの照らし）: 会議の種類は選べる鍵（meetingType.SELECTABLE）と auto（自動に戻す）だけ
   meetingTypeArg: (v) => { if (v !== 'auto' && !mtype.isSelectable(v)) throw bad('meetingType'); return v; },
+  // 点検 2（CR89）: Claude の要約の書き戻しの種類は選べる種類だけ（auto は受けない: 決めたこと 20「渡すか今のまま」）
+  meetingTypeSel: (v) => { if (!mtype.isSelectable(v)) throw bad('meetingType'); return v; },
   // 0.13.0 ED-2: ブロックの型（決まった表）・見出しの段（1〜3）・分ける位置（0 以上の整数。文の長さとサロゲートは命令の中で見る）・コールアウトの絵文字（EQ15 (a): 💡 だけ）
   blockType: (v) => { if (!isBlockType(v)) throw bad('type'); return v; },
   level: (v) => { if (v !== 1 && v !== 2 && v !== 3) throw bad('level'); return v; },
@@ -349,6 +354,6 @@ function checkArgs(spec, args) {
 }
 
 module.exports = {
-  ID_RE, TX_RE, LIMITS, RESERVED_BLOCK, RESERVED_PAGE, RESERVED_SEG, RICH_MARKS, LINE_CTRL_RE,
+  ID_RE, TX_RE, LIMITS, RESERVED_BLOCK, RESERVED_PAGE, RESERVED_SEG, RICH_MARKS, LINE_CTRL_RE, cpCount,
   checkArgs, richText, normalizeBlock,
 };

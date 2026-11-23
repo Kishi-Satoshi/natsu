@@ -10,7 +10,8 @@
  * fixNames(page, segments, pairs, { tasks = [], people = [] })
  *   → { page, segments, segIds, counts: { summary, memo, transcript, assignee, people, title, crossed, tasks }, changedBlocks: Set }
  *   ちょうど同じ字だけを置き換える（正規表現にしない・ひらがなとカタカナを寄せない）。組の順に、文の頭から1回ずつ（前の組が書いた字をあとの組が
- *   また置き換えない）。飾りのある行（rich）は飾りの区切りの中だけを置き換え、区切りをまたぐ語は置き換えずに crossed に数える。
+ *   また置き換えない）。飾りのある行（rich）は飾りの区切りの中だけを置き換え、区切りをまたぐ語は置き換えずに crossed に数える（重なったまたぎは1か所。
+ *   またいだ語の次の字から探し直すので、重なった区切りの中の語は置き換える: 点検 2・CR93）。
  *   題名（title）は置き換えずに数だけ。tasks（その ToDo から作ったタスクの担当の名前の並び）も数えるだけ。people は「参加者」の列の ID の並び
  *   （page.cells の人の列。重なった名前は1つにまとめる）。認識に失敗した発言（failed）は直さない。文を変えた発言は文の頭（parts）を外す
  *   （segment.update の直しと同じ）。受けた物は書き換えず、写しを返す。changedBlocks は文か担当を変えた要約の行の ID（出典を照らし直す行）。
@@ -74,10 +75,20 @@ function replaceRich(rich, pairs) {
   for (const t of runs) { starts.push(pos); pos += t.length; }
   const inside = runs.map(() => []);
   let crossed = 0;
-  for (const h of hitsOf(full, pairs)) {
-    let k = starts.length - 1;
-    while (k > 0 && starts[k] > h.at) k -= 1;
-    if (h.at + h.len <= starts[k] + runs[k].length) inside[k].push(h); else crossed += 1;
+  // 点検 2（CR93）: 区切りをまたぐ当たりは字を使わず、次の字から探し直す（重なった区切りの中の当たりも見つける）。重なったまたぎは1か所に数える
+  let crossEnd = 0;
+  let i = 0;
+  while (i < full.length) {
+    const p = pairs.find((x) => full.startsWith(x.from, i));
+    if (p) {
+      let k = starts.length - 1;
+      while (k > 0 && starts[k] > i) k -= 1;
+      if (i + p.from.length <= starts[k] + runs[k].length) { inside[k].push({ at: i, len: p.from.length, to: p.to }); i += p.from.length; continue; }
+      if (i >= crossEnd) crossed += 1;
+      crossEnd = Math.max(crossEnd, i + p.from.length);
+    }
+    const c = full.charCodeAt(i);
+    i += c >= 0xd800 && c <= 0xdbff && i + 1 < full.length ? 2 : 1;
   }
   const n = inside.reduce((x, l) => x + l.length, 0);
   if (!n) return { rich, text: full, n: 0, crossed };

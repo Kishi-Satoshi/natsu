@@ -385,7 +385,7 @@ test('CT-4・F243: get_meeting・get_meetings の議事録の頭に「- 版: r<r
   } finally { m.done(); }
 });
 
-test('CT-4: 引数の照らし（markdown の 60,001 字・pairs の1字・item の形の違い・base の形 r12・cells の 51 個・何も直さない頼み）は DB を開く前に bad-arg の文。write_summary を白紙のページに → blank・append_to_page を議事録に → not-blank・ToDo でない行の印 → not-todo・「議事録」に行を足す → minutes-row・選択肢に無い名前 → bad-cell（選べる名前）・書けない列 → read-only-col（どれも DB に頼まない: 扉の紙が無くても closed にならない）', T, async () => {
+test('CT-4: 引数の照らし（markdown の 60,001 字は長すぎの文（点検 2・CR94 で意図して直した）・pairs の1字・item の形の違い・base の形 r12・cells の 51 個・何も直さない頼み）は DB を開く前に bad-arg の文。write_summary を白紙のページに → blank・append_to_page を議事録に → not-blank・ToDo でない行の印 → not-todo・「議事録」に行を足す → minutes-row・選択肢に無い名前 → bad-cell（選べる名前）・書けない列 → read-only-col（どれも DB に頼まない: 扉の紙が無くても closed にならない）', T, async () => {
   const s = qSeed();
   const { m, d, ids } = s;
   try {
@@ -403,7 +403,6 @@ test('CT-4: 引数の照らし（markdown の 60,001 字・pairs の1字・item 
       return { r, opened: opened - before };
     };
     for (const [name, args, field] of [
-      ['write_summary', { id: 'pm1', base: 1, markdown: 'あ'.repeat(60001) }, 'markdown'],
       ['write_summary', { id: 'pm1', base: 'r12', markdown: '- a' }, 'base'],
       ['fix_names', { id: 'pm1', pairs: [{ from: '林', to: '森' }] }, 'pairs'],
       ['update_action_item', { item: 'pm1#pm1t1', done: true }, 'item'],
@@ -418,6 +417,8 @@ test('CT-4: 引数の照らし（markdown の 60,001 字・pairs の1字・item 
       const { opened: n } = await want(name, args, 'bad-arg', `${field} の形が違います。`);
       assert.strictEqual(n, 0, `${name}: DB を開いてから断った`);
     }
+    // 0.18.0 点検 2（CR94）で意図して直した: markdown の 60,001 字は「markdown の形が違います。」でなく too-big の文（DB を開く前。前は引数の形の文）
+    assert.strictEqual((await want('write_summary', { id: 'pm1', base: 1, markdown: 'あ'.repeat(60001) }, 'too-big', tools.ERROR_TEXT['too-big'])).opened, 0);
     await want('write_summary', { id: top, base: 0, markdown: '- a' }, 'blank', tools.ERROR_TEXT.blank);
     await want('write_summary', { id: ids[1], base: 0, markdown: '- a' }, 'blank', '白紙のページとデータベースの行には要約を書けません。append_to_page で書き足してください。');
     await want('append_to_page', { id: 'pm1', markdown: '- a' }, 'not-blank', 'append_to_page で書き足せるのは白紙のページとデータベースの行のページだけです。');
@@ -844,4 +845,48 @@ test('点検 2・CR92: withoutCt4 は「- 版: r<数>」を頭の位置（「- I
   assert.strictEqual(withoutCt4('- a｜印 p1#b:b1\n### 見出し｜印 p1#b:b2'), '- a｜印 p1#b:b1\n### 見出し｜印 p1#b:b2');
   // get_meetings のように会議が続くときは、会議ごとの頭（「# 」の後）で外す
   assert.strictEqual(withoutCt4('# A\n- 版: r1\n- ID: a\n## 要約\n# B\n- 版: r2\n- ID: b'), '# A\n- ID: a\n## 要約\n# B\n- ID: b');
+});
+
+test('点検 2・CR85: 何も変えなかった書く道具の答えは「書きました」と戻し方を言わない（make_task のもうあるタスク・update_action_item の同じ値・fix_names の当たりの無かった1回目の送り直し）', () => {
+  // D77: 偽の DB の答えの題名（会議の題名の形でない）
+  const TT = '題';
+  const ans = (name, r, a = {}, p = { kind: 'meeting', title: TT }) => tools.WRITES[name].answer(r, a, p);
+  assert.deepStrictEqual(ans('make_task', { id: 'r1', db: 'd1', made: false }), ['この ToDo には、もうタスクがあります。', '- ID: r1']);
+  assert.deepStrictEqual(ans('make_task', { id: 'r1', db: 'd1', made: true }), ['NaTsu に書きました。', '# 題', '- ID: r1', '要らなければ、NaTsu で［削除］してください。', 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。']);
+  assert.deepStrictEqual(ans('update_action_item', { title: TT, same: true, task: 'r1' }), ['今の値と同じなので、変えませんでした。']);
+  assert.deepStrictEqual(ans('update_action_item', { title: TT }), ['NaTsu に書きました。', '# 題', 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。']);
+  assert.deepStrictEqual(ans('fix_names', { title: TT, counts: null, found: false }), ['見つかりませんでした。']);
+  assert.deepStrictEqual(ans('fix_names', { title: TT, counts: null }), ['NaTsu に書きました。', '# 題', 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。']);
+});
+
+test('点検 2・CR85・CR88・CR89・CR94: append_to_page の行にならない markdown（空白と改行だけ）は DB を開く前に「markdown の形が違います。」・make_task の文の無い ToDo は「文の無い ToDo は、タスクにできません。」（DB に頼まない）・write_summary の meeting_type に auto は無い・markdown の 60,000 字はコードポイントで数え、越えると too-big の文', T, async () => {
+  const m = mcpDb({ only: ['plain1'] });
+  try {
+    const top = m.call('app', 'page.create', {}).id;
+    const eb = m.call('app', 'block.insert', { pageId: 'pm1', afterBlockId: 'pm1t1', type: 'todo' }).blockId;
+    m.close();
+    let opened = 0;
+    const call = (name, args) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW, fs: { ...fs, existsSync: (f) => { if (/natsu\.db$/.test(f)) opened += 1; return fs.existsSync(f); } } });
+    for (const md of ['   ', '\n\n', ' \n\t\n ']) {
+      const r = await call('append_to_page', { id: top, markdown: md });
+      assert.deepStrictEqual([r.isError, r.code, r.text], [true, 'bad-arg', 'markdown の形が違います。'], JSON.stringify(md));
+    }
+    assert.strictEqual(opened, 0, 'DB を開いてから断った');
+    const e = await call('make_task', { item: `pm1#b:${eb}` });
+    assert.deepStrictEqual([e.isError, e.code, e.text], [true, 'empty-todo', '文の無い ToDo は、タスクにできません。']);
+    // auto は道具の表にも引数の照らしにも無い
+    assert.ok(!tools.TOOLS.find((t) => t.name === 'write_summary').inputSchema.properties.meeting_type.enum.includes('auto'));
+    opened = 0;
+    const au = await call('write_summary', { id: 'pm1', base: 1, markdown: '- a', meeting_type: 'auto' });
+    assert.deepStrictEqual([au.isError, au.code, au.text, opened], [true, 'bad-arg', 'meeting_type の形が違います。', 0]);
+    // 60,001 字（コードポイント）は too-big の文（DB を開く前）。𠮷 の 30,001 字（UTF-16 では 60,002）は字の数で断らない（扉の紙が無いので closed）
+    // D77: 白紙のページの題名（会議の題名でない）
+    for (const [name, args] of [['write_summary', { id: 'pm1', base: 1, markdown: 'あ'.repeat(60001) }], ['create_page', { title: '題', markdown: '𠮷'.repeat(60001) }], ['append_to_page', { id: top, markdown: 'あ'.repeat(60001) }]]) {
+      opened = 0;
+      const r = await call(name, args);
+      assert.deepStrictEqual([r.isError, r.code, r.text, opened], [true, 'too-big', tools.ERROR_TEXT['too-big'], 0], name);
+    }
+    const near = await call('append_to_page', { id: top, markdown: '𠮷'.repeat(30001) });
+    assert.deepStrictEqual([near.isError, near.code], [true, 'closed'], near.text);
+  } finally { m.done(); }
 });
