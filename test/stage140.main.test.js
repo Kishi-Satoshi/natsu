@@ -44,7 +44,9 @@ test('EB-5・SEC2（決めたこと 20・33）: app:open-link は https・http�
   const logs = r.engineLog.filter((x) => x.startsWith('リンク: 開かなかった'));
   assert.strictEqual(logs.length, CASES.filter((c) => c[1] === 'no').length, '開かなかったリンクの記録の数');
   for (const x of logs) assert.match(x, /^リンク: 開かなかった（[a-z]+）$/, '記録は符号だけ');
-  for (const x of r.engineLog) assert.ok(!/example|javascript|alert|windows|vbscript|pm1|pm2|natsu:/i.test(x), `記録に住所: ${x}`);
+  // 0.18.0 点検 3 で意図して直した: 一時フォルダの名前（natsu-e2e-・natsu-mutate- などの後の字。偶然「PM2」などを含む）は住所の照らしから外す
+  // （cc6a334 の CI の mutate-2 で、エンジンの起動の記録の「natsu-e2e-vPM2kB」が pm2 に当たった。照らす語は今のまま）
+  for (const x of r.engineLog) assert.ok(!/example|javascript|alert|windows|vbscript|pm1|pm2|natsu:/i.test(x.replace(/natsu-[a-z0-9]+-[A-Za-z0-9]+/g, '')), `記録に住所: ${x}`);
 });
 
 // ---------------------------------------------------------------- EB-3 直し（R109）: stage140.win の小さなアプリを、偽の electron（Electron 44 と同じく Promise のクリップボード）で走らせる
