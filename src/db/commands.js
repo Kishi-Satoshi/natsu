@@ -3647,6 +3647,28 @@ function claudeRowOf(db, id) {
   const opts = { rowsById: new Map(Object.entries(relTitlesOf(db, relIdsIn(cols, r.cells)))) };
   return { page, dbId: d.id, dbTitle: d.title, title: DM.fmtCell(TITLE_COL, r.title, opts), vals: rowValsOf(cols, r, opts) };
 }
+// 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 6・F243）: MCP の書く道具が、扉で DB に頼む前に読み取りだけの接続で見る的（答えの題名と、
+// 平易に断る照らし。DB の命令も同じ照らしで断る）。無い・ゴミ箱・録音中の写し（listedRows の外）・テンプレートの行・ゴミ箱のデータベースの行は null。
+// → { kind: 'meeting' | 'blank' | 'database' | 'row', title, rev, page, db?: { id, title, cols, minutes } }（db はデータベース・行のデータベース・
+// 「議事録」の中の議事録の「議事録」）
+const targetDb = (d) => ({ id: d.id, title: d.title, cols: d.cols, minutes: isMinutesDb(d) });
+function claudeTargetOf(db, id) {
+  const raw = db.prepare(HOT_QUERIES.dbRow).get(id);
+  if (!raw || (raw.trashed_at !== null && raw.trashed_at !== undefined)) return null;
+  const at = (kind, page, d) => ({ kind, title: page.title, rev: page.rev, page, ...(d ? { db: targetDb(d) } : {}) });
+  if (raw.type === 'row') {
+    const d = raw.parent_id && !isTplRaw(raw) ? dbOf(db, raw.parent_id) : null;
+    const page = d ? readPage(db, id) : null;
+    return page ? at('row', page, d) : null;
+  }
+  if (!listedRows(db).some((r) => r.id === id)) return null;
+  const page = readPage(db, id);
+  if (!page) return null;
+  if (isDbPage(page)) { const d = dbOf(db, id); return d ? at('database', page, d) : null; }
+  if (isBlankPage(page)) return at('blank', page);
+  const host = raw.parent_id ? dbOf(db, raw.parent_id) : null;
+  return at('meeting', page, isMinutesDb(host) ? host : null);
+}
 
 const DEFS = {
   // ---- 読む（app と main）
@@ -4277,4 +4299,4 @@ const lockGuard = (run) => (db, a, ctx) => { if (isLockedDb(db, lockTargetOf(a))
 const COMMANDS = Object.freeze(Object.assign(Object.create(null),
   Object.fromEntries(Object.entries(DEFS).map(([k, v]) => [k, Object.freeze(v.lockBlocked ? { ...v, run: lockGuard(v.run) } : v)]))));
 
-module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, withSnap, dbQueryRead, claudeRowOf, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump, dbRowCountOf };
+module.exports = { minutesState, newPageId, COMMANDS, HOT_QUERIES, withSnap, dbQueryRead, claudeRowOf, claudeTargetOf, liveTaskOf, putPageRows, readPage, readRawPage, readSegments, listPages, isPurged, listedRows, actionView, entryOf, setTypePage, keepStoredMemo, dbDump, dbRowCountOf };

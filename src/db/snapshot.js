@@ -34,7 +34,8 @@
  * withLock(dataDir, fn, { fs, log }) → fn の答え（Promise なら終わるのを待ってから）。natsu.db.lock（pid と時刻の2行の文字。本文・パスは書かない）を
  *   作ってから fn を呼び、終わったら（投げても）消す。消せなければ log に書くだけ（残った lock は次の起動の D-7 が消す）。
  * listBackups({ dataDir, fs }) → [{ name, at, ms, kind }]（古い順。名前の形の合うものだけ。.tmp は入らない）
- * isNetworkPath(p) → \\server\share（と \\?\UNC\…）の形なら真（P9。\\?\C:\ と \\.\ は手元の場所）
+ * isNetworkPath(p) → \\server\share（と \\?\UNC\…）の形なら真（P9。\\?\C:\ と \\.\ は手元の場所）。0.18.0 CT-4: 本体は純粋な src/netPath.js
+ *   （MCP のプロセスも同じ1か所を読む）。ここは今の名前のまま渡す
  * RENAME_WAITS_LONG … 戻すときに、ほかのプロセスが閉じるのを待つ間（合わせて約 6.3 秒）。RENAME_WAITS_SHORT … 控えの .gz の名前の変更（約 0.5 秒）
  * renameWaiting(fs, from, to, waits, log) → 真偽（名前の変更。掴まれている EPERM・EBUSY・EACCES なら waits の順に待ってやり直す。投げない。
  *   0.18.0 点検 1: 扉の紙 natsu.door（door.js）も RENAME_WAITS_SHORT で使う）
@@ -54,6 +55,7 @@ const { Worker } = require('node:worker_threads');
 const { isCorruptError } = require('./check-worker');
 const core = require('./core');
 const M = require('./migrate');
+const { isNetworkPath } = require('../netPath');   // 0.18.0 CT-4: 本体は純粋な src/netPath.js（MCP のプロセスも読む）
 
 const DB_NAME = 'natsu.db';
 const BACKUP_DIR = 'backup';
@@ -413,12 +415,6 @@ async function restoreSteps({ sqlite, dataDir, now, fs, runCheck, waits, log, re
 }
 
 // ---------------------------------------------------------------- ネットワークの場所
-function isNetworkPath(p) {
-  const s = String(p || '');
-  if (/^[\\/]{2}[?.][\\/]/.test(s)) return /^[\\/]{2}\?[\\/]UNC[\\/]/i.test(s);   // \\?\C:\… と \\.\… は手元、\\?\UNC\… は UNC
-  return /^\\\\[^\\/]/.test(s);
-}
-
 module.exports = {
   take, rotate, oldestKeptAt, recover, classifyOpenError, checkResult, withLock, pruneOplog, isNetworkPath,
   workerCheck, listBackups, activeSteps, RENAME_WAITS_LONG, RENAME_WAITS_SHORT, LOCK_NAME, renameWaiting,

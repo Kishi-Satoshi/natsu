@@ -1848,12 +1848,12 @@ test('G3・0.17.1: 0.17.1 の変異が一覧にそろい、IDS_171 は計画の�
 const IDS_180 = [
   // 0.18.0 Task CW-1・CW-2 と点検 1 で作った行（表の行の順に）。点検 1（2026-11-22）で足したのは cw-schema-lock-code・cw-schema-autoinc・cw-snap-nochange・
   // cw-revert-dbview・cw-revert-rel・cw-revert-fit・cw-revert-size・cw-door-network・cw-door-rename-wait・cw-door-tmp・cw-door-tmp-stale・cw-mcp-roles・
-  // cw-door-evict・cw-door-backpressure。cw-revert-role は CW-1 の行だが、役 mcp が入った CW-2 で足した（CR33）。cw-client-*・cw-mcp-ro-still は CT-4
+  // cw-door-evict・cw-door-backpressure。cw-revert-role は CW-1 の行だが、役 mcp が入った CW-2 で足した（CR33）。cw-client-*・cw-mcp-ro-still は CT-4 で足した
   'cw-schema-backup', 'cw-schema-backup-fail', 'cw-schema-lock-code', 'cw-schema-order', 'cw-schema-autoinc', 'cw-snap-same-tx', 'cw-snap-keep10', 'cw-snap-purge',
   'cw-snap-kind', 'cw-snap-nochange', 'cw-revert-later', 'cw-revert-subpage', 'cw-revert-dbview', 'cw-revert-row', 'cw-revert-rel', 'cw-revert-fit', 'cw-revert-trim',
   'cw-revert-size', 'cw-revert-role', 'cw-door-ok-only', 'cw-door-network', 'cw-door-remove', 'cw-door-stale', 'cw-door-rename-wait', 'cw-door-tmp', 'cw-door-tmp-stale',
   'cw-door-token', 'cw-door-hello-first', 'cw-door-role', 'cw-door-cmds', 'cw-door-app-claude', 'cw-mcp-roles', 'cw-door-line-max', 'cw-door-conns', 'cw-door-evict',
-  'cw-door-backpressure', 'cw-door-log', 'cw-actor-claude',
+  'cw-door-backpressure', 'cw-door-log', 'cw-actor-claude', 'cw-client-closed', 'cw-client-resend-tx', 'cw-client-path', 'cw-mcp-ro-still',
   // 0.18.0 持ち主の答え AQ38〜AQ41（2026-11-22）で足した cs-sum-score-setting・cs-score-*・cs-names-locked・ct-q-hits も表の行の順に
   // 0.18.0 Task CS-1（要約の作り方の部品）・CS-2（Claude の要約の書き戻しと making）・CS-3（Claude の名前の直し）・CT-1（Claude の ToDo とタスク）・CT-2（Claude の白紙のページと書き足し）・CT-3（データベースの問い合わせと行）
   'cs-sum-pipeline', 'cs-sum-strip', 'cs-sum-cite', 'cs-sum-ground', 'cs-sum-mark', 'cs-sum-making', 'cs-sum-wait', 'cs-sum-base', 'cs-sum-live', 'cs-sum-blank',
@@ -1863,6 +1863,8 @@ const IDS_180 = [
   'ct-create-row', 'ct-create-parent-live', 'ct-create-title-line', 'ct-create-db-parent', 'ct-append-blank-only', 'ct-append-end', 'ct-append-row', 'ct-append-tpl',
   'ct-q-bad-cond', 'ct-q-filter-map', 'ct-q-trash', 'ct-q-tpl', 'ct-q-safe', 'ct-q-limit', 'ct-q-minutes', 'ct-q-hits', 'ct-add-minutes', 'ct-add-readonly', 'ct-add-option',
   'ct-add-lock', 'ct-add-max', 'ct-add-rel-live', 'ct-add-actor', 'ct-up-minutes-title', 'ct-up-readonly', 'ct-up-null', 'ct-row-read',
+  // 0.18.0 Task CT-4（MCP の書く道具と扉の客）。cw-client-*・cw-mcp-ro-still は上の cw- の並びに
+  'ct-mcp-instr', 'ct-mcp-annot', 'ct-mcp-safe', 'ct-mcp-rev-line', 'ct-mcp-act-anchor', 'ct-mcp-closed', 'ct-mcp-network', 'ct-mcp-filter-text', 'ct-mcp-order',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {
@@ -1878,10 +1880,11 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   assert.strictEqual(new Set(IDS_180).size, IDS_180.length, 'IDS_180 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_180.test(m.id) && !IDS_180.includes(m.id)).map((m) => m.id), [], 'IDS_180 に無い 0.18.0 の頭の変異がある');
   const rows = planRows180();
-  // 点検 1（2026-11-22）で cw- を 14 足した（162 → 176）。持ち主の答え AQ38〜AQ41（2026-11-22）で cs- を 6・ct- を 1 足した（176 → 183）
-  assert.strictEqual(rows.length, 183, '計画の 0.18.0 の表（cw- 42・cs- 25・ct- 39・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
+  // 点検 1（2026-11-22）で cw- を 14 足した（162 → 176）。持ち主の答え AQ38〜AQ41（2026-11-22）で cs- を 6・ct- を 1 足した（176 → 183）。
+  // CT-4 で ct- を 3 足した（183 → 186）
+  assert.strictEqual(rows.length, 186, '計画の 0.18.0 の表（cw- 42・cs- 25・ct- 42・cp- 4・cu- 9・xe- 34・xn- 30）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 42], ['cs', 25], ['ct', 39], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 25], ['ct', 42], ['cp', 4], ['cu', 9], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');

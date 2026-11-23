@@ -13,7 +13,7 @@ const path = require('node:path');
 const sqlite = require('node:sqlite');
 const tools = require('../src/mcp/tools');
 const F = require('../src/mcp/format');
-const { mcpDb } = require('./helpers/mcpdb');
+const { mcpDb, withoutCt4 } = require('./helpers/mcpdb');
 
 const T = { timeout: 60000 };
 const NOW = () => new Date('2026-10-21T03:00:00.000Z');
@@ -38,7 +38,8 @@ function blankSeed() {
 }
 function allCalls(call, ids) {
   const out = [];
-  const add = (name, args) => { const r = call(name, args); out.push(`${name} ${JSON.stringify(args)}\n${r.isError ? 'E' : 'O'} ${r.code} ${r.count ?? ''}\n${r.text}`); return r; };
+  // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: 足した「- 版: r<rev>」と ToDo の「｜印」「｜タスク」を外して比べる（ほかの行は前の sha256 と1文字も同じ）
+  const add = (name, args) => { const r = call(name, args); out.push(`${name} ${JSON.stringify(args)}\n${r.isError ? 'E' : 'O'} ${r.code} ${r.count ?? ''}\n${withoutCt4(r.text)}`); return r; };
   for (const r of [{}, { limit: 100 }, { from: '2026-10-18', to: '2026-10-21' }, { meeting_types: ['standup'] }, { limit: 2, offset: 1 }]) add('list_meetings', r);
   const anchors = [];
   for (const query of ['段取り表', '見積', '指示']) {

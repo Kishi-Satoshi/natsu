@@ -1439,16 +1439,23 @@ test('0.10.0 決めたこと 33: src/ に NATSU_MCP_TEST の字が無い（テ�
   for (const f of walk('src').filter((x) => /\.(js|html)$/.test(x))) assert.ok(!read(f).includes('NATSU_MCP_TEST'), f);
 });
 
-test('0.10.0 F16・RF75: src/mcp/ のどのファイルも、決めたこと 59 の部品を require しない・listen( と createServer( と fetch( の字が無い（口は標準入出力だけ）', () => {
+// 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 8・F231・「意図して変えるテスト」）で意図して直した: node:net を読むのは扉の客
+// src/mcp/door.js だけ（DB のプロセスの名前付きパイプへ客としてつなぐ）。そこにも listen(・createServer(・fetch( が無く、connect( は { path } の形だけ。
+// 意図「口は標準入出力だけ・ポートを開かない」は残す
+test('0.10.0 F16・RF75: src/mcp/ のどのファイルも、決めたこと 59 の部品を require しない（node:net は扉の客 door.js だけ）・listen( と createServer( と fetch( の字が無い（口は標準入出力だけ）・connect( は { path } の形だけ', () => {
   const banned = ['net', 'http', 'https', 'http2', 'dgram', 'tls', 'child_process', 'worker_threads', 'electron', '../secrets', '../relay', '../settings', '../store', '../jsonfile', '../updater'];
+  let doorSeen = false;
   for (const f of mcpFiles()) {
     const src = code(read(f));
     for (const m of src.matchAll(/require\(['"]([^'"]+)['"]\)/g)) {
       const name = m[1].replace(/^node:/, '');
+      if (name === 'net' && f === 'src/mcp/door.js') { doorSeen = true; continue; }
       assert.ok(!banned.includes(name), `${f}: ${m[1]} を読む`);
     }
     for (const w of ['listen(', 'createServer(', 'fetch(']) assert.ok(!src.includes(w), `${f}: ${w} がある`);
+    for (const m of src.matchAll(/connect\(([^)]*)\)/g)) assert.match(m[1], /^\{ path: [A-Za-z.]+ \}$/, `${f}: connect( が { path } の形でない: ${m[0]}`);
   }
+  assert.ok(doorSeen, 'src/mcp/door.js が node:net を読んでいない（扉の客が無い）');
 });
 
 test('0.10.0 D76: README・INSTALL に「0.10.0 からポータブル版はありません」と、インストーラーで入れ直す案内（議事録と設定はそのまま）がある', () => {

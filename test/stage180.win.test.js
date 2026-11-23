@@ -1,5 +1,5 @@
 /*
- * stage180.win.test.js — 0.18.0（計画 docs/plans/2026-11-18-180.md）の Windows だけのテスト（CW-2・前提 P6・F230・F231）
+ * stage180.win.test.js — 0.18.0（計画 docs/plans/2026-11-18-180.md）の Windows だけのテスト（CW-2・CT-4・前提 P6・F230・F231）
  * Windows でないときは、ファイルの頭で抜ける（test.skip にしない。ci.yml は飛ばしたテストを Linux で 0 件しか許さない）。
  * CI の test (windows-latest) は npm test（Node）で、electron-smoke は同じテストを Electron の Node（ELECTRON_RUN_AS_NODE=1）でも回す。
  *
@@ -7,6 +7,8 @@
  * （process.execPath。Electron の Node で回すときは ELECTRON_RUN_AS_NODE=1 の electron.exe。Claude デスクトップが MCP のプロセスを起こすのと同じ形）が
  * 扉の紙を読んで net.connect({ path }) でつなぎ、握手して頼む。違う合い言葉は答えずに切られる。
  * 子に渡すパスは環境変数で渡す（日本語と 𠮷 を引数の引用に通さない）。
+ * CT-4: 本物の MCP のサーバー（src/mcp/server.js を別のプロセスで。Claude デスクトップと同じ ELECTRON_RUN_AS_NODE=1 の形: helpers/mcprun.js）の書く道具が、
+ * 扉の紙を読んで本物の名前付きパイプで DB の口に頼み、書ける。
  */
 'use strict';
 if (process.platform !== 'win32') return;
@@ -21,6 +23,7 @@ const { tmpData, electronShape } = require('./helpers/dbtmp');   // 一時フォ
 const core = require('../src/db/core');
 const D = require('../src/db/door');
 const { startServer } = require('../src/db/server');
+const { mcpRun } = require('./helpers/mcprun');
 
 core.registerForTest({
   'mcp.c180win': { roles: ['mcp'], write: true, args: { id: 'id', title: 'title' }, run: (db, a, ctx) => core.COMMANDS['page.setTitle'].run(db, { id: a.id, title: a.title }, ctx) },   // D77: 題名を書く試しの命令
@@ -91,5 +94,38 @@ test('CW-2・P6・F230・F231（Windows）: 本物の DB の口が \\\\.\\pipe\\
     try {
       assert.strictEqual(fs.existsSync(paper), false, '閉じても紙が残った');
     } finally { d.done(); }
+  }
+});
+
+test('CT-4・F230（Windows）: 本物の MCP のサーバーのプロセス（ELECTRON_RUN_AS_NODE=1 の形）の write_summary が、扉の紙を読んで本物の名前付きパイプで DB の口に頼み、書ける（役 mcp・actor claude）。答えは「NaTsu に書きました。」で始まる', { timeout: 60000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const fromServer = [];
+  const parent = electronShape.parent((x) => fromServer.push(x));
+  startServer({ parentPort: parent, sqlite, runCheck: async () => 'ok' });
+  parent.emit({ type: 'init', dataDir: d.dataDir, labels: {}, network: false });
+  const paper = path.join(d.dataDir, D.DOOR_NAME);
+  let s = null;
+  try {
+    await waitFor(() => fromServer.some((x) => x.type === 'ready'), 'ready');
+    await waitFor(() => fs.existsSync(paper), '扉の紙');
+    s = mcpRun({ dataDir: d.dataDir, env: process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} });
+    const meta = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {} };
+    s.send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_meeting', arguments: { id: d.ids[0] }, _meta: meta } });
+    const read = (await s.next()).result.content[0].text;
+    const rev = Number((/^- 版: r(\d+)$/m.exec(read) || [])[1]);
+    assert.ok(rev > 0, read.slice(0, 300));
+    s.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'write_summary', arguments: { id: d.ids[0], base: rev, markdown: '## 決めたこと\n- 来月の予算案の作成は担当Aさんが進める' }, _meta: meta } });
+    const w = await s.next();
+    const text = w.result.content[0].text;
+    assert.deepStrictEqual([w.id, w.result.isError, text.split('\n')[0]], [2, false, 'NaTsu に書きました。'], `${text}\n${s.err().slice(0, 500)}`);
+    const peek = d.peek();
+    assert.deepStrictEqual(peek.db.prepare("select role, actor from oplog where action = 'mcp.writeSummary'").all().map((x) => [x.role, x.actor]), [['mcp', 'claude']]);
+    await s.close();
+  } finally {
+    if (s) s.kill();
+    parent.emit({ type: 'close' });
+    await waitFor(() => fromServer.some((x) => x.type === 'closed'), 'closed');
+    d.done();
   }
 });

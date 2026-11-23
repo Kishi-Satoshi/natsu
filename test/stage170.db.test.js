@@ -11,7 +11,7 @@ const assert = require('node:assert');
 const sqlite = require('node:sqlite');
 const { MessageChannel } = require('node:worker_threads');
 const { tmpDb, tmpData, electronShape, samplePage } = require('./helpers/dbtmp');
-const { mcpDb } = require('./helpers/mcpdb');
+const { mcpDb, withoutCt4 } = require('./helpers/mcpdb');
 const core = require('../src/db/core');
 const tools = require('../src/mcp/tools');
 const { blocksMarkdown } = require('../src/blockEdit');
@@ -106,7 +106,8 @@ test('IG-2・F179: 外に出ない（ic:mic を付けたページを MCP の6つ
     m.call('app', 'page.setTitle', { id: kid, title: '中のページ' });   // 白紙のページの題名（会議の題名でないので日付の形にしない: D77 の外）
     const NOW = () => new Date('2026-11-14T03:00:00.000Z');
     const ask = () => {
-      const c = (name, args = {}) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text;
+      // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: アイコンを付けると版（rev）は上がるので、足した「- 版」「｜印」を外して比べる
+      const c = (name, args = {}) => withoutCt4(tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text);
       const ids = Object.values(m.ids);
       return [c('list_meetings'), c('get_meeting', { id: top }), c('get_meeting', { id: kid }), c('get_meeting', { id: ids[0] }), c('get_meetings', { ids: [top, ids[1]] }),
         c('search_passages', { query: '段取り表' }), c('list_action_items')];

@@ -7,7 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const sqlite = require('node:sqlite');
-const { mcpDb } = require('./helpers/mcpdb');
+const { mcpDb, withoutCt4 } = require('./helpers/mcpdb');
 const tools = require('../src/mcp/tools');
 
 const NOW = () => new Date('2026-11-14T03:00:00.000Z');
@@ -78,7 +78,9 @@ test('MG-3・F197: Claude が「議事録」データベースそのものを読
 test('TK-3・F201: MCP の「開いた ToDo」（list_action_items）は、タスクにした ToDo もしていない ToDo も今どおり出て、答えはタスクにする前と1字も同じ', { timeout: 60000 }, () => {
   const m = mcpDb({ only: ['plain1', 'plain2', 'forge'] });
   try {
-    const c = (name, args = {}) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text;
+    // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: タスクにした ToDo の行は「｜タスク <行の ID>」が足され（決めたこと 40。stage180.mcp で見る）、印を付けると版も上がるので、
+    // 足した所を外して比べる（ほかは今どおり）
+    const c = (name, args = {}) => withoutCt4(tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text);
     m.close();
     const before = [c('list_action_items'), c('get_meeting', { id: m.ids.forge })];
     const blockId = 'pf1t1';

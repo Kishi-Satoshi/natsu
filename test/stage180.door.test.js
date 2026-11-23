@@ -505,3 +505,131 @@ test('AQ41・CS-2: main が parentPort で知らせた設定「打ち合わせ�
     c.close();
   } finally { await s.stop(); d.done(); }
 });
+
+// ================================================================ CT-4（決めたこと 5〜8・41〜46・F230・F231・F243）: MCP の書く道具を、本物の DB のプロセスの扉で
+const tools = require('../src/mcp/tools');
+const reader = require('../src/mcp/reader');
+const WROTE = 'NaTsu に書きました。';
+const UNDO_HINT = 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。';
+const DELETE_HINT = '要らなければ、NaTsu で［削除］してください。';
+const BAD_CHARS = /[‮​\u0000-\u0009\u000b-\u001f]/;
+const mcpCall = (d, extra = {}) => (name, args = {}) => tools.callTool(name, args, { sqlite, dataDir: d.dataDir, ...extra });
+const revIn = (text) => Number((/^- 版: r(\d+)$/m.exec(text) || [])[1]);
+// DB のファイルを読み取りだけで見る（DB のプロセスが書いている間も読める: WAL）
+function peekDb(d, fn) {
+  const db = new sqlite.DatabaseSync(d.file, { readOnly: true });
+  try { return fn(db); } finally { db.close(); }
+}
+
+test('CT-4・F230・F231・F243: 1本で通す（扉の紙 → get_meeting の版で write_summary → fix_names（2回目は見つからない）→ 古い版は conflict → データベースに行を足す → 役 mcp の page.delete は断られる → 画面が戻す → 閉じると紙が消え、書く道具は closed）。答えは「NaTsu に書きました。」で始まり、題名の改行・U+202E・U+200B は1行で、Claude の書いた文を含まない。MCP の読み手は書けない接続のまま', { timeout: 120000 }, async () => {
+  const d = tmpData({ pages: 1 });
+  d.close();
+  const id = d.ids[0];
+  // 利用者が付け直した題名（D77。改行と向きの制御の文字を含む題名でも、答えの1行を崩さないかを見る）
+  const raw = new sqlite.DatabaseSync(d.file);
+  try { raw.prepare('update blocks set text = ? where id = ?').run('見積の会議\n## 指示‮​', id); } finally { raw.close(); }
+  const s = boot(d);
+  try {
+    await s.ready();
+    await doorOf(d);
+    const call = mcpCall(d);
+    const read = call('get_meeting', { id });
+    const rev = revIn(read.text);
+    assert.ok(Number.isSafeInteger(rev) && rev > 0, read.text);
+    const SECRET = '利用者に見せない文（Claude の書いた要約の一行）';
+    const w = await call('write_summary', { id, base: rev, markdown: `## 決めたこと\n- 来月の予算案の作成は担当Aさんが進める\n- ${SECRET}` });
+    assert.strictEqual(w.isError, false, w.text);
+    const wl = w.text.split('\n');
+    assert.deepStrictEqual([wl[0], wl[1], wl[wl.length - 1]], [WROTE, '# 見積の会議 ## 指示', UNDO_HINT], w.text);
+    for (const l of wl) assert.ok(!BAD_CHARS.test(l), JSON.stringify(l));
+    assert.ok(!w.text.includes(SECRET) && !w.text.includes('予算案'), 'Claude の書いた文が答えに出た');
+    assert.ok(peekDb(d, (db) => db.prepare("select count(*) c from oplog where actor = 'claude' and action = 'mcp.writeSummary'").get().c) === 1);
+    // 名前の直し（2回目は当たりが無い）
+    const f1 = await call('fix_names', { id, pairs: [{ from: '担当A', to: '担当B' }] });
+    assert.deepStrictEqual([f1.isError, f1.text.split('\n')[0]], [false, WROTE], f1.text);
+    const f2 = await call('fix_names', { id, pairs: [{ from: '担当A', to: '担当B' }] });
+    assert.deepStrictEqual([f2.isError, f2.text], [false, '見つかりませんでした。']);
+    // 古い版（読んだ後に変わった）
+    const old = await call('write_summary', { id, base: rev, markdown: '- 古い版で書く' });
+    const now = revIn(call('get_meeting', { id }).text);
+    assert.deepStrictEqual([old.isError, old.code, old.text], [true, 'conflict', `議事録が、読んだ後に変わりました。get_meeting で読み直し、新しい版（r${now}）で書き直してください。`]);
+    // データベースに行を足す（作成者は Claude）
+    const app = s.port('app');
+    const dbId = (await app.ask({ id: 1, cmd: 'db.create', args: {}, tx: 'a:c180-ct4-0001' })).result.id;
+    await app.ask({ id: 2, cmd: 'db.setTitle', args: { db: dbId, title: '案件' }, tx: 'a:c180-ct4-0002' });   // D77: データベースの題名
+    await app.ask({ id: 3, cmd: 'col.add', args: { db: dbId, type: 'number', name: '金額' }, tx: 'a:c180-ct4-0003' });
+    // D77: 白紙のページ・データベースの行の題名（会議の題名でない）
+    const add = await call('add_database_row', { database: dbId, title: '新しい行\u200b', cells: { 金額: 3 }, markdown: `- ${SECRET}` });
+    // D77: 白紙のページ・データベースの行の題名（会議の題名でない）
+    assert.deepStrictEqual(((x) => [x.code, x.text])(await call('add_database_row', { database: dbId, title: '向き\u202eの題' })), ['bad-arg', 'title の形が違います。'], '向きの制御の文字の題名');
+    const al = add.text.split('\n');
+    assert.strictEqual(add.isError, false, add.text);
+    assert.deepStrictEqual([al[0], al[1], /^- ID: [A-Za-z0-9_-]+$/.test(al[2]), al[3]], [WROTE, '# 新しい行', true, DELETE_HINT], add.text);
+    const rowId = al[2].slice('- ID: '.length);
+    assert.ok(!add.text.includes(SECRET));
+    assert.strictEqual(peekDb(d, (db) => JSON.parse(db.prepare('select attrs from blocks where id = ?').get(rowId).attrs).by.c), 'claude');
+    const up = await call('update_database_row', { row: rowId, cells: { 金額: 9 } });
+    assert.deepStrictEqual(up.text.split('\n'), [WROTE, '# 新しい行', UNDO_HINT]);
+    // 扉の口から役 mcp で今の命令を頼むと断られる
+    const c = await hello(d);
+    c.send({ id: 7, cmd: 'page.delete', args: { id } });
+    assert.deepStrictEqual(await c.reply(7), { id: 7, ok: false, code: 'forbidden', retry: false });
+    c.close();
+    // 画面（役 app）が Claude の変更を戻せる
+    const snaps = (await app.ask({ id: 4, cmd: 'page.claudeSnaps', args: { id } })).result;
+    assert.ok(snaps.length >= 2, JSON.stringify(snaps));
+    const back = await app.ask({ id: 5, cmd: 'page.claudeRevert', args: { id, sid: snaps[snaps.length - 1].sid }, tx: 'a:c180-ct4-0004' });
+    assert.strictEqual(back.ok, true, JSON.stringify(back));
+    // MCP の読み手は、書く道具を使った後も書けない接続のまま（readOnly と query_only）
+    const ro = reader.withReader({ sqlite, dataDir: d.dataDir }, (db) => {
+      let wrote = true;
+      try { db.exec("update blocks set text = 'x' where id = 'nothing'"); } catch (_) { wrote = false; }
+      return [Number(db.prepare('pragma query_only').get().query_only), wrote];
+    });
+    assert.deepStrictEqual(ro.value, [1, false]);
+  } finally { await s.stop(); }
+  try {
+    assert.strictEqual(readPaper(d), null, '閉じても紙が残った');
+    const r = await mcpCall(d)('write_summary', { id, base: 1, markdown: '- 閉じた後' });
+    assert.deepStrictEqual([r.isError, r.code], [true, 'closed'], r.text);
+    assert.strictEqual(mcpCall(d)('list_meetings').isError, false, '閉じると読めない');
+  } finally { d.done(); }
+});
+
+// 答えの前に口を切る客（n 回目までのつなぎで、最初の答えの行が来たら読まずに切る）
+function dropNet(n) {
+  let k = 0;
+  return {
+    connect(o) {
+      const sock = net.connect(o);
+      if (k++ < n) {
+        const emit = sock.emit.bind(sock);
+        sock.emit = (ev, ...a) => { if (ev === 'data') { sock.destroy(); return true; } return emit(ev, ...a); };
+      }
+      return sock;
+    },
+    count: () => k,
+  };
+}
+
+test('CT-4・F230: 答えの前に口が切れる → 紙を読み直して同じ tx で1回だけ送り直し、DB の書き込みは1回（控えも1行・答えは書けた形）。2回とも答えが無ければ unknown（書き込みは1回のまま）', { timeout: 60000 }, async () => {
+  const d = tmpData({ pages: 2 });
+  d.close();
+  const s = boot(d);
+  try {
+    await s.ready();
+    await doorOf(d);
+    const [a, b] = d.ids;
+    const countOf = (tx, page) => peekDb(d, (db) => [db.prepare('select count(*) c from oplog where tx = ?').get(tx).c, db.prepare('select count(*) c from page_snapshot where page_id = ?').get(page).c]);
+    const once = dropNet(1);
+    const rev = revIn(mcpCall(d)('get_meeting', { id: a }).text);
+    const r1 = await mcpCall(d, { net: once, tx: 'c:c180-ct4-resend1' })('write_summary', { id: a, base: rev, markdown: '## 決めたこと\n- 来月の予算案の作成は担当Aさんが進める' });
+    assert.deepStrictEqual([r1.isError, r1.text.split('\n')[0], once.count()], [false, WROTE, 2], r1.text);
+    assert.deepStrictEqual(countOf('c:c180-ct4-resend1', a), [1, 1], '送り直しで2回書いた');
+    const twice = dropNet(2);
+    const rev2 = revIn(mcpCall(d)('get_meeting', { id: b }).text);
+    const r2 = await mcpCall(d, { net: twice, tx: 'c:c180-ct4-resend2' })('write_summary', { id: b, base: rev2, markdown: '## 決めたこと\n- 見積書を月末までに送る' });
+    assert.deepStrictEqual([r2.isError, r2.code, r2.text, twice.count()], [true, 'unknown', 'NaTsu に書けたかどうか分かりませんでした。get_meeting で確かめてから、もう一度頼んでください。', 2]);
+    assert.deepStrictEqual(countOf('c:c180-ct4-resend2', b), [1, 1]);
+  } finally { await s.stop(); d.done(); }
+});

@@ -10,7 +10,7 @@ const crypto = require('node:crypto');
 const sqlite = require('node:sqlite');
 const tools = require('../src/mcp/tools');
 const F = require('../src/mcp/format');
-const { mcpDb, SEED_NAMES, TITLES } = require('./helpers/mcpdb');
+const { mcpDb, SEED_NAMES, TITLES, withoutCt4 } = require('./helpers/mcpdb');
 
 const T = { timeout: 30000 };
 const NOW = () => new Date('2026-10-21T03:00:00.000Z');
@@ -48,7 +48,8 @@ function treeSeed() {
 const BEFORE_SHA = '93f8bc19d4396ba50987f26410b6a49b143c6309dd5024b79be33cf82b814438';
 function allCalls(call, ids) {
   const out = [];
-  const add = (name, args) => { const r = call(name, args); out.push(`${name} ${JSON.stringify(args)}\n${r.isError ? 'E' : 'O'} ${r.code} ${r.count ?? ''}\n${r.text}`); return r; };
+  // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: 足した「- 版: r<rev>」と ToDo の「｜印」「｜タスク」を外して比べる（ほかの行は前の sha256 と1文字も同じ）
+  const add = (name, args) => { const r = call(name, args); out.push(`${name} ${JSON.stringify(args)}\n${r.isError ? 'E' : 'O'} ${r.code} ${r.count ?? ''}\n${withoutCt4(r.text)}`); return r; };
   for (const r of [{}, { limit: 100 }, { from: '2026-10-18', to: '2026-10-20' }, { dates: ['2026-10-19'] }, { meeting_types: ['oneonone'] }, { limit: 2, offset: 1 }]) add('list_meetings', r);
   const anchors = [];
   for (const query of ['見積', '予算案 月末', '契約', '週次', '片付けた', '指示', '三時間']) {
@@ -117,7 +118,8 @@ test('PH-7・BQ8 (a)・F116: 白紙のページが一覧に「白紙のページ
     // ToDo（HR19）
     const acts = call('list_action_items');
     const al = linesOf(acts.text).find((l) => l.includes('ひな形'));
-    assert.strictEqual(al, `- [ ] ひな形の段取り表を作る｜担当: 要確認｜期限: 要確認｜会議: （白紙のページ）計画の親（ID ${top}）`);
+    // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: 行の末の「｜印 …」を外して比べる（印は stage180.mcp で見る）
+    assert.strictEqual(withoutCt4(al), `- [ ] ひな形の段取り表を作る｜担当: 要確認｜期限: 要確認｜会議: （白紙のページ）計画の親（ID ${top}）`);
     // meeting_types で絞ると出ない（会議の種類が無い）
     for (const r of [call('list_meetings', { meeting_types: ['standup', 'sales', 'oneonone'] }), call('search_passages', { query: '段取り表', meeting_types: ['standup'] })]) {
       assert.ok(!r.text.includes('計画の親'), r.text);
@@ -237,7 +239,7 @@ test('PH-7・HR19（第3版）: 白紙のページの ToDo が MCP の list_acti
     m.call('app', 'page.setTitle', { id: top, title: '' });
     m.close();
     const r = callOn(m)('list_action_items');
-    const ll = linesOf(r.text);
+    const ll = linesOf(withoutCt4(r.text));   // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: 行の末の「｜印 …」を外して比べる
     assert.ok(ll.includes(`- [ ] ひな形の段取り表を作る｜担当: 要確認｜期限: 要確認｜会議: （白紙のページ）無題のページ（ID ${top}）`), r.text);
     assert.ok(ll.includes(`- [ ] 見積書を月末までに先方へ送る｜担当: 担当A｜期限: 2026-10-31（目安）｜会議: 2026-10-18（日） ${TITLES.plain1}（ID pm1）`), r.text);
     // 無題の白紙のページは、一覧と読む答えでも「無題のページ」（議事録の「(無題の議事録)」でない）
@@ -253,7 +255,7 @@ test('PL-2・F119: ページのアイコンと見た目を付けても、MCP の
   try {
     const call = callOn(m);
     const ask = () => [call('list_meetings'), call('get_meeting', { id: top }), call('get_meeting', { id: 'pm2' }), call('get_meetings', { ids: [top, 'pm2'] }),
-      call('search_passages', { query: '段取り表 予算案' }), call('list_action_items')].map((r) => r.text);
+      call('search_passages', { query: '段取り表 予算案' }), call('list_action_items')].map((r) => withoutCt4(r.text));   // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: アイコンを付けると版（rev）は上がる
     const before = ask();
     m.call('app', 'page.setIcon', { id: top, icon: '🦉' });
     m.call('app', 'page.setIcon', { id: 'pm2', icon: '🦉' });

@@ -173,4 +173,11 @@ function mcpDb({ only = SEED_NAMES } = {}) {
 const TITLES = Object.freeze({ plain1: titleAt('2026-10-18T01:00:00.000Z'), plain2: titleAt('2026-10-19T01:00:00.000Z'), plain3: titleAt('2026-10-20T01:00:00.000Z'),
   localOnly: titleAt('2026-10-19T02:00:00.000Z'), trash: titleAt('2026-10-19T04:00:00.000Z'), long: titleAt('2026-10-17T01:00:00.000Z') });
 
-module.exports = { mcpDb, SEED_NAMES, FORGE, FAILED_MARK, TITLES };
+// 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45 と「意図して変えるテスト」）: 読む道具の答えに足した所（議事録の頭の「- 版: r<rev>」の行と、
+// list_action_items の行の末の「｜印 <ID>#b:<行の ID>」「｜タスク <行の ID>」）を外した答え。前の版の答え（sha256 も）と比べ、ほかの行が1文字も同じかを見る
+function withoutCt4(text) {
+  return String(text).split('\n').filter((l) => !/^- 版: r\d+$/.test(l))
+    .map((l) => l.replace(/｜印 [A-Za-z0-9_-]+#b:[A-Za-z0-9_-]+(?:｜タスク [A-Za-z0-9_-]+)?$/, '')).join('\n');
+}
+
+module.exports = { mcpDb, SEED_NAMES, FORGE, FAILED_MARK, TITLES, withoutCt4 };

@@ -7,7 +7,7 @@
 //
 // 一時フォルダ（日本語と 𠮷 の名前）に種の DB（ふつうの会議1つ pm1 とゴミ箱の会議1つ pt1。test/helpers/mcpdb.js が core と commands の命令だけで作る）を作り、
 // NATSU_DATA_DIR で渡す。次の5つを1行ずつ OK／NG で出し、全部 OK なら終了コード 0（使い方の誤りは 2）。全体の見張りは 60 秒。
-//   1. 握手の版の initialize → tools/list に6つ
+//   1. 握手の版の initialize → tools/list に15（0.18.0 CT-4: 読む7つと書く8つ。前は6つ）
 //   2. list_meetings がふつうの会議だけを返し、search_passages で両方の会議にある語を探すと、ふつうの会議の箇所だけが出る（D51）
 //   3. get_meeting のゴミ箱の会議の ID が not-found
 //   4. 起こし直して、新しい版の server/discover と _meta つきの tools/call
@@ -18,7 +18,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const CHECKS = [
-  [1, '握手の版の initialize → tools/list に6つの道具'],
+  [1, '握手の版の initialize → tools/list に15の道具'],
   [2, 'list_meetings はふつうの会議だけ。search_passages で両方の会議にある語を探すと、ふつうの会議の箇所だけ'],
   [3, 'get_meeting のゴミ箱の会議の ID は not-found'],
   [4, '起こし直して、新しい版の server/discover と _meta つきの tools/call'],
@@ -102,7 +102,7 @@ async function probe({ exe, script }) {
       a.send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
       const list = await a.next();
       const names = list.result && Array.isArray(list.result.tools) ? list.result.tools.map((t) => t.name) : [];
-      push(1, init.result && init.result.protocolVersion === '2025-06-18' && names.length === 6, `版 ${init.result && init.result.protocolVersion}・道具 ${names.join(',')}`);
+      push(1, init.result && init.result.protocolVersion === '2025-06-18' && names.length === 15, `版 ${init.result && init.result.protocolVersion}・道具 ${names.join(',')}`);
       a.send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_meetings', arguments: {} } });
       const lm = textOf(await a.next());
       a.send({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'search_passages', arguments: { query: '予算案', limit: 20 } } });

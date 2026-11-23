@@ -20,12 +20,15 @@ const callOn = (m) => (name, args = {}) => tools.callTool(name, args, { sqlite, 
 const linesOf = (text) => text.split('\n');
 
 // ---------------------------------------------------------------- T-1: 道具の表・引数の照らし・list_meetings
-test('MR4: tools/list は6つの道具をこの順で、どれも readOnlyHint が真・additionalProperties が偽・名前が仕様の文字だけ・inputSchema の上の段の名前が 64 文字以下の英数字と _・-・. だけ', T, () => {
-  assert.deepStrictEqual(tools.TOOLS.map((t) => t.name), ['list_meetings', 'search_passages', 'get_meeting', 'get_meetings', 'expand_passage', 'list_action_items']);
+// 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 41・F242）で意図して直した: 15 の道具（読む7つは readOnlyHint が真・書く8つは偽。
+// 書く8つの注は stage180.mcp で見る）。名前と形の決まりは同じ
+test('MR4: tools/list は15の道具をこの順で、読む7つは readOnlyHint が真・書く8つは偽・additionalProperties が偽・名前が仕様の文字だけ・inputSchema の上の段の名前が 64 文字以下の英数字と _・-・. だけ', T, () => {
+  const READS = ['list_meetings', 'search_passages', 'get_meeting', 'get_meetings', 'expand_passage', 'list_action_items', 'query_database'];
+  assert.deepStrictEqual(tools.TOOLS.map((t) => t.name), [...READS, 'write_summary', 'fix_names', 'update_action_item', 'make_task', 'create_page', 'append_to_page', 'add_database_row', 'update_database_row']);
   for (const t of tools.TOOLS) {
     assert.match(t.name, /^[A-Za-z0-9_.-]{1,128}$/);
-    assert.strictEqual(t.annotations.readOnlyHint, true, t.name);
-    assert.strictEqual(t.annotations.destructiveHint, false, t.name);
+    assert.strictEqual(t.annotations.readOnlyHint, READS.includes(t.name), t.name);
+    if (READS.includes(t.name)) assert.strictEqual(t.annotations.destructiveHint, false, t.name);
     assert.strictEqual(t.inputSchema.type, 'object');
     assert.strictEqual(t.inputSchema.additionalProperties, false, t.name);
     for (const k of Object.keys(t.inputSchema.properties)) assert.match(k, /^[A-Za-z0-9_.-]{1,64}$/, `${t.name}.${k}`);
@@ -759,18 +762,19 @@ test('MR4: list_action_items は開いた ToDo だけ（済んだ・空の文は
     const r = call('list_action_items');
     const lines = linesOf(r.text);
     assert.strictEqual(lines[1], '開いた ToDo 4 件（期限の近い順）');
+    // 0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 40・45）で意図して直した: 行の末に ToDo の印「｜印 <ID>#b:<行の ID>」
     assert.deepStrictEqual(lines.slice(2), [
-      '- [ ] 見積を送る｜担当: 山田｜期限: 2026-10-10（目安）｜会議: 2026-10-05（月） 2026/10/5 10:00 の議事録（ID pa2）',
-      '- [ ] 資料を作る｜担当: 山田｜期限: 2026-10-20｜会議: 2026-10-01（木） 2026/10/1 10:00 の議事録（ID pa1）',
+      '- [ ] 見積を送る｜担当: 山田｜期限: 2026-10-10（目安）｜会議: 2026-10-05（月） 2026/10/5 10:00 の議事録（ID pa2）｜印 pa2#b:b1',
+      '- [ ] 資料を作る｜担当: 山田｜期限: 2026-10-20｜会議: 2026-10-01（木） 2026/10/1 10:00 の議事録（ID pa1）｜印 pa1#b:a1',
       // 0.11.0 T-6（決めたこと 26・40）で意図して変えた: 担当・期限の無い ToDo は「要確認」と書く
-      '- [ ] 契約を確認｜担当: 要確認｜期限: 来週｜会議: 2026-10-05（月） 2026/10/5 10:00 の議事録（ID pa2）',
-      '- [ ] 期限なしの作業｜担当: 佐藤｜期限: 要確認｜会議: 2026-10-01（木） 2026/10/1 10:00 の議事録（ID pa1）',
+      '- [ ] 契約を確認｜担当: 要確認｜期限: 来週｜会議: 2026-10-05（月） 2026/10/5 10:00 の議事録（ID pa2）｜印 pa2#b:b2',
+      '- [ ] 期限なしの作業｜担当: 佐藤｜期限: 要確認｜会議: 2026-10-01（木） 2026/10/1 10:00 の議事録（ID pa1）｜印 pa1#b:a4',
     ]);
     assert.deepStrictEqual(lines.slice(2).map((l) => l.slice(6, l.indexOf('｜'))), screen.map((x) => x.text));
     const who = call('list_action_items', { assignee: '山田' });
     assert.deepStrictEqual(linesOf(who.text).slice(2).map((l) => l.slice(6, l.indexOf('｜'))), ['見積を送る', '資料を作る']);
     const when = call('list_action_items', { from: '2026-10-02', to: '2026-10-31' });
-    assert.deepStrictEqual(linesOf(when.text).slice(2).map((l) => /ID (\w+)）$/.exec(l)[1]), ['pa2', 'pa2']);
+    assert.deepStrictEqual(linesOf(when.text).slice(2).map((l) => /（ID (\w+)）｜印 /.exec(l)[1]), ['pa2', 'pa2']);   // 0.18.0 CT-4 で意図して直した: 行の末は印
     const page = call('list_action_items', { limit: 1, offset: 1 });
     assert.deepStrictEqual(linesOf(page.text).slice(2), [lines[3], '続き: offset 2']);
     assert.strictEqual(call('list_action_items', { limit: 201 }).code, 'bad-arg');

@@ -293,7 +293,8 @@ function propLines(page, place = '', dump = null) {
   if (cs.total > 0) lines.push(`- 出典: ${cs.linked}/${cs.total}`);
   const st = stateLine(page.stateLog);
   if (st) lines.push(st);
-  lines.push(...at, `- ID: ${page.id}`, ...linkLine(page.id));
+  // 0.18.0 CT-4（決めたこと 18・45）: 議事録の版（write_summary の base に渡す数）。白紙のページとデータベースには出さない
+  lines.push(...at, `- 版: r${Number.isSafeInteger(page.rev) ? page.rev : 0}`, `- ID: ${page.id}`, ...linkLine(page.id));
   return lines;
 }
 // 0.13.1（決めたこと 22・NR20）: 子は段ごとに2つの空白で下げる（閉じたトグルの子も）。番号は親ごと。トグルは「- 」、トグル見出しは見出しの決まり

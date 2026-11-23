@@ -2,6 +2,8 @@
 // MCP のサーバーの入口（0.10.0 Task S-2。計画 docs/plans/2026-10-20-100.md の「受け渡す名前と形」）。
 // Claude デスクトップが NaTsu.exe を ELECTRON_RUN_AS_NODE=1 で起こし、このスクリプトを渡す（場所は変えない約束: 決めたこと 22）。
 //  - 口は標準入出力だけ（ポート・名前付きパイプ・ファイルの見張りを作らない: 決めたこと 59）。1行に1つの JSON-RPC。
+//    0.18.0 CT-4（計画 docs/plans/2026-11-18-180.md の決めたこと 7・8・42）: 書く道具は NaTsu の DB のプロセスの扉（名前付きパイプ）につないで頼む
+//    （客としてつなぐだけで、口は開かない: src/mcp/door.js）。答えは頼みの順に書く（書く道具を待つ間に来た読む道具の答えを前に出さない: CR12）。
 //  - 標準出力に書くのは send の1か所だけ。console の全部を標準エラーへ回す（RF67）。
 //  - 使う部品は頭で全部読む（後から require しない: 自動更新が src を入れ替える間に新旧を混ぜない）。作業フォルダがアプリの中なら
 //    ホームへ移る（src の名前を変えられるように: 決めたこと 23）。
@@ -24,11 +26,14 @@ const meetingType = require('../meetingType');
 // 0.11.0 T-6: 打ち合わせの質（format が照らす）とメモの型（format・passages が読む）
 const quality = require('../quality');
 const memoTypes = require('../memoTypes');
+// 0.18.0 CT-4: 書く道具の扉の客と問い合わせの読み替え（後から require しない）
+const door = require('./door');
+const dbQuery = require('./dbQuery');
 const pkg = require('../../package.json');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 // 頭で読んだ部品（使う所はそれぞれの部品の中。ここでは後から require しないために読むだけ）
-const LOADED = Object.freeze({ format, passages, core, commands, search, pagerules, meetingType, quality, memoTypes });
+const LOADED = Object.freeze({ format, passages, core, commands, search, pagerules, meetingType, quality, memoTypes, door, dbQuery });
 
 function errLine(text) {
   try { process.stderr.write(`${text}\n`); } catch (_) { /* 標準エラーが閉じている */ }
@@ -60,17 +65,20 @@ function main({ tools: toolList = tools.TOOLS, call = null } = {}) {
   });
   const dataDir = reader.dataDirOf(process.env);
   const run = call || ((name, args) => tools.callTool(name, args, { sqlite, dataDir }));
-  // 道具を呼ぶ: 投げたら read の道具の誤りにして、記録には名前と符号だけ
+  // 道具を呼ぶ: 投げたら read の道具の誤りにして、記録には名前と符号だけ（書く道具の Promise は答えが決まってから書く）
   const wrapped = (name, args) => {
     const t0 = Date.now();
+    const readErr = () => ({ text: tools.ERROR_TEXT.read, isError: true, code: 'read' });
+    const logged = (r) => {
+      const code = r && typeof r.code === 'string' && /^[a-z-]{1,20}$/.test(r.code) ? r.code : r && r.isError ? 'error' : 'ok';
+      const count = r && Number.isInteger(r.count) && r.count >= 0 ? r.count : 0;
+      errLine(`NaTsu MCP: 道具 ${name}: ${code}・${count} 件・${Date.now() - t0}ms`);
+      return r;
+    };
     let r;
-    try { r = run(name, args); } catch (_) {
-      r = { text: tools.ERROR_TEXT.read, isError: true, code: 'read' };
-    }
-    const code = r && typeof r.code === 'string' && /^[a-z-]{1,20}$/.test(r.code) ? r.code : r && r.isError ? 'error' : 'ok';
-    const count = r && Number.isInteger(r.count) && r.count >= 0 ? r.count : 0;
-    errLine(`NaTsu MCP: 道具 ${name}: ${code}・${count} 件・${Date.now() - t0}ms`);
-    return r;
+    try { r = run(name, args); } catch (_) { r = readErr(); }
+    if (r && typeof r.then === 'function') return Promise.resolve(r).then(logged, () => logged(readErr()));
+    return logged(r);
   };
   const session = rpc.createSession({ version: pkg.version, tools: toolList, call: wrapped });
   errLine(`NaTsu MCP: 起動（NaTsu ${pkg.version}・MCP ${[...rpc.SUPPORTED, ...rpc.LEGACY].join(' / ')}）`);
@@ -78,12 +86,18 @@ function main({ tools: toolList = tools.TOOLS, call = null } = {}) {
   let buf = '';
   let dropping = false;   // 1行が大きすぎるので、次の改行まで捨てている
   let ended = false;
+  // 0.18.0 CT-4（CR12）: 答えは頼みの順に書く。書く道具（Promise）の答えを待つ間に来た頼みの答えも、その後ろに並べる（道具はすぐ呼ぶ）
+  let outChain = Promise.resolve();
+  const queue = (lines) => {
+    const p = Promise.resolve(lines);
+    outChain = outChain.then(() => p).then((ls) => { for (const out of ls) send(out); }, () => { /* rpc が内側で答えにする */ });
+  };
   const onLine = (line) => {
     const l = line.endsWith('\r') ? line.slice(0, -1) : line;
     if (!l.trim()) return;
-    for (const out of session.handle(l)) send(out);
+    queue(session.handle(l));
   };
-  const tooBig = () => send(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } }));
+  const tooBig = () => queue([JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } })]);
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
     if (ended) return;
@@ -106,11 +120,14 @@ function main({ tools: toolList = tools.TOOLS, call = null } = {}) {
   process.stdin.on('end', () => {
     ended = true;
     process.exitCode = 0;
-    // 書きかけの答えを出し切ってから終わる（process.exit を直ぐ呼ばない）。2 秒の見張りで必ず終わる
+    // 書きかけの答えを出し切ってから終わる（process.exit を直ぐ呼ばない）。2 秒の見張りで必ず終わる。0.18.0 CT-4: 待っている書く道具の答えも
+    // （扉の待ちは 1 回 10 秒までだが、見張りの 2 秒で終わる）
     const bye = () => process.exit(0);
     setTimeout(bye, 2000).unref();
-    if (process.stdout.writableLength > 0) process.stdout.once('drain', bye);
-    else setImmediate(bye);
+    outChain.then(() => {
+      if (process.stdout.writableLength > 0) process.stdout.once('drain', bye);
+      else setImmediate(bye);
+    });
   });
   return { dataDir, loaded: LOADED };
 }
