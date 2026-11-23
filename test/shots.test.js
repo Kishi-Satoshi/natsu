@@ -1413,7 +1413,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.18.0 点検 3（CR106〜CR113・AQ46）: Claude の書き込みの知らせと［Claude の変更を戻す］の直し（<script> の中）・#claudePop と #trashPop の aria-describedby
   // （見た目は変わらない）・吹き出しの1行目の「データベースへの行の追加と直し」（AQ46 (a)。変わる画面は RETAKEN_180 の項目「要約」の画面で、RETAKE にある）。
   // 値を今の app.html に合わせた（前の値は c2f9934d…）
-  assert.strictEqual(sha, '98eff969484fe345d049ba72c37d350866b06a8924aa20dbda953972fd5f89d0',
+  // 0.18.0 点検 3 の残り（CR115）: 行のページの題名の打ちかけも、Claude が題名を直していたら Claude の題名のまま（<script> の中だけ。新しい字は無く、撮る画面は変わらない）。
+  // 値を今の app.html に合わせた（前の値は 98eff969…）
+  assert.strictEqual(sha, '5d64ad8153c6f016f53caa5d92411d0bcac4ec56ba40d9205c767150d963db02',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

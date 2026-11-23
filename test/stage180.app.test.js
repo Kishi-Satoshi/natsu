@@ -450,6 +450,30 @@ test('CU-1・点検 3・F244: 要約の行・文字起こしの行の打ちか�
   } finally { l.done(); }
 });
 
+test('CU-1・点検 3 の残り・CR115・F244: 行のページの題名の打ちかけを、Claude が update_database_row で題名を直していたら、Claude の題名のままにして「…打ちかけの文は入りませんでした」。題名を直していなければ打ちかけは入る', T, async () => {
+  const l = await seeded();
+  try {
+    const { R } = l.made;
+    const titleOf = () => l.call('page.get', { id: R }).page.title;
+    await open(l, R);
+    // セルだけを直した: 題名の打ちかけは入る
+    $(l, 'pTitle').focus(); $(l, 'pTitle').textContent = '一の打ちかけ';
+    const c = claude(l, 'mcp.updateRow', { id: R, cells: { 場所: '所二' } }, AT1);
+    l.fire('onClaudeWrote', c.wrote); await l.drain(200);
+    assert.strictEqual(titleOf(), '一の打ちかけ', '題名を直していないのに題名の打ちかけが入らない');
+    assert.match(toastOf(l), /を書き換えました（行を直した）戻す$/);
+    // 題名を直した: Claude の題名のまま
+    $(l, 'pTitle').focus(); $(l, 'pTitle').textContent = '一の打ちかけを直す';
+    // 行の題名（D77 の外。試しの字）
+    const t = claude(l, 'mcp.updateRow', { id: R, title: '二' }, AT2);
+    l.fire('onClaudeWrote', t.wrote); await l.drain(200);
+    assert.strictEqual(titleOf(), '二', 'Claude が直した題名を打ちかけで黙って上書きした');
+    assert.strictEqual(toastOf(l), `${LOST}戻す`);
+    assert.strictEqual($(l, 'pTitle').textContent, '二', '画面の題名が Claude の題名でない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('CU-1・点検 3: 打ちかけを送っている間に claude:wrote が続けて2つ来ても投げず、知らせはどちらも出る（1つずつ順に）', T, async () => {
   const l = await seeded();
   try {

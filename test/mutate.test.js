@@ -1880,6 +1880,8 @@ const IDS_180 = [
   'cu-pop-reread', 'cu-pick-reread', 'cu-revert-rev', 'cu-revert-reask', 'cu-revert-pass-rev', 'cu-memo-rebase', 'cu-memo-keep', 'cu-row-keep', 'cu-seg-keep',
   'cu-wrote-chain', 'cu-row-first', 'cu-pop-modal', 'cu-pop-modal-keys', 'cu-wrote-pane', 'cu-pop-settle', 'cu-undo-settle', 'cu-back-bad', 'cu-toast-what',
   'cu-lost-rich', 'cu-pop-tab', 'cu-pop-gone', 'cu-pop-desc',
+  // 0.18.0 点検 3 の残り（2026-11-23。CR115: 行のページの題名の打ちかけ）
+  'cu-title-keep',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {
@@ -1898,10 +1900,11 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   // 点検 1（2026-11-22）で cw- を 14 足した（162 → 176）。持ち主の答え AQ38〜AQ41（2026-11-22）で cs- を 6・ct- を 1 足した（176 → 183）。
   // CT-4 で ct- を 3 足した（183 → 186）。持ち主の答え AQ42〜AQ44（2026-11-23）と CT-4 の直し（CR79）で cs- を 1・ct- を 7 足した（186 → 194）。
   // 点検 2（2026-11-23）の読む答えの直しで cs- を 1・ct- を 3 足した（194 → 198）。書く道具の答えと照らしの直しで cs- を 4・ct- を 8 足した（198 → 210）。
-  // CU-1 で cu- を 1 足した（cu-snap-count: CR95。210 → 211）。点検 3（2026-11-23）で cu- を 22 足した（CR106〜CR113。211 → 233）
-  assert.strictEqual(rows.length, 233, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 32・xe- 34・xn- 30）が読めない');
+  // CU-1 で cu- を 1 足した（cu-snap-count: CR95。210 → 211）。点検 3（2026-11-23）で cu- を 22 足した（CR106〜CR113。211 → 233）。
+  // 点検 3 の残りで cu- を 1 足した（cu-title-keep: CR115。233 → 234）
+  assert.strictEqual(rows.length, 234, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 33・xe- 34・xn- 30）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 32], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 33], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');

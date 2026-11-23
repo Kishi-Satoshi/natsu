@@ -8087,6 +8087,9 @@
     try { r = await window.koeApp.pageGet(id); } catch (_) { r = null; }
     if (!r || !r.page || id !== curId) return false;
     let lost = false;
+    // 0.18.0 点検 3 の残り（CR115）: 題名の打ちかけも、Claude が題名を直していたら（update_database_row）Claude の題名のまま（commitTitle は描いた時の題名と同じなら送らない）
+    const tv = $('pTitle').textContent.trim();
+    if (curPage && tv && tv !== curPage.title && typeof r.page.title === 'string' && r.page.title !== curPage.title) { $('pTitle').textContent = curPage.title; lost = true; }
     const now = new Map(flattenBlocks(r.page.blocks || []).map((b) => [b.id, b]));
     for (const el of editRows($('pNote'))) {
       const x = el._b ? now.get(el._b.id) : null;
