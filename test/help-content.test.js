@@ -2095,7 +2095,7 @@ test('XN-6: 前の版のテストが見ている字は消えていない（X-35�
 // ---------------------------------------------------------------- 0.18.0 Task G の前半（計画 docs/plans/2026-11-18-180.md の Task G・CR155〜CR161）
 // README の Claude の節に書き戻し・戻し方・指示書、「画面の使い方」に複製と見出し4。CHANGELOG の頭に日付の無い 0.18.0 の節（版を上げる前）。設計書の版の表の
 // 0.18.0 の欄・D173〜D204（持ち主の答え AQ1〜AQ47 と 2026-11-23 の決まり）・直しの案 4・5・7・8 の書き添え。計画の CHANGELOG の下書きは「移した」の1行
-test('0.18.0 Task G の前半: README の Claude の節と画面の使い方・CHANGELOG の日付の無い 0.18.0 の節・設計書の 0.18.0 の欄と D173〜D204 と書き添え・計画の下書きは「移した」', { timeout: 5000 }, () => {
+test('0.18.0 Task G の前半: README の Claude の節と画面の使い方・CHANGELOG の 0.18.0 の節（Task G で日付つき）・設計書の 0.18.0 の欄と D173〜D204 と書き添え・計画の下書きは「移した」', { timeout: 5000 }, () => {
   const readme = read('README.md');
   const mcp = readme.slice(readme.indexOf('### Claude から議事録を読む（MCP）'), readme.indexOf('\n## ', readme.indexOf('### Claude から議事録を読む（MCP）')));
   for (const w of ['0.18.0 から、頼んだときは、Claude が要約・名前・ToDo・白紙のページ・データベースへ書き戻します（NaTsu が動いているときだけ）。',
@@ -2122,7 +2122,8 @@ test('0.18.0 Task G の前半: README の Claude の節と画面の使い方・C
   // CHANGELOG: 頭に日付の無い 0.18.0 の節（まだ出していない版）、そのすぐ下が 0.17.1
   const cl = read('CHANGELOG.md');
   const heads = cl.split('\n').filter((l) => l.startsWith('## '));
-  assert.deepStrictEqual(heads.slice(0, 2), ['## natsu-v0.18.0', '## natsu-v0.17.1 （2026-11-21）'], 'CHANGELOG の頭が日付の無い 0.18.0 の節と 0.17.1 の節でない');
+  // 0.18.0 Task G（AQ48・CR166）で意図して変えた: 版を 0.18.0 に上げ、見出しに日付を足した（字は 0.18.0 の identity のテストが一字ずつ見る）
+  assert.deepStrictEqual(heads.slice(0, 2), ['## natsu-v0.18.0 （2026-11-24）', '## natsu-v0.17.1 （2026-11-21）'], 'CHANGELOG の頭が日付つきの 0.18.0 の節と 0.17.1 の節でない');
   const sec = cl.slice(cl.indexOf('## natsu-v0.18.0'), cl.indexOf('## natsu-v0.17.1'));
   for (const w of ['Claude デスクトップから、NaTsu に書き戻せるようになりました。', 'Claude の変更を戻せます。', '［Claude の変更を戻す］', '🤖 要約: Claude（本人）',
     '約 0.5 秒', 'すぐ下に入ります', '見た目の1行ずつ', '新しいタブは後ろに開き', '［複製］（Ctrl+D）', '見出し4', '当たらない字を5つ続けて打つと閉じます', '文字の色のメニュー',

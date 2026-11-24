@@ -68,9 +68,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.16.0 で意図して変えた: 版を 0.16.0 に（データベース: 表とリスト・列の種類・ビュー・リレーション・サブアイテム・インラインとリンクドビュー。Electron は 44.9.0 のまま）
 // 0.17.0 で意図して変えた: 版を 0.17.0 に（アイコンの版・データベースの作り方とサイドバーのビューの行・「議事録」データベース・タスク管理・行のテンプレート・ロック・実機との違いの直し。Electron は 44.9.0 のまま）
 // 0.17.1 で意図して変えた: 版を 0.17.1 に（メニューと窓を、外を押すと閉じる・Esc で閉じる・開くのは1つにする直しの版。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.17.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.18.0 で意図して変えた: 版を 0.18.0 に（Claude からの要約の書き戻しと戻し方・指示書と、編集の動きと Notion との違いの直し。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.18.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.17.1');
+  assert.strictEqual(pkg.version, '0.18.0');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -138,18 +139,10 @@ test('CHANGELOG に今の版の節（## natsu-v<version>）がある（release.y
   assert.match(read('CHANGELOG.md'), new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （\\d{4}-\\d{2}-\\d{2}）)?$`, 'm'));
 });
 
-// 0.18.0 Task G（前半。計画 docs/plans/2026-11-18-180.md の Task G・CR157）で意図して変えた: 版を上げる前（取り直しの画面の持ち主の OK の前）に、CHANGELOG の頭へ
-// 日付の無い次の版の節（まだ出していない版: 見出しの決まり RN4。ヘルプにもリリース本文にも出ない）を置ける。そのときは、そのすぐ下が今の版の節
-test('CHANGELOG の先頭の節は今の版（新しい節は上に足す。版を上げる前は、日付の無い次の版の節が頭にあり、そのすぐ下が今の版）', () => {
+// 0.18.0 Task G（計画の CR157・CR166）で意図して戻した: 版を 0.18.0 に上げたので、前半で受けた「頭が日付の無い次の版」の形をやめ、頭の節は今の版だけ
+test('CHANGELOG の先頭の節は今の版（新しい節は上に足す）', () => {
   const heads = read('CHANGELOG.md').split('\n').filter((l) => l.startsWith('## '));
-  const cur = new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （|$)`);
-  if (cur.test(heads[0])) return;
-  const m = /^## natsu-v(\d+)\.(\d+)\.(\d+)$/.exec(heads[0]);
-  assert.ok(m, `CHANGELOG の頭が今の版（${pkg.version}）でも、日付の無い次の版でもない: ${heads[0]}`);
-  const [a, b, c] = pkg.version.split('.').map(Number);
-  const v = [+m[1], +m[2], +m[3]];
-  assert.ok(v[0] > a || (v[0] === a && (v[1] > b || (v[1] === b && v[2] > c))), `頭の日付の無い節（${heads[0]}）が今の版（${pkg.version}）より新しくない`);
-  assert.match(heads[1], cur, '日付の無い次の版の節のすぐ下が今の版の節でない');
+  assert.match(heads[0], new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （|$)`));
 });
 
 // 守りのテスト（今は通る）。読んだ文字の U+FEFF を外さずに writePs1 へ渡すと BOM が2つになる（全体の決まり）
@@ -313,8 +306,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.16.0 で意図して変えた: 版は 0.16.0（README の保存の説明は 0.7.0 のまま）
 // 0.17.0 で意図して変えた: 版は 0.17.0（README の保存の説明は 0.7.0 のまま）
 // 0.17.1 で意図して変えた: 版は 0.17.1（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0・0.17.1: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.17.1');
+// 0.18.0 で意図して変えた: 版は 0.18.0（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0・0.17.1・0.18.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.18.0');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -983,8 +977,8 @@ test('0.17.1: CHANGELOG の 0.17.1 の節（承認した字のまま移した）
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.17.1 （2026-11-21）'), 'CHANGELOG.md に「## natsu-v0.17.1 （2026-11-21）」の見出しが無い');
-  // 0.18.0 Task G（前半・CR157）で意図して変えた: 頭に日付の無い 0.18.0 の節（まだ出していない版）を置いたので、日付のある節の頭が 0.17.1 かを見る
-  assert.ok(cl.search(/\n## natsu-v\S+ （\d{4}-\d{2}-\d{2}）\n/) === cl.indexOf('\n## natsu-v0.17.1'), '0.17.1 の節が CHANGELOG の日付のある節の頭に無い');
+  // 0.18.0 で意図して変えた: CHANGELOG の頭は 0.18.0 の節になった（0.17.1 の節はそのすぐ下: 下の 0.18.0 のテスト）
+  assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.0') + 1) === cl.indexOf('\n## natsu-v0.17.1'), '0.17.1 の節が 0.18.0 の節のすぐ下に無い');
   assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.17.1') + 1) === cl.indexOf('\n## natsu-v0.17.0'), '0.17.1 の節のすぐ下が 0.17.0 の節でない');
   const sec = secOf(cl, '## natsu-v0.17.1');
   const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());   // 見出しの次から
@@ -1012,6 +1006,45 @@ test('0.17.1: CHANGELOG の 0.17.1 の節（承認した字のまま移した）
   const names = [...new Set([...sec.matchAll(/［([^］]+)］/g)].map((m) => m[1]))];
   assert.deepStrictEqual(names, ['更新して再起動', 'ロックを外す', '···', '列の値を変える ▸']);
   for (const n of names) assert.ok(src.includes(n), `0.17.1 の節の［${n}］が src/ に無い`);
+});
+
+// 0.18.0（計画 docs/plans/2026-11-18-180.md の「CHANGELOG の節」・Task G・AQ48・CR157・CR166）: Task G の前半で持ち主の読む言葉に直して日付の無い節として移し、2026-11-24 に持ち主が
+// 取り直しの見比べと一緒に「この見た目と字でよい（おすすめ）」と答えた字のまま、版を 0.18.0 に上げる commit で日付つきの見出し（## natsu-v0.18.0 （2026-11-24））にした。
+// 出す日が変われば見出しの日だけを替える
+test('0.18.0: CHANGELOG の 0.18.0 の節（承認した字のまま）は日付つきの見出しで CHANGELOG の頭（0.17.1 の節のすぐ上）にあり、頭の1行と箇条を承認の字で書き、計画の番号と下書きの印を写さず、引いた［…］は src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.18.0 （2026-11-24）'), 'CHANGELOG.md に「## natsu-v0.18.0 （2026-11-24）」の見出しが無い');
+  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.18.0'), '0.18.0 の節が CHANGELOG の頭に無い');
+  assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.0') + 1) === cl.indexOf('\n## natsu-v0.17.1'), '0.18.0 の節のすぐ下が 0.17.1 の節でない');
+  const sec = secOf(cl, '## natsu-v0.18.0');
+  const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());
+  assert.deepStrictEqual(body, [
+    'アプリの中の［更新して再起動］で当てられます（インストーラーの入れ直しは要りません）。',
+    '- **Claude デスクトップから、NaTsu に書き戻せるようになりました。** Claude に頼むと、議事録の要約の書き戻し・名前の誤りの直し・ToDo の更新（済み・担当・期限）と［タスクにする］・白紙のページの作成と書き足し・データベースへの行の追加と直し（タスクのステータスなど）ができます。書く前に、Claude デスクトップが許しを聞きます。Claude は、ページ・行・列を消すことはしません。',
+    '- Claude が、データベースの行を条件で絞り込んで読めるようになりました（「タスク管理で、今週が期限のものを出して」など）。データベースの行のページの本文も読めます。',
+    '- Claude が書き戻した要約にも、NaTsu が文字起こしと照らして出典を付け直します。議事録の上の行に「🤖 要約: Claude（本人）」と出ます。',
+    '- NaTsu が作る要約でも、文の終わりに「（出典: s12）」の形の字が混じったときは、その字を外し、出典は文字起こしと照らして NaTsu が付けます。',
+    '- **Claude の変更を戻せます。** Claude が書き換える前の形を、ページごとに 10 回分まで、この PC の中に残します。ページの「···」の［Claude の変更を戻す］か、書いた直後に左下に出る［戻す］で戻せます。Ctrl+Z では、Claude の書き換えは戻りません。',
+    '- Claude デスクトップの入力の欄の「＋」に、会議の種類ごとの「…の型で要約して書き戻す」と、「指した会議から資料を作る」「話題で過去の会議を横断する」「ToDo と決定事項をまとめる」の指示書が出ます（NaTsu を更新した後、Claude デスクトップを終了して起動し直すと出ます）。',
+    '- NaTsu を閉じている間は、Claude は読むだけで、書けません。録音中の議事録と、要約を作っている途中・要約待ちの議事録にも書けません。',
+    '- **Ctrl+Z の1回で戻るまとまりを、打つ手が少し（約 0.5 秒）止まるまでにしました。** 日本語入力では、変換を確定した語ごとに戻ります。長く打った文も、少しずつ戻せます。',
+    '- 飾りの無い何行かの文を貼ると、改行の入った1つの行になります（空の行で区切った段落は、別の行になります）。文のある行・箇条書き・ToDo の途中か終わりに貼ると、その行は変えずに、すぐ下に入ります。',
+    '- 折り返した長い行で ↑↓ を押すと、行の中を見た目の1行ずつ動き、隣の行へ移るときも横の位置を保ちます。区切り線とページの行は飛ばし、本文の中のデータベースでは題名の欄に入ります。',
+    '- 検索の窓で Ctrl+Enter（新しいタブで開く）を押すと、新しいタブは後ろに開き、見ているページと検索の窓はそのままです。',
+    '- サイドバーのページのメニューの並びを直し、［複製］（Ctrl+D）を足しました。中のページやデータベースも一緒に写ります（ロックしたデータベースは、ロックしたまま写ります）。議事録・「議事録」・「タスク管理」を含むページは複製できません。',
+    '- 見出し4を使えるようになりました（行の頭で「#### 」と打つか、/ のメニューで）。',
+    '- / のメニューは、当たらない字を5つ続けて打つと閉じます。ひらがなの読み（「みだし」「あか」など）では当たらなくなりました（「見出し」「赤」や「h1」「red」で探せます）。「リスト」で箇条書き・番号付き・トグルが出ます。',
+    '- 文字の色のメニューを開いたまま本文やサイドバーを押すと、メニューが閉じて、押した所も動きます（/ のメニューと同じです）。',
+    '- サイドバーの「プライベート」の横の印は、マウスを乗せたときと、キーボードで選んだときだけ出ます。',
+    '- この版で、議事録の保存の形を新しくします（更新して初めて起動したときに、自動で控えを取ってから切り替えます）。0.17.1 までの NaTsu に戻すと、議事録は読むことだけできます。',
+    '- ヘルプセンターの「Claude から議事録を読む・書き戻す（MCP）」に書き戻し・戻し方・指示書を書き、「要約を書き直す」「ページの中のページ・白紙のページ」「データベース（表とリスト）」「ページを消す・戻す・毎日の控え」「議事録を探す」「ホットキー」「NaTsu の全体像」「NaTsu でできること」に新しい働きを書きました。［設定］の近道の一覧に、検索の窓の Ctrl+Enter と、サイドバーの行の Ctrl+D を足しました。',
+  ], '0.18.0 の節が持ち主の承認した字（2026-11-24「この見た目と字でよい（おすすめ）」）と違う');
+  assert.ok(!/（(?:CR|R)\d+）|AQ\d|XN-|XE-|<!--|承認|下書き|YYYY/.test(sec), '0.18.0 の節に計画の番号か下書きの印がある');
+  assert.ok(!/notion|aqua|typeless/i.test(sec), '0.18.0 の節に参考にしたアプリの名前がある');
+  assert.ok(!/<[a-z]/i.test(sec), '0.18.0 の節に生の HTML がある');
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  for (const m of sec.matchAll(/［([^］]+)］/g)) assert.ok(src.includes(m[1]), `0.18.0 の節の［${m[1]}］が src/ に無い`);
 });
 
 // ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）

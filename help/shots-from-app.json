@@ -3,25 +3,25 @@
     {
       "name": "notes-tabs",
       "from": "test/shots/win32/notes-tabs-light.png",
-      "fromSha256": "XWrSzVCB0D7FA8mWFrTpkzzR2vH3dU61dusPdGhX67E",
+      "fromSha256": "rR-7IJ_gWjG2jjZ-dHZkBaF7FZhn2ki7zDWbNKV3Hv4",
       "crop": null
     },
     {
       "name": "minutes",
       "from": "test/shots/win32/notes-page-light.png",
-      "fromSha256": "KThdnKChNEgtv6WbNPIUhjpQpj5OojoXQk4njA7nTuw",
+      "fromSha256": "qP_HClQ_dIOUItw4xTRaL4y0uPOFK8IbQSRFsr0RMeA",
       "crop": [300, 320, 760, 460]
     },
     {
       "name": "ready",
       "from": "test/shots/win32/live-ready-light.png",
-      "fromSha256": "hSYV-toC_QvzZbpDKVE9iWcs5OgY2YVDx9LuwRoaHV8",
+      "fromSha256": "Jp5Evw69mxrFKwjyKNG_DTQJkYmdc2lgctK9yqu9ld8",
       "crop": [300, 250, 780, 320]
     },
     {
       "name": "live",
       "from": "test/shots/win32/live-light.png",
-      "fromSha256": "Qpe4DYuLohgYPAeOfRbUF5sDVLC0QDuEx4matwo_UJ0",
+      "fromSha256": "XTo9P5UkcoA9WF5L-juU_2-2FCT7rsiyrfd7XmKuZgM",
       "crop": [0, 0, 1060, 700]
     },
     {
@@ -39,13 +39,13 @@
     {
       "name": "status",
       "from": "test/shots/win32/live-banner-light.png",
-      "fromSha256": "fqK_JqnmvgMVBOZxEe5NVi6NARms0CDHde7tUE0Xs2g",
+      "fromSha256": "e0hbKdxs1P4LO5aRciV_w79EcM0HuEUlHTdDRsi5GMM",
       "crop": [320, 388, 760, 115]
     },
     {
       "name": "offline",
       "from": "test/shots/win32/live-offline-light.png",
-      "fromSha256": "N5y53tMpK8xGjJzZgjPhj9QLZRd-njr_rPwLmZu-Ud8",
+      "fromSha256": "_w9pORBAaxV5Ia7tcvJfL01YUXdY9Vdhb6PGUVTwPBQ",
       "crop": [310, 388, 515, 125]
     },
     {
@@ -57,13 +57,13 @@
     {
       "name": "mcp",
       "from": "test/shots/win32/settings-mcp-light.png",
-      "fromSha256": "CiTtfci92PMHTDll0nB8gE_vLwd13S1wKbPP47SvELk",
+      "fromSha256": "uLp9hXL45eh1mloyIC54yw-Kj3Pnt-fJZ4wXKK58O-U",
       "crop": [50, 40, 1020, 480]
     },
     {
       "name": "settings-summary",
       "from": "test/shots/win32/settings-summary-light.png",
-      "fromSha256": "CiTtfci92PMHTDll0nB8gE_vLwd13S1wKbPP47SvELk",
+      "fromSha256": "5vtztgbRt1_7LR7qqCpjThUmaqbk-16D3lahdKc1yWY",
       "crop": [50, 40, 1020, 280]
     },
     {
@@ -75,7 +75,7 @@
     {
       "name": "ready-page",
       "from": "test/shots/win32/live-ready-light.png",
-      "fromSha256": "hSYV-toC_QvzZbpDKVE9iWcs5OgY2YVDx9LuwRoaHV8",
+      "fromSha256": "Jp5Evw69mxrFKwjyKNG_DTQJkYmdc2lgctK9yqu9ld8",
       "crop": [0, 0, 1060, 480]
     }
   ],
