@@ -261,9 +261,12 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.16.0 で足した画面（NEW_160）は 0.15.1 の画面に数えない
 // 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」）で意図して変えた: Claude の要約の札と左下の知らせ・控えのあるページの「···」・
 // ［Claude の変更を戻す］の窓の明暗の4枚を足した（NEW_180。まだ基準が無い。Task G の前に基準にする）。取り直し待ちは 0.18.0 の表の画面（RETAKE_180）
-const NEW_180 = ['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark'];
+const NEW_180 = ['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark',
+  'search-palette-newtab-light'];   // 0.18.0 XE-4（決めたこと 60・CR128）で意図して足した: 検索の窓の Ctrl+Enter の後（まだ基準が無い）
 // 0.18.0 CH-1（決めたこと 52・CR104）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行と吹き出しの文が変わるので、項目「要約」を写す今の基準がある6枚を取り直す（RETAKEN_180）
-const RETAKEN_180 = ['settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light'];
+const RETAKEN_180 = ['settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
+  // 0.18.0 XE-4（CR128）で意図して足した: 近道の表に「検索の窓」の行が増えるので、近道の表の2枚と設定の［一般］の3枚（今の基準がある）を取り直す（0.15.0 の R55・0.16.0 と同じ）
+  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark'];
 const RETAKE_180 = [...NEW_180, ...RETAKEN_180];
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
 // 0.18.0 CU-1 で意図して直した: 0.18.0 で足した画面（NEW_180）は 0.17.0 の画面に数えない
@@ -1421,7 +1424,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は ccc29384…）
   // 0.18.0 XE-3（決めたこと 59・CR124・CR125）: 折り返した行の ↑↓（caretLine の写し・継ぎ目の geom と chars・stepRow の見た目の行と移る先・題名の欄の ↑↓。<script> の中だけ。新しい字は無く、撮る画面は変わらない）。
   // 値を今の app.html に合わせた（前の値は c1c80467…）
-  assert.strictEqual(sha, '0465fdbfe386d9f92225ec579a14c00ccb06dce066d82e377cabd05194de08da',
+  // 0.18.0 XE-4（決めたこと 60・CR127・CR128）: 検索の窓の Ctrl+Enter は後ろのタブ（openPageTab の back・openResult・openLinkRow・近道の表の写しに「検索の窓」の行）。変わる画面は足した search-palette-newtab-light と、近道の表の行が増える設定の5枚（RETAKE にある）。
+  // 値を今の app.html に合わせた（前の値は 0465fdbf…）
+  assert.strictEqual(sha, 'f1fd2ed7e52a2f978bc41cce90ff80457f74eb272a500358a62e14e92eef9a6a',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1820,7 +1825,8 @@ test('R128・近道の表のデータベースの行の画面: settings-shortcut
   // 0.16.0 で意図して変えた（版を 0.16.0 に上げる commit。Task G の後半: R130）: 取り直し待ちを空に戻した。足した画面（ADDED_160 の 24 枚の1つ）で、基準がある
   // 0.17.0 IV-1 で意図して変えた: アプリの画面の全部が 0.17.0 の取り直し待ち（RETAKE_170）
   // 0.17.0 で意図して変えた（版を 0.17.0 に上げる commit。Task G の後半: R103）: 取り直し待ちを空に戻した。0.17.0 で取り直した画面（ADDED_170 の1つ。KQ6 で持ち主が見た）で、基準がある
-  assert.ok(!SH.RETAKE.has('settings-shortcuts-db-light') && ADDED_170.includes('settings-shortcuts-db-light') && NEW_160.includes('settings-shortcuts-db-light') && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-shortcuts-db-light.png')));
+  // 0.18.0 XE-4（CR128）で意図して直した: 近道の表に「検索の窓」の行が増えるので、0.18.0 の取り直し待ち（RETAKEN_180）にある
+  assert.ok(SH.RETAKE.has('settings-shortcuts-db-light') && RETAKEN_180.includes('settings-shortcuts-db-light') && ADDED_170.includes('settings-shortcuts-db-light') && NEW_160.includes('settings-shortcuts-db-light') && fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', 'settings-shortcuts-db-light.png')));
   // 0.18.0 CU-1 で意図して直した: 取り直し待ちは 0.18.0 の表の画面（RETAKE_180）だけ（0.16.0 の画面は入らない）
   assert.deepStrictEqual([...SH.RETAKE].filter((n) => !RETAKE_180.includes(n)), []);
   assert.strictEqual(ADDED_160.length, 24);

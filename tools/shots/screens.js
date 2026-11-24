@@ -244,6 +244,26 @@ const OPEN_CLAUDE_PAGE = OPEN_CLAUDE_AT(`document.getElementById('paneBtnNote').
 const OPEN_CLAUDE_MENU = OPEN_CLAUDE_AT(`document.getElementById('pMore').click();
   await until(() => item(), '［Claude の変更を戻す］が無い');`);
 // 0.18.0 CU-1: ［Claude の変更を戻す］の窓（3 行）
+// 0.18.0 XE-4（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」・決めたこと 60・AQ26 (a)）: 1行目のページを開いて検索の窓を開き、開いていないページの結果で
+// Ctrl+Enter（新しいタブは後ろのタブの帯の末に足され、見ているページと検索の窓はそのまま）。窓が閉じた・タブが増えないときは投げる（撮れない）
+const SEARCH_NEWTAB = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  document.querySelector('#plist .pitem').click();
+  await w(300);
+  document.getElementById('sideSearch').click();
+  await w(400);
+  const box = document.getElementById('searchBox');
+  const rows = [...document.querySelectorAll('#palList .pitem')];
+  const i = rows.findIndex((r) => r.getAttribute('aria-selected') !== 'true' && r.dataset.link !== '1');
+  if (i < 0) throw new Error('開いていないページの結果が無い');
+  const n = document.querySelectorAll('#tabbar .tabitem').length;
+  for (let k = 0; k < i; k++) box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+  await w(300);
+  if (document.getElementById('palette').hidden) throw new Error('Ctrl+Enter で検索の窓が閉じた');
+  if (document.querySelectorAll('#tabbar .tabitem').length !== n + 1) throw new Error('新しいタブが後ろに足されない');
+  return 1;
+})()`;
 const OPEN_CLAUDE_POP = OPEN_CLAUDE_AT(`document.getElementById('pMore').click();
   await until(() => item(), '［Claude の変更を戻す］が無い');
   item().click();
@@ -792,6 +812,8 @@ const SCREENS = [
   { name: 'page-menu-claude-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_MENU },
   { name: 'claude-pop-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_POP },
   { name: 'claude-pop-dark', page: 'app', theme: 'dark', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_POP },
+  // 0.18.0 XE-4（計画の「取り直す画面（RETAKE）」・決めたこと 60）: 検索の窓の Ctrl+Enter の後（窓は開いたまま・新しいタブは後ろ）
+  { name: 'search-palette-newtab-light', page: 'app', theme: 'light', act: SEARCH_NEWTAB },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -939,10 +961,13 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // artifact 14374239081 の .after.png（146 枚: 違いのあった 132 枚と新しい 14 枚）をバイトのまま基準にし、空に戻した（基準は 235 枚）
 // 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」）: Claude の要約の札と左下の知らせ・控えのあるページの「···」・［Claude の変更を戻す］の窓の明暗の
 // 4枚を足した（まだ基準が無い）。控えの無いページの「···」と札の無いページは今と同じ形なので、ほかの画面は変わらない（決めたこと 50・51）
+// 0.18.0 XE-4（計画の「取り直す画面（RETAKE）」・決めたこと 60・CR128）: 検索の窓の Ctrl+Enter の後の search-palette-newtab-light を足した（まだ基準が無い）。
+// 近道の表に「検索の窓」の行が増えるので、settings-shortcuts-light・settings-shortcuts-db-light と設定の［一般］の3枚（今の基準がある）を取り直す（0.15.0 の R55・0.16.0 と同じ）
 // 0.18.0 CH-1（計画の「取り直す画面（RETAKE）」・決めたこと 52・CR104）: カード「Claude との連携（MCP）」の頭の1行と吹き出しの文が変わるので、項目「要約」を写す画面
 // （今の基準がある6枚。0.10.0 で頭の1行を変えたときの4枚と、頭の1行が写る・捲り棒のつまみが変わりうる settings-mcp-running-light・settings-quality-light）を取り直す
-const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark',
-  'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light']);
+const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
+  'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
+  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

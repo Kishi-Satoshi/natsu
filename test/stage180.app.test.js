@@ -1200,3 +1200,109 @@ test('XE-3・F247（AQ25 (a)）: 区切り線と子ページの行は飛ばす�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- XE-4（決めたこと 60・AQ26 (a)・F248）: 検索の窓の Ctrl+Enter は新しいタブを後ろに開き、窓を開いたまま
+const tabKeys = (l) => $(l, 'tabbar').querySelectorAll('.tabitem').map((t) => t.dataset.key);
+const activeKey = (l) => { const t = $(l, 'tabbar').querySelector('.tabitem.active'); return t ? t.dataset.key : ''; };
+const palRowOf = (l, id) => $(l, 'palList').querySelectorAll('.pitem').find((r) => r.dataset.pid === id && r.dataset.link !== '1');
+async function palOpenAt(l, id, q = '') {
+  if ($(l, 'palette').hidden) { l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain(); }
+  const box = $(l, 'searchBox');
+  if (q !== box.value) { box.value = q; $(l, 'fltAll').dispatchEvent({ type: 'click' }); await l.drain(); }
+  const rows = $(l, 'palList').querySelectorAll('.pitem');
+  const i = rows.indexOf(palRowOf(l, id));
+  assert.ok(i >= 0, `前提: 検索の窓に ${id} の行が無い`);
+  const k = rows.indexOf(rows.find((r) => r.classList.contains('kbd')));
+  for (let n = k; n < i; n++) l.key({ key: 'ArrowDown' }, box);
+  for (let n = k; n > i; n--) l.key({ key: 'ArrowUp' }, box);
+  await l.drain();
+  return box;
+}
+const readOf = (l, id) => l.called('pageGet').filter((c) => c.args[0] === id).length;
+
+test('XE-4・F248: Ctrl+Enter で新しいタブが後ろに開く（タブの帯の末・見ているページはそのまま・まだ読まない）・窓は開いたまま・フォーカスは検索の欄・選んだ行と打った語はそのまま・別の結果でもう1つ増える・同じページのタブがあるときは何もしない・後ろのタブを押すと読んで出す・Esc で閉じる・Enter は今どおり開いて閉じる', T, async () => {
+  const l = await seeded();
+  try {
+    const { B, D, R } = l.made;
+    await open(l, 'pm1');
+    const tabs0 = tabKeys(l);
+    let box = await palOpenAt(l, B);
+    const before = readOf(l, B);
+    let ev = l.key({ key: 'Enter', ctrlKey: true }, box); await l.drain(200);
+    assert.ok(ev.defaultPrevented, 'Ctrl+Enter を止めない');
+    assert.deepStrictEqual(tabKeys(l), [...tabs0, `page:${B}`], '新しいタブがタブの帯の末に無い');
+    assert.strictEqual(activeKey(l), 'page:pm1', '新しいタブが前に出た');
+    assert.strictEqual(readOf(l, B), before, '後ろのタブのページを読んだ');
+    assert.strictEqual($(l, 'palette').hidden, false, 'Ctrl+Enter で窓を閉じた');
+    assert.strictEqual(who(active(l)), 'input#searchBox', 'フォーカスが検索の欄に無い');
+    assert.strictEqual(palRowOf(l, B).classList.contains('kbd'), true, '選んだ行が替わった');
+    // 打った語もそのまま（語で絞った結果から）
+    box = await palOpenAt(l, R, '一');
+    l.key({ key: 'Enter', ctrlKey: true }, box); await l.drain(200);
+    assert.deepStrictEqual([tabKeys(l).slice(-2), $(l, 'searchBox').value, activeKey(l)], [[`page:${B}`, `page:${R}`], '一', 'page:pm1'], '別の結果でタブが増えない・打った語が消えた');
+    // 同じページのタブがあるときは何もしない（前にも出さない）
+    const n = tabKeys(l).length;
+    l.key({ key: 'Enter', ctrlKey: true }, box); await l.drain(200);
+    assert.deepStrictEqual([tabKeys(l).length, activeKey(l)], [n, 'page:pm1'], '同じページのタブが増えた・前に出た');
+    // Ctrl+クリック・中クリックも同じ
+    box = await palOpenAt(l, D, '');
+    palRowOf(l, D).dispatchEvent({ type: 'click', ctrlKey: true, button: 0 }); await l.drain(200);
+    assert.deepStrictEqual([tabKeys(l).slice(-1)[0], activeKey(l), $(l, 'palette').hidden, who(active(l))], [`page:${D}`, 'page:pm1', false, 'input#searchBox'], 'Ctrl+クリックが後ろのタブで窓を残さない');
+    const C = l.call('page.create', {}).id;
+    l.call('page.setTitle', { id: C, title: '中で押す見本' });   // 白紙のページの題名（D77 の外。試しの字）
+    l.fire('onPagesUpdated'); await l.drain(200);
+    box = await palOpenAt(l, C, '中で押す');
+    palRowOf(l, C).onauxclick({ button: 1, preventDefault() {} }); await l.drain(200);
+    assert.deepStrictEqual([tabKeys(l).slice(-1)[0], activeKey(l), $(l, 'palette').hidden], [`page:${C}`, 'page:pm1', false], '中クリックが後ろのタブで窓を残さない');
+    // Esc で閉じる
+    l.key({ key: 'Escape' }, $(l, 'searchBox')); await l.drain();
+    assert.strictEqual($(l, 'palette').hidden, true, 'Esc で閉じない');
+    // 後ろのタブを押すと今どおり読んで出す
+    $(l, 'tabbar').querySelectorAll('.tabitem').find((t) => t.dataset.key === `page:${B}`).dispatchEvent({ type: 'click' }); await l.drain(200);
+    assert.deepStrictEqual([activeKey(l), readOf(l, B) > before], [`page:${B}`, true], '後ろのタブを押しても読んで出さない');
+    // Enter（Ctrl なし）は今どおり今のタブで開いて閉じる
+    box = await palOpenAt(l, 'pm1', '');
+    l.key({ key: 'Enter' }, box); await l.drain(200);
+    assert.deepStrictEqual([activeKey(l), $(l, 'palette').hidden], ['page:pm1', true], 'Enter が今どおり開いて閉じない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-4・F248: 貼ったリンクの行の Ctrl+Enter も後ろのタブで窓を残す・録音中のタブを見ているときも替わらない・サイドバーの一覧の Ctrl+クリックは今どおり前に出す・近道の表の検索の窓の行', T, async () => {
+  const live = { active: true, finalizing: false, startedAt: Date.now() - 1000, memo: '', segments: [], pending: 0, pauses: [], cloud: true, prep: null, meetingType: null,
+    stt: { route: 'cloud', lastTextAt: null, segSec: 15, problem: null } };
+  let st = { active: false, finalizing: false, memo: '', segments: [], pending: 0, cloud: true, prep: null };
+  const l = await seeded({ meetingStatus: () => st, meetingTypes: () => require('../src/mainlib').typesForView(), memoTypes: () => require('../src/memoTypes').listMemoTypes() });
+  try {
+    const { B, R } = l.made;
+    await open(l, 'pm1');
+    // 貼ったリンクの行
+    l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
+    const box = $(l, 'searchBox');
+    box.value = `natsu://page/${B}`; $(l, 'fltAll').dispatchEvent({ type: 'click' }); await l.drain();
+    const link = $(l, 'palList').querySelectorAll('.pitem')[0];
+    assert.strictEqual(link.dataset.link, '1', '前提: 貼ったリンクの行');
+    const k = $(l, 'palList').querySelectorAll('.pitem').indexOf($(l, 'palList').querySelector('.pitem.kbd'));
+    for (let n = 0; n < k; n++) l.key({ key: 'ArrowUp' }, box);
+    l.key({ key: 'Enter', ctrlKey: true }, box); await l.drain(200);
+    assert.deepStrictEqual([tabKeys(l).includes(`page:${B}`), activeKey(l), $(l, 'palette').hidden, who(active(l))], [true, 'page:pm1', false, 'input#searchBox'], 'リンクの行の Ctrl+Enter が後ろのタブで窓を残さない');
+    l.key({ key: 'Escape' }, box); await l.drain();
+    // 録音中のタブを見ているとき
+    st = live;
+    l.fire('onMeetingUpdate', live); await l.drain(200);
+    assert.strictEqual(activeKey(l), 'live', `前提: 録音中のタブ（${tabKeys(l)}）`);
+    const b2 = await palOpenAt(l, R, '一');
+    l.key({ key: 'Enter', ctrlKey: true }, b2); await l.drain(200);
+    assert.deepStrictEqual([activeKey(l), tabKeys(l).includes(`page:${R}`), $(l, 'palette').hidden], ['live', true, false], '録音中のタブを見ているときに替わった');
+    l.key({ key: 'Escape' }, b2); await l.drain();
+    // サイドバーの一覧の Ctrl+クリックは今どおり前に出す
+    const side = $(l, 'plist').querySelectorAll('.pitem').find((r) => r.dataset.pid === l.made.D);
+    assert.ok(side, '前提: サイドバーの行');
+    side.dispatchEvent({ type: 'click', ctrlKey: true }); await l.drain(200);
+    assert.strictEqual(activeKey(l), `page:${l.made.D}`, 'サイドバーの Ctrl+クリックが前に出ない');
+    // 近道の表の検索の窓の行（「画面の文」の字）
+    const SC = require('../src/shortcuts').SHORTCUTS;
+    assert.deepStrictEqual(SC.filter((r) => r.where === '検索の窓').map((r) => [r.keys, r.what]), [['Ctrl+Enter', '結果を新しいタブで開く（後ろに開き、検索の窓は開いたまま）']]);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

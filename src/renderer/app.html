@@ -2386,6 +2386,8 @@
     { keys: '←・→', what: 'となりのビューへ（端では反対の端へ）', where: 'ビューのタブを選んでいるとき', codes: [] },
     { keys: 'Home・End', what: '最初・最後のビューへ', where: 'ビューのタブを選んでいるとき', codes: [] },
     { keys: 'Ctrl+Enter', what: 'その行のページを開く（つなぐ・外すはしない）', where: 'リレーションの行を探す窓', codes: [] },
+    // 0.18.0 XE-4（計画 docs/plans/2026-11-18-180.md の決めたこと 60・AQ26 (a)・「画面の文」）: 検索の窓の Ctrl+Enter
+    { keys: 'Ctrl+Enter', what: '結果を新しいタブで開く（後ろに開き、検索の窓は開いたまま）', where: '検索の窓', codes: [] },
   ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
   // 効く所が替わる所に見出しの行（th colspan=2）を入れ、キーは「・」で区切った1つずつを <kbd> で（文字は textContent で入れる）
   function renderShortcuts() {
@@ -3072,9 +3074,17 @@
   }
   // ページをタブで開く。newTab なら新しいタブ（Q5: すぐ移る）、そうでなければ今のページのタブで開く
   //（今のタブがページのタブでなければページのタブを足す）。同じページのタブがあればそこへ移る
+  // 0.18.0 XE-4（計画 docs/plans/2026-11-18-180.md の決めたこと 60・AQ26 (a)・F248）: back なら新しいタブを後ろに開く（タブの帯の末に足すだけで、見ているページは
+  // 替えない・前に出さない・ページはまだ読まない。前に出したときに activateTab が読む: CR31）。同じページのタブがもうあれば何もしない（そのタブも前に出さない: M18）
   function openPageTab(id, o = {}) {
     tabsTouched = true;
     const key = `page:${id}`;
+    if (o.back) {
+      if (hasTab(key)) return false;
+      openTabs.push({ key });
+      renderTabs(); saveTabs();
+      return true;
+    }
     const before = { tabs: openTabs.slice(), active: activeTab };
     if (!hasTab(key)) {
       const at = openTabs.findIndex((t) => t.key === activeTab);
@@ -7265,7 +7275,7 @@
       el.setAttribute('data-link', '1');
       el.setAttribute('data-anchor', palLink.anchor);
       const link = palLink;
-      asOption(el, false, () => openLinkRow(link.id, link.anchor));
+      asOption(el, false, (ev) => openLinkRow(link.id, link.anchor, ev));
       box.appendChild(el);
     }
     if (listCount) {
@@ -7328,7 +7338,8 @@
 
   // ---------------- 検索の窓（第1b2回 L-2。第3回 U1 の入口の前倒し） ----------------
   // ［🔍 検索］と Ctrl+P で開き、入力欄へ（前に打った語は全部を選んだ状態）。Esc・後ろの全面で閉じ、開いた元へフォーカスを戻す。
-  // ↓／↑ で結果の行の選び（.kbd）を動かし、Enter で今のタブ、Ctrl+Enter で新しいタブに開いて閉じる。開いている間、Tab は窓の中を回る
+  // ↓／↑ で結果の行の選び（.kbd）を動かし、Enter で今のタブに開いて閉じる。Ctrl+Enter（と Ctrl+クリック・中クリック）は新しいタブを後ろに開き、窓は開いたまま
+  // （0.18.0 XE-4・決めたこと 60・AQ26 (a)。フォーカスは検索の欄・選んだ行・打った語もそのまま）。開いている間、Tab は窓の中を回る
   let palFrom = null;   // 窓を開いた元（閉じたらここへフォーカスを戻す。無ければ ［🔍 検索］）
   let palSel = 0;       // 結果の行の選び（↓／↑）
   const palRows = () => Array.from($('palList').querySelectorAll('.pitem, .actrow .src'));   // 本物の NodeList には filter・indexOf が無い
@@ -7338,12 +7349,26 @@
     rows.forEach((r, k) => r.classList.toggle('kbd', k === palSel));
     if (scroll && rows[palSel] && typeof rows[palSel].scrollIntoView === 'function') rows[palSel].scrollIntoView({ block: 'nearest' });
   }
-  // 窓の結果の行から開く（Ctrl+クリック・Ctrl+Enter は新しいタブ）。開いたら窓を閉じる
-  function openLinkRow(id, anchor) {
+  // 窓の結果の行から開く。Enter・クリックは今のタブで開いて窓を閉じる。Ctrl+Enter・Ctrl+クリック・中クリックは新しいタブを後ろに開いて窓を残す（0.18.0 XE-4）
+  const palBack = (ev) => Boolean(ev && (ev.ctrlKey || ev.metaKey || ev.button === 1));
+  function palStay() {
+    const box = $('searchBox');
+    if (palOpen && document.activeElement !== box && typeof box.focus === 'function') box.focus();   // 押した行へ移ったフォーカスを検索の欄へ戻す（打った語は消さない）
+  }
+  // 貼ったリンクの行（0.10.0 LN-4）。Ctrl なら後ろのタブ（リンクの箇所の印は後ろのタブでは当てない: CR31。消えたページは今と同じ一言）
+  async function openLinkRow(id, anchor, ev) {
+    if (palBack(ev)) {
+      palStay();
+      let r = null;
+      try { r = await window.koeApp.pageGet(id); } catch (_) { r = null; }
+      if (!r || !r.page || isLiveCopy(r.page)) { toast(LINK_GONE); return false; }
+      return openPageTab(id, { newTab: true, back: true });
+    }
     closePalette();
     return openLink({ id, anchor });
   }
   function openResult(id, ev) {
+    if (palBack(ev)) { palStay(); return openPageTab(id, { newTab: true, back: true }); }
     const r = openFromList(id, ev);
     closePalette();
     return r;
@@ -7388,7 +7413,7 @@
       const row = palRows()[palSel];
       if (!row || !row.dataset || !row.dataset.pid) return;
       if (typeof ev.preventDefault === 'function') ev.preventDefault();
-      if (row.dataset.link === '1') { openLinkRow(row.dataset.pid, row.dataset.anchor || ''); return; }   // 0.10.0 LN-4: 貼ったリンクの行
+      if (row.dataset.link === '1') { openLinkRow(row.dataset.pid, row.dataset.anchor || '', { ctrlKey: Boolean(ev.ctrlKey), metaKey: Boolean(ev.metaKey) }); return; }   // 0.10.0 LN-4: 貼ったリンクの行
       openResult(row.dataset.pid, { ctrlKey: Boolean(ev.ctrlKey), metaKey: Boolean(ev.metaKey) });
     }
   });

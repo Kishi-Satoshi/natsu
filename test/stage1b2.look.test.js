@@ -176,7 +176,9 @@ test('1b2 L-2・G3: Ctrl+P で開く（preventDefault）。Ctrl+Shift+P・変換
   assert.strictEqual(pal.hidden, true, 'ホットキーを入れている最中に開いた');
 });
 
-test('1b2 L-2: ↓ で選び Enter で今のタブ、Ctrl+Enter で新しいタブに開いて窓を閉じる。Tab は窓の中を回る', async () => {
+// 0.18.0 XE-4（計画 docs/plans/2026-11-18-180.md の決めたこと 60・AQ26 (a)・「意図して変えるテスト」）で意図して直した: Ctrl+Enter の新しいタブは後ろに開き
+// （見ているページは替えず、そのページはまだ読まない）、窓は開いたまま（前は前に出して窓を閉じた）。意図「Enter で今のタブ・Ctrl+Enter は今のタブを置き換えない」は残す
+test('1b2 L-2・XE-4: ↓ で選び Enter で今のタブ、Ctrl+Enter で新しいタブを後ろに開いて窓は開いたまま。Tab は窓の中を回る', async () => {
   const l = await boot();
   const pageTabs = () => l.byId.get('tabbar').querySelectorAll('[role="tab"]').map((t) => t.dataset.key).filter((k) => k.startsWith('page:'));
   const box = l.byId.get('searchBox');
@@ -188,9 +190,11 @@ test('1b2 L-2: ↓ で選び Enter で今のタブ、Ctrl+Enter で新しいタ�
   l.key({ key: 'ArrowDown' }, box); await l.drain();
   assert.strictEqual(l.byId.get('palList').querySelectorAll('.pitem.kbd').map((r) => r.querySelector('.t').textContent).join(), '設計の打ち合わせ（見本）');
   l.key({ key: 'Enter', ctrlKey: true }, box); await l.drain();
-  assert.strictEqual(l.byId.get('palette').hidden, true);
-  assert.deepStrictEqual(l.called('pageGet').map((c) => c.args[0]).pop(), 'pb2');
+  assert.strictEqual(l.byId.get('palette').hidden, false, 'Ctrl+Enter で窓を閉じた');
+  assert.ok(!l.called('pageGet').some((c) => c.args[0] === 'pb2'), '後ろのタブのページを読んだ');
   assert.deepStrictEqual(pageTabs(), ['page:pa1', 'page:pb2'], 'Ctrl+Enter が新しいタブにならない（今のタブを置き換えた）');
+  assert.strictEqual(l.byId.get('tabbar').querySelector('.tabitem.active').dataset.key, 'page:pa1', '新しいタブが前に出た');
+  l.key({ key: 'Escape' }, box); await l.drain();
   l.key({ key: 'p', code: 'KeyP', ctrlKey: true }); await l.drain();
   const rows = l.byId.get('palList').querySelectorAll('.pitem');
   const last = rows[rows.length - 1];   // 窓の中の最後の届く部品（結果の行も Tab で届く）

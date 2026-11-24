@@ -85,6 +85,8 @@ const SHORTCUTS = Object.freeze([
   { keys: '←・→', what: 'となりのビューへ（端では反対の端へ）', where: 'ビューのタブを選んでいるとき', codes: [] },
   { keys: 'Home・End', what: '最初・最後のビューへ', where: 'ビューのタブを選んでいるとき', codes: [] },
   { keys: 'Ctrl+Enter', what: 'その行のページを開く（つなぐ・外すはしない）', where: 'リレーションの行を探す窓', codes: [] },
+  // 0.18.0 XE-4（計画 docs/plans/2026-11-18-180.md の決めたこと 60・AQ26 (a)・「画面の文」）: 検索の窓の Ctrl+Enter
+  { keys: 'Ctrl+Enter', what: '結果を新しいタブで開く（後ろに開き、検索の窓は開いたまま）', where: '検索の窓', codes: [] },
 ].map((r) => Object.freeze({ ...r, codes: Object.freeze(r.codes) })));
 
 module.exports = { SHORTCUTS };
