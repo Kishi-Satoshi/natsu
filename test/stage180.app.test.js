@@ -1618,3 +1618,122 @@ test('XN-5・F252: #privHead .ph-mark は既定で visibility: hidden（場所�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- 点検 4（2026-11-24。CR148〜CR154。持ち主の決まり「実装中の確かめは Notion に合わせるかおすすめを選ぶ」）
+test('点検 4・CR148（XE-5・F253）: 帯の［色］をもう一度押すと文字の色のメニューが閉じる（開き直さない。その押しは［色］に届かない）・3回目でまた開く。外の本文の行の押しは今どおり閉じて届く', T, async () => {
+  const l = await seeded();
+  try {
+    const { ids: [x, y] } = await xePage(l, ['あいうえお', 'かきくけこ']);
+    const menuOn = () => Boolean($(l, 'pNote').querySelector('#colorMenu'));
+    const colorBtn = () => $(l, 'pNote').querySelector('#markBar').querySelectorAll('button').find((b) => b.title === '色');
+    const t = txtOf(l, y); t.focus(); l.caret.set(t, 1, 3); t.dispatchEvent({ type: 'mouseup' }); await l.drain(20);
+    assert.ok(colorBtn(), '前提: 帯の［色］が無い');
+    let r = await pressAt(l, colorBtn());
+    assert.ok(menuOn(), '前提: 帯の［色］を押しても文字の色のメニューが開かない');
+    await l.clock.advance(1000); await l.drain();   // 2回続けた押しにしない
+    r = await pressAt(l, colorBtn());
+    assert.ok(!menuOn(), '帯の［色］をもう一度押しても文字の色のメニューが閉じない（閉じて開き直した）');
+    assert.ok(!r.got.includes('click'), '閉じた押しが［色］に届いた');
+    assert.deepStrictEqual([who(active(l)), l.caret.get(txtOf(l, y))], [`txt:${y}`, [1, 3]], 'フォーカスと選んだ字が行に残らない');
+    await l.clock.advance(1000); await l.drain();
+    r = await pressAt(l, colorBtn());
+    assert.ok(menuOn(), '3回目の［色］で開かない');
+    // 外の押し（本文の別の行の字）は今どおり閉じて届く（XE-5）
+    await l.clock.advance(1000); await l.drain();
+    r = await pressAt(l, txtOf(l, x));
+    assert.ok(!menuOn(), '本文の別の行を押しても文字の色のメニューが残る');
+    assert.deepStrictEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].filter((k) => !r.got.includes(k)), [], '外の押しが届かない（XE-5）');
+    assert.strictEqual(who(active(l)), `txt:${x}`, '外の押しでカーソルが押した行へ移らない（XE-5）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('点検 4・CR149（XE-1・F245）: 打ちかけを持ったまま Enter で分けた後の Ctrl+Z は前へ戻るだけ（分ける前の途中の文「xyza」に戻らない。edit.textStep は分ける前の形を書かない）', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [e] } = await xePage(l, ['xyz']);
+    const t = txtOf(l, e); t.focus();
+    await typeTo(l, t, 'xyza', 700);
+    await typeTo(l, t, 'xyzab', 100);
+    assert.strictEqual(l.called('blockUpdate').length, 0, '前提: まだ保存していない');
+    l.caret.set(t, 0);
+    l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(200);
+    const page = () => l.call('page.get', { id }).page.blocks;
+    assert.deepStrictEqual(page().map((b) => b.text), ['', 'xyzab'], '前提: 頭の Enter で上に空の行');
+    await l.clock.advance(700); await l.drain();
+    const u = txtOf(l, e); u.focus(); l.caret.set(u, 0);
+    await typeTo(l, u, 'Qxyzab', 2000);
+    assert.strictEqual(rowIn(l, id, e).text, 'Qxyzab', '前提: 保存した');
+    const seen = [];
+    for (let i = 0; i < 5; i++) { await press(l, ZK, e); const b = rowIn(l, id, e); seen.push(b ? b.text : null); }
+    const steps = l.called('editTextStep').map((c) => [c.args[2].text, c.args[3].text]);
+    assert.ok(!seen.includes('xyza'), `分ける前の途中の文に戻った: ${JSON.stringify(seen)}`);
+    assert.deepStrictEqual(steps.filter(([, to]) => to === 'xyza' || to === 'xyz'), [], `edit.textStep が分ける前の形を書いた: ${JSON.stringify(steps)}`);
+    assert.deepStrictEqual(seen, ['xyzab', 'xyz', 'xyz', 'xyz', 'xyz'], `戻る並び: ${JSON.stringify(seen)}`);
+    assert.deepStrictEqual(page().map((b) => b.text), ['xyz'], '分けた行が戻らない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('点検 4・CR150（XE-3・F247）: 本物の画面でカーソルの四角が読めない（geom が null）ときは、文の頭の ↑・文の末の ↓ だけで隣の行へ（途中では動かない）', T, async () => {
+  const l = await seeded();
+  try {
+    const { ids: [A, B, C] } = await xePage(l, ['あいう', 'かきくけこ', 'さしす']);
+    const b = txtOf(l, B);
+    l.caret.geom(b, () => null);
+    b.focus(); l.caret.set(b, 2);
+    let ev = l.key(UPK, b);
+    assert.deepStrictEqual([ev.defaultPrevented, who(active(l))], [false, `txt:${B}`], '読めないときに文の途中の ↑ で上の行へ移った');
+    ev = l.key(DNK, b);
+    assert.deepStrictEqual([ev.defaultPrevented, who(active(l))], [false, `txt:${B}`], '読めないときに文の途中の ↓ で下の行へ移った');
+    l.caret.set(b, 0);
+    ev = l.key(UPK, b);
+    assert.deepStrictEqual([ev.defaultPrevented, who(active(l))], [true, `txt:${A}`], '読めないときに文の頭の ↑ で上の行へ移らない');
+    b.focus(); l.caret.set(b, 5);
+    ev = l.key(DNK, b);
+    assert.deepStrictEqual([ev.defaultPrevented, who(active(l))], [true, `txt:${C}`], '読めないときに文の末の ↓ で下の行へ移らない');
+    b.focus(); l.caret.set(b, 5);
+    ev = l.key(UPK, b);
+    assert.deepStrictEqual([ev.defaultPrevented, who(active(l))], [false, `txt:${B}`], '読めないときに文の末の ↑ で上の行へ移った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('点検 4・CR151（XN-2・CR32）: サイドバーの行の Ctrl+D を押し続けても（keydown の repeat）写しは1つ', T, async () => {
+  const l = await dupSeeded();
+  try {
+    const { P, Q } = l.made;
+    l.fire('onPagesUpdated'); await l.drain(120);
+    await setTreeOpenX(l, P);
+    l.key(CTRL_D, sideRowX(l, Q)); await l.drain(300);
+    assert.strictEqual(l.called('pageDuplicate').length, 1, '前提: Ctrl+D で写さない');
+    for (let i = 0; i < 3; i++) {
+      const ev = l.key({ ...CTRL_D, repeat: true }, sideRowX(l, Q)); await l.drain(300);
+      assert.strictEqual(ev.defaultPrevented, true, '押し続けた Ctrl+D の既定を止めない');
+    }
+    assert.strictEqual(l.called('pageDuplicate').length, 1, '押し続けた Ctrl+D で写しが増えた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('点検 4・CR152（XN-1・XN-2）: 複製が断られたとき、左下の「議事録・「議事録」・「タスク管理」を含むページは複製できません」は写せないものを含むとき（uncopyable）だけ。ほかの bad-args（その間にゴミ箱へ入った など）は今の「変更を保存できませんでした: …」', T, async () => {
+  const fail = (code) => async () => { const e = new Error(code); e.code = code; throw e; };
+  for (const [code, want] of [['uncopyable', DUP_OFF], ['bad-args', '変更を保存できませんでした: bad-args'], ['too-big', '大きすぎて複製できません']]) {
+    const l = await dupSeeded({ pageDuplicate: fail(code) });
+    try {
+      l.fire('onPagesUpdated'); await l.drain(120);
+      await setTreeOpenX(l, l.made.P);
+      l.key(CTRL_D, sideRowX(l, l.made.Q)); await l.drain(200);
+      assert.strictEqual(toastOf(l), want, code);
+    } finally { l.done(); }
+  }
+  // 本物の DB: 開いた後に元のページがゴミ箱へ入った（一覧はまだ古い）→ bad-args → 今の字
+  const l = await dupSeeded();
+  try {
+    l.fire('onPagesUpdated'); await l.drain(120);
+    await setTreeOpenX(l, l.made.P);
+    l.call('page.delete', { id: l.made.Q });
+    l.key(CTRL_D, sideRowX(l, l.made.Q)); await l.drain(300);
+    assert.strictEqual(toastOf(l), '変更を保存できませんでした: bad-args', 'ゴミ箱へ入ったページの複製の断りが「議事録…を含むページ」の字になる');
+  } finally { l.done(); }
+});

@@ -1451,7 +1451,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // ひらがなの読みを外した）。変わる画面は / メニューを写す edit-slash-light・dark・edit-slash-recent-light（RETAKE にある）。値を今の app.html に合わせた（前の値は 76989c93…）
   // 0.18.0 XN-5（決めたこと 66・AQ15 (a)）: 見出し「プライベート」の印（.ph-mark）は乗せたとき・キーボードのフォーカスのときだけ（CSS）。変わる画面はサイドバーが写るアプリの画面の全部
   // （RETAKE にある: SIDE_180）。値を今の app.html に合わせた（前の値は 7f750f27…）
-  assert.strictEqual(sha, 'cbc56a2d0be9471d15a5912fa805e8e86b2e6d88723093fd7bceff54db9b6bab',
+  // 0.18.0 点検 4（CR148〜CR152）: 帳面の通す窓の opener・構造の命令の印の捨て（typedFold）・読めないときの ↑↓・Ctrl+D の繰り返し・複製の断りの符号（<script> の中だけ。
+  // 新しい字は無く、撮る画面は変わらない）。値を今の app.html に合わせた（前の値は cbc56a2d…）
+  assert.strictEqual(sha, '6413b59ec53fbec280ec847e59dec77d858b0e6b91afe057773f4104a7d68438',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

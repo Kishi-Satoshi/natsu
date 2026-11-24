@@ -2226,7 +2226,8 @@
     // anchors は開いた部品の並びか、Esc の時に今の部品を引く関数（描き直しで替わる部品: 設定の窓の ⚙・選びの窓のセル。R28）
     const fixed = typeof o.anchors === 'function' ? null : (o.anchors || []).filter(Boolean);
     // pass は通す窓の印（外の押しで閉じても、その押しを止めずに押した所へ届ける。/ メニューだけ: 0.17.1 OD-5・決めたこと 23）
-    popStack.push({ el, close: typeof o.close === 'function' ? o.close : () => {}, anchors: fixed ? () => fixed : o.anchors, name: o.name || '', pass: o.pass === true });
+    // opener は通す窓を開いた部品（0.18.0 点検 4・CR148: 文字の色のメニューの帯の［色］）。その部品の押しは通さず、閉じて止める（届けると開き直す）
+    popStack.push({ el, close: typeof o.close === 'function' ? o.close : () => {}, anchors: fixed ? () => fixed : o.anchors, name: o.name || '', pass: o.pass === true, opener: o.opener || null });
   }
   const popAnchors = (e) => { let a = []; try { a = e.anchors() || []; } catch (_) { a = []; } return a.filter(Boolean); };
   function popCloseAll(why) { popPrune(); for (const e of popStack.splice(0).reverse()) e.close(why); }
@@ -2266,7 +2267,9 @@
       return;
     }
     if (k >= 0) { for (const e of shut) e.close('other'); return; }   // 窓の中の押し: 子だけを閉じ、押しは届ける（決めたこと 19）
-    if (shut.every((e) => e.pass)) { for (const e of shut) e.close('outside'); return; }   // 0.17.1 OD-5（決めたこと 23）: 閉じる窓が全部通す窓なら、閉じて押しは届ける（止める印を立てない・既定も止めない・欄の blur もしない）
+    // 0.17.1 OD-5（決めたこと 23）: 閉じる窓が全部通す窓なら、閉じて押しは届ける（止める印を立てない・既定も止めない・欄の blur もしない）。
+    // 0.18.0 点検 4（CR148）: 押した所が通す窓を開いた部品（opener）なら通さず、下の通さない窓と同じく閉じて止める（2回目の［色］で開き直さない）
+    if (shut.every((e) => e.pass) && !shut.some((e) => e.opener && popIn(t, e.opener))) { for (const e of shut) e.close('outside'); return; }
     const a = document.activeElement;   // 窓の中の欄の変換中の字を確定させてから閉じる（決めたこと 22）
     const field = popField(a) && shut.some((e) => popIn(a, e.el)) ? a : null;
     if (field) { popBlurring = true; try { field.blur(); } finally { popBlurring = false; } }
@@ -6505,7 +6508,8 @@
     let r = null;
     let code = '';
     try { r = await window.koeApp.pageDuplicate(id); } catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
-    if (!r || typeof r.id !== 'string') { toast(code === 'too-big' ? DUP_BIG : code === 'bad-args' ? DUP_OFF : `変更を保存できませんでした: ${code || 'internal'}`); return null; }
+    // 0.18.0 点検 4（CR152）: 「…を含むページは複製できません」は写せないものを含むとき（uncopyable）だけ。ほかの断り（その間にゴミ箱へ入った: bad-args など）は今の字
+    if (!r || typeof r.id !== 'string') { toast(code === 'too-big' ? DUP_BIG : code === 'uncopyable' ? DUP_OFF : `変更を保存できませんでした: ${code || 'internal'}`); return null; }
     await refreshList();
     return r.id;
   }
@@ -6516,6 +6520,7 @@
     const pid = renameHost(ev.target);   // 0.15.1 の変異 ps-ren-key の字（Ctrl+Shift+R の受け口）と同じ字にしない
     if (!pid || (listSel.on && renameWhere(ev.target) === 'tree')) return;
     if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    if (ev.repeat) return;   // 0.18.0 点検 4（CR151）: 押し続けた Ctrl+D（キーの繰り返し）では写さない（写しは押した1回に1つ）
     if ((pages.find((p) => p && p.id === pid) || {}).locked || dupBlocked(pid)) return;
     duplicatePage(pid);
   });
@@ -11526,7 +11531,7 @@
     boxAt(box, !fitsDown && fitsUp ? upTop : downTop, (bar ? parseFloat(bar.style.left) || 0 : 0) + (btn ? btn.offsetLeft || 0 : 0));
     // 0.17.1 OD-2（決めたこと 12。フォーカスと選んだ所は行に残すので、Esc で戻す部品は無い）。0.18.0 XE-5（計画 docs/plans/2026-11-18-180.md の決めたこと 68・AQ31 (a)・F253）:
     // / メニューと同じ通す窓（外の押しは閉じて、押した所にも届ける。色は付かない）
-    popPush(box, { close: () => colorMenuClose(), name: 'color', pass: true });
+    popPush(box, { close: () => colorMenuClose(), name: 'color', pass: true, opener: btn });
     if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'nearest' });
   }
   function colorMenuClose() {
@@ -15332,6 +15337,7 @@
     // 答えを待つ間に blur の保存（_commit）が今の行の全部の文を重ねて送らないよう、画面は先に残る文にする（断られたら戻す: splitRow と同じ）
     const keep = head ? rich : sliceRich(rich, 0, at);
     const was = [b.text, b.rich];
+    typedFold(txt);
     if (b.type !== 'divider') paintRich(txt, keep);
     b.text = plainOf(keep);
     b.rich = normalizeRich(keep);
@@ -15451,6 +15457,9 @@
     const next = all.slice(all.indexOf(from) + 1).find(tab);
     if (next) next.focus();
   }
+  // 0.18.0 点検 4（CR149）: 保存していない打ちかけを構造の命令（分ける・つなぐ・何行かの貼り付け）に入れて送ったら、その行の印（XE-1 の typeMarks）を捨てる。
+  // 命令の後の Ctrl+Z は命令の1歩で戻り、印が命令の前の途中の文を後の保存の歩みに持ち込まない（次の打鍵で、命令の後の文から積み直す）
+  function typedFold(txt) { txt._marks = null; }
   // Enter（決めたこと 16・17）: 今の文とカーソルの位置を block.split の1つの命令で送る（EQ5 (a): 空の箇条書き・ToDo・番号付きはテキストに戻す）
   async function splitRow(el) {
     const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
@@ -15487,6 +15496,7 @@
     const inside = !top && enterInside(b);
     const args = top ? [pid, b.id, text, at, afterId] : inside ? [pid, b.id, text, at, undefined, true] : [pid, b.id, text, at];
     if (marked) { while (args.length < 6) args.push(undefined); args.push(rich); }
+    typedFold(txt);
     const out = await editAnswer(pid, () => rowApi(pid).blockSplit(...args), (x) => ({ focus: top ? b.id : x.blockId, caret: 0 }));
     if (!out && el._b === b) { b.text = was; if (marked) b.rich = wasRich; if (boxOfKey(pid)) { if (marked) paintRich(txt, rich); else txt.textContent = text; } }
     return out;
@@ -15521,6 +15531,7 @@
     const args = marksIn(rich) || (Array.isArray(b.rich) && b.rich.length > 0) ? [pid, b.id, text, intoId, rich] : [pid, b.id, text, intoId];
     const was = b.text;
     b.text = text.trim();
+    typedFold(txt);
     const out = await editAnswer(pid, () => rowApi(pid).blockMerge(...args), (x) => ({ focus: x.blockId, caret: x.at }));
     if (!out && el._b === b) b.text = was;
     return out;
@@ -15556,7 +15567,8 @@
   // ↑ を行の頭で・↓ を行の終わりで押すと隣の行へ（EQ14 (a)）。動いたら真
   // 0.18.0 XE-3（計画 docs/plans/2026-11-18-180.md の決めたこと 59・D161・AQ25 (a)・F247）: ↑ は最初の見た目の行・↓ は最後の見た目の行にあるときだけ隣の行へ
   // （ほかはブラウザの既定で見た目の行ごとに動く）。隣へ移るときは画面の x を保ち、移った先の最後（↑）・最初（↓）の見た目の行の、その x にいちばん近い字の所へ。
-  // 続けて押すと最初の x を使う（arrowX。ほかのキー・押すことで忘れる）。読めない（偽の DOM・空の行）ときは見た目の行は1つで、移った先は文の末（↑）・頭（↓）
+  // 続けて押すと最初の x を使う（arrowX。ほかのキー・押すことで忘れる）。カーソルの四角が読めない（偽の DOM・空の行）ときは、文の頭の ↑・末の ↓ だけ隣へ（点検 4: CR150）。
+  // 字の四角が読めないときは、移った先は文の末（↑）・頭（↓）
   let arrowX = null;
   document.addEventListener('mousedown', () => { arrowX = null; }, true);
   const arrowKey = (ev) => (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey;
@@ -15604,6 +15616,8 @@
     if (!line) {
       if (!r || r[0] !== r[1]) return false;
       g = caretGeom(txt);
+      // 0.18.0 点検 4（CR150）: カーソルの四角が読めない（空の行・Shift+Enter の後の末など）ときは、前の決まり（文の頭の ↑・文の末の ↓ だけ隣へ）
+      if (!g && r[0] !== (dir < 0 ? 0 : txt.textContent.length)) return false;
       const edge = edgeOf(g || {});
       if (!(edge === 'only' || edge === (dir < 0 ? 'first' : 'last'))) return false;   // 折り返した行の中はブラウザの既定（見た目の行ごと）
     }

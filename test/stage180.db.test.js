@@ -1571,13 +1571,15 @@ test('XN-1・F249: page.duplicate: 題名に「 (1)」（写しの写しも1つ�
   } finally { t.done(); }
 });
 
-test('XN-1・F249: page.duplicate は議事録を含むページを bad-args で断り何も作らない（議事録・「議事録」・「タスク管理」は写さない）。同じ tx の送り直しは同じ写しの ID で、2つ目を作らない', T, () => withDb((db, t) => {
+// 0.18.0 点検 4（CR152・「意図して変えるテスト」）で意図して直した: 議事録を含むページの断りの符号は bad-args から uncopyable に（テストの名前も）。
+// 意図「議事録を含むページは断り、何も作らない」は残す
+test('XN-1・F249・点検 4: page.duplicate は議事録を含むページを uncopyable で断り何も作らない（議事録・「議事録」・「タスク管理」は写さない）。同じ tx の送り直しは同じ写しの ID で、2つ目を作らない', T, () => withDb((db, t) => {
   const P = ok(call(db, 'page.create', {}), 'P').result.id;
   const id = meetingPage(t);
   ok(call(db, 'page.move', { id, parentId: P }), '議事録を白紙のページの中へ');
   const n0 = db.prepare('select count(*) c from blocks').get().c;
-  assert.strictEqual(call(db, 'page.duplicate', { id: P }).code, 'bad-args');
-  assert.strictEqual(call(db, 'page.duplicate', { id }).code, 'bad-args', '議事録そのもの');
+  assert.strictEqual(call(db, 'page.duplicate', { id: P }).code, 'uncopyable');
+  assert.strictEqual(call(db, 'page.duplicate', { id }).code, 'uncopyable', '議事録そのもの');
   assert.strictEqual(db.prepare('select count(*) c from blocks').get().c, n0);
   const Q = ok(call(db, 'page.create', {}), 'Q').result.id;
   const tx = txOf('app');
@@ -1587,6 +1589,42 @@ test('XN-1・F249: page.duplicate は議事録を含むページを bad-args で
   assert.strictEqual(b.ok, true);
   assert.deepStrictEqual(b.result, a.result, '送り直しの答えが違う');
   assert.strictEqual(db.prepare('select count(*) c from blocks').get().c, n1, '送り直しで2つ目を作った');
+}));
+
+// ---------------------------------------------------------------- 点検 4（2026-11-24。CR152・CR153）
+test('点検 4・CR152（XN-1）: page.duplicate の断りの符号: 議事録を含むページ（planDuplicate の blocked の議事録・録音中の写し・「議事録」「タスク管理」）は uncopyable（画面の「…を含むページは複製できません」）。無い・ゴミ箱・ロック中のデータベースそのものは今どおり bad-args。どれも何も作らない', T, () => withDb((db, t) => {
+  const P = ok(call(db, 'page.create', {}), 'P').result.id;
+  const id = meetingPage(t);
+  ok(call(db, 'page.move', { id, parentId: P }), '議事録を白紙のページの中へ');
+  const L = ok(call(db, 'db.create', {}), 'L').result.id;
+  ok(call(db, 'db.setLock', { db: L, on: true }), 'lock');
+  const G = ok(call(db, 'page.create', {}), 'G').result.id;
+  ok(call(db, 'page.delete', { id: G }), 'G をゴミ箱へ');
+  const n0 = db.prepare('select count(*) c from blocks').get().c;
+  for (const [x, want, what] of [[P, 'uncopyable', '議事録を含むページ'], [id, 'uncopyable', '議事録そのもの'], [L, 'bad-args', 'ロック中のデータベースそのもの'], [G, 'bad-args', 'ゴミ箱のページ'], ['pnone000000', 'bad-args', '無いページ']]) {
+    const r = call(db, 'page.duplicate', { id: x });
+    assert.deepStrictEqual([r.ok, r.code], [false, want], what);
+  }
+  assert.strictEqual(db.prepare('select count(*) c from blocks').get().c, n0, '断ったのに何か作った');
+}));
+
+test('点検 4・CR153（XN-1・F249）: ゴミ箱の中の子孫（ゴミ箱のデータベースの 1 万を越える行）は写す数に数えず、本文も読まない。そのページは too-big で断らずに写せ、写しにゴミ箱の物は入らない', T, () => withDb((db) => {
+  const P = ok(call(db, 'page.create', {}), 'P').result.id;
+  ok(call(db, 'page.setTitle', { id: P, title: '大きなゴミ箱の見本' }), 'title');   // 白紙のページの題名（D77 の外）
+  const T2 = ok(call(db, 'page.create', { parentId: P }), 'T').result.id;
+  const D = ok(call(db, 'db.create', { parentId: T2 }), 'D').result.id;
+  const at = new Date(clock).toISOString();
+  db.exec('BEGIN');
+  applyOps(db, Array.from({ length: 10001 }, (_, i) => ({ op: 'add', id: `rt${i}`, row: ops180.rowBlock({ id: `rt${i}`, db: D, ord: `z${String(i).padStart(5, '0')}`, title: `行 ${i}`, cells: {}, by: { c: 'me', u: 'me' }, no: 100 + i, at }) })));   // D77: データベースの行の題名
+  db.exec('COMMIT');
+  ok(call(db, 'page.delete', { id: T2 }), 'T をゴミ箱へ');
+  assert.ok(db.prepare("select count(*) c from blocks where type = 'row' and parent_id = ? and trashed_at is null").get(D).c > 10000, '前提: ゴミ箱のデータベースの行はゴミ箱の印を持たない');
+  const rows0 = db.prepare("select count(*) c from blocks where type = 'row'").get().c;
+  const r = ok(call(db, 'page.duplicate', { id: P }), 'page.duplicate');
+  const copy = r.result.id;
+  assert.strictEqual(C.readPage(db, copy).title, '大きなゴミ箱の見本 (1)');
+  assert.deepStrictEqual(kidsOf(db, copy), [], '写しにゴミ箱の子が入った');
+  assert.strictEqual(db.prepare("select count(*) c from blocks where type = 'row'").get().c, rows0, '写しにゴミ箱の行が入った');
 }));
 
 // ---------------------------------------------------------------- XN-3（決めたこと 63・AQ12 (a)・F250）: 見出し4

@@ -1264,9 +1264,10 @@ function pageCreate(db, a, ctx) {
 // 0.18.0 XN-1（計画 docs/plans/2026-11-18-180.md の決めたこと 62・AQ11 (a)・AQ27 (a)・AQ28 (a)・F249・CR24・CR25）: ページの複製（役 app・1つの命令）。
 // 元と子孫（ゴミ箱の子は除く）を新しい ID で写し（duplicate.planDuplicate）、写しの題名は「 (1)」・置き場は元のすぐ後ろ（同じ親の元の次。白紙のページと
 // データベースの行の親なら、本文の元の子ページの行のすぐ後ろにも写しの行。インラインの行ならインラインのまま）。作成者と最終更新者は「自分」・作成日時は今（CR25）。
-// 断る: 無い・ゴミ箱・録音中の写し・見えない（ゴミ箱の行・テンプレートの行の中）ページ・議事録と「議事録」「タスク管理」を含む・ロック中のデータベースそのもの（bad-args）、
+// 断る: 無い・ゴミ箱・録音中の写し・見えない（ゴミ箱の行・テンプレートの行の中）ページ・ロック中のデータベースそのもの（bad-args）、議事録と「議事録」「タスク管理」を含む（uncopyable: 点検 4）、
 // 写す行が 1 万を越える・本文の表が満杯（too-big）。Ctrl+Z の歩みにしない（UNDO_CMDS に入れない: CR24）→ { id }（写しの ID。画面は元のページのまま）
 // 複製する木の行（根から parent_id をたどったページと行。ゴミ箱の子も入れる: planDuplicate が写さない行を知るため）と、写す行の本文。多すぎれば too-big
+// 0.18.0 点検 4（CR153）: ゴミ箱の子とその下（gone）は木の行（id・type・parent_id・trashed_at）だけを入れ、行と本文を読まず、写す数にも数えない
 function dupRowsOf(db, rootId) {
   const kids = new Map();
   for (const r of db.prepare(HOT_QUERIES.dupTree).all()) if (typeof r.parent_id === 'string') { if (!kids.has(r.parent_id)) kids.set(r.parent_id, []); kids.get(r.parent_id).push(r); }
@@ -1275,18 +1276,20 @@ function dupRowsOf(db, rootId) {
   const out = [];
   const seen = new Set([rootId]);
   let live = 0;
-  for (const stack = [{ id: rootId, trashed_at: null }]; stack.length;) {
+  for (const stack = [{ id: rootId, trashed_at: null, gone: false }]; stack.length;) {
     const r = stack.pop();
-    const row = one.get(r.id);
-    if (!row) continue;
-    out.push({ ...row });
-    if (row.trashed_at === null || row.trashed_at === undefined) {
+    const gone = r.gone || (r.trashed_at !== null && r.trashed_at !== undefined);
+    if (gone) out.push({ id: r.id, type: r.type, parent_id: r.parent_id, trashed_at: r.trashed_at });
+    else {
+      const row = one.get(r.id);
+      if (!row) continue;
+      out.push({ ...row });
       const b = body.all(row.id, row.id);
       live += 1 + b.length;
       if (live > DUPL.DUP_MAX) throw refuse('too-big');
       for (const x of b) out.push({ ...x });
     }
-    for (const k of kids.get(r.id) || []) if (!seen.has(k.id)) { seen.add(k.id); stack.push(k); }
+    for (const k of kids.get(r.id) || []) if (!seen.has(k.id)) { seen.add(k.id); stack.push({ ...k, gone }); }
   }
   return out;
 }
@@ -1306,7 +1309,10 @@ function pageDuplicate(db, a, ctx) {
   const plan = DUPL.planDuplicate(dupRowsOf(db, a.id), a.id, idOf);
   if (!plan) throw refuse('bad-args');
   if (plan.blocked === 'too-big') throw refuse('too-big');
-  if (plan.blocked) throw refuse('bad-args');   // 議事録・録音中の写し・「議事録」「タスク管理」・ロック中のデータベースそのもの
+  // 0.18.0 点検 4（CR152）: 議事録・録音中の写し・「議事録」「タスク管理」を含むページは uncopyable（画面の「…を含むページは複製できません」）。
+  // ロック中のデータベースそのもの（画面に［複製］を出さない）は、無い・ゴミ箱と同じ bad-args
+  if (plan.blocked === 'locked') throw refuse('bad-args');
+  if (plan.blocked) throw refuse('uncopyable');
   const at = ctx.now();
   const iso = at.toISOString();
   const who = whoOf(ctx);

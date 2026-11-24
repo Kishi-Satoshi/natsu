@@ -44,7 +44,7 @@ const SCHEMA_VERSION = 2;   // 0.18.0 CW-1: 版 2 は page_snapshot（Claude の
 const BUSY_MS = 5000;
 const ROLES = ['app', 'main', 'mcp'];   // 0.18.0 CW-2: mcp は Claude（MCP のプロセス）の書き込みの口
 const MAIN_ACTORS = ['system', 'recovery', 'migration'];
-const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked', 'stale', 'too-big', 'has-rows'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）。stale: 元に戻す歩みの後に変わった（0.14.0 EB-2）。too-big: 命令の後のページが上限を越える（0.14.0 EK-2 直し: R129）。has-rows: 行のあるデータベースは白紙のページに戻さない（0.17.0 PD-1 直し: rv58 軽い 1）
+const CMD_CODES = ['not-found', 'conflict', 'bad-args', 'locked', 'stale', 'too-big', 'has-rows', 'uncopyable'];   // locked: 要約の欄の鍵（0.10.0 LS-2・O8）。stale: 元に戻す歩みの後に変わった（0.14.0 EB-2）。too-big: 命令の後のページが上限を越える（0.14.0 EK-2 直し: R129）。has-rows: 行のあるデータベースは白紙のページに戻さない（0.17.0 PD-1 直し: rv58 軽い 1）。uncopyable: 議事録などを含むページは複製しない（0.18.0 点検 4・CR152）
 
 const COMMANDS = Object.freeze(Object.assign(Object.create(null), commands.COMMANDS));
 const TEST_COMMANDS = Object.create(null);

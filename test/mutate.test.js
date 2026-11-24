@@ -1883,25 +1883,27 @@ const IDS_180 = [
   // 0.18.0 点検 3 の残り（2026-11-23。CR115: 行のページの題名の打ちかけ）
   'cu-title-keep',
   // 0.18.0 Task XE-1（Ctrl+Z のまとまりを約 0.5 秒と日本語入力の確定に）
-  'xe-undo-mark', 'xe-undo-ime', 'xe-undo-commit', 'xe-undo-nocut', 'xe-undo-save2s', 'xe-undo-stale', 'xe-undo-flush', 'xe-undo-redo', 'xe-undo-live',
+  'xe-undo-mark', 'xe-undo-ime', 'xe-undo-commit', 'xe-undo-nocut', 'xe-undo-save2s', 'xe-undo-stale', 'xe-undo-flush', 'xe-undo-redo', 'xe-undo-live', 'xe-undo-fold',
   // 0.18.0 Task XE-2（何行かの素の文の貼り付け）
   'xe-paste-one', 'xe-paste-blank', 'xe-paste-split', 'xe-paste-below', 'xe-paste-keep', 'xe-paste-empty', 'xe-paste-other', 'xe-paste-head', 'xe-paste-md-keep', 'xe-paste-copy',
   // 0.18.0 Task XE-3（折り返した行の ↑↓・移る先の行）
-  'xe-arrow-edge', 'xe-arrow-x', 'xe-arrow-keepx', 'xe-arrow-skip', 'xe-arrow-dbtitle', 'xe-arrow-linked', 'xe-arrow-title-out', 'xe-arrow-fixed',
+  'xe-arrow-edge', 'xe-arrow-x', 'xe-arrow-keepx', 'xe-arrow-skip', 'xe-arrow-dbtitle', 'xe-arrow-linked', 'xe-arrow-title-out', 'xe-arrow-fixed', 'xe-arrow-nogeom',
   // 0.18.0 Task XE-4（検索の窓の Ctrl+Enter は後ろのタブ・窓は開いたまま）
   'xe-pal-keep', 'xe-pal-enter-close', 'xe-pal-focus', 'xe-pal-back', 'xe-pal-back-has', 'xe-pal-link',
   // 0.18.0 Task XE-5（文字の色のメニューの外の押しを通す）。0.17.1 の od-color の from と赤になるテストも直した（CR30）
-  'xe-color-pass',
+  'xe-color-pass', 'xe-color-opener',
   // 0.18.0 Task XN-2（サイドバーの行のメニューの並びと［複製］）。xn-menu-key-off は XN-2 で足した（CR136）
-  'xn-menu-order', 'xn-menu-lock', 'xn-menu-key-off',
+  'xn-menu-order', 'xn-menu-lock', 'xn-menu-key-off', 'xn-menu-key-repeat',
   // 0.18.0 Task XN-1（ページの複製の命令）
-  'xn-dup-ids', 'xn-dup-refs', 'xn-dup-back', 'xn-dup-title', 'xn-dup-place', 'xn-dup-block', 'xn-dup-lock', 'xn-dup-lockroot', 'xn-dup-trash', 'xn-dup-limit',
+  'xn-dup-ids', 'xn-dup-refs', 'xn-dup-back', 'xn-dup-title', 'xn-dup-place', 'xn-dup-block', 'xn-dup-lock', 'xn-dup-lockroot', 'xn-dup-trash', 'xn-dup-limit', 'xn-dup-code', 'xn-dup-toast', 'xn-dup-trash-count',
   // 0.18.0 Task XN-3（見出し4）
   'xn-h4-md', 'xn-h4-slash', 'xn-h4-paste', 'xn-h4-level', 'xn-h4-mcp', 'xn-h4-sum-keep',
   // 0.18.0 Task XN-4（/ メニューの閉じ方と語）
   'xn-slash-three', 'xn-slash-five', 'xn-slash-reset', 'xn-slash-keep-text', 'xn-slash-reopen', 'xn-slash-kana', 'xn-slash-kana-app', 'xn-slash-name', 'xn-slash-words', 'xn-slash-list',
   // 0.18.0 Task XN-5（見出しの印は乗せたとき・フォーカスのときだけ）
   'xn-mark-hover', 'xn-mark-focus',
+  // 0.18.0 点検 4（2026-11-24。CR148〜CR153）で足した xe-undo-fold・xe-arrow-nogeom・xe-color-opener・xn-menu-key-repeat・xn-dup-code・xn-dup-toast・
+  // xn-dup-trash-count は、上のタスクの並びの中に表の行の順で置いた
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {
@@ -1921,10 +1923,11 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   // CT-4 で ct- を 3 足した（183 → 186）。持ち主の答え AQ42〜AQ44（2026-11-23）と CT-4 の直し（CR79）で cs- を 1・ct- を 7 足した（186 → 194）。
   // 点検 2（2026-11-23）の読む答えの直しで cs- を 1・ct- を 3 足した（194 → 198）。書く道具の答えと照らしの直しで cs- を 4・ct- を 8 足した（198 → 210）。
   // CU-1 で cu- を 1 足した（cu-snap-count: CR95。210 → 211）。点検 3（2026-11-23）で cu- を 22 足した（CR106〜CR113。211 → 233）。
-  // 点検 3 の残りで cu- を 1 足した（cu-title-keep: CR115。233 → 234）。XN-2 で xn- を 1 足した（xn-menu-key-off: CR136。234 → 235）
-  assert.strictEqual(rows.length, 235, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 33・xe- 34・xn- 31）が読めない');
+  // 点検 3 の残りで cu- を 1 足した（cu-title-keep: CR115。233 → 234）。XN-2 で xn- を 1 足した（xn-menu-key-off: CR136。234 → 235）。
+  // 点検 4（2026-11-24）で xe- を 3・xn- を 4 足した（CR148〜CR153。235 → 242）
+  assert.strictEqual(rows.length, 242, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 33・xe- 37・xn- 35）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 33], ['xe', 34], ['xn', 31]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 33], ['xe', 37], ['xn', 35]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');
