@@ -1892,6 +1892,8 @@ const IDS_180 = [
   'xe-pal-keep', 'xe-pal-enter-close', 'xe-pal-focus', 'xe-pal-back', 'xe-pal-back-has', 'xe-pal-link',
   // 0.18.0 Task XE-5（文字の色のメニューの外の押しを通す）。0.17.1 の od-color の from と赤になるテストも直した（CR30）
   'xe-color-pass',
+  // 0.18.0 Task XN-2（サイドバーの行のメニューの並びと［複製］）。xn-menu-key-off は XN-2 で足した（CR136）
+  'xn-menu-order', 'xn-menu-lock', 'xn-menu-key-off',
   // 0.18.0 Task XN-1（ページの複製の命令）
   'xn-dup-ids', 'xn-dup-refs', 'xn-dup-back', 'xn-dup-title', 'xn-dup-place', 'xn-dup-block', 'xn-dup-lock', 'xn-dup-lockroot', 'xn-dup-trash', 'xn-dup-limit',
 ];
@@ -1913,10 +1915,10 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   // CT-4 で ct- を 3 足した（183 → 186）。持ち主の答え AQ42〜AQ44（2026-11-23）と CT-4 の直し（CR79）で cs- を 1・ct- を 7 足した（186 → 194）。
   // 点検 2（2026-11-23）の読む答えの直しで cs- を 1・ct- を 3 足した（194 → 198）。書く道具の答えと照らしの直しで cs- を 4・ct- を 8 足した（198 → 210）。
   // CU-1 で cu- を 1 足した（cu-snap-count: CR95。210 → 211）。点検 3（2026-11-23）で cu- を 22 足した（CR106〜CR113。211 → 233）。
-  // 点検 3 の残りで cu- を 1 足した（cu-title-keep: CR115。233 → 234）
-  assert.strictEqual(rows.length, 234, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 33・xe- 34・xn- 30）が読めない');
+  // 点検 3 の残りで cu- を 1 足した（cu-title-keep: CR115。233 → 234）。XN-2 で xn- を 1 足した（xn-menu-key-off: CR136。234 → 235）
+  assert.strictEqual(rows.length, 235, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 33・xe- 34・xn- 31）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 33], ['xe', 34], ['xn', 30]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 33], ['xe', 34], ['xn', 31]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');

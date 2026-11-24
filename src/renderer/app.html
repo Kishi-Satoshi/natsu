@@ -2366,7 +2366,8 @@
     { keys: 'Home・End', what: '最初・最後の行へ', where: 'サイドバーのページの一覧', codes: [] },
     { keys: 'Enter', what: 'ページを今のタブで開く', where: 'サイドバーのページの一覧', codes: [] },
     { keys: 'Ctrl+Enter', what: 'ページを新しいタブで開く', where: 'サイドバーのページの一覧', codes: [] },
-    { keys: 'Shift+F10', what: '行のメニューを開く（リンクを写す・名前を変える・移動先・中にページを作る・中にデータベースを作る・新しいタブで開く・削除）', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Shift+F10', what: '行のメニューを開く（リンクを写す・複製・名前を変える・移動先・削除・新しいタブで開く・中にページを作る・中にデータベースを作る）', where: 'サイドバーのページの一覧', codes: [] },
+    { keys: 'Ctrl+D', what: 'ページを複製する', where: 'サイドバーのページの一覧', codes: [] },   // 0.18.0 XN-2（決めたこと 62）
     { keys: 'Ctrl+Shift+R', what: 'ページの名前を変える', where: 'サイドバーのページの一覧（ライブラリの行でも）', codes: [] },
     // 0.16.0 DV-1 のデータベースの表（決めたこと 51）
     { keys: '↑・↓・←・→', what: 'セルを移る', where: 'データベースの表のセルを選んでいるとき', codes: [] },
@@ -6408,9 +6409,10 @@
     if (ok && curId === r.id) $('pTitle').focus();   // 0.15.0 PH-4（決めたこと 25・N-11）: 作るとすぐ題名から書ける
     return r.id;
   }
-  // 行のメニュー（右クリック・Shift+F10・メニューのキー・行の［···］）: ［リンクを写す］［名前を変える］［移動先…］［中にページを作る］［中にデータベースを作る］
-  // ［新しいタブで開く］［削除］の7つ（HR4・PH-5 の R24・0.15.1 PS-3 の決めたこと 29・0.16.0 DX-1 の決めたこと 43。R123 で重ねた）。データベースの行は中に作る2つが
-  // 無い5つ。区切りの下に押せない「最終更新 年/月/日 時:分」
+  // 行のメニュー（右クリック・Shift+F10・メニューのキー・行の［···］）: ［リンクを写す］［複製］［名前を変える］［移動先…］［削除］ ─ ［新しいタブで開く］ ─
+  // ［中にページを作る］［中にデータベースを作る］（0.18.0 XN-2: 計画 docs/plans/2026-11-18-180.md の決めたこと 61。前は HR4・PH-5 の R24・0.15.1 PS-3 の決めたこと 29・
+  // 0.16.0 DX-1 の決めたこと 43 の7つの並び）。データベースの行は中に作る2つが無い。ロック中のデータベースは［複製］［名前を変える］［移動先…］が無い（SC-07）。
+  // 区切りの下に押せない「最終更新 年/月/日 時:分」
   let treeMenu = null;   // 開いているとき { id, box, where }
   function closeTreeMenu(back) {
     const m = treeMenu;
@@ -6433,17 +6435,22 @@
     treeMenu = { id, box, where };
     const run = (fn) => () => { closeTreeMenu(); fn(); };
     const kbd = (b, shown, aria) => { b.setAttribute('data-kbd', shown); b.setAttribute('aria-keyshortcuts', aria); return b; };   // 右に灰色の近道（CSS の attr）
+    const sep = () => { const e = document.createElement('div'); e.className = 'msep'; e.setAttribute('role', 'separator'); box.appendChild(e); };
     menuItem(box, 'リンクを写す', () => { closeTreeMenu(true); copyRowLink(id); });   // 0.15.1 PS-3 直し 2（R43）: 写した後のフォーカスは行へ
     const locked = Boolean((pages.find((p) => p && p.id === id) || {}).locked);   // 0.17.0 LK-1（決めたこと 74）: ロック中のデータベースは出さない
+    // 0.18.0 XN-2（決めたこと 61・62・AQ27 (a)）: ［複製］（Ctrl+D）。写した後のフォーカスは元の行へ。議事録・「議事録」・「タスク管理」を含むページは灰色
+    if (!locked) kbd(menuItem(box, '複製', () => { closeTreeMenu(true); duplicatePage(id); }, dupBlocked(id) ? { off: DUP_OFF } : {}), 'Ctrl+D', 'Control+D');
     if (!locked) kbd(menuItem(box, '名前を変える', run(() => startRename(id, where))), 'Ctrl+Shift+R', 'Control+Shift+R');
     if (!locked) menuItem(box, '移動先…', run(() => openMovePop(id, { tree: id, where })));   // 0.15.0 PH-5（決めたこと 22・R24 の申し送り）
-    // 0.16.0 DX-1（決めたこと 43・R30）: ［中にデータベースを作る］は［中にページを作る］の次。データベースの行には中に作る2つを出さない
+    menuItem(box, '削除', run(() => deletePageFlow(id)), locked ? { off: DB_LOCK_DEL } : {});
+    sep();
+    kbd(menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true }))), 'Ctrl+Enter', 'Control+Enter');
+    // 0.16.0 DX-1（決めたこと 43・R30）: ［中にデータベースを作る］は［中にページを作る］の次。データベースの行には中に作る2つを出さない（0.18.0 XN-2: 区切りの下の末）
     if (!isDbPage(crumbPage(id))) {
+      sep();
       menuItem(box, '中にページを作る', run(() => createPageIn(id)));
       menuItem(box, '中にデータベースを作る', run(() => createPageIn(id, undefined, true)));
     }
-    kbd(menuItem(box, '新しいタブで開く', run(() => openPageTab(id, { newTab: true }))), 'Ctrl+Enter', 'Control+Enter');
-    menuItem(box, '削除', run(() => deletePageFlow(id)), locked ? { off: DB_LOCK_DEL } : {});
     const at = sideSectionView.stampText((pages.find((p) => p && p.id === id) || {}).updatedAt);
     if (at) {
       const sep = document.createElement('div'); sep.className = 'msep'; sep.setAttribute('role', 'separator');
@@ -6471,6 +6478,40 @@
     box.style.top = `${vh && below + h > vh ? Math.max(0, Math.round((rc.top || 0) - h)) : below}px`;
     menuItems(box)[0].focus();
   }
+  // ---------------- 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の決めたこと 61・62・AQ27 (a)・CR32）: 行の［複製］と Ctrl+D ----------------
+  const DUP_OFF = '議事録・「議事録」・「タスク管理」を含むページは複製できません';
+  const DUP_BIG = '大きすぎて複製できません';
+  // 写せないものを含むページか（自分か一覧の子孫に、議事録（種類の無いページ）・「議事録」・「タスク管理」がある。DB の page.duplicate と同じ決まり。
+  // 一覧に出ない録音中の写しは DB が断る）。行の中のページは、行の親の代わりにそのデータベースをたどる
+  function dupBlocked(id) {
+    const byId = new Map(pages.filter((p) => p && typeof p.id === 'string').map((p) => [p.id, p]));
+    const up = (p) => (byId.has(p.parentId) ? byId.get(p.parentId) : p.inRow && byId.has(p.inRow.db) ? byId.get(p.inRow.db) : null);
+    for (const p of byId.values()) {
+      if (p.kind && !p.minutes && !p.tasks) continue;
+      for (let x = p, seen = new Set(); x && !seen.has(x.id); x = up(x)) { if (x.id === id) return true; seen.add(x.id); }
+    }
+    return false;
+  }
+  // 複製（写しは元のすぐ下。開いているページはそのまま）。断られたら一言（大きすぎる・写せないもの・ほか）
+  async function duplicatePage(id) {
+    flushEdits();
+    let r = null;
+    let code = '';
+    try { r = await window.koeApp.pageDuplicate(id); } catch (e) { code = String((e && (e.code || e.message)) || 'internal'); }
+    if (!r || typeof r.id !== 'string') { toast(code === 'too-big' ? DUP_BIG : code === 'bad-args' ? DUP_OFF : `変更を保存できませんでした: ${code || 'internal'}`); return null; }
+    await refreshList();
+    return r.id;
+  }
+  // 行にフォーカスがあるときの Ctrl+D（Q-16 の近道）。ロック中のデータベースと灰色の行では何もしない（CR32）。本文の行の Ctrl+D（行の複製）と表の Ctrl+D は今のまま
+  document.addEventListener('keydown', (ev) => {
+    if (!ev.ctrlKey || ev.shiftKey || ev.altKey || ev.metaKey || (ev.code !== 'KeyD' && String(ev.key).toLowerCase() !== 'd')) return;
+    if (imeEnter(ev)) return;
+    const pid = renameHost(ev.target);   // 0.15.1 の変異 ps-ren-key の字（Ctrl+Shift+R の受け口）と同じ字にしない
+    if (!pid || (listSel.on && renameWhere(ev.target) === 'tree')) return;
+    if (typeof ev.preventDefault === 'function') ev.preventDefault();
+    if ((pages.find((p) => p && p.id === pid) || {}).locked || dupBlocked(pid)) return;
+    duplicatePage(pid);
+  });
   // ---------------- 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の決めたこと 29・30・D124）: 行の［リンクを写す］と、その場で名前を変える ----------------
   // ［リンクを写す］は「···」のページのメニュー・選んだ行の［リンクを写す］と同じ行（pageRefLine。決めたこと 100 の形）
   async function copyRowLink(id) {

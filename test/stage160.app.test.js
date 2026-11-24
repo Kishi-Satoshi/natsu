@@ -2710,7 +2710,8 @@ test('DX-1・決めたこと 43: サイドバーの行のメニューに［中�
     l.fire('onPagesUpdated'); await l.drain(120);
     await openTreeMenuOf(l, l.blank);
     // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.15.1 の行のメニュー（［リンクを写す］［名前を変える］［移動先…］［中にページを作る］…）の［中にページを作る］の次
-    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '中にデータベースを作る', '新しいタブで開く', '削除']);
+    // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］を足した並び
+    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['リンクを写す', '複製', '名前を変える', '移動先…', '削除', '新しいタブで開く', '中にページを作る', '中にデータベースを作る']);
     await clickEl(l, treeMenuItems(l).find((b) => b.textContent === '中にデータベースを作る'), 300);
     assert.deepStrictEqual(l.called('dbCreate').map((c) => c.args), [[l.blank]], '行の中に作らない');
     const made = newDbId(l, []);
@@ -2721,7 +2722,7 @@ test('DX-1・決めたこと 43: サイドバーの行のメニューに［中�
     assert.deepStrictEqual(body.map((b) => [b.type, b.page, b.inline]), [['subpage', made, undefined]], '白紙のページの本文の最後に行が無い');
     assert.deepStrictEqual(sideRows(l).map((e) => [e.dataset.pid, e.getAttribute('aria-level')]).filter((x) => x[0] === made), [[made, '2']], '親の行が開かないか、子の段でない');
     await openTreeMenuOf(l, l.id);
-    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '新しいタブで開く', '削除'], 'データベースの行のメニューに中に作る項目がある');
+    assert.deepStrictEqual(treeMenuItems(l).map((b) => b.textContent), ['リンクを写す', '複製', '名前を変える', '移動先…', '削除', '新しいタブで開く'], 'データベースの行のメニューに中に作る項目がある');
     l.key({ key: 'Escape' }, l.document.querySelector('.treemenu')); await l.drain();
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
@@ -3209,7 +3210,8 @@ test('DL-1 (3)（MQ1・R104 (4)）: 近道の表に Alt+→・Alt+← と Ctrl+E
   assert.deepStrictEqual(SHORTCUTS.filter((r) => r.keys === 'Alt+→・Alt+←').map((r) => [r.what, r.where]), [['サブアイテムを開く・閉じる（題名のセルで）', 'データベースの表のセルを選んでいるとき']]);
   assert.deepStrictEqual(SHORTCUTS.filter((r) => r.where === 'リレーションの行を探す窓').map((r) => [r.keys, r.what]), [['Ctrl+Enter', 'その行のページを開く（つなぐ・外すはしない）']]);
   // 0.15.1 を出した main の取り込み（R123・持ち主への問い MQ4）で意図して直した: 0.15.1 の行のメニューの項目と［中にデータベースを作る］を今の並びで
-  assert.strictEqual(SHORTCUTS.find((r) => r.keys === 'Shift+F10' && r.where === 'サイドバーのページの一覧').what, '行のメニューを開く（リンクを写す・名前を変える・移動先・中にページを作る・中にデータベースを作る・新しいタブで開く・削除）');
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］を足した並びの説明
+  assert.strictEqual(SHORTCUTS.find((r) => r.keys === 'Shift+F10' && r.where === 'サイドバーのページの一覧').what, '行のメニューを開く（リンクを写す・複製・名前を変える・移動先・削除・新しいタブで開く・中にページを作る・中にデータベースを作る）');
   assert.ok(row('Alt+→・Alt+←'));
 });
 

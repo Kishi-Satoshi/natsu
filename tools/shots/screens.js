@@ -501,6 +501,35 @@ const ROW_MENU = `(async () => {
   row.querySelector('.pmore').click(); await w(150);
   return 1;
 })()`;
+// 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の決めたこと 61・62）: 行の［···］のメニューを pid の行で開く（ロック中のデータベースの行は［複製］［名前を変える］［移動先…］が無い）
+const ROW_MENU_OF = (pid, check) => `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${OPEN_PAGE}; await w(200);
+  const row = [...document.querySelectorAll('#plist .pitem')].find((e) => e.dataset.pid === '${pid}');
+  if (!row) throw new Error('行 ${pid} が無い');
+  row.style.background = 'var(--hover)';
+  for (const b of row.querySelectorAll('.pmore, .padd')) b.style.display = 'inline-flex';
+  row.querySelector('.pmore').click(); await w(150);
+  const names = [...document.querySelectorAll('.treemenu .mitem')].map((b) => b.textContent);
+  ${check}
+  return 1;
+})()`;
+const ROW_MENU_LOCK = ROW_MENU_OF('pd1', "if (names.includes('複製') || names.includes('名前を変える') || names.includes('移動先…')) throw new Error('ロック中のデータベースの行に［複製］［名前を変える］［移動先…］がある: ' + names.join('・'));");
+// 0.18.0 XN-2: 「次回の議題」の行の［···］→［複製］で、元のすぐ下に「次回の議題 (1)」（一覧の答えは写しを含む形。開いているページは元のまま）
+const ROW_DUP = `(async () => {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${OPEN_PAGE}; await w(200);
+  const row = [...document.querySelectorAll('#plist .pitem')].find((e) => e.dataset.pid === 'p1b');
+  if (!row) throw new Error('行 p1b が無い');
+  row.querySelector('.pmore').click(); await w(150);
+  const dup = [...document.querySelectorAll('.treemenu .mitem')].find((b) => b.textContent === '複製');
+  if (!dup || dup.getAttribute('aria-disabled') === 'true') throw new Error('［複製］が押せない');
+  dup.click(); await w(300);
+  if (document.querySelector('.treemenu')) throw new Error('［複製］の後もメニューが残る');
+  const ids = [...document.querySelectorAll('#plist .pitem')].map((e) => e.dataset.pid);
+  if (ids.indexOf('p1b2') !== ids.indexOf('p1b') + 1) throw new Error('写しが元のすぐ下に無い');
+  return 1;
+})()`;
 // 0.15.1 PS-3（D124）: 2行目で Ctrl+Shift+R を押して、行の題名の所の名前を変える欄を出した形（今の題名を全部選んだ形）
 const ROW_RENAME = `(async () => {
   const w = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -814,6 +843,10 @@ const SCREENS = [
   { name: 'claude-pop-dark', page: 'app', theme: 'dark', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_POP },
   // 0.18.0 XE-4（計画の「取り直す画面（RETAKE）」・決めたこと 60）: 検索の窓の Ctrl+Enter の後（窓は開いたまま・新しいタブは後ろ）
   { name: 'search-palette-newtab-light', page: 'app', theme: 'light', act: SEARCH_NEWTAB },
+  // 0.18.0 XN-2（計画の「取り直す画面（RETAKE）」・決めたこと 61・62）: ロック中のデータベースの行のメニュー（［複製］［名前を変える］［移動先…］が無い）と、
+  // ［複製］の後（元のすぐ下の「 (1)」）。足した画面（まだ基準が無い）
+  { name: 'side-row-menu-lock-light', page: 'app', theme: 'light', get answers() { return sideLockedAnswers(); }, act: ROW_MENU_LOCK },
+  { name: 'side-row-dup-light', page: 'app', theme: 'light', get answers() { return dupAnswers(); }, act: ROW_DUP },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -965,9 +998,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 近道の表に「検索の窓」の行が増えるので、settings-shortcuts-light・settings-shortcuts-db-light と設定の［一般］の3枚（今の基準がある）を取り直す（0.15.0 の R55・0.16.0 と同じ）
 // 0.18.0 CH-1（計画の「取り直す画面（RETAKE）」・決めたこと 52・CR104）: カード「Claude との連携（MCP）」の頭の1行と吹き出しの文が変わるので、項目「要約」を写す画面
 // （今の基準がある6枚。0.10.0 で頭の1行を変えたときの4枚と、頭の1行が写る・捲り棒のつまみが変わりうる settings-mcp-running-light・settings-quality-light）を取り直す
+// 0.18.0 XN-2（計画の「取り直す画面（RETAKE）」・決めたこと 61・62）: 行のメニューの並びと［複製］が変わる side-row-menu-light（今の基準がある）を取り直し、
+// ロック中のデータベースの行のメニューと複製の後の2枚を足した（まだ基準が無い）。近道の表の Ctrl+D の行で変わる設定の画面は XE-4 の取り直しに入っている
 const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
+  'side-row-menu-lock-light', 'side-row-dup-light',
   'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
-  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark']);
+  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -1101,6 +1137,20 @@ function treeAnswers() {
     'koeApp.pagesSearch': [...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
     'koeApp.uiState': { tree: { open: ['p1', 'p1a', 'p1a1', 'p1a1a'] } },
   };
+}
+
+/** 0.18.0 XN-2: サイドバーの一覧の2つ目のデータベース pd1 がロック中 */
+function sideLockedAnswers() {
+  const a = sideDbAnswers();
+  return { ...a, 'koeApp.pagesSearch': a['koeApp.pagesSearch'].map((p) => (p.id === 'pd1' ? { ...p, locked: true } : p)) };
+}
+
+/** 0.18.0 XN-2: サイドバーの木（treeAnswers）の「次回の議題」p1b のすぐ下に写し p1b2「次回の議題 (1)」（［複製］の答えは写しの ID） */
+function dupAnswers() {
+  const a = treeAnswers();
+  const list = a['koeApp.pagesSearch'];
+  const src = list.find((p) => p.id === 'p1b');
+  return { ...a, 'koeApp.pagesSearch': [{ ...src, id: 'p1b2', title: `${src.title} (1)`, ord: 'ri' }, ...list], 'koeApp.pageDuplicate': { id: 'p1b2' } };
 }
 
 /** 0.16.0 DX-1: サイドバーの一覧の2つ目にデータベース（kind 'database'）。一覧の答えに行（kind 'row'）が混じっても出さない */

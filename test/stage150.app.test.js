@@ -220,14 +220,15 @@ test('PH-3: 行の［＋］→ pageCreate(行の id) の1回で、作ったペ�
   await l.drain();
   assert.ok(menuOf(), '右クリックで行のメニューが出ない');
   assert.strictEqual(menuOf().getAttribute('role'), 'menu');
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］を足し、並びを Notion の並びに（区切りで3つに分けた）。↓ の次は［複製］
   // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にページを作る］の次に［中にデータベースを作る］を足した（0.15.1 を出した main の取り込み: R123）
   // 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・決めたこと 29）で意図して変えた: 行のメニューは［リンクを写す］［名前を変える］［移動先…］［中にページを作る］［新しいタブで開く］［削除］の6つ（項目は名前で引く）
   const item = (label) => menuOf().querySelectorAll('.mitem').find((b) => b.textContent === label);
   assert.deepStrictEqual(menuOf().querySelectorAll('.mitem').map((b) => [b.textContent, b.getAttribute('role')]),
-    [['リンクを写す', 'menuitem'], ['名前を変える', 'menuitem'], ['移動先…', 'menuitem'], ['中にページを作る', 'menuitem'], ['中にデータベースを作る', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['削除', 'menuitem']]);
+    [['リンクを写す', 'menuitem'], ['複製', 'menuitem'], ['名前を変える', 'menuitem'], ['移動先…', 'menuitem'], ['削除', 'menuitem'], ['新しいタブで開く', 'menuitem'], ['中にページを作る', 'menuitem'], ['中にデータベースを作る', 'menuitem']]);
   assert.ok(l.document.activeElement === menuOf().querySelectorAll('.mitem')[0], 'メニューの1つ目にフォーカスが無い');
   l.key({ key: 'ArrowDown' }, menuOf());
-  assert.strictEqual(l.document.activeElement.textContent, '名前を変える');
+  assert.strictEqual(l.document.activeElement.textContent, '複製');
   l.key({ key: 'Escape' }, menuOf());
   await l.drain();
   assert.deepStrictEqual([menuOf() === null, focused(l)], [true, 'pa2'], 'Esc で閉じて行へ戻らない');
@@ -407,7 +408,9 @@ test('PH-3 直し・R28 (3): 選ぶ形でも子のある行はチェックボッ
 
 test('PH-3 直し・R28 (4): 行のメニューは窓の下に入らなければ行の上に開く（入れば行の下）', T, async () => {
   const l = await boot();
-  l.window.innerHeight = 300;
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］で項目が8つになり、見積もりの高さ（項目の数 × 30 + 8）が 248 になったので、
+  // 窓の高さを 300 から 330 に（行の下に入る形と入らない形の両方を見る意図は同じ）
+  l.window.innerHeight = 330;
   const top = () => Number.parseInt(l.document.querySelector('.treemenu').style.top, 10);
   rowOf(l, 'pa3')._rect = { top: 40, height: 30 };
   rowOf(l, 'pa3').dispatchEvent({ type: 'contextmenu', preventDefault() {} });
@@ -1770,8 +1773,9 @@ test('PH-5（決めたこと 22・HR4）: ［移動先…］の候補に自分�
   const menu = l.document.querySelector('.treemenu');
   // 0.16.0 DX-1（決めたこと 43）で意図して変えた: ［中にデータベースを作る］を足した（R123）
   // 0.15.1 PS-3（計画 docs/plans/2026-11-04-151.md の「意図して変えるテスト」・決めたこと 29）で意図して変えた: 行のメニューは［リンクを写す］［名前を変える］［移動先…］［中にページを作る］［新しいタブで開く］［削除］の6つ
-  assert.deepStrictEqual(menu.querySelectorAll('.mitem').map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '中にデータベースを作る', '新しいタブで開く', '削除']);
-  menu.querySelectorAll('.mitem')[2].dispatchEvent({ type: 'click' });
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］を足した並び。［移動先…］は名前で引く
+  assert.deepStrictEqual(menu.querySelectorAll('.mitem').map((b) => b.textContent), ['リンクを写す', '複製', '名前を変える', '移動先…', '削除', '新しいタブで開く', '中にページを作る', '中にデータベースを作る']);
+  menu.querySelectorAll('.mitem').find((b) => b.textContent === '移動先…').dispatchEvent({ type: 'click' });
   await l.drain();
   assert.deepStrictEqual(opts(), ['', 'pa3', 'pa2', 'k2', 'pa1'], '候補が木の順でないか、自分（k1）・子孫（g1）が出る');
   const k2opt = $(l, 'moveList').querySelectorAll('.mvopt').find((e) => e.dataset.pid === 'k2');

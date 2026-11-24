@@ -1371,3 +1371,122 @@ test('XE-5・F253: 文字の色のメニューの外の押しは通す（N171-8�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- XN-2（決めたこと 61・62・AQ11 (a)・AQ27 (a)・F249・CR32）: サイドバーの行のメニューの並びと［複製］
+const sideRowsX = (l) => [...$(l, 'plist').children].filter((e) => e.dataset && e.dataset.pid);
+const sideRowX = (l, id) => sideRowsX(l).find((e) => e.dataset.pid === id);
+const treeMenuX = (l) => l.document.querySelector('.treemenu');
+const treeItemsX = (l) => (treeMenuX(l) ? treeMenuX(l).querySelectorAll('.mitem') : []);
+const treeShapeX = (l) => treeMenuX(l).children.map((e) => (e.classList.contains('mitem') ? e.textContent : e.classList.contains('msep') ? '─' : e.classList.contains('mfoot') ? '最終更新' : '?'));
+const openRowMenuX = async (l, id) => { sideRowX(l, id).dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain(); };
+const CTRL_D = { key: 'd', code: 'KeyD', ctrlKey: true };
+const setTreeOpenX = async (l, id) => { const r = sideRowX(l, id); if (r.getAttribute('aria-expanded') !== 'true') { l.key({ key: 'ArrowRight' }, r); await l.drain(); } };
+const DUP_OFF = '議事録・「議事録」・「タスク管理」を含むページは複製できません';
+// 見本: 白紙のページ P の中に Q（本文に1行）・ロックしたインラインの表を持つ K・後の兄弟 Z。最上位にロック中のデータベース L と、議事録 pm1 を中に持つ白紙のページ H
+async function dupSeeded(returns) {
+  return realApp({
+    ...(returns ? { returns } : {}),
+    seed: (t) => { const { page, segments } = samplePage('pm1'); t.seed(page, segments); },
+    before: (call) => {
+      const P = call('page.create', {}).id;
+      call('page.setTitle', { id: P, title: '親の見本' });   // 白紙のページの題名（D77 の外）
+      const Q = call('page.create', { parentId: P }).id;
+      call('page.setTitle', { id: Q, title: '複製の見本' });   // 白紙のページの題名（D77 の外）
+      const qb = call('block.insert', { pageId: Q, afterBlockId: '', type: 'paragraph' }).blockId;
+      call('block.update', { pageId: Q, blockId: qb, patch: { text: '見本の一行' } });
+      const K = call('page.create', { parentId: P }).id;
+      const kb = call('block.insert', { pageId: K, afterBlockId: '', type: 'paragraph' }).blockId;
+      const KD = call('db.create', { parentId: K, inline: kb }).id;
+      call('db.setLock', { db: KD, on: true });
+      const Z = call('page.create', { parentId: P }).id;
+      const L = call('db.create', {}).id;
+      call('db.setLock', { db: L, on: true });
+      const H = call('page.create', {}).id;
+      call('page.move', { id: 'pm1', parentId: H });
+      return { P, Q, K, KD, Z, L, H };
+    },
+  });
+}
+test('XN-2・F249: 行のメニューの並び（決めたこと 61: リンクを写す・複製・名前を変える・移動先…・削除 ─ 新しいタブで開く ─ 中にページを作る・中にデータベースを作る ─ 最終更新）・［複製］の右に Ctrl+D。ロック中のデータベースは［複製］［名前を変える］［移動先…］が無く、Ctrl+D は何もしない（CR32）。議事録を含むページは［複製］が灰色で吹き出し、押しても Ctrl+D でも何もしない', T, async () => {
+  const l = await dupSeeded();
+  try {
+    const { P, Q, L, H } = l.made;
+    l.fire('onPagesUpdated'); await l.drain(120);
+    await setTreeOpenX(l, P);
+    await openRowMenuX(l, Q);
+    assert.deepStrictEqual(treeShapeX(l), ['リンクを写す', '複製', '名前を変える', '移動先…', '削除', '─', '新しいタブで開く', '─', '中にページを作る', '中にデータベースを作る', '─', '最終更新']);
+    const dup = treeItemsX(l).find((b) => b.textContent === '複製');
+    assert.deepStrictEqual([dup.getAttribute('data-kbd'), dup.getAttribute('aria-keyshortcuts'), dup.getAttribute('aria-disabled')], ['Ctrl+D', 'Control+D', null]);
+    assert.deepStrictEqual(treeMenuX(l).querySelectorAll('.msep').map((e) => e.getAttribute('role')), ['separator', 'separator', 'separator']);
+    l.key({ key: 'ArrowDown' }, treeMenuX(l));
+    assert.strictEqual(active(l).textContent, '複製', '↓ で［複製］へ移らない');
+    l.key({ key: 'Escape' }, treeMenuX(l)); await l.drain();
+    // ロック中のデータベース（SC-07・OC-12）
+    await openRowMenuX(l, L);
+    assert.deepStrictEqual(treeShapeX(l), ['リンクを写す', '削除', '─', '新しいタブで開く', '─', '最終更新']);
+    l.key({ key: 'Escape' }, treeMenuX(l)); await l.drain();
+    const n0 = l.called('pageDuplicate').length;
+    l.key(CTRL_D, sideRowX(l, L)); await l.drain(120);
+    assert.strictEqual(l.called('pageDuplicate').length, n0, 'ロック中のデータベースの行の Ctrl+D で複製した（CR32）');
+    // 議事録を含むページ
+    await openRowMenuX(l, H);
+    const off = treeItemsX(l).find((b) => b.textContent === '複製');
+    assert.deepStrictEqual([off.getAttribute('aria-disabled'), off.title], ['true', DUP_OFF]);
+    await clickEl(l, off);
+    assert.strictEqual(l.called('pageDuplicate').length, n0, '灰色の［複製］で複製した');
+    if (treeMenuX(l)) { l.key({ key: 'Escape' }, treeMenuX(l)); await l.drain(); }
+    l.key(CTRL_D, sideRowX(l, H)); await l.drain(120);
+    assert.strictEqual(l.called('pageDuplicate').length, n0, '議事録を含むページの行の Ctrl+D で複製した（CR32）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('XN-2・F249: ［複製］で写しが元のすぐ下に「（題名） (1)」で出て、開いているページは元のまま・フォーカスは元の行へ。行にフォーカスがあるときの Ctrl+D でも写す。ロックした表を中に持つページも写せ、写しの中の表もロック中（AQ27 (a)）。大きすぎれば左下に「大きすぎて複製できません」', T, async () => {
+  const l = await dupSeeded();
+  try {
+    const { P, Q, K, KD, Z } = l.made;
+    await open(l, Q);
+    l.fire('onPagesUpdated'); await l.drain(120);
+    await setTreeOpenX(l, P);
+    await openRowMenuX(l, Q);
+    await clickEl(l, treeItemsX(l).find((b) => b.textContent === '複製'), 300);
+    assert.deepStrictEqual(l.called('pageDuplicate').map((c) => c.args), [[Q]]);
+    const kids = () => { const par = new Map(l.call('pages.list', {}).map((e) => [e.id, e.parentId])); return sideRowsX(l).map((e) => e.dataset.pid).filter((id) => par.get(id) === P); };
+    const ids = kids();
+    const Q2 = ids[1];
+    assert.deepStrictEqual(ids, [Q, Q2, K, Z], '写しが元のすぐ下に出ない');
+    assert.strictEqual(sideRowX(l, Q2).querySelector('.t').textContent, '複製の見本 (1)');
+    assert.strictEqual($(l, 'pTitle').textContent, '複製の見本', '開いているページが写しに替わった');
+    assert.ok(active(l) === sideRowX(l, Q), 'フォーカスが元の行に戻らない');
+    // Ctrl+D（行にフォーカス）
+    l.key(CTRL_D, sideRowX(l, K)); await l.drain(300);
+    assert.deepStrictEqual(l.called('pageDuplicate').map((c) => c.args), [[Q], [K]]);
+    const K2 = kids()[3];
+    assert.deepStrictEqual(kids(), [Q, Q2, K, K2, Z]);
+    const inl = l.call('page.get', { id: K2 }).page.blocks.find((b) => b.type === 'subpage' && b.inline === true);
+    assert.ok(inl && inl.page !== KD, 'ロックした表を中に持つページの写しに表が無い');
+    assert.strictEqual(l.call('db.get', { id: inl.page }).locked, true, '写しの中の表のロックが外れた（AQ27 (a)）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+  const big = await dupSeeded({ pageDuplicate: async () => { const e = new Error('too-big'); e.code = 'too-big'; throw e; } });
+  try {
+    big.fire('onPagesUpdated'); await big.drain(120);
+    await setTreeOpenX(big, big.made.P);
+    big.key(CTRL_D, sideRowX(big, big.made.Q)); await big.drain(200);
+    assert.strictEqual(toastOf(big), '大きすぎて複製できません');
+  } finally { big.done(); }
+});
+test('XN-2: ライブラリの行のメニューも同じ並び。近道の表に「Ctrl+D｜ページを複製する｜サイドバーのページの一覧」と、行のメニューの説明（決めたこと 61 の並び）', T, async () => {
+  const SC = require('../src/shortcuts');
+  const rows = SC.SHORTCUTS || SC;
+  assert.ok(rows.some((r) => r.keys === 'Ctrl+D' && r.what === 'ページを複製する' && r.where === 'サイドバーのページの一覧'), '近道の表に Ctrl+D の行が無い');
+  assert.ok(rows.some((r) => r.keys === 'Shift+F10' && r.what === '行のメニューを開く（リンクを写す・複製・名前を変える・移動先・削除・新しいタブで開く・中にページを作る・中にデータベースを作る）'));
+  const l = await dupSeeded();
+  try {
+    await clickEl(l, $(l, 'privLib'), 200);
+    const row = $(l, 'libRows').querySelectorAll('.lib-row').find((r) => r.dataset.pid === l.made.H);
+    row.dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain();
+    assert.deepStrictEqual(treeShapeX(l), ['リンクを写す', '複製', '名前を変える', '移動先…', '削除', '─', '新しいタブで開く', '─', '中にページを作る', '中にデータベースを作る', '─', '最終更新']);
+    assert.strictEqual(treeItemsX(l).find((b) => b.textContent === '複製').getAttribute('aria-disabled'), 'true');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

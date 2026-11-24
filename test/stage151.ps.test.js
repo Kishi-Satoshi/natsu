@@ -636,10 +636,11 @@ test('PS-3・F163: 行の［···］（.pmore・「ページのメニュー」�
   await press(l, more);
   assert.ok(rowMenu(l), '［···］で行のメニューが出ない');
   // 0.15.1 を出した main を 0.16.0 に取り込んだとき（0.16.0 の計画の R123）に意図して直した: 0.16.0 の［中にデータベースを作る］（［中にページを作る］の次）も
-  const want = ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '中にデータベースを作る', '新しいタブで開く', '削除'];
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］（Ctrl+D）を足し、並びを Notion の並びに
+  const want = ['リンクを写す', '複製', '名前を変える', '移動先…', '削除', '新しいタブで開く', '中にページを作る', '中にデータベースを作る'];
   assert.deepStrictEqual(rowItems(l).map((b) => b.textContent), want);
-  assert.deepStrictEqual(rowItems(l).map((b) => b.getAttribute('data-kbd')), [null, 'Ctrl+Shift+R', null, null, null, 'Ctrl+Enter', null]);
-  assert.deepStrictEqual(rowItems(l).map((b) => b.getAttribute('aria-keyshortcuts')), [null, 'Control+Shift+R', null, null, null, 'Control+Enter', null]);
+  assert.deepStrictEqual(rowItems(l).map((b) => b.getAttribute('data-kbd')), [null, 'Ctrl+D', 'Ctrl+Shift+R', null, null, 'Ctrl+Enter', null, null]);
+  assert.deepStrictEqual(rowItems(l).map((b) => b.getAttribute('aria-keyshortcuts')), [null, 'Control+D', 'Control+Shift+R', null, null, 'Control+Enter', null, null]);
   const foot = rowMenu(l).querySelector('.mfoot');
   assert.ok(foot, '最終更新の行が無い');
   assert.deepStrictEqual([foot.textContent, foot.getAttribute('role'), foot.tabIndex], ['最終更新 2026/11/15 09:00', 'none', undefined], '最終更新の行が updatedAt でない（作った日時を出した）');
@@ -648,7 +649,7 @@ test('PS-3・F163: 行の［···］（.pmore・「ページのメニュー」�
   // ↑↓ は項目だけ（最終更新の行で止まらない）
   assert.ok(l.document.activeElement === rowItems(l)[0]);
   l.key({ key: 'ArrowUp' }, rowMenu(l));
-  assert.strictEqual(l.document.activeElement.textContent, '削除', '↑ で最終更新の行に止まった');
+  assert.strictEqual(l.document.activeElement.textContent, '中にデータベースを作る', '↑ で最終更新の行に止まった');   // 0.18.0 XN-2 で意図して直した: 末の項目は［中にデータベースを作る］（決めたこと 61）
   l.key({ key: 'Escape' }, rowMenu(l)); await l.drain();
   // 右クリック・Shift+F10 も同じメニュー
   uRow(l, 'pg5').dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain();
@@ -671,7 +672,7 @@ test('PS-3・F163: 名前を変える（［名前を変える］・行で Ctrl+S
   const sent = () => l.called('pageSetTitle').map((c) => c.args);
   // ［名前を変える］
   await press(l, uRow(l, 'pg5').querySelector('.pmore'));
-  await press(l, rowItems(l)[1]);
+  await press(l, rowItems(l).find((b) => b.textContent === '名前を変える'));   // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］が2つ目になったので名前で引く
   let box = renameBox(l);
   assert.ok(box, '［名前を変える］で欄が出ない');
   assert.ok(box.parentNode === uRow(l, 'pg5').querySelector('.t'), '欄が行の題名の所に無い');
@@ -774,8 +775,9 @@ test('PS-3・F163: 近道の表（src/shortcuts.js の SHORTCUTS）に Ctrl+Shif
   const at = (k, w) => SHORTCUTS.find((r) => r.keys === k && r.where.startsWith(w));
   assert.deepStrictEqual({ ...at('Ctrl+Shift+R', 'サイドバー') }, { keys: 'Ctrl+Shift+R', what: 'ページの名前を変える', where: 'サイドバーのページの一覧（ライブラリの行でも）', codes: [] });
   // 0.15.1 を出した main を 0.16.0 に取り込んだとき（0.16.0 の計画の R123・持ち主への問い MQ4）に意図して直した: 0.16.0 の［中にデータベースを作る］（［中にページを作る］の次）も
-  assert.strictEqual(at('Shift+F10', 'サイドバー').what, '行のメニューを開く（リンクを写す・名前を変える・移動先・中にページを作る・中にデータベースを作る・新しいタブで開く・削除）');
-  assert.ok(SHORTCUTS.indexOf(at('Ctrl+Shift+R', 'サイドバー')) === SHORTCUTS.indexOf(at('Shift+F10', 'サイドバー')) + 1, 'Ctrl+Shift+R の行が Shift+F10 の次に無い');
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］を足した並びの説明。Shift+F10 の次は Ctrl+D（ページを複製する）、その次が Ctrl+Shift+R
+  assert.strictEqual(at('Shift+F10', 'サイドバー').what, '行のメニューを開く（リンクを写す・複製・名前を変える・移動先・削除・新しいタブで開く・中にページを作る・中にデータベースを作る）');
+  assert.ok(SHORTCUTS.indexOf(at('Ctrl+Shift+R', 'サイドバー')) === SHORTCUTS.indexOf(at('Shift+F10', 'サイドバー')) + 2, 'Ctrl+Shift+R の行が Shift+F10・Ctrl+D の次に無い');
   const l = await bootUi();
   $(l, 'tabBtnSettings').dispatchEvent({ type: 'click' }); await l.drain();
   const text = $(l, 'tabSettings').textContent;
@@ -1008,7 +1010,9 @@ test('PS-3 直し 2・F163: 行の［···］は読み上げない（aria-hidde
   assert.deepStrictEqual(l.called('copy'), []);
   assert.ok(l.document.activeElement === uRow(l, 'pg5'), '［リンクを写す］の後にフォーカスが行へ戻らない');
   l.key({ key: 'F10', shiftKey: true }, uRow(l, 'pg3')); await l.drain();
-  assert.ok(rowMenu(l).querySelector('.mfoot') === null && rowMenu(l).querySelector('.msep') === null && !rowMenu(l).hasAttribute('aria-describedby'), '最終更新が無いのに最終更新の行か区切りを出した');
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: 項目の間の区切り（新しいタブで開く・中に作る）は出るので、最終更新の区切り（末の区切り）が無いことを見る
+  const last = rowMenu(l).children[rowMenu(l).children.length - 1];
+  assert.ok(rowMenu(l).querySelector('.mfoot') === null && !last.classList.contains('msep') && !rowMenu(l).hasAttribute('aria-describedby'), '最終更新が無いのに最終更新の行か区切りを出した');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
@@ -1128,7 +1132,8 @@ test('PS-4: 行の動き（押す・Enter で今のタブ（ライブラリの�
   // Shift+F10 で行のメニュー（サイドバーと同じ6つ）・Esc で行へ
   await k('pg5', { key: 'F10', shiftKey: true });
   // 0.15.1 を出した main を 0.16.0 に取り込んだとき（0.16.0 の計画の R123）に意図して直した: 0.16.0 の［中にデータベースを作る］（［中にページを作る］の次）も
-  assert.deepStrictEqual(rowItems(l).map((b) => b.textContent), ['リンクを写す', '名前を変える', '移動先…', '中にページを作る', '中にデータベースを作る', '新しいタブで開く', '削除']);
+  // 0.18.0 XN-2（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 61）で意図して直した: ［複製］を足した並び（ライブラリの行も同じ）
+  assert.deepStrictEqual(rowItems(l).map((b) => b.textContent), ['リンクを写す', '複製', '名前を変える', '移動先…', '削除', '新しいタブで開く', '中にページを作る', '中にデータベースを作る']);
   l.key({ key: 'Escape' }, rowMenu(l)); await l.drain();
   assert.ok(l.document.activeElement === libRow(l, 'pg5'), 'メニューの Esc でライブラリの行へ戻らない');
   // Ctrl+Shift+R で名前を変える欄がライブラリの行の中に出る
