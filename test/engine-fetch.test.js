@@ -519,12 +519,18 @@ test('名前の変更の EBUSY・EACCES も、EPERM と同じく待って試し�
     }
   } finally { await s.close(); }
 });
+// 0.18.0 Task G の CI 直し（run 45412367600 の electron-smoke の「テスト全部を Electron の Node でも回す」で「3 回続けて時間切れの後の待ちが 400ms になっていない 377ms」。CR167）:
+// 上の「見出しが来ない」の場面（0.16.0 の 6377ef8）と同じく、待ちは要求を出した時刻（取り込む側）の間で計る。偽のサーバーに着いた時刻の間で計ると、
+// 要求ごとにつなぐまでの時間（混んだ Windows の機械で数十ミリ秒ゆれる）が入り、3 回目の要求が遅く着くと待ち（400ms）が短く見えた。着いた数（6）はサーバーで見る
 test('見出しが来たら、見出しの待ちは headerTimeoutMs に戻る（倍にするのは続けて時間切れのときだけ）', IO_WAIT, async () => {
   const s = await startServers({ body, script: [{ noHeaders: true }, { noHeaders: true }, { noHeaders: true }, { cutAfter: 1000 }, { noHeaders: true }, {}] });
   try {
-    await fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100 }));
-    const at = s.requests().filter((x) => x.name === 'cdn').map((x) => x.at);
-    assert.strictEqual(at.length, 6);
+    const sent = [];
+    const request = (o) => { sent.push(Date.now()); return fakeRequest(o); };
+    await fetchFile(pinOf(s.originUrl), opts(tmp(), { headerTimeoutMs: 100, request }));
+    assert.strictEqual(s.requests().filter((x) => x.name === 'cdn').length, 6);
+    const at = sent;
+    assert.strictEqual(at.length, 6, `要求を出した数 ${at.length}`);
     assert.ok(at[3] - at[2] >= 390, `3 回続けて時間切れの後の待ちが 400ms になっていない ${at[3] - at[2]}ms`);
     assert.ok(at[5] - at[4] < 500, `見出しが来た後も待ちが 800ms のまま ${at[5] - at[4]}ms`);
   } finally { await s.close(); }
