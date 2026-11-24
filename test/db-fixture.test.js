@@ -89,6 +89,37 @@ test('RF11: v1.db を開いた接続の backup() の写しも、同じ中身で�
   } finally { t.done(); }
 });
 
+// 0.18.0 Task G（計画 docs/plans/2026-11-18-180.md の Task G・M26 の答え・CR155）: 表の形を版 2 にした回なので、tools/make-db-fixture.js で v2.db を足した
+// （v1.db はそのまま）。版 2 で足した表 page_snapshot にも行があるように、見本の最後に Claude（役 mcp）の名前の直しを1つ書く（控えが1つ）。
+// 後の版は、この v2.db を今の版で開けること・Claude の変更の控えを読めることを見続ける
+test('0.18.0 Task G・RF11: v2.db（0.18.0 で出す形。Claude の名前の直しの控えが1つ）を今の版で開ける・中身と控えが読める・素の接続で全文検索できる', { timeout: 5000 }, () => {
+  const t = copyFixture('v2.db');
+  try {
+    const raw0 = t.raw();
+    assert.strictEqual(raw0.prepare('pragma user_version').get().user_version, 2, 'v2.db の表の形の版が 2 でない');
+    raw0.close();
+    const r = t.open();
+    assert.deepStrictEqual([r.state, r.version], ['ok', core.SCHEMA_VERSION]);
+    const call = (cmd, args) => { const o = core.call(r.db, { role: 'app', cmd, args }, { labels: {} }); assert.ok(o.ok, `${cmd} が ${o.code}`); return o.result; };
+    const { page, segments } = call('page.get', { id: 'pfixture000001' });
+    assert.strictEqual(page.title, titleAt('2026-10-15T01:00:00.000Z'));
+    assert.strictEqual(page.memo, 'リリース日の確認は次回も続ける');
+    // Claude の名前の直し（担当B → 担当C）が、ToDo の担当と発言に入っている
+    const todo = page.blocks.find((b) => b.id === 'pfixture000001b5');
+    assert.deepStrictEqual([todo.type, todo.assignee, todo.checked], ['todo', '担当C', true]);
+    assert.ok(segments.some((s) => s.text.includes('担当C')) && !segments.some((s) => s.text.includes('担当B')), '発言の名前が直っていない');
+    // 控え（page_snapshot）が1つあり、［Claude の変更を戻す］の一覧で読める
+    const snaps = call('page.claudeSnaps', { id: 'pfixture000001' });
+    const list = Array.isArray(snaps) ? snaps : snaps.snaps;
+    assert.strictEqual(list.length, 1, '控えが1つでない');
+    assert.strictEqual(call('pages.searchFull', { q: '結合テスト' }).total, 1);
+    const raw = t.raw();
+    assert.strictEqual(raw.prepare('select count(*) c from page_snapshot').get().c, 1);
+    assert.strictEqual(raw.prepare("select count(*) c from segments_fts where segments_fts match ?").get('"結合テスト"').c, 1);
+    assert.deepStrictEqual(raw.prepare("select actor, action from oplog where role = 'mcp'").all().map((x) => Object.values(x).join(' ')), ['claude mcp.fixNames']);
+  } finally { t.done(); }
+});
+
 test('RF11: tools/make-db-fixture.js は2回走らせても同じ行を作る（決まった時刻と ID）。在る出力は上書きしない', { timeout: 5000 }, () => {
   const { makeFixture } = require('../tools/make-db-fixture');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natsu-fx-作る𠮷-'));
@@ -97,7 +128,8 @@ test('RF11: tools/make-db-fixture.js は2回走らせても同じ行を作る（
     const dump = (file) => {
       const d = new sqlite.DatabaseSync(file, { readOnly: true }); opened.push(d);
       const out = {};
-      for (const tb of ['blocks', 'segments', 'oplog', 'meta']) out[tb] = d.prepare(`select * from ${tb} order by 1`).all().map((x) => ({ ...x }));
+      // 0.18.0 Task G（CR155）で意図して直した: 版 2 の page_snapshot も比べる（Claude の名前の直しの控え）
+      for (const tb of ['blocks', 'segments', 'oplog', 'meta', 'page_snapshot']) out[tb] = d.prepare(`select * from ${tb} order by 1`).all().map((x) => ({ ...x }));
       out.version = d.prepare('pragma user_version').get().user_version;
       return out;
     };
@@ -106,7 +138,8 @@ test('RF11: tools/make-db-fixture.js は2回走らせても同じ行を作る（
     for (const s of ['-wal', '-shm', '-journal']) assert.ok(!fs.existsSync(a + s), `${s} が残った（1つのファイルで commit できない）`);
     const before = fs.readFileSync(a);
     const da = dump(a);
-    assert.ok(da.blocks.length > 5 && da.segments.length > 9 && da.oplog.length === 8, '見本が足りない');
+    // 0.18.0 Task G（CR155）で意図して直した: 見本の最後に Claude の mcp.fixNames を足したので、oplog は 9 行・控えは 1 行
+    assert.ok(da.blocks.length > 5 && da.segments.length > 9 && da.oplog.length === 9 && da.page_snapshot.length === 1, '見本が足りない');
     assert.deepStrictEqual(dump(b), da);
     assert.throws(() => makeFixture({ file: a }), /在る/);
     assert.deepStrictEqual(fs.readFileSync(a), before, '在る固定の DB を書き換えた');

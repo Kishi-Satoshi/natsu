@@ -30,6 +30,15 @@ function releaseBody(cl, tag) {
 /** 小さな写し: 頭の説明と、与えた見出しと本文の節 */
 const mini = (...secs) => ['# 変更履歴', '', '説明。', '', ...secs.flatMap(([h, b]) => [h, '', ...(b === undefined ? ['- 直しました。'] : b.split('\n')), ''])].join('\n');
 const errOf = (text) => { try { R.renderRelnotes(R.parseChangelog(text)); return null; } catch (e) { return e; } };
+// 0.18.0 Task G（前半。計画 docs/plans/2026-11-18-180.md の Task G・CR157）: CHANGELOG.md の頭に日付の無い節（まだ出していない版。0.18.0）を置いたので、
+// 「本物の CHANGELOG.md の一番上に次の版を足す」場面は、その節を外した写し（出した版だけの CHANGELOG）の上に足して見る（日付の無い節は一番上の1つだけ: RN4）
+const releasedOnly = (cl) => {
+  const at = cl.indexOf('\n## natsu-v');
+  const head = cl.slice(at + 1, cl.indexOf('\n', at + 1));
+  if (/（\d{4}-\d{2}-\d{2}）$/.test(head)) return cl;
+  const next = cl.indexOf('\n## natsu-v', at + 1);
+  return cl.slice(0, at + 1) + cl.slice(next + 1);
+};
 
 test('RN-2（RN1・RN4）: 本物の CHANGELOG.md の版は上から新しい順で、どれも日付つき。ページに出す版の本文は、release.yml が取るリリース本文（アプリの［設定］→［更新］の文）とちょうど同じ（RNF4）', { timeout: 5000 }, () => {
   const cl = read('CHANGELOG.md');
@@ -108,7 +117,7 @@ test('RN-5（G-21）: 公開前の確認（チームのドメイン・64 字の1
 });
 
 test('RN-2（RN4）: 次の版（例 0.10.1）を本物の CHANGELOG.md の一番上に足しても通る。日付つきならページの先頭に出し、日付が無ければ出さない。0.10.0 より前の日付は止める', { timeout: 5000 }, () => {
-  const cl = read('CHANGELOG.md');
+  const cl = releasedOnly(read('CHANGELOG.md'));   // 0.18.0 Task G（前半・CR157）で意図して直した: 日付の無い頭の節を外した写しに足す
   const at = cl.indexOf('\n## natsu-v');
   assert.ok(at > 0);
   const add = (h) => `${cl.slice(0, at + 1)}${h}\n\n- 直しました。\n\n${cl.slice(at + 1)}`;
@@ -203,7 +212,7 @@ test('RN-3（D・RNF5）: 右の「このページの内容」に全部の版（
 test('RN-3（F）: CHANGELOG.md の一番上に日付の無い節（まだ出していない版）があっても、ページ・目次・カードの数に出ない', { timeout: 10000 }, (t) => {
   const { html } = buildReal(t, (root) => {
     const f = path.join(root, 'CHANGELOG.md');
-    const cl = fs.readFileSync(f, 'utf8');
+    const cl = releasedOnly(fs.readFileSync(f, 'utf8'));   // 0.18.0 Task G（前半・CR157）で意図して直した: 日付の無い頭の節を外した写しに足す
     const at = cl.indexOf('\n## natsu-v') + 1;
     fs.writeFileSync(f, `${cl.slice(0, at)}## natsu-v9.9.9\n\n- まだ出していない版の文。\n\n${cl.slice(at)}`);
   });

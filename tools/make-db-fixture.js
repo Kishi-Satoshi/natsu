@@ -6,10 +6,12 @@
 // 決め方:
 //  - 版を出した後は、その版の固定の DB を作り直さない（test/fixtures/db/v1.db は 0.7.0 の形のまま残し、後の版がいつまでも開けることを
 //    test/db-fixture.test.js で見る）。表の形を変える回は、この道具で v2.db を足す（v1.db はそのまま）。
+//    0.18.0 Task G（計画 docs/plans/2026-11-18-180.md の M26 の答え・CR155）: 版 2（page_snapshot）の v2.db を足した。版 2 の表にも行があるように、
+//    見本の最後に Claude（役 mcp）の mcp.fixNames を1つ書く（控えが1つ。この行を足したので、今この道具で作る DB は v1.db と中身が違う）。
 //  - 中身は合成の見本だけ（test/fixtures.js の発言。見本の人の名前は「担当A」「担当B」に置き換え、s9 は外す: 「結合テスト」を言う発言を
 //    1つにして、素の接続の全文検索の数を決めるため）。
 //  - 命令は本物の core.call（main の meeting.finalize・meeting.begin・meeting.segment・meeting.discard、画面の page.setType・
-//    page.setMemo・block.setAction・page.delete）で書く。時刻・ID・tx は全部決まった値（2回走らせても同じ行。バイトは SQLite の都合で
+//    page.setMemo・block.setAction・page.delete、Claude の mcp.fixNames）で書く。時刻・ID・tx は全部決まった値（2回走らせても同じ行。バイトは SQLite の都合で
 //    違ってよい）。ブロックの ID を乱数で作る block.insert は使わない。
 //  - 一時のファイルに作り、WAL を畳んで閉じてから（-wal・-shm が残れば止める）出力の名前に変える。
 //  - 出来た DB の頭は WAL のまま（アプリと同じ）。読むだけで開いても隣に -shm・-wal ができるので、テストは必ず一時のフォルダに写してから
@@ -40,7 +42,7 @@ function standupSegments() {
   return segs;
 }
 
-// [ 時刻, 役, 命令, 引数 ]。tx は役の頭文字と番号（m:fixture-001 …）
+// [ 時刻, 役, 命令, 引数 ]。tx は役の頭文字と番号（m:fixture-001 …。役 mcp は c:）
 function script() {
   const p1 = 'pfixture000001'; const p2 = 'pfixture000002'; const p3 = 'pfixture000003'; const p4 = 'pfixture000004';
   const b = (p, n) => `${p}b${n}`;
@@ -74,6 +76,8 @@ function script() {
     ['2026-10-17T01:00:00.000Z', 'main', 'meeting.begin', { pageId: p4, startedAt: Date.parse('2026-10-17T01:00:00.000Z') }],
     ['2026-10-17T01:00:30.000Z', 'main', 'meeting.segment', { pageId: p4, seg: { id: 's1', atMs: 0, durationMs: 30000, text: '取り消す見本の発言です。' } }],
     ['2026-10-17T01:01:00.000Z', 'main', 'meeting.discard', { pageId: p4 }],
+    // 0.18.0 Task G（CR155）: Claude の名前の直し（担当B → 担当C。ToDo の担当と発言が直り、page_snapshot に控えが1つ）
+    ['2026-10-17T02:00:00.000Z', 'mcp', 'mcp.fixNames', { pageId: p1, pairs: [{ from: '担当B', to: '担当C' }] }],
   ];
 }
 
@@ -95,7 +99,7 @@ function makeFixture({ file } = {}) {
     let n = 0;
     for (const [at, role, cmd, args] of script()) {
       n += 1;
-      const tx = `${role === 'app' ? 'a' : 'm'}:fixture-${String(n).padStart(3, '0')}`;
+      const tx = `${role === 'app' ? 'a' : role === 'mcp' ? 'c' : 'm'}:fixture-${String(n).padStart(3, '0')}`;
       const out = core.call(r.db, { role, cmd, args, tx }, { now: () => new Date(at), labels: {} });
       if (!out.ok) throw new Error(`make-db-fixture: ${cmd} が ${out.code}`);
     }

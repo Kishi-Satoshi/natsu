@@ -1366,7 +1366,9 @@ test('0.16.0 Task G の後半: README の「画面の使い方」・「ホット
   assert.ok(require('../src/shortcuts').SHORTCUTS.some((r) => r.where === 'データベースの表のセルを選んでいるとき'), '近道の一覧にデータベースの表の見出しが無い');
   const mcp = readme.slice(readme.indexOf('### Claude から議事録を読む（MCP）'), readme.indexOf('\n## ', readme.indexOf('### Claude から議事録を読む（MCP）')));
   const blank = '- **白紙のページと中のページ（0.15.0 から）:**';
-  const dbMcp = '- **データベース（0.16.0 から）:** データベースも Claude から読めます（列の名前と種類と、最初のビューの並べ替えの順で 100 行まで）。Claude から行を絞り込んで読むことは後の版でできるようになります。Claude はデータベースを書き換えません。';
+  // 0.18.0 Task G（計画 docs/plans/2026-11-18-180.md の Task G「README の「Claude との連携」に書き戻しと戻し方」・CR156）で意図して変えた: 0.18.0 で Claude が行を
+  // 絞り込んで読み、足し、直せるようになったので、「後の版で」「書き換えません」の2文を 0.18.0 の形にした（読む形の前半は 0.16.0 の字のまま）
+  const dbMcp = '- **データベース（0.16.0 から）:** データベースも Claude から読めます（列の名前と種類と、最初のビューの並べ替えの順で 100 行まで）。0.18.0 から、Claude は列の名前の条件と並べ替えで行を絞り込んで読め、頼んだときは行を足し、行の題名とセルを直します（「議事録」には行を足しません。列とデータベースは書き換えません）。';
   assert.ok(mcp.includes(dbMcp), 'README の MCP の節にデータベースの1行が無い');
   assert.strictEqual(mcp.split('\n')[mcp.split('\n').findIndex((l) => l.startsWith(blank)) + 1], dbMcp, 'MCP の節のデータベースの1行が「白紙のページと中のページ（0.15.0 から）」の次に無い');
   for (const t of [dbLine[0], dbMcp, ctrlW]) assert.ok(!/notion/i.test(t), 'README の 0.16.0 の文に参考にしたアプリの名前がある');
@@ -2088,4 +2090,72 @@ test('XN-6: 前の版のテストが見ている字は消えていない（X-35�
     assert.ok(r.length === 1 && r[0].endsWith('**（2026-11-18: 0.18.0 で作る: D163）** |'), `${k} の行の末が変わった`);
   }
   for (let i = 1; i <= 18; i += 1) assert.ok(nbRow(nb, `OC-${String(i).padStart(2, '0')}`).endsWith(' | OB5 | 0.18.0 |'), `OC-${i} の出典と回が変わった`);
+});
+
+// ---------------------------------------------------------------- 0.18.0 Task G の前半（計画 docs/plans/2026-11-18-180.md の Task G・CR155〜CR161）
+// README の Claude の節に書き戻し・戻し方・指示書、「画面の使い方」に複製と見出し4。CHANGELOG の頭に日付の無い 0.18.0 の節（版を上げる前）。設計書の版の表の
+// 0.18.0 の欄・D173〜D204（持ち主の答え AQ1〜AQ47 と 2026-11-23 の決まり）・直しの案 4・5・7・8 の書き添え。計画の CHANGELOG の下書きは「移した」の1行
+test('0.18.0 Task G の前半: README の Claude の節と画面の使い方・CHANGELOG の日付の無い 0.18.0 の節・設計書の 0.18.0 の欄と D173〜D204 と書き添え・計画の下書きは「移した」', { timeout: 5000 }, () => {
+  const readme = read('README.md');
+  const mcp = readme.slice(readme.indexOf('### Claude から議事録を読む（MCP）'), readme.indexOf('\n## ', readme.indexOf('### Claude から議事録を読む（MCP）')));
+  for (const w of ['0.18.0 から、頼んだときは、Claude が要約・名前・ToDo・白紙のページ・データベースへ書き戻します（NaTsu が動いているときだけ）。',
+    '- **書き戻す（0.18.0 から）:**', '- **書き換えを戻す（0.18.0 から）:**', '- **指示書（0.18.0 から）:**', '［Claude の変更を戻す］', '［この前に戻す］',
+    'ページごとに 10 回分まで', '`Ctrl+Z` では、Claude の書き換えは戻りません。', 'ページ・行・列を消すことはしません', '「Claude から議事録を読む・書き戻す（MCP）」']) {
+    assert.ok(mcp.includes(w), `README の Claude の節に「${w}」が無い`);
+  }
+  for (const old of ['Claude は議事録を読むだけで、書き換えません。', 'Claude から行を絞り込んで読むことは後の版でできるようになります。', '詳しくはヘルプの記事「Claude から議事録を読む（MCP）」']) {
+    assert.ok(!readme.includes(old), `README に前の字「${old}」が残る`);
+  }
+  const use = readme.slice(readme.indexOf('### 画面の使い方'), readme.indexOf('\n### 音声入力'));
+  const rows = use.split('\n');
+  const at = (head) => { const i = rows.findIndex((l) => l.startsWith(head)); assert.ok(i >= 0, `README の「画面の使い方」に「${head}」の行が無い`); return i; };
+  assert.strictEqual(at('- **複製・行のメニューの並び（0.18.0 から）:**'), at('- **プライベート・ライブラリ・名前を変える（0.15.1 から）:**') + 1, '複製の行がプライベートの行の次に無い');
+  assert.strictEqual(at('- **見出し4（0.18.0 から）:**'), at('- **行の編集の決まり（0.17.0 から）:**') + 1, '見出し4の行が行の編集の決まりの次に無い');
+  for (const w of ['［複製］か、行で `Ctrl+D` を押すと', '「 (1)」', 'ロックしたデータベースは、写しもロックしたままです', '議事録・「議事録」・「タスク管理」を含むページは複製できません']) assert.ok(rows[at('- **複製・行のメニューの並び（0.18.0 から）:**')].includes(w), `README の複製の行に「${w}」が無い`);
+  for (const w of ['`#### `', '「見出し4」', 'トグル見出し4', '当たらない字を5つ続けて打つと閉じ']) assert.ok(rows[at('- **見出し4（0.18.0 から）:**')].includes(w), `README の見出し4の行に「${w}」が無い`);
+  const app = read('src/renderer/app.html');
+  for (const m of [mcp, rows[at('- **複製・行のメニューの並び（0.18.0 から）:**')], rows[at('- **見出し4（0.18.0 から）:**')]].join('\n').matchAll(/［([^］]+)］/g)) {
+    const n = m[1].replace(/^[^\p{L}\p{N}]+\s*/u, '');
+    assert.ok(app.includes(n), `README の［${m[1]}］がアプリに無い`);
+  }
+  assert.ok(!/notion|aqua|typeless/i.test(mcp + rows[at('- **複製・行のメニューの並び（0.18.0 から）:**')] + rows[at('- **見出し4（0.18.0 から）:**')]), 'README の 0.18.0 の文に参考にしたアプリの名前がある');
+  // CHANGELOG: 頭に日付の無い 0.18.0 の節（まだ出していない版）、そのすぐ下が 0.17.1
+  const cl = read('CHANGELOG.md');
+  const heads = cl.split('\n').filter((l) => l.startsWith('## '));
+  assert.deepStrictEqual(heads.slice(0, 2), ['## natsu-v0.18.0', '## natsu-v0.17.1 （2026-11-21）'], 'CHANGELOG の頭が日付の無い 0.18.0 の節と 0.17.1 の節でない');
+  const sec = cl.slice(cl.indexOf('## natsu-v0.18.0'), cl.indexOf('## natsu-v0.17.1'));
+  for (const w of ['Claude デスクトップから、NaTsu に書き戻せるようになりました。', 'Claude の変更を戻せます。', '［Claude の変更を戻す］', '🤖 要約: Claude（本人）',
+    '約 0.5 秒', 'すぐ下に入ります', '見た目の1行ずつ', '新しいタブは後ろに開き', '［複製］（Ctrl+D）', '見出し4', '当たらない字を5つ続けて打つと閉じます', '文字の色のメニュー',
+    '「プライベート」の横の印', '0.17.1 までの NaTsu に戻すと、議事録は読むことだけできます。', '「Claude から議事録を読む・書き戻す（MCP）」']) assert.ok(sec.includes(w), `CHANGELOG の 0.18.0 の節に「${w}」が無い`);
+  assert.ok(!/（(?:CR|R)\d+）|AQ\d|XN-|XE-|<!--|承認|下書き/.test(sec), 'CHANGELOG の 0.18.0 の節に計画の番号か下書きの印がある');
+  assert.ok(!/notion|aqua|typeless/i.test(sec), 'CHANGELOG の 0.18.0 の節に参考にしたアプリの名前がある');
+  assert.ok(!/<[a-z]/i.test(sec), 'CHANGELOG の 0.18.0 の節に生の HTML がある');
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  for (const m of sec.matchAll(/［([^］]+)］/g)) assert.ok(src.includes(m[1]), `CHANGELOG の 0.18.0 の節の［${m[1]}］が src/ に無い`);
+  // 計画の CHANGELOG の下書きは「移した」の1行
+  const plan = read('docs/plans/2026-11-18-180.md');
+  const d = plan.indexOf('\n## CHANGELOG の節（下書き。');
+  const draft = plan.slice(d, plan.indexOf('\n## ', d + 2));
+  assert.ok(!draft.includes('```') && draft.includes('移した'), '計画に下書きの本文が残っている');
+  // 設計書
+  const ds = read('docs/plans/natsu-design.md');
+  const ver = ds.split('\n').find((l) => l.startsWith('| 版 |'));
+  assert.ok(ver.includes('| 0.18.0（MCP の書く道具と残り。計画 `docs/plans/2026-11-18-180.md`（第3版。2026-11-22 に持ち主が承認: AQ20）。') && ver.includes('D173〜D204） |'), '版の表の 0.18.0 の欄が承認の字と D173〜D204 でない');
+  assert.ok(!ds.includes('（初版・未承認）'), '設計書に「（初版・未承認）」が残る');
+  const head = ds.indexOf('\n## 利用者が決めたこと（Claude の書く道具と編集の動きの直し。2026-11-18〜）\n');
+  assert.ok(head > ds.indexOf('\n## 利用者が決めたこと（メニューと窓の閉じ方。直しの版 0.17.1。') && head < ds.indexOf('\n## 作り方（'), 'D173〜 の節が 0.17.1 の節と作り方の間に無い');
+  const dsec = ds.slice(head, ds.indexOf('\n## 作り方（'));
+  const ids = [...dsec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(ids, Array.from({ length: 32 }, (_, i) => `D${173 + i}`), 'D173〜D204 の行がそろわない');
+  for (let n = 1; n <= 47; n += 1) {
+    if (n === 18 || n === 20) continue;
+    assert.ok(new RegExp(`AQ${n}「`).test(dsec), `D173〜 の節に AQ${n} の答えの字が無い`);
+  }
+  assert.ok(dsec.includes('「実装中の確かめは Notion に合わせるかおすすめを選ぶ」'), 'D204 に 2026-11-23 の持ち主の決まりが無い');
+  for (const [k, w] of [['Q1', '（0.18.0 の形: 読む道具は'], ['Q5', '（0.18.0 の形: 「ロック中は断る」は'], ['MR2', '（0.18.0: 能力に `prompts`'], ['RF66', '（0.18.0 で書き直した'], ['RF75', '`natsu.door`'], ['D1', '（0.18.0）Claude（MCP）から絞り込んで読み'], ['K', '（0.18.0）Claude から ToDo とタスクを直し'], ['D31', '（D60・D101〜D104・D113 で 0.18.0 になった）']]) {
+    const r = ds.split('\n').filter((l) => l.startsWith(`| ${k} |`));
+    assert.ok(r.some((l) => l.includes(w)), `設計書の ${k} に 0.18.0 の書き添え「${w}」が無い`);
+  }
+  assert.ok(ds.includes('第15b回は書き込みの口（`mcp` の役・合い言葉）。**（0.18.0 の形:'), '設計書の SEC3 に 0.18.0 の形が無い');
+  assert.ok(!/会議の中身・開いた ToDo）。［この会議は PC の中だけ］の会議は出さない。/.test(ds), '段階A の 15a の行に D57 の前の字が残る');
 });

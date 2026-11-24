@@ -138,9 +138,18 @@ test('CHANGELOG に今の版の節（## natsu-v<version>）がある（release.y
   assert.match(read('CHANGELOG.md'), new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （\\d{4}-\\d{2}-\\d{2}）)?$`, 'm'));
 });
 
-test('CHANGELOG の先頭の節は今の版（新しい節は上に足す）', () => {
+// 0.18.0 Task G（前半。計画 docs/plans/2026-11-18-180.md の Task G・CR157）で意図して変えた: 版を上げる前（取り直しの画面の持ち主の OK の前）に、CHANGELOG の頭へ
+// 日付の無い次の版の節（まだ出していない版: 見出しの決まり RN4。ヘルプにもリリース本文にも出ない）を置ける。そのときは、そのすぐ下が今の版の節
+test('CHANGELOG の先頭の節は今の版（新しい節は上に足す。版を上げる前は、日付の無い次の版の節が頭にあり、そのすぐ下が今の版）', () => {
   const heads = read('CHANGELOG.md').split('\n').filter((l) => l.startsWith('## '));
-  assert.match(heads[0], new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （|$)`));
+  const cur = new RegExp(`^## natsu-v${pkg.version.replace(/\./g, '\\.')}(?: （|$)`);
+  if (cur.test(heads[0])) return;
+  const m = /^## natsu-v(\d+)\.(\d+)\.(\d+)$/.exec(heads[0]);
+  assert.ok(m, `CHANGELOG の頭が今の版（${pkg.version}）でも、日付の無い次の版でもない: ${heads[0]}`);
+  const [a, b, c] = pkg.version.split('.').map(Number);
+  const v = [+m[1], +m[2], +m[3]];
+  assert.ok(v[0] > a || (v[0] === a && (v[1] > b || (v[1] === b && v[2] > c))), `頭の日付の無い節（${heads[0]}）が今の版（${pkg.version}）より新しくない`);
+  assert.match(heads[1], cur, '日付の無い次の版の節のすぐ下が今の版の節でない');
 });
 
 // 守りのテスト（今は通る）。読んだ文字の U+FEFF を外さずに writePs1 へ渡すと BOM が2つになる（全体の決まり）
@@ -974,7 +983,8 @@ test('0.17.1: CHANGELOG の 0.17.1 の節（承認した字のまま移した）
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.17.1 （2026-11-21）'), 'CHANGELOG.md に「## natsu-v0.17.1 （2026-11-21）」の見出しが無い');
-  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.17.1'), '0.17.1 の節が CHANGELOG の頭に無い');
+  // 0.18.0 Task G（前半・CR157）で意図して変えた: 頭に日付の無い 0.18.0 の節（まだ出していない版）を置いたので、日付のある節の頭が 0.17.1 かを見る
+  assert.ok(cl.search(/\n## natsu-v\S+ （\d{4}-\d{2}-\d{2}）\n/) === cl.indexOf('\n## natsu-v0.17.1'), '0.17.1 の節が CHANGELOG の日付のある節の頭に無い');
   assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.17.1') + 1) === cl.indexOf('\n## natsu-v0.17.0'), '0.17.1 の節のすぐ下が 0.17.0 の節でない');
   const sec = secOf(cl, '## natsu-v0.17.1');
   const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());   // 見出しの次から

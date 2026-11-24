@@ -1913,7 +1913,8 @@ function planRows180() {
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   return [...table.matchAll(/^\| ((?:cw|cs|ct|cp|cu|xe|xn)-[A-Za-z0-9-]*) \|/gm)].map((m) => m[1]);
 }
-test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の「変異の表」の cw-・cs-・ct-・cp-・cu-・xe-・xn- の行の順に並んだ一部（作っている間）。その頭の変異は IDS_180 にある。どれも決まったテストのファイルを持ち、why が 0.18.0 で始まる。前の版の頭に当たらず、前の版の IDS に 0.18.0 の頭が無い', { timeout: 5000 }, () => {
+// 0.18.0 Task G（前半。計画の Task G「IDS_180（…の全部。表とちょうど同じ）」・CR160）で意図して変えた: 作っている間の「表の行の順に並んだ一部」から、表の全部とちょうど同じに（0.17.0 の R83 と同じ）
+test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の「変異の表」の cw-・cs-・ct-・cp-・cu-・xe-・xn- の行とちょうど同じ（行の順・242 行）。その頭の変異は IDS_180 にある。どれも決まったテストのファイルを持ち、why が 0.18.0 で始まる。前の版の頭に当たらず、前の版の IDS に 0.18.0 の頭が無い', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_180.filter((id) => !byId.has(id)), [], 'IDS_180 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_180).size, IDS_180.length, 'IDS_180 に重なり');
@@ -1930,7 +1931,7 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
     [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 33], ['xe', 37], ['xn', 35]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
-  assert.deepStrictEqual(IDS_180, rows.filter((id) => IDS_180.includes(id)), 'IDS_180 が表の行の順でない');
+  assert.deepStrictEqual(IDS_180, rows, 'IDS_180 が計画の「変異の表」の 0.18.0 の行とちょうど同じでない（行の順）');
   // 前の版の頭の照らし（IDS_170 のテストの並びに 0.17.0 の頭と、0.17.1 の od・port を足した物）に当たらない
   for (const re of [/^(ed|rdy|clk)-/, /^edn-/, /^lg-/, /^lv-/, /^ln-/, /^(mcp|cfg|lk|ls|stl|nl|pt)-/, /^(ka|pc|lt|wd|sg|rx|bm|ci|dt|wv|pb|rn)-/, /^(eb|ek|mo|dq)-/, /^(ph|pl)-/, /^(tb|vw)-/, /^(nd|ps|lb|gv)-/, /^(mt|qm|v|v5)-/, /^i-/, /^rv-/, PREFIX_170, /^(od|port)-/]) {
     assert.deepStrictEqual(IDS_180.filter((id) => re.test(id)), [], `${re} に当たる 0.18.0 の id`);
