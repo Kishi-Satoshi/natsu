@@ -134,7 +134,7 @@ const OPEN_SIDE_DB = `(async () => {
   row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
   await new Promise((r) => setTimeout(r, 100));
   const m = document.querySelector('.treemenu');
-  if (!m || [...m.querySelectorAll('.mitem')].map((b) => b.textContent).join('|') !== 'リンクを写す|名前を変える|移動先…|新しいタブで開く|削除') throw new Error('データベースの行のメニューが違う');
+  if (!m || [...m.querySelectorAll('.mitem')].map((b) => b.textContent).join('|') !== 'リンクを写す|複製|名前を変える|移動先…|削除|新しいタブで開く') throw new Error('データベースの行のメニューが違う');   // 0.18.0 XN-2（決めたこと 61・CR139）: ［複製］を足した並び
   return 1;
 })()`;
 // 0.16.0 DX-2: OPEN_TRASH と同じに［ゴミ箱］を開き、本物の Chromium で行のまとまりの2行の文を確かめる（違えば投げて「撮れない」）
@@ -1002,12 +1002,13 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // （今の基準がある6枚。0.10.0 で頭の1行を変えたときの4枚と、頭の1行が写る・捲り棒のつまみが変わりうる settings-mcp-running-light・settings-quality-light）を取り直す
 // 0.18.0 XN-2（計画の「取り直す画面（RETAKE）」・決めたこと 61・62）: 行のメニューの並びと［複製］が変わる side-row-menu-light（今の基準がある）を取り直し、
 // ロック中のデータベースの行のメニューと複製の後の2枚を足した（まだ基準が無い）。近道の表の Ctrl+D の行で変わる設定の画面は XE-4 の取り直しに入っている
+// 0.18.0 XN-2 の直し（CR139）: データベースの行のメニューを開いた sidebar-db-light（今の基準がある）も、並びと［複製］が変わるので取り直す
 // 0.18.0 XN-3（計画の「取り直す画面（RETAKE）」・決めたこと 63）: 見出し1〜4 の edit-h4-light を足し、語「みだし」で開く / メニューに
 // トグル見出し4が1行増える edit-slash-light・edit-slash-dark（今の基準がある）を取り直す
 const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
   'side-row-menu-lock-light', 'side-row-dup-light', 'edit-h4-light',
   'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
-  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'edit-slash-light', 'edit-slash-dark']);
+  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'sidebar-db-light', 'edit-slash-light', 'edit-slash-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

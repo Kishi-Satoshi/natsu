@@ -271,6 +271,7 @@ const RETAKEN_180 = ['settings-summary-light', 'settings-info-claude-light', 'se
   'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
   // 0.18.0 XN-2（決めたこと 61）で意図して足した: 行の［···］のメニューの並びと［複製］が変わる（今の基準がある）
   'side-row-menu-light',
+  'sidebar-db-light',   // 0.18.0 XN-2 の直し（CR139）で意図して足した: データベースの行のメニューを開いた画面（今の基準がある）
   // 0.18.0 XN-3（決めたこと 63）で意図して足した: 語「みだし」で開く / メニューにトグル見出し4が1行増える（今の基準がある）
   'edit-slash-light', 'edit-slash-dark'];
 const RETAKE_180 = [...NEW_180, ...RETAKEN_180];
