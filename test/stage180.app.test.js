@@ -1594,3 +1594,26 @@ test('XN-4・F251: 画面の写しの slashMiss・SLASH_CLOSE_AT が src/blockEd
     for (const q of ['', 'ぬ', 'ぬぬぬ', 'abcde', '𠮷𠮷𠮷']) for (const found of [true, false]) assert.deepStrictEqual(app.slashMiss(prev, q, found), BEX.slashMiss(prev, q, found), `${JSON.stringify(prev)}|${q}|${found}`);
   }
 });
+
+// ---------------------------------------------------------------- XN-5（決めたこと 66・AQ15 (a)・F252）: 見出し「プライベート」の印は乗せたとき・フォーカスのときだけ
+test('XN-5・F252: #privHead .ph-mark は既定で visibility: hidden（場所は空けたまま）・見出しの行に乗せたとき（:hover）とキーボードのフォーカス（:focus-visible）で見える（CSS の字面）。aria-expanded と ⌄・› の字は今のまま', T, async () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'app.html'), 'utf8');
+  const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  assert.match(css, /#privHead \.ph-mark \{[^}]*visibility: hidden;[^}]*\}/, '既定で印が見える（Q-24・OC-18）');
+  assert.ok(!/#privHead \.ph-mark \{[^}]*display: none/.test(css), '印の場所を空けない（出し入れで名前が動く）');
+  const rule = /([^{}]+)\{\s*visibility: visible;\s*\}/g;
+  const shown = [...css.matchAll(rule)].map((m) => m[1]).find((sel) => sel.includes('.ph-mark'));
+  assert.ok(shown, '印を見せる規則が無い');
+  const sels = shown.split(',').map((x) => x.trim());
+  assert.ok(sels.includes('#privHead:hover .ph-mark') && sels.includes('.privrow:hover #privHead .ph-mark'), `乗せたときの規則: ${sels}`);
+  assert.ok(sels.includes('#privHead:focus-visible .ph-mark'), `キーボードのフォーカスの規則: ${sels}`);
+  assert.ok(!sels.some((x) => /focus-within|:focus(?!-visible)/.test(x)), '押しただけのフォーカスでも出る');
+  const l = await seeded();
+  try {
+    const h = $(l, 'privHead');
+    assert.deepStrictEqual([h.getAttribute('aria-expanded'), h.querySelector('.ph-mark').textContent, h.querySelector('.ph-mark').getAttribute('aria-hidden')], ['true', '⌄', 'true']);
+    await clickEl(l, h);
+    assert.deepStrictEqual([h.getAttribute('aria-expanded'), h.querySelector('.ph-mark').textContent], ['false', '›']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

@@ -274,8 +274,11 @@ const RETAKEN_180 = ['settings-summary-light', 'settings-info-claude-light', 'se
   'sidebar-db-light',   // 0.18.0 XN-2 の直し（CR139）で意図して足した: データベースの行のメニューを開いた画面（今の基準がある）
   // 0.18.0 XN-3（決めたこと 63）で意図して足した: 語「みだし」で開く / メニューにトグル見出し4が1行増える（今の基準がある）
   'edit-slash-light', 'edit-slash-dark',
-  'edit-slash-recent-light'];   // 0.18.0 XN-4（CR141）で意図して足した: 語を打つ前の / メニューに見出し4とトグル見出し4が増える（今の基準がある）
-const RETAKE_180 = [...NEW_180, ...RETAKEN_180];
+  'edit-slash-recent-light',   // 0.18.0 XN-4（CR141）で意図して足した: 語を打つ前の / メニューに見出し4とトグル見出し4が増える（今の基準がある）
+  'edit-block-menu-light'];   // 0.18.0 XN-5（CR142）で意図して足した: ⠿ のメニューの［変換 ▸］に見出し4とトグル見出し4（今の基準がある。XN-3 で入れ忘れた）
+// 0.18.0 XN-5（計画の「取り直す画面」の表の「サイドバーが写るほかの画面」・決めたこと 66）で意図して足した: 見出しの印が乗せたときだけになるので、アプリの画面の全部（RETAKE_170 と同じ形）
+const SIDE_180 = SH.SCREENS.filter((s) => s.page === 'app').map((s) => s.name);
+const RETAKE_180 = [...new Set([...NEW_180, ...RETAKEN_180, ...SIDE_180])];
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
 // 0.18.0 CU-1 で意図して直した: 0.18.0 で足した画面（NEW_180）は 0.17.0 の画面に数えない
 const RETAKE_170 = SH.SCREENS.filter((s) => s.page === 'app' && !NEW_180.includes(s.name)).map((s) => s.name);
@@ -876,7 +879,9 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   assert.deepStrictEqual([...SH.RETAKE], RETAKE_180);
   const plan180 = read('docs/plans/2026-11-18-180.md');
   const table180 = plan180.slice(plan180.indexOf('## 取り直す画面（RETAKE）'), plan180.indexOf('\n## ', plan180.indexOf('## 取り直す画面（RETAKE）') + 5));
-  for (const n of RETAKE_180) assert.ok(table180.includes(`\`${n}\``), `0.18.0 の計画の「取り直す画面」の表に ${n} が無い`);
+  // 0.18.0 XN-5 で意図して直した: 名前で表にあるのは足した画面と取り直す画面（NEW_180・RETAKEN_180）。サイドバーが写るほかの画面（SIDE_180）は表の「サイドバーが写るほかの画面」の行
+  for (const n of [...NEW_180, ...RETAKEN_180]) assert.ok(table180.includes(`\`${n}\``), `0.18.0 の計画の「取り直す画面」の表に ${n} が無い`);
+  assert.ok(table180.includes('| サイドバーが写るほかの画面 | XN-5 |'), '0.18.0 の計画の「取り直す画面」の表に、サイドバーが写るほかの画面の行が無い');
   for (const n of NEW_180) assert.ok(!fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `${n} の基準がもうある（足した画面は Task G の前に基準にする）`);
   for (const n of RETAKEN_180) assert.ok(fs.existsSync(path.join(ROOT, 'test', 'shots', 'win32', `${n}.png`)), `取り直す ${n} の基準が無い`);
   assert.strictEqual(RETAKE_170.length, 149);
@@ -934,7 +939,8 @@ test('G2・F14・G-4・0.9.0 G-3・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10
   const plan170 = read('docs/plans/2026-11-13-170.md');
   const table170 = plan170.slice(plan170.indexOf('## 取り直す画面（RETAKE）'), plan170.indexOf('\n## ', plan170.indexOf('## 取り直す画面（RETAKE）') + 5));
   // 0.17.0 で意図して変えた（版を 0.17.0 に上げる commit。Task G の後半: R103）: 足した画面（NEW_170）も基準にした（取り直し待ちでなく、基準がある）
-  for (const n of NEW_170) assert.ok(table170.includes(`\`${n}\``) && !SH.RETAKE.has(n) && ADDED_170.includes(n), `0.17.0 の計画の「取り直す画面」の表か 0.17.0 の画面に ${n} が無い`);
+  // 0.18.0 XN-5 で意図して直した: サイドバーが写るアプリの画面の全部（SIDE_180）は 0.18.0 の取り直し待ちなので、そのほかの取り直し待ちに無いことを見る
+  for (const n of NEW_170) assert.ok(table170.includes(`\`${n}\``) && (!SH.RETAKE.has(n) || SIDE_180.includes(n)) && ADDED_170.includes(n), `0.17.0 の計画の「取り直す画面」の表か 0.17.0 の画面に ${n} が無い`);
   for (const s of SH.SCREENS) {
     if (NEW_180.includes(s.name) && SH.RETAKE.has(s.name)) continue;   // 0.18.0 CU-1 で意図して変えた: 足した画面（NEW_180）は取り直し待ちの間は基準が無くてよい
     const f = path.join(ROOT, 'test', 'shots', 'win32', `${s.name}.png`);
@@ -1443,7 +1449,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // トグル見出し4が増える edit-slash-light・edit-slash-dark（RETAKE にある）。値を今の app.html に合わせた（前の値は e2afe9e9…）
   // 0.18.0 XN-4（決めたこと 64・65・AQ32 (a)・CR140）: / メニューの閉じ方（slashMiss の写し・5つ目で閉じる）と語（型の表の写しと色・［ページ］・［データベース］・［リンクドビュー］の
   // ひらがなの読みを外した）。変わる画面は / メニューを写す edit-slash-light・dark・edit-slash-recent-light（RETAKE にある）。値を今の app.html に合わせた（前の値は 76989c93…）
-  assert.strictEqual(sha, '7f750f2778caa3509f73d736c812483b8a7c18e8897681149245779c47cab166',
+  // 0.18.0 XN-5（決めたこと 66・AQ15 (a)）: 見出し「プライベート」の印（.ph-mark）は乗せたとき・キーボードのフォーカスのときだけ（CSS）。変わる画面はサイドバーが写るアプリの画面の全部
+  // （RETAKE にある: SIDE_180）。値を今の app.html に合わせた（前の値は 7f750f27…）
+  assert.strictEqual(sha, 'cbc56a2d0be9471d15a5912fa805e8e86b2e6d88723093fd7bceff54db9b6bab',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

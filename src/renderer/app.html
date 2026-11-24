@@ -112,7 +112,10 @@
   #privHead { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; border: none; border-radius: 6px;
     background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; text-align: left; cursor: pointer; }
   #privHead .ph-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #privHead .ph-mark { flex: none; font-size: 12px; line-height: 1; }
+  /* 0.18.0 XN-5（計画 docs/plans/2026-11-18-180.md の決めたこと 66・AQ15 (a)）: 名前の右の印（⌄・›）は、見出しの行に乗せたときとキーボードのフォーカスのときだけ出す。
+     場所は空けたまま（visibility）で、出し入れで名前が動かない */
+  #privHead .ph-mark { flex: none; font-size: 12px; line-height: 1; visibility: hidden; }
+  .privrow:hover #privHead .ph-mark, #privHead:hover .ph-mark, #privHead:focus-visible .ph-mark { visibility: visible; }
   .ph-btn { flex: none; width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--text-2);
     font: inherit; font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; }
   .privrow:hover .ph-btn, .privrow:focus-within .ph-btn, .ph-btn[aria-expanded="true"] { opacity: 1; }

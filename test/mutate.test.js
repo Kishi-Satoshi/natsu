@@ -1900,6 +1900,8 @@ const IDS_180 = [
   'xn-h4-md', 'xn-h4-slash', 'xn-h4-paste', 'xn-h4-level', 'xn-h4-mcp', 'xn-h4-sum-keep',
   // 0.18.0 Task XN-4（/ メニューの閉じ方と語）
   'xn-slash-three', 'xn-slash-five', 'xn-slash-reset', 'xn-slash-keep-text', 'xn-slash-reopen', 'xn-slash-kana', 'xn-slash-kana-app', 'xn-slash-name', 'xn-slash-words', 'xn-slash-list',
+  // 0.18.0 Task XN-5（見出しの印は乗せたとき・フォーカスのときだけ）
+  'xn-mark-hover', 'xn-mark-focus',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

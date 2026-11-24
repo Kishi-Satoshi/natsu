@@ -1008,10 +1008,14 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // トグル見出し4が1行増える edit-slash-light・edit-slash-dark（今の基準がある）を取り直す
 // 0.18.0 XN-4（決めたこと 65・CR141）: edit-slash-light・dark の語を「見出し」に替えた（見出し4の行も出る）。語を打つ前の全部の項目に見出し4とトグル見出し4が増える
 // edit-slash-recent-light（今の基準がある）も取り直す（XN-3 で取り直しに入れ忘れた）
+// 0.18.0 XN-5（CR142）: ⠿ のメニューの［変換 ▸］に見出し4とトグル見出し4が増える edit-block-menu-light（今の基準がある。XN-3 で入れ忘れた）と、
+// 見出しの印が乗せたときだけになるサイドバーの出るアプリの画面の全部（0.17.0 の RETAKE_170 と同じ形）
 const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
   'side-row-menu-lock-light', 'side-row-dup-light', 'edit-h4-light',
   'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
-  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'sidebar-db-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light']);
+  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'sidebar-db-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light',
+  // 0.18.0 XN-5（計画の「取り直す画面（RETAKE）」・決めたこと 66）: 見出し「プライベート」の印（⌄・›）が乗せたとき・フォーカスのときだけになるので、サイドバーが写るアプリの画面の全部
+  ...SCREENS.filter((s) => s.page === 'app').map((s) => s.name)]);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
