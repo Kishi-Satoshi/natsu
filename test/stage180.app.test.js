@@ -906,3 +906,179 @@ test('XE-1・F245: 保存したページのメモの行も印で戻る（edit.te
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- XE-2（決めたこと 58・AQ21 (a)・AQ22 (a)・F246）: 何行かの素の文の貼り付け
+const PCs = require('../src/pasteConvert');
+const fnApp = (name) => { const at = XHTML.indexOf(`  function ${name}(`); assert.ok(at > 0, name); return XHTML.slice(at, XHTML.indexOf('\n  }\n', at) + 4); };
+const pastePlain = (t, s) => t.dispatchEvent({ type: 'paste', clipboardData: { getData: (k) => (k === 'text/plain' ? s : '') }, preventDefault() {} });
+test('XE-2・F246: 画面の写しの fromPlain が src と同じ答え（何行か・空の行・100,000 字・below）', () => {
+  const at = XHTML.indexOf('  // ---- pasteConvert の写し');
+  const end = XHTML.indexOf('  // ---- pasteConvert の写しはここまで');
+  const rt = XHTML.slice(XHTML.indexOf('  // ---- richText の写し'), XHTML.indexOf('  // ---- richText の写しはここまで'));
+  const app = new Function(`${fnApp('kidsCanView')}\n${fnApp('graphemeEnds')}\n${fnApp('safeOffset')}\n${rt}\n${XHTML.slice(at, end)}\nreturn pasteConvert;`)();   // eslint-disable-line no-new-func
+  for (const s of ['a\nb\nc', 'a\n\nb', 'a', 'a\n', 'a\r\n b  \n', `${'x'.repeat(60000)}\n${'y'.repeat(39999)}\nz`, 'a'.repeat(100001), '一\n二\n\n三']) {
+    assert.deepStrictEqual(app.fromPlain(s), PCs.fromPlain(s), JSON.stringify(s).slice(0, 40));
+    assert.deepStrictEqual(app.pasteBlocks({ text: s }), PCs.pasteBlocks({ text: s }), JSON.stringify(s).slice(0, 40));
+  }
+});
+
+// 行の型と文を変えた白紙のページ（rows: [type, text, extra?]）
+async function pastePage(l, rows) {
+  const id = l.call('page.create', {}).id;
+  l.call('page.setTitle', { id, title: '貼る見本' });   // 白紙のページの題名（D77 の外。試しの字）
+  const ids = [];
+  let after = '';
+  for (const [type, text, kids] of rows) {
+    const b = l.call('block.insert', { pageId: id, afterBlockId: after, type }).blockId;
+    if (text) l.call('block.update', { pageId: id, blockId: b, patch: { text } });
+    if (kids) { const k = l.call('block.insert', { pageId: id, afterBlockId: '', parentId: b, type: 'paragraph' }).blockId; l.call('block.update', { pageId: id, blockId: k, patch: { text: kids } }); }
+    ids.push(b); after = b;
+  }
+  await open(l, id);
+  return { id, ids };
+}
+const shape = (l, id) => l.call('page.get', { id }).page.blocks.map((b) => [b.type, b.text, ...(b.children && b.children.length ? [b.children.map((c) => `${c.type}:${c.text}`)] : [])]);
+
+test('XE-2・F246（AQ21 (a)・AQ22 (a)）: 空のテキストの行は貼った1つの行に置き換わる・文のある行の途中と末は今の行を変えずにすぐ下（at は文の長さ・afterId は無い）・選んだ字は消えない・カーソルは最後に貼った行の末', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [e, a, s] } = await pastePage(l, [['paragraph', ''], ['paragraph', '12345'], ['paragraph', '選ぶ文']]);
+    // 空のテキストの行: 置き換わる（R18。NC1: OC-04）
+    let t = txtOf(l, e); t.focus(); l.caret.set(t, 0);
+    pastePlain(t, '一\n二\n三'); await l.drain(200);
+    assert.deepStrictEqual(shape(l, id)[0], ['paragraph', '一\n二\n三'], '空のテキストの行が1つの行に置き換わらない');
+    assert.strictEqual(l.call('page.get', { id }).page.blocks[0].id, e, '空のテキストの行の ID が替わった');
+    // 文のある行の途中: 今の行はそのまま（ID・文）・すぐ下にテキストの行
+    t = txtOf(l, a); t.focus(); l.caret.set(t, 3);
+    pastePlain(t, 'あ\nい'); await l.drain(200);
+    const args = l.called('blockPaste').at(-1).args;
+    assert.deepStrictEqual([args[1], args[3], args[5], args.length], [a, 5, undefined, 5], 'at が文の長さでない・afterId を送った');
+    let blocks = l.call('page.get', { id }).page.blocks;
+    assert.deepStrictEqual(blocks.slice(1, 3).map((b) => [b.id === a, b.type, b.text]), [[true, 'paragraph', '12345'], [false, 'paragraph', 'あ\nい']], '今の行が割れた・すぐ下に無い');
+    const last = blocks[2].id;
+    assert.deepStrictEqual([active(l), l.caret.get(txtOf(l, last))], [txtOf(l, last), [3, 3]], 'カーソルが最後に貼った行の末に無い（AQ22 (a)）');
+    // 末
+    t = txtOf(l, a); t.focus(); l.caret.set(t, 5);
+    pastePlain(t, 'う\nえ'); await l.drain(200);
+    blocks = l.call('page.get', { id }).page.blocks;
+    assert.deepStrictEqual(blocks.slice(1, 3).map((b) => b.text), ['12345', 'う\nえ']);
+    // 選んだ字は消えない
+    t = txtOf(l, s); t.focus(); l.caret.set(t, 0, 2);
+    pastePlain(t, 'お\nか'); await l.drain(200);
+    blocks = l.call('page.get', { id }).page.blocks;
+    const at = blocks.findIndex((b) => b.id === s);
+    assert.deepStrictEqual(blocks.slice(at, at + 2).map((b) => b.text), ['選ぶ文', 'お\nか'], '選んだ字が消えた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-2・F246（AQ21 (a)）: 空の箇条書き・空の ToDo・文のある箇条書きと ToDo（担当・期限・出典つき）に貼ると、今の行はそのまま（型・担当・期限・出典も）で、すぐ下にテキストの行（型は写らない）。「あ\\nい\\n\\nう」は下にテキストの行が2つ', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [eb, et] } = await pastePage(l, [['bullet', ''], ['todo', '']]);
+    let t = txtOf(l, eb); t.focus(); l.caret.set(t, 0);
+    pastePlain(t, 'あ\nい\n\nう'); await l.drain(200);
+    assert.deepStrictEqual(shape(l, id).slice(0, 3), [['bullet', ''], ['paragraph', 'あ\nい'], ['paragraph', 'う']], '空の箇条書きが空のまま残らない・型が写った');
+    t = txtOf(l, et); t.focus(); l.caret.set(t, 0);
+    pastePlain(t, 'え\nお'); await l.drain(200);
+    const sh = shape(l, id);
+    const k = sh.findIndex((x) => x[0] === 'todo');
+    assert.deepStrictEqual(sh.slice(k, k + 2), [['todo', ''], ['paragraph', 'え\nお']], '空の ToDo が空のまま残らない');
+    // 議事録の ToDo（担当・期限・出典つき）と箇条書き
+    await open(l, 'pm1');
+    const before = l.call('page.get', { id: 'pm1' }).page.blocks.find((b) => b.id === 'b4');
+    t = txtOf(l, 'b4'); t.focus(); l.caret.set(t, 3);
+    pastePlain(t, 'か\nき'); await l.drain(200);
+    let blocks = l.call('page.get', { id: 'pm1' }).page.blocks;
+    let i = blocks.findIndex((b) => b.id === 'b4');
+    const after = blocks[i];
+    assert.deepStrictEqual([after.type, after.text, after.assignee, after.dueRaw, after.cites, after.checked], [before.type, before.text, before.assignee, before.dueRaw, before.cites, before.checked], 'ToDo の型・文・担当・期限・出典が変わった');
+    assert.deepStrictEqual([blocks[i + 1].type, blocks[i + 1].text, blocks[i + 1].assignee], ['paragraph', 'か\nき', undefined], '下の行がテキストの行でない（型・担当が写った）');
+    t = txtOf(l, 'b2'); t.focus(); l.caret.set(t, 4);
+    pastePlain(t, 'く\nけ'); await l.drain(200);
+    blocks = l.call('page.get', { id: 'pm1' }).page.blocks;
+    i = blocks.findIndex((b) => b.id === 'b2');
+    assert.deepStrictEqual([blocks[i].type, blocks[i].text, blocks[i].cites, blocks[i + 1].type, blocks[i + 1].text], ['bullet', '来月の予算案の作成を担当Aが進める', ['s2'], 'paragraph', 'く\nけ'], '箇条書きが変わった・下にテキストの行が無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-2・F246: 子の見えている箇条書きは今どおり最初の子（BQ31）・文のある行の頭に貼ると今どおり上（BQ30 (a)・AQ33 (a)）・1行だけの文は今どおりカーソルの所・番号付き・トグル・見出しは今の block.paste の決まり（カーソルの所で分ける）', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [bp, hd, nb, tg, one] } = await pastePage(l, [['bullet', '親の文', '子の文'], ['heading', '見出しの文'], ['numbered', '番号の文'], ['toggle', 'トグルの文'], ['paragraph', '一行の文']]);
+    let t = txtOf(l, bp); t.focus(); l.caret.set(t, 1);
+    pastePlain(t, 'あ\nい'); await l.drain(200);
+    let a = l.called('blockPaste').at(-1).args;
+    assert.deepStrictEqual([a[3], a[6]], [3, true], '子の見えている行で inside でない');
+    assert.deepStrictEqual(shape(l, id)[0], ['bullet', '親の文', ['paragraph:あ\nい', 'paragraph:子の文']], '最初の子でない・親の文が割れた');
+    // 文のある行の頭: 上
+    t = txtOf(l, one); t.focus(); l.caret.set(t, 0);
+    pastePlain(t, 'う\nえ'); await l.drain(200);
+    let sh = shape(l, id);
+    assert.deepStrictEqual(sh.slice(-2), [['paragraph', 'う\nえ'], ['paragraph', '一行の文']], '頭で上に入らない');
+    // 1行だけの文はカーソルの所（命令を送らない）
+    const n = l.called('blockPaste').length;
+    t = txtOf(l, one); t.focus(); l.caret.set(t, 2);
+    pastePlain(t, 'お'); await l.drain(200);
+    assert.deepStrictEqual([l.called('blockPaste').length, txtOf(l, one).textContent], [n, '一行おの文'], '1行の文がカーソルの所に入らない');
+    // 見出し・番号付き・トグル: カーソルの所で分ける（今の決まり: CR28）
+    for (const [rid, at, head] of [[hd, 3, '見出し'], [nb, 2, '番号'], [tg, 3, 'トグル']]) {
+      t = txtOf(l, rid); t.focus(); l.caret.set(t, at);
+      pastePlain(t, 'か\nき'); await l.drain(200);
+      a = l.called('blockPaste').at(-1).args;
+      assert.strictEqual(a[3], at, `${head}: カーソルの所で分けない`);
+      const b = l.call('page.get', { id }).page.blocks.find((x) => x.id === rid);
+      assert.strictEqual(b.text, head, `${head}: 今の block.paste の決まりでない`);
+    }
+    sh = shape(l, id);
+    assert.ok(sh.some((x) => x[1] === 'か\nき') || JSON.stringify(sh).includes('か\\nき'), '貼った行が無い');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-2・F246: Ctrl+Shift+V と変換中は今どおり行の中・メモの行も同じ決まり・Ctrl+Z の1回で貼った行が消え、今の行はそのまま・断られても今の行と選んだ所はそのまま', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [a] } = await pastePage(l, [['paragraph', '12345']]);
+    let t = txtOf(l, a); t.focus(); l.caret.set(t, 5);
+    l.key({ key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true }, t);
+    pastePlain(t, 'あ\nい'); await l.drain(200);
+    assert.deepStrictEqual([t.textContent, l.called('blockPaste').length], ['12345あ\nい', 0], 'Ctrl+Shift+V が行の中でない');
+    t.textContent = '12345'; l.caret.set(t, 5);
+    t._composing = true;
+    pastePlain(t, 'う\nえ'); await l.drain(200);
+    t._composing = false;
+    assert.deepStrictEqual([t.textContent, l.called('blockPaste').length], ['12345う\nえ', 0], '変換中の貼り付けが行の中でない');
+    t.textContent = '12345'; l.caret.set(t, 5);
+    await l.clock.advance(2000); await l.drain();
+    // Ctrl+Z の1回で貼った行が消え、今の行はそのまま
+    t = txtOf(l, a); t.focus(); l.caret.set(t, 2);
+    pastePlain(t, 'お\nか'); await l.drain(200);
+    assert.deepStrictEqual(shape(l, id), [['paragraph', '12345'], ['paragraph', 'お\nか']]);
+    l.key(ZK, active(l)); await l.drain(200);
+    assert.deepStrictEqual(shape(l, id), [['paragraph', '12345']], 'Ctrl+Z の1回で貼った行が消えない・今の行が変わった');
+    // メモの行も同じ決まり（文のある行の途中: すぐ下）
+    l.call('page.setMemoDoc', { id: 'pm1', doc: [{ id: 'm1', type: 'paragraph', text: 'メモの文' }] });
+    await open(l, 'pm1');
+    $(l, 'paneBtnMemo').onclick(); await l.drain();
+    t = memoRow(l, 'm1')._txt; t.focus(); l.caret.set(t, 2);
+    pastePlain(t, 'け\nこ'); await l.drain(200);
+    await l.clock.advance(2000); await l.drain();
+    assert.deepStrictEqual(l.call('page.get', { id: 'pm1' }).page.memoDoc.map((b) => [b.type, b.text]), [['paragraph', 'メモの文'], ['paragraph', 'け\nこ']], 'メモの行が同じ決まりでない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('XE-2・F246: 下に入れる貼り付けが断られても、今の行の文と選んだ所はそのまま（R142 と同じ）', T, async () => {
+  let refuse = null;
+  const l = await seeded({ blockPaste: () => new Promise((_, rej) => { refuse = () => rej(new Error('locked')); }) });
+  try {
+    const { ids: [a] } = await pastePage(l, [['paragraph', '12345']]);
+    const t = txtOf(l, a); t.focus(); l.caret.set(t, 1, 3);
+    pastePlain(t, 'き\nく'); await l.drain();
+    assert.strictEqual(t.textContent, '12345', '答えを待つ間に今の行の文が変わった');
+    assert.ok(refuse, '前提: blockPaste を呼ばない');
+    refuse(); await l.drain(200);
+    assert.deepStrictEqual([txtOf(l, a).textContent, l.caret.get(txtOf(l, a))], ['12345', [1, 3]], '断られた後に選んだ所が戻らない');
+  } finally { l.done(); }
+});

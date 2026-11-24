@@ -510,3 +510,39 @@ test('XE-1・F245: undoBook の印（bookMark は保存の歩みにだけ・3つ
   // 印の無い歩みは今のまま
   assert.deepStrictEqual(UB.bookDone({}, k, 'undo', 'a:x', { steps: ['a:y'] })[k].redo, [{ steps: ['a:x'] }]);
 });
+
+// ---------------------------------------------------------------- XE-2（決めたこと 58・AQ21 (a)・F246）: 何行かの素の文の貼り付け（src/pasteConvert.js の fromPlain）
+const PC = require('../src/pasteConvert');
+const txtsOf = (r) => r.blocks.map((b) => b.rich.map((x) => x.t).join(''));
+test('XE-2・F246: fromPlain の表（改行1つは1つの行の中の改行・空の行で段落を分ける・1行は今どおり inline・行の頭の空白は残す・制御の文字は落とす・100,000 字を越える段落は越える前の最後の改行で分ける）', () => {
+  let r = PC.fromPlain('a\nb\nc');
+  assert.deepStrictEqual([txtsOf(r), r.inline, r.below], [['a\nb\nc'], false, true], '改行1つで行を分けた・below が無い');
+  r = PC.fromPlain('a\n\nb');
+  assert.deepStrictEqual([txtsOf(r), r.inline, r.below], [['a', 'b'], false, true], '空の行で分けない（NC1: OC-04）');
+  r = PC.fromPlain('a\n\n\n\nb\n\nc');
+  assert.deepStrictEqual(txtsOf(r), ['a', 'b', 'c'], '空の行そのものを行にした');
+  r = PC.fromPlain('a');
+  assert.deepStrictEqual([txtsOf(r), r.inline, r.below], [['a'], true, false], '1行の文が今どおり inline でない');
+  r = PC.fromPlain('a\n');
+  assert.deepStrictEqual([txtsOf(r), r.inline, r.below], [['a'], true, false], '末の改行だけで何行かの文にした');
+  r = PC.fromPlain('a\r\n b  \n');
+  assert.deepStrictEqual([txtsOf(r), r.below], [['a\n b'], true], '行の頭の空白を落とした・末の空白を残した');
+  assert.deepStrictEqual(txtsOf(PC.fromPlain('a\u0000b\nc\u0007')), ['ab\nc'], '制御の文字を落とさない');
+  // 100,000 字（validate.LIMITS.text）を越える段落は、越える前の最後の改行で次の行に（F246）
+  const x = 'x'.repeat(60000); const y = 'y'.repeat(39999); const z = 'z'.repeat(10);
+  r = PC.fromPlain(`${x}\n${y}\n${z}`);
+  assert.deepStrictEqual(r.blocks.map((b) => b.rich[0].t.length), [100000, 10], '越える前の最後の改行で分けない');
+  assert.ok(r.blocks.every((b) => b.rich[0].t.length <= 100000));
+  assert.strictEqual(PC.fromPlain(`${x}\n${x}`).blocks.length, 2);
+  // 改行の無い 100,001 字は今どおり大きすぎる
+  assert.deepStrictEqual(PC.fromPlain('a'.repeat(100001)), { tooBig: true });
+  assert.deepStrictEqual(PC.fromPlain(`b\n${'a'.repeat(100001)}`), { tooBig: true });
+});
+test('XE-2・F246: Markdown の印のある文字（- a\\n- b）・HTML の貼り付けは今と同じ行（below を持たない）。素の文字だけが below を持つ', () => {
+  const md = PC.pasteBlocks({ text: '- a\n- b' });
+  assert.deepStrictEqual([md.blocks.map((b) => `${b.type}:${b.rich[0].t}`), Object.hasOwn(md, 'below')], [['bullet:a', 'bullet:b'], false]);
+  const h = PC.pasteBlocks({ html: '<p>a</p><p>b</p>', text: 'a\nb' });
+  assert.deepStrictEqual([h.blocks.length, Object.hasOwn(h, 'below')], [2, false]);
+  const p = PC.pasteBlocks({ text: 'a\nb' });
+  assert.deepStrictEqual([txtsOf(p), p.below, p.inline], [['a\nb'], true, false]);
+});

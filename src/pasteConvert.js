@@ -840,22 +840,35 @@ function fromMarkdown(text) {
 }
 
 // ---------------------------------------------------------------- 素の文字
-// 素の文字 → 1行1行をテキストの行（空の行は詰める: R16）
+// 素の文字 → 段落ごとに1つのテキストの行（0.18.0 XE-2: 改行1つで区切った行は1つの行の中の改行・空の行は段落の区切りで、空の行そのものは行にしない。
+// 行の頭の空白は残し、行の末の空白は落とす。1つの行が 100,000 字を越えるときは、越える前の最後の改行で次の行に分ける: 計画 docs/plans/2026-11-18-180.md の
+// 決めたこと 58・F246）。below: 2つ以上の行の文（何行かの文は、1つの行になっても今の行のカーソルの所に入れず、行として貼る。below のとき inline は偽）
 function fromPlain(text) {
   const t = cleanText(text);
   if (utf8Len(t) > PASTE_BYTES) return tooBig();
   const lines = t.split('\n');
   const rows = [];
   try {
-    for (const line of lines) {
-      const s = line.trimEnd();
-      if (s.trim()) pushRow(rows, { type: 'paragraph', runs: [{ t: s, m: [] }], depth: 0 });
-    }
+    let para = [];
+    const flush = () => {
+      let cur = null;
+      for (const line of para) {
+        const next = cur === null ? line : `${cur}\n${line}`;
+        if (cur !== null && next.length > ROW_TEXT) { pushRow(rows, { type: 'paragraph', runs: [{ t: cur, m: [] }], depth: 0 }); cur = line; } else cur = next;
+      }
+      if (cur !== null) pushRow(rows, { type: 'paragraph', runs: [{ t: cur, m: [] }], depth: 0 });
+      para = [];
+    };
+    for (const line of lines) { if (line.trim()) para.push(line.trimEnd()); else flush(); }
+    flush();
   } catch (e) {
     if (e instanceof TooBig) return tooBig();
     throw e;
   }
-  return finish(rows);
+  const r = finish(rows);
+  if (r.tooBig) return r;
+  const below = lines.filter((line) => line.trim()).length > 1;
+  return { ...r, inline: r.inline && !below, below };
 }
 
 // どれで変換するかを決める（HTML があれば HTML。無ければ Markdown の印か文中の飾りがあれば Markdown、どちらでもなければ素の文字: 決めたこと 24）

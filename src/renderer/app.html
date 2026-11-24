@@ -10067,22 +10067,35 @@
     }
 
     // ---------------------------------------------------------------- 素の文字
-    // 素の文字 → 1行1行をテキストの行（空の行は詰める: R16）
+    // 素の文字 → 段落ごとに1つのテキストの行（0.18.0 XE-2: 改行1つで区切った行は1つの行の中の改行・空の行は段落の区切りで、空の行そのものは行にしない。
+    // 行の頭の空白は残し、行の末の空白は落とす。1つの行が 100,000 字を越えるときは、越える前の最後の改行で次の行に分ける: 計画 docs/plans/2026-11-18-180.md の
+    // 決めたこと 58・F246）。below: 2つ以上の行の文（何行かの文は、1つの行になっても今の行のカーソルの所に入れず、行として貼る。below のとき inline は偽）
     function fromPlain(text) {
       const t = cleanText(text);
       if (utf8Len(t) > PASTE_BYTES) return tooBig();
       const lines = t.split('\n');
       const rows = [];
       try {
-        for (const line of lines) {
-          const s = line.trimEnd();
-          if (s.trim()) pushRow(rows, { type: 'paragraph', runs: [{ t: s, m: [] }], depth: 0 });
-        }
+        let para = [];
+        const flush = () => {
+          let cur = null;
+          for (const line of para) {
+            const next = cur === null ? line : `${cur}\n${line}`;
+            if (cur !== null && next.length > ROW_TEXT) { pushRow(rows, { type: 'paragraph', runs: [{ t: cur, m: [] }], depth: 0 }); cur = line; } else cur = next;
+          }
+          if (cur !== null) pushRow(rows, { type: 'paragraph', runs: [{ t: cur, m: [] }], depth: 0 });
+          para = [];
+        };
+        for (const line of lines) { if (line.trim()) para.push(line.trimEnd()); else flush(); }
+        flush();
       } catch (e) {
         if (e instanceof TooBig) return tooBig();
         throw e;
       }
-      return finish(rows);
+      const r = finish(rows);
+      if (r.tooBig) return r;
+      const below = lines.filter((line) => line.trim()).length > 1;
+      return { ...r, inline: r.inline && !below, below };
     }
 
     // どれで変換するかを決める（HTML があれば HTML。無ければ Markdown の印か文中の飾りがあれば Markdown、どちらでもなければ素の文字: 決めたこと 24）
@@ -15105,7 +15118,19 @@
     if (!out.blocks.length) { if (t && !line) pasteText(txt, t); return; }   // 行にならない文（空白だけ）は打った文字と同じ
     // 決めたこと 24: 1行だけで型の無いものは、命令を送らず行の中に飾りつきで入れる（区切り線の行は文を持たないので、下に行として足す）
     if (out.inline && !line) { pasteInline(txt, out.blocks[0].rich); return; }
+    // 0.18.0 XE-2（計画 docs/plans/2026-11-18-180.md の決めたこと 58・AQ21 (a)・F246）: 何行かの素の文（below）を、文のあるテキストの行・箇条書き・ToDo に貼ると、
+    // 今の行は1字も変えず（割らない・選んだ字も消さない）、文の末で分ける形（後ろの文が無い）で送り、貼った行はすぐ下（子の見えている行は今どおり最初の子）
+    if (out.below && !line && pasteBelow(el)) { const n = plainOf(rowRich(txt)).length; pasteRows(el, out.blocks, [n, n], caretRange(txt)); return; }
     pasteRows(el, out.blocks);
+  }
+  // 下に入れる行か: 文のあるテキストの行・箇条書き・ToDo で、カーソルが文の頭でない（文の頭は今どおり上: BQ30 (a)・AQ33 (a)）。空の箇条書き・ToDo は頭でも。
+  // 空のテキストの行は今どおり貼った行に置き換わる（R18）。ほかの型（番号付き・トグル・見出し・引用・コールアウト）は今の決まり（CR28）
+  function pasteBelow(el) {
+    const b = el._b; const txt = el._txt;
+    if (b.type !== 'paragraph' && b.type !== 'bullet' && b.type !== 'todo') return false;
+    if (txt.textContent === '') return b.type !== 'paragraph';
+    const r = caretRange(txt);
+    return !(r && r[0] === 0 && r[1] === 0);
   }
   // EK-3 直し（R139）: 行の文の上限（validate.LIMITS.text と同じ 10 万字）。素の文字・1行の文の貼り付けで越えるなら、入れずに大きすぎる知らせ
   // （入れると保存が bad-args で断られ続け、区切りのたびに知らせが出る）
@@ -15144,8 +15169,8 @@
   // 行に分ける貼り付けは block.paste の1つの命令（1歩: 決めたこと 25）。今の行の文と飾りも一緒に送り、DB がカーソルの所で分ける。
   // 文のある行の頭は分けずに上へ（afterId: BQ30 (a)）・子の見えている行とコールアウトは文の終わりでも途中でも最初の子（inside: R66・TQ3・BQ31・enterInside）・空のテキストの行は最初の貼った行になる（R18。DB が決める）。
   // カーソルは最後に貼った行の終わり
-  // 0.14.0 EK-6: 3つ目は NaTsu の中の音声入力の覚えた所 [始め, 終わり]（無ければ今のカーソル）
-  async function pasteRows(el, blocks, spot) {
+  // 0.14.0 EK-6: 3つ目は NaTsu の中の音声入力の覚えた所 [始め, 終わり]（無ければ今のカーソル）。0.18.0 XE-2: 4つ目は断られたときに戻す選んだ所（文の末で送る下への貼り付け）
+  async function pasteRows(el, blocks, spot, back) {
     const pid = keyOfEl(el); const b = el._b; const txt = el._txt;
     if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
     const shown = b.type === 'divider' ? [] : rowRich(txt);
@@ -15178,7 +15203,7 @@
     if (!out && el._b === b) {
       [b.text, b.rich] = was;
       // EK-3 直し（R142）: 断られたら行の文と、押したときのカーソル（選んだ所）を戻す
-      if (boxOfKey(pid) && b.type !== 'divider') { paintRich(txt, shown); if (r) setSel(txt, r[0], r[1]); }
+      if (boxOfKey(pid) && b.type !== 'divider') { paintRich(txt, shown); const k = back || r; if (k) setSel(txt, k[0], k[1]); }
     }
     if (full) toast(PASTE_TOO_BIG);
     return out;

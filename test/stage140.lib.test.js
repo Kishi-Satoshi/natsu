@@ -684,7 +684,7 @@ test('EK-1・F102: 落とすもの（script・style・iframe・template・コメ
   // 文字として書かれた <script>（&lt;script&gt;）はただの文字（データ）として残る
   assert.deepStrictEqual(briefOf(PC.fromHtml('<p>&lt;script&gt;x&lt;/script&gt;</p>')), ['paragraph:<script>x</script>']);
   // 画像だけ・中身の無い HTML は行が無い（素の文字があれば素の文字で）
-  assert.deepStrictEqual(PC.pasteBlocks({ html: '<img src="x.png">', text: '' }), { blocks: [], inline: false });
+  assert.deepStrictEqual(PC.pasteBlocks({ html: '<img src="x.png">', text: '' }), { blocks: [], inline: false, below: false });   // 0.18.0 XE-2: 素の文字の答えは below も持つ
   assert.deepStrictEqual(briefOf(PC.pasteBlocks({ html: '<meta charset="utf-8"><img src="x.png">', text: '絵の文' })), ['paragraph:絵の文']);
 });
 
@@ -745,25 +745,30 @@ test('EK-1: Markdown の表（#〜####・- ・* ・1. ・- [ ]・- [x]・> （�
   assert.deepStrictEqual(PC.fromMarkdown('# 題\n本文'), { blocks: [{ type: 'heading', level: 1, rich: [run('題')] }, { type: 'paragraph', rich: [run('本文')] }], inline: false });
 });
 
-test('EK-1: 素の文字（3行 → 3つのテキストの行・空の行は詰める・1行で印が無い → inline）', () => {
+// 0.18.0 XE-2（計画 docs/plans/2026-11-18-180.md の決めたこと 58・「意図して変えるテスト」）で意図して直した: 改行1つで区切った行は1つの行の中の改行、
+// 空の行で区切った段落が別の行（前は1行ずつ別の行）。何行かの文は below。意図「素の文は記法に読まない・制御の文字は落とす・空の行は行にしない」は残す
+test('EK-1・XE-2: 素の文字（空の行で区切った段落ごとに1つのテキストの行・空の行そのものは行にしない・1行で印が無い → inline・何行かは below）', () => {
   const r = PC.pasteBlocks({ text: '一\n\n二\r\n   \n三\n' });
-  assert.deepStrictEqual(r, { blocks: [{ type: 'paragraph', rich: [run('一')] }, { type: 'paragraph', rich: [run('二')] }, { type: 'paragraph', rich: [run('三')] }], inline: false });
-  assert.deepStrictEqual(PC.pasteBlocks({ text: 'ひとこと' }), { blocks: [{ type: 'paragraph', rich: [run('ひとこと')] }], inline: true });
+  assert.deepStrictEqual(r, { blocks: [{ type: 'paragraph', rich: [run('一')] }, { type: 'paragraph', rich: [run('二')] }, { type: 'paragraph', rich: [run('三')] }], inline: false, below: true });
+  assert.deepStrictEqual(PC.pasteBlocks({ text: 'ひとこと' }), { blocks: [{ type: 'paragraph', rich: [run('ひとこと')] }], inline: true, below: false });
   assert.deepStrictEqual(PC.pasteBlocks({ html: '', text: 'ひとこと' }), PC.fromPlain('ひとこと'));
-  // 素の文字の部品は印を読まない（Markdown かどうかは pasteBlocks が決める）
-  assert.deepStrictEqual(briefOf(PC.fromPlain('# 見出し\n- 箇条\n  字下げ\ta')), ['paragraph:# 見出し', 'paragraph:- 箇条', 'paragraph:  字下げ\ta']);
+  // 素の文字の部品は印を読まない（Markdown かどうかは pasteBlocks が決める）。改行1つは行の中の改行
+  assert.deepStrictEqual(briefOf(PC.fromPlain('# 見出し\n- 箇条\n  字下げ\ta')), ['paragraph:# 見出し\n- 箇条\n  字下げ\ta']);
   // 制御の文字は落とす
   assert.deepStrictEqual(briefOf(PC.fromPlain('a\u0000b\u0007c')), ['paragraph:abc']);
-  assert.deepStrictEqual(PC.pasteBlocks({ text: '' }), { blocks: [], inline: false });
-  assert.deepStrictEqual(PC.pasteBlocks({}), { blocks: [], inline: false });
+  assert.deepStrictEqual(PC.pasteBlocks({ text: '' }), { blocks: [], inline: false, below: false });
+  assert.deepStrictEqual(PC.pasteBlocks({}), { blocks: [], inline: false, below: false });
 });
 
 test('EK-1・F102: 2,001 行・1MB を越える → { tooBig: true }（一部だけを返さない）', { timeout: 10000 }, () => {
   assert.strictEqual(PC.PASTE_ROWS, V.LIMITS.blocks);
   assert.strictEqual(PC.PASTE_BYTES, V.LIMITS.bytes);
   const lines = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('\n');
-  assert.strictEqual(PC.pasteBlocks({ text: lines(2000, (i) => `行${i}`) }).blocks.length, 2000);
-  assert.deepStrictEqual(PC.pasteBlocks({ text: lines(2001, (i) => `行${i}`) }), { tooBig: true });
+  // 0.18.0 XE-2 で意図して直した: 素の文字の行の数は空の行で区切った段落の数（改行1つの行は1つの行にまとまる）
+  const paras = (n, f) => Array.from({ length: n }, (_, i) => f(i)).join('\n\n');
+  assert.strictEqual(PC.pasteBlocks({ text: paras(2000, (i) => `行${i}`) }).blocks.length, 2000);
+  assert.deepStrictEqual(PC.pasteBlocks({ text: paras(2001, (i) => `行${i}`) }), { tooBig: true });
+  assert.strictEqual(PC.pasteBlocks({ text: lines(2001, (i) => `行${i}`) }).blocks.length, 1);
   assert.deepStrictEqual(PC.pasteBlocks({ text: lines(2001, (i) => `- 項目${i}`) }), { tooBig: true });
   assert.strictEqual(PC.fromHtml(lines(2000, (i) => `<p>段${i}</p>`)).blocks.length, 2000);
   assert.deepStrictEqual(PC.fromHtml(lines(2001, (i) => `<p>段${i}</p>`)), { tooBig: true });

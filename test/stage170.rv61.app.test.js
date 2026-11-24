@@ -50,15 +50,17 @@ test('rv61 重要 1・貼り付け（R98・BQ31・決めたこと 78・X-31）: 
     let a = l.called('blockPaste').at(-1).args;
     assert.deepStrictEqual([a[1], a[3], a[5], a[6]], ['c', 2, undefined, true], 'コールアウトの文の途中で inside が真でない');
     assert.deepStrictEqual(pageOf(l).blocks.map((b) => b.id), ['x', 'c', 'ck', 'y'], '貼った行がコールアウトの外に出た');
-    assert.deepStrictEqual([BT.locate(pageOf(l).blocks, 'c').b.text, ...kidsOf(l, 'c').map((b) => `${b.type}:${b.text}`)], ['お知', 'paragraph:貼一', 'paragraph:貼二', 'paragraph:らせ']);
-    assert.ok(rowsOf(l).filter((e) => e.dataset.parent === 'c').length === 3, '貼った行と後ろの文の行がコールアウトの中に見えない');
+    // 0.18.0 XE-2（計画 docs/plans/2026-11-18-180.md の決めたこと 58・「意図して変えるテスト」）で意図して直した: 改行1つの素の文は1つの行（行の中の改行）。
+    // コールアウトは今の block.paste の決まりのまま（カーソルの所で分ける: CR28）
+    assert.deepStrictEqual([BT.locate(pageOf(l).blocks, 'c').b.text, ...kidsOf(l, 'c').map((b) => `${b.type}:${b.text}`)], ['お知', 'paragraph:貼一\n貼二', 'paragraph:らせ']);
+    assert.ok(rowsOf(l).filter((e) => e.dataset.parent === 'c').length === 2, '貼った行と後ろの文の行がコールアウトの中に見えない');
     // 末尾
     t = typeIn(l, 'ck', '子あり');
     pasteIn(t, '末一\n末二');
     await l.drain();
     a = l.called('blockPaste').at(-1).args;
     assert.deepStrictEqual([a[1], a[6]], ['ck', true], 'コールアウトの文の末尾で inside が真でない');
-    assert.deepStrictEqual(kidsOf(l, 'ck').map((b) => b.text).filter((s) => s !== ''), ['末一', '末二', 'k1の文'], '子のあるコールアウトの末尾で貼った行が前からの子の前に無い');
+    assert.deepStrictEqual(kidsOf(l, 'ck').map((b) => b.text).filter((s) => s !== ''), ['末一\n末二', 'k1の文'], '子のあるコールアウトの末尾で貼った行が前からの子の前に無い');   // 0.18.0 XE-2: 1つの行
     assert.deepStrictEqual(pageOf(l).blocks.map((b) => b.id), ['x', 'c', 'ck', 'y']);
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }

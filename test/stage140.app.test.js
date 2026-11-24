@@ -1893,7 +1893,8 @@ test('EK-3（決めたこと 25・F102）: 大きすぎる貼り付け（2,001 �
   const l = await openReal({ pa1: PG3() });
   try {
     const t = typeIn(l, 'q2', 'あいうえお');
-    pasteIn(t, { 'text/plain': Array.from({ length: 2001 }, (_, i) => `行${i}`).join('\n') });
+    // 0.18.0 XE-2（計画 docs/plans/2026-11-18-180.md の決めたこと 58・「意図して変えるテスト」）で意図して直した: 素の文字の行の数は空の行で区切った段落の数
+    pasteIn(t, { 'text/plain': Array.from({ length: 2001 }, (_, i) => `行${i}`).join('\n\n') });
     await l.drain();
     assert.strictEqual(toastOf(l), PASTE_TOO_BIG);
     $(l, 'toast').textContent = '';
@@ -1963,14 +1964,15 @@ test('EK-3・R66・BQ30 (a)（第4版）: 開いたトグルの文の終わり�
     const a2 = pastes(l)[1];
     assert.deepStrictEqual([a2[1], a2[3], a2[5], a2.length], ['q2', 0, 'tg', 6], 'afterId が画面で上に見えている最上位の行でない');
     const p = l.page();
-    assert.deepStrictEqual(p.blocks.map((b) => b.text), ['前の文', 'トグル', '上一', '上二', 'あいうえお']);
-    assert.strictEqual(p.blocks[4].id, 'q2', '今の行の ID が替わった');
+    // 0.18.0 XE-2（計画 docs/plans/2026-11-18-180.md の決めたこと 58・「意図して変えるテスト」）で意図して直した: 改行1つの素の文は1つの行（行の中の改行）。頭は今どおり上（AQ33 (a)）
+    assert.deepStrictEqual(p.blocks.map((b) => b.text), ['前の文', 'トグル', '上一\n上二', 'あいうえお']);
+    assert.strictEqual(p.blocks[3].id, 'q2', '今の行の ID が替わった');
     // いちばん上の行の頭なら頭（''）
     const t3 = typeIn(l, 'q1', '前の文', 0);
     pasteIn(t3, { 'text/plain': '頭一\n頭二' });
     await l.drain();
     assert.strictEqual(pastes(l)[2][5], '');
-    assert.deepStrictEqual(l.page().blocks.map((b) => b.text).slice(0, 3), ['頭一', '頭二', '前の文']);
+    assert.deepStrictEqual(l.page().blocks.map((b) => b.text).slice(0, 2), ['頭一\n頭二', '前の文']);   // 0.18.0 XE-2: 1つの行
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -1988,19 +1990,21 @@ test('EK-3・BQ31・BQ32（2026-10-30 の持ち主の答え）: 開いたトグ�
     const kids = rowsOf(l).filter((e) => e.dataset.parent === 'tg').map((e) => e.querySelector('.txt').textContent);
     assert.deepStrictEqual(kids, ['一', '二', '文', '子の文'], '貼った行と後ろの文の行がトグルの中に見えない');
     // 子のある箇条書きの文の途中: 貼った行と後ろの文の行（箇条書き）が子の頭
+    // 0.18.0 XE-2（計画 docs/plans/2026-11-18-180.md の決めたこと 58・「意図して変えるテスト」）で意図して直した: 素の何行かの文は箇条書きを割らずに下へ（XE-2 の場面）。
+    // 文の途中で分けて子の頭に入れる形（BQ31）は、今どおり分ける Markdown の何行かで見る
     const c = typeIn(l, 'bp', '親の文', 1);
-    pasteIn(c, { 'text/plain': '貼一\n貼二' });
+    pasteIn(c, { 'text/plain': '- 貼一\n- 貼二' });
     await l.drain();
     assert.deepStrictEqual([pastes(l)[1][1], pastes(l)[1][6]], ['bp', true], '子のある行の文の途中で inside が真でない');
     const bp = l.page().blocks.find((b) => b.id === 'bp');
-    assert.deepStrictEqual([bp.text, ...bp.children.map((b) => `${b.type}:${b.text}`)], ['親', 'paragraph:貼一', 'paragraph:貼二', 'bullet:の文', 'paragraph:孫の文']);
+    assert.deepStrictEqual([bp.text, ...bp.children.map((b) => `${b.type}:${b.text}`)], ['親', 'bullet:貼一', 'bullet:貼二', 'bullet:の文', 'paragraph:孫の文']);
     const h = typeIn(l, 'hd', '見出しの文', 3);
     pasteIn(h, { 'text/plain': '上一\n上二' });
     await l.drain();
     const a2 = pastes(l)[2];
     assert.deepStrictEqual([a2[1], a2[3], a2.length], ['hd', 3, 5], '子の無い見出しで afterId か inside を送った');
     // 0.17.0 NX-1（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 78・notion-behavior の X-16。NQ1「編集と表のキーを直す（おすすめ）」）で意図して変えた: 見出しの後ろの文はテキスト（BQ32 の「Enter と同じ」のまま。前は箇条書き）
-    assert.deepStrictEqual(l.page().blocks.slice(2, 6).map((b) => `${b.type}:${b.text}`), ['heading:見出し', 'paragraph:上一', 'paragraph:上二', 'paragraph:の文']);
+    assert.deepStrictEqual(l.page().blocks.slice(2, 5).map((b) => `${b.type}:${b.text}`), ['heading:見出し', 'paragraph:上一\n上二', 'paragraph:の文']);   // 0.18.0 XE-2: 1つの行（見出しは今の決まり: CR28）
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -2424,7 +2428,8 @@ test('EK-3 直し（R142）: 貼り付けが断られたら、行の文と押し
   try {
     l.hold('blockPaste');
     const t = typeIn(l, 'q2', 'あいうえお', 1, 3);
-    pasteIn(t, { 'text/plain': '一\n二' });
+    // 0.18.0 XE-2（計画 docs/plans/2026-11-18-180.md の決めたこと 58・「意図して変えるテスト」）で意図して直した: 素の何行かの文は今の行を割らずに下へ入るので、今どおり分ける Markdown の何行かで見る
+    pasteIn(t, { 'text/plain': '- 一\n- 二' });
     await l.drain();
     assert.strictEqual(t.textContent, 'あ', '答えを待つ間の行の文');
     l.caret.set(t, 1);   // 描き直しでカーソルが動いた形

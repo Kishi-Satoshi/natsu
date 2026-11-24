@@ -1884,6 +1884,8 @@ const IDS_180 = [
   'cu-title-keep',
   // 0.18.0 Task XE-1（Ctrl+Z のまとまりを約 0.5 秒と日本語入力の確定に）
   'xe-undo-mark', 'xe-undo-ime', 'xe-undo-commit', 'xe-undo-nocut', 'xe-undo-save2s', 'xe-undo-stale', 'xe-undo-flush', 'xe-undo-redo', 'xe-undo-live',
+  // 0.18.0 Task XE-2（何行かの素の文の貼り付け）
+  'xe-paste-one', 'xe-paste-blank', 'xe-paste-split', 'xe-paste-below', 'xe-paste-keep', 'xe-paste-empty', 'xe-paste-other', 'xe-paste-head', 'xe-paste-md-keep', 'xe-paste-copy',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {
