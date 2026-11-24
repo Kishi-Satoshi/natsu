@@ -90,6 +90,7 @@ function summaryOf(entry, route) {
 const BLANK_LABEL = '白紙のページ';
 const BLANK_UNTITLED = '無題のページ';
 const isBlank = (x) => Boolean(x) && x.kind === 'blank';
+const HEAD_MD = Object.freeze({ 1: '###', 2: '###', 3: '####', 4: '#####' });   // 見出しの段 → 答えの印（今の ### と #### の下に見出し4: 0.18.0 XN-3）
 // 0.16.0 DX-3（計画 docs/plans/2026-11-04-160.md の決めたこと 49・F145・R103）: データベースの印（会議の種類と長さの代わり）・無題の名前・続きの1行
 const DB_UNTITLED = '無題のデータベース';
 // 0.18.0 CT-3（M12・計画の「意図して変えるテスト」）: 続きは query_database の offset で読める（0.16.0 の字の意図「続きの読み方を伝える」は残す）
@@ -312,8 +313,8 @@ function summaryLines(page, subTitle = () => null, mark = () => '') {
       if (!b || typeof b !== 'object') continue;
       base = b.type === 'heading' ? depth : Math.min(base, depth);
       const pad = '  '.repeat(depth - base);
-      // 0.13.0 ED-3: 段 1・2 は ###、段 3 は ####（段の無い前の版の見出しは段 2）
-      if (b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`${blockEdit.headingLevel(b) === 3 ? '####' : '###'} ${t}`); }
+      // 0.13.0 ED-3: 段 1・2 は ###、段 3 は ####（段の無い前の版の見出しは段 2）。0.18.0 XN-3（決めたこと 63・M11）: 段 4 は #####
+      if (b.type === 'heading') { const t = safeLine(b.text); if (t.trim()) out.push(`${HEAD_MD[blockEdit.headingLevel(b)]} ${t}`); }
       else if (b.type === 'subpage') { const t = subTitle(b.page); if (t) out.push(`${pad}- 📄 ${t}（中のページ）`); }
       else {
         const l = blockLine(b, page.id, nums.get(b.id));

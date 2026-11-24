@@ -723,3 +723,57 @@ test('XN-1・F249: planDuplicate の blocked（議事録・録音中の写し・
   assert.strictEqual(plan([blank('X', null)]), null);
   assert.strictEqual(plan([blank('R', null, { trashed: AT0 })]), null);
 });
+
+// ---------------------------------------------------------------- XN-3（決めたこと 63・AQ12 (a)・F250）: 見出し4
+const BE = require('../src/blockEdit');
+const VAL = require('../src/db/validate');
+const MDOC = require('../src/memoDoc');
+const FMT = require('../src/mcp/format');
+test('XN-3・F250: 型の表に h4・th4（/ メニューと［変換 ▸］の項目）・/h4・/####・####＋空白・headingLevel が 1〜4・validate.level が 1〜4（5 は bad-args）・貼る行とメモの行の段も 1〜4・貼り付けの #### 以上と h4〜h6 は見出し4・Ctrl+Shift+4 は今どおり ToDo', () => {
+  const h4 = BE.BLOCK_TYPES.find((r) => r.id === 'h4');
+  assert.ok(h4, '型の表に h4 が無い');
+  assert.deepStrictEqual([h4.key, h4.level, h4.label, [...h4.md], h4.kids, h4.code], ['heading', 4, '見出し4', ['#### '], false, undefined]);
+  assert.strictEqual(BE.BLOCK_TYPES.indexOf(h4), BE.BLOCK_TYPES.findIndex((r) => r.id === 'h3') + 1, 'h4 が h3 の次に無い');
+  assert.deepStrictEqual(BE.MENU_ROWS.filter((r) => r.key === 'heading').map((r) => [r.id, r.level, r.label]),
+    [['h1', 1, '見出し1'], ['h2', 2, '見出し2'], ['h3', 3, '見出し3'], ['h4', 4, '見出し4'], ['th1', 1, 'トグル見出し1'], ['th2', 2, 'トグル見出し2'], ['th3', 3, 'トグル見出し3'], ['th4', 4, 'トグル見出し4']]);
+  const ids = (q) => (BE.slashFilter(q, []) || []).map((x) => x.id);
+  assert.deepStrictEqual(ids('h4'), ['h4', 'th4'], '/h4 で見出し4とトグル見出し4が出ない（OC-15）');
+  assert.ok(ids('####').includes('h4'), '/#### で見出し4が出ない');
+  assert.ok(ids('見出し4').includes('h4'));
+  assert.deepStrictEqual(BE.shortcutFor('#### '), { type: 'heading', level: 4, strip: 5 });
+  assert.deepStrictEqual(BE.shortcutFor('### '), { type: 'heading', level: 3, strip: 4 });
+  assert.deepStrictEqual([1, 2, 3, 4, 5, undefined].map((level) => BE.headingLevel({ type: 'heading', level })), [1, 2, 3, 4, 2, 2]);
+  assert.strictEqual(BE.typeOf({ type: 'heading', level: 4 }).id, 'h4');
+  assert.strictEqual(BE.typeOf({ type: 'heading', level: 4, toggle: true }).id, 'th4');
+  assert.strictEqual(BE.keyAction({ ctrlKey: true, shiftKey: true, code: 'Digit4', key: '$' }), 'turn:todo', 'Ctrl+Shift+4 が ToDo でない');
+  assert.strictEqual(BE.blocksMarkdown([{ id: 'a', type: 'heading', level: 4, text: '小見出し' }]).trim(), '#### 小見出し');
+  // DB の照らし
+  assert.deepStrictEqual(VAL.checkArgs({ level: 'level' }, { level: 4 }), { ok: true, args: { level: 4 } });
+  assert.deepStrictEqual(VAL.checkArgs({ level: 'level' }, { level: 5 }), { ok: false, field: 'level' });
+  const pasted = VAL.checkArgs({ blocks: 'pasteBlocks' }, { blocks: [{ type: 'heading', level: 4, rich: [{ t: 'よん' }] }] });
+  assert.strictEqual(pasted.ok && pasted.args.blocks[0].level, 4);
+  assert.deepStrictEqual(VAL.checkArgs({ blocks: 'pasteBlocks' }, { blocks: [{ type: 'heading', level: 5, rich: [{ t: 'ご' }] }] }), { ok: false, field: 'blocks' });
+  const memo = MDOC.validateMemoDoc([{ id: 'm1', type: 'heading', level: 4, text: 'メモの小見出し', citeState: 'manual' }]);
+  assert.strictEqual(memo[0].level, 4, 'メモの行が見出し4を断った');
+  assert.throws(() => MDOC.validateMemoDoc([{ id: 'm1', type: 'heading', level: 5, text: 'ご', citeState: 'manual' }]));
+  // 貼り付け（OC-15）
+  const md = PC.fromMarkdown('#### よん\n##### ご\n###### ろく\n### さん');
+  assert.deepStrictEqual(md.blocks.map((b) => [b.type, b.level]), [['heading', 4], ['heading', 4], ['heading', 4], ['heading', 3]]);
+  const html = PC.fromHtml('<h3>さん</h3><h4>よん</h4><h5>ご</h5><h6>ろく</h6>');
+  assert.deepStrictEqual(html.blocks.map((b) => [b.type, b.level]), [['heading', 3], ['heading', 4], ['heading', 4], ['heading', 4]]);
+});
+test('XN-3・F250: markdownToBlocks の #### は今どおり段 3（要約の見出しは3段のまま・要約の型の印 markBlocks も今と同じ）。0.17.0 の headingLevel を写した見本で段 4 を読むと段 2（落ちない・字と段の値は残る）。MCP の答えの見出し4は #####（段 1・2 は ###・段 3 は ####）', () => {
+  const b = markdownToBlocks('#### 小見出し\n- 要点');
+  assert.deepStrictEqual([b[0].type, b[0].level], ['heading', 3], '要約の #### が見出し4になった');
+  const marked = memoTypes.markBlocks(markdownToBlocks('## 決定事項\n#### 小見出し\n- 予算は据え置き'), { meetingType: 'standup' });
+  assert.deepStrictEqual(marked.blocks.filter((x) => x.type === 'heading').map((x) => [x.level, x.text]), [[2, '決定事項'], [3, '小見出し']]);
+  // 0.17.0 の headingLevel（src/blockEdit.js の 0.17.0 の字）で段 4 の行を読む
+  const old170 = (x) => (x && (x.level === 1 || x.level === 2 || x.level === 3) ? x.level : 2);
+  const row = { id: 'q', type: 'heading', level: 4, text: '残る字' };
+  assert.strictEqual(old170(row), 2);
+  assert.deepStrictEqual([row.level, row.text], [4, '残る字']);
+  const page = { id: 'pb1', kind: 'blank', title: '見出しの見本',   // 白紙のページの題名（D77 の外）
+    blocks: [1, 2, 3, 4].map((level) => ({ id: `h${level}`, type: 'heading', level, text: `段${level}` })) };
+  const text = FMT.meetingMarkdown(page, [], { header: false }).text;
+  assert.deepStrictEqual(text.split('\n').filter((l) => /段\d$/.test(l)), ['### 段1', '### 段2', '#### 段3', '##### 段4']);
+});

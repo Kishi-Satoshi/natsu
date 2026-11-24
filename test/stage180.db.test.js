@@ -1588,3 +1588,21 @@ test('XN-1・F249: page.duplicate は議事録を含むページを bad-args で
   assert.deepStrictEqual(b.result, a.result, '送り直しの答えが違う');
   assert.strictEqual(db.prepare('select count(*) c from blocks').get().c, n1, '送り直しで2つ目を作った');
 }));
+
+// ---------------------------------------------------------------- XN-3（決めたこと 63・AQ12 (a)・F250）: 見出し4
+test('XN-3・F250: 見出し4の行を作れ（block.insert・block.turnInto・block.paste・メモの行）、読み直しても段 4。段 5 は bad-args で何も変えない', T, () => withDb((db, t) => {
+  const { id, blockId } = blankPage(db);
+  const a = ok(call(db, 'block.insert', { pageId: id, afterBlockId: blockId, type: 'heading', level: 4 }), 'block.insert').result.blockId;
+  ok(call(db, 'block.turnInto', { pageId: id, blockId, type: 'heading', level: 4, toggle: true }), 'block.turnInto');
+  const page = C.readPage(db, id);
+  assert.deepStrictEqual(page.blocks.map((b) => [b.type, b.level, b.toggle]), [['heading', 4, true], ['heading', 4, undefined]]);
+  assert.ok(page.blocks.some((b) => b.id === a));
+  const rev = revOf(db, id);
+  assert.strictEqual(call(db, 'block.insert', { pageId: id, afterBlockId: a, type: 'heading', level: 5 }).code, 'bad-args');
+  assert.strictEqual(revOf(db, id), rev);
+  ok(call(db, 'block.paste', { pageId: id, blockId: a, rich: [], at: 0, blocks: [{ type: 'heading', level: 4, rich: [{ t: '貼った見出し4' }] }] }), 'block.paste');
+  assert.ok(C.readPage(db, id).blocks.some((b) => b.type === 'heading' && b.level === 4 && b.text === '貼った見出し4'));
+  const m = meetingPage(t);
+  ok(call(db, 'page.setMemoDoc', { id: m, doc: [{ id: 'm1', type: 'heading', level: 4, text: 'メモの見出し4', citeState: 'manual' }] }), 'page.setMemoDoc');
+  assert.deepStrictEqual(C.readPage(db, m).memoDoc.map((b) => [b.type, b.level]), [['heading', 4]]);
+}));

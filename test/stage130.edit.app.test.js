@@ -562,7 +562,7 @@ test('ED-5: 行頭で / を打つと listbox が出て項目は型の表の順�
     assert.deepStrictEqual(headsOf(l), ['ブロックの型']);
     assert.strictEqual(l.document.activeElement, t, 'フォーカスが行から離れた');
     t = typeInput(l, 'e1', '/みだし');
-    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3']);   // 0.13.1 NE-1 で意図して変えた:「みだし」は「とぐるみだし」にも当たる（NR5）
+    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3', 'th4']);   // 0.13.1 NE-1 で意図して変えた:「みだし」は「とぐるみだし」にも当たる（NR5）。0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: トグル見出し4も
     assert.deepStrictEqual(headsOf(l), []);
     for (const k of ['ArrowDown', 'ArrowDown']) assert.strictEqual(l.key({ key: k }, t).defaultPrevented, true);
     const ev = l.key({ key: 'Enter' }, t);
@@ -581,7 +581,7 @@ test('ED-5: 文のある行の / で選ぶと、/ と語を消して下に足す
   const l = await openReal({ pa1: BASE() });
   try {
     const t = typeInput(l, 'p1', 'あいうえお /h1');
-    assert.deepStrictEqual(keysOf(l), ['h1']);
+    assert.deepStrictEqual(keysOf(l), ['h1', 'th1']);   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: /h1 はトグル見出し1にも当たる（/h4 でトグル見出し4が出る OC-15 と同じ形: CR137）。頭は見出し1
     l.key({ key: 'Enter' }, t);
     await l.drain();
     const blocks = l.page().blocks;

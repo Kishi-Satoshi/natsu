@@ -791,6 +791,7 @@
   #pageWrap.look-small .blk.heading .txt { font-size: 18px; line-height: 24px; }
   #pageWrap.look-small .blk.heading.h1 .txt { font-size: 22px; line-height: 30px; }
   #pageWrap.look-small .blk.heading.h3 .txt { font-size: 15px; line-height: 22px; }
+  #pageWrap.look-small .blk.heading.h4 .txt { font-size: 14px; line-height: 22px; }
   #pageWrap.look-small .seg { font-size: 13px; line-height: 22px; }
   #pageWrap.look-serif, #pageWrap.look-serif #pTitle { font-family: "Yu Mincho", "BIZ UDMincho", "MS Mincho", serif; }
   #pageWrap.look-mono, #pageWrap.look-mono #pTitle { font-family: "BIZ UDGothic", "Cascadia Mono", Consolas, monospace; }
@@ -969,7 +970,10 @@
   .blk.heading.h1 .txt { font-size: 26px; font-weight: 700; line-height: 34px; }
   .blk.heading.h3 { margin-top: 14px; }
   .blk.heading.h3 .txt { font-size: 17px; font-weight: 600; line-height: 24px; }
-  .blk.heading.h1:first-child, .blk.heading.h3:first-child { margin-top: 6px; }
+  /* 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の決めたこと 63・CR137）: 段 4 は見出し3（17px）より小さく、本文（16px）と同じ大きさの太字 */
+  .blk.heading.h4 { margin-top: 10px; }
+  .blk.heading.h4 .txt { font-size: 16px; font-weight: 600; line-height: 24px; }
+  .blk.heading.h1:first-child, .blk.heading.h3:first-child, .blk.heading.h4:first-child { margin-top: 6px; }
   /* 番号付き（数えた番号）・引用（左の線）・区切り線（線だけ。フォーカスで地色）・コールアウト（地色と 💡） */
   .blk .num { flex: none; min-width: 24px; text-align: right; line-height: 24px; color: var(--text); user-select: none; font-variant-numeric: tabular-nums; }
   .blk.quote .txt { border-left: 3px solid var(--text); border-radius: 0; padding-left: 12px; }
@@ -8695,7 +8699,7 @@
   // 0.13.0 ED-3（決めたこと 22）: ［コピー］の Markdown（src/blockEdit.js の headingLevel・numberLabels・blocksMarkdown の写し。test/stage130.edit.app.test.js が同じ表で照らす）
   const CALLOUT_ICON = '💡';
   function headingLevel(b) {
-    return b && (b.level === 1 || b.level === 2 || b.level === 3) ? b.level : 2;
+    return b && (b.level === 1 || b.level === 2 || b.level === 3 || b.level === 4) ? b.level : 2;
   }
   function numberLabels(blocks) {
     const out = new Map();
@@ -8936,10 +8940,10 @@
   }
   // 行頭の記法（EQ9〜EQ13。全角の記号と全角の空白も。「ー」と「・」は入れない）。0.13.1 からトグル（> 。EQ10 (a)）
   const MD_ZEN = { '－': '-', '＊': '*', '＋': '+', '［': '[', '］': ']', '１': '1', '．': '.', '＃': '#', '”': '"', '“': '"', '＂': '"', '＞': '>', '　': ' ' };
-  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['> ', 'toggle'], ['" ', 'quote']];
+  const MD_ROWS = [['# ', 'heading', 1], ['## ', 'heading', 2], ['### ', 'heading', 3], ['#### ', 'heading', 4], ['[] ', 'todo'], ['- ', 'bullet'], ['* ', 'bullet'], ['+ ', 'bullet'], ['1. ', 'numbered'], ['> ', 'toggle'], ['" ', 'quote']];
   function shortcutFor(before, { full } = {}) {
     const raw = String(before ?? '');
-    if (!raw || raw.length > 4) return null;
+    if (!raw || raw.length > 5) return null;   // 0.18.0 XN-3: いちばん長い記法は「#### 」の5字
     const s = [...raw].map((c) => MD_ZEN[c] || c).join('');
     if (s === '---') return String(full ?? raw) === raw ? { type: 'divider', strip: raw.length } : null;
     const hit = MD_ROWS.find((m) => m[0] === s);
@@ -9897,7 +9901,7 @@
         }
         const c = { ...ctx, marks: elementMarks(tag, attrs, st, ctx.marks) };
         let m;
-        if ((m = /^h([1-6])$/.exec(tag))) c.frame = { kind: 'heading', level: Math.min(Number(m[1]), 3), depth: contDepth(ctx.frame) };
+        if ((m = /^h([1-6])$/.exec(tag))) c.frame = { kind: 'heading', level: Math.min(Number(m[1]), 4), depth: contDepth(ctx.frame) };   // 0.18.0 XN-3: h4〜h6 は見出し4（OC-15）
         else if (tag === 'blockquote') c.frame = { kind: 'quote', depth: contDepth(ctx.frame) };
         else if (LISTS.has(tag)) {
           // ul の中に直に ul があれば1段深い（Google ドキュメントの形）。li の中なら、その項目の子
@@ -10147,7 +10151,7 @@
           indents.push(width);
           let m;
           if (MD_DIVIDER.test(body)) pushRow(rows, { type: 'divider', runs: [], depth });
-          else if ((m = MD_HEADING.exec(body))) pushRow(rows, { type: 'heading', level: Math.min(m[1].length, 3), runs: mdInline(m[2]), depth });
+          else if ((m = MD_HEADING.exec(body))) pushRow(rows, { type: 'heading', level: Math.min(m[1].length, 4), runs: mdInline(m[2]), depth });   // 0.18.0 XN-3: #### 以上は見出し4（OC-15）
           else if ((m = MD_TODO.exec(body))) pushRow(rows, { type: 'todo', checked: m[1] !== ' ', runs: mdInline(m[2] || ''), depth });
           else if ((m = MD_BULLET.exec(body))) pushRow(rows, { type: 'bullet', runs: mdInline(m[1]), depth });
           else if ((m = MD_NUMBER.exec(body))) pushRow(rows, { type: 'numbered', runs: mdInline(m[1]), depth });
@@ -10384,7 +10388,7 @@
         count.n += 1;
         if (count.n > LIMITS.blocks) throw no('paste rows');
         if (!isBlockType(b.type)) throw no('paste.type');
-        if (b.level !== undefined && (b.type !== 'heading' || ![1, 2, 3].includes(b.level))) throw no('paste.level');
+        if (b.level !== undefined && (b.type !== 'heading' || ![1, 2, 3, 4].includes(b.level))) throw no('paste.level');   // 0.18.0 XN-3: 見出し4
         if (b.checked !== undefined && (b.type !== 'todo' || typeof b.checked !== 'boolean')) throw no('paste.checked');
         if (richText(b.rich) !== '' && b.type === 'divider') throw no('paste.divider');
         const out = { type: b.type, rich: structuredClone(b.rich) };
@@ -10519,7 +10523,7 @@
       if (!blockEdit.TYPE_KEYS.includes(b.type)) throw bad('row type');
       const out = { id: b.id, type: b.type };
       if (b.level !== undefined) {
-        if (b.type !== 'heading' || ![1, 2, 3].includes(b.level)) throw bad('row level');
+        if (b.type !== 'heading' || ![1, 2, 3, 4].includes(b.level)) throw bad('row level');   // 0.18.0 XN-3: 見出し4
         out.level = b.level;
       }
       if (b.toggle !== undefined) {
@@ -15786,13 +15790,15 @@
     { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '] },
     { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['みだし2', 'h2', '##'], md: ['## '] },
     { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['みだし3', 'h3', '###'], md: ['### '] },
+    { id: 'h4', key: 'heading', level: 4, label: '見出し4', words: ['h4', '####'], md: ['#### '] },
     { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '] },
     { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '] },
     { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '] },
     { id: 'toggle', key: 'toggle', label: 'トグル', words: ['とぐる', 'toggle'], md: ['> '] },
-    { id: 'th1', key: 'heading', level: 1, toggle: true, label: 'トグル見出し1', words: ['とぐるみだし', 'toggle heading'], md: [] },
-    { id: 'th2', key: 'heading', level: 2, toggle: true, label: 'トグル見出し2', words: ['とぐるみだし', 'toggle heading'], md: [] },
-    { id: 'th3', key: 'heading', level: 3, toggle: true, label: 'トグル見出し3', words: ['とぐるみだし', 'toggle heading'], md: [] },
+    { id: 'th1', key: 'heading', level: 1, toggle: true, label: 'トグル見出し1', words: ['とぐるみだし', 'toggle heading', 'h1'], md: [] },
+    { id: 'th2', key: 'heading', level: 2, toggle: true, label: 'トグル見出し2', words: ['とぐるみだし', 'toggle heading', 'h2'], md: [] },
+    { id: 'th3', key: 'heading', level: 3, toggle: true, label: 'トグル見出し3', words: ['とぐるみだし', 'toggle heading', 'h3'], md: [] },
+    { id: 'th4', key: 'heading', level: 4, toggle: true, label: 'トグル見出し4', words: ['とぐるみだし', 'toggle heading', 'h4'], md: [] },
     { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '] },
     { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'] },
     { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [] },

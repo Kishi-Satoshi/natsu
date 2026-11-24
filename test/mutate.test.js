@@ -1896,6 +1896,8 @@ const IDS_180 = [
   'xn-menu-order', 'xn-menu-lock', 'xn-menu-key-off',
   // 0.18.0 Task XN-1（ページの複製の命令）
   'xn-dup-ids', 'xn-dup-refs', 'xn-dup-back', 'xn-dup-title', 'xn-dup-place', 'xn-dup-block', 'xn-dup-lock', 'xn-dup-lockroot', 'xn-dup-trash', 'xn-dup-limit',
+  // 0.18.0 Task XN-3（見出し4）
+  'xn-h4-md', 'xn-h4-slash', 'xn-h4-paste', 'xn-h4-level', 'xn-h4-mcp', 'xn-h4-sum-keep',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

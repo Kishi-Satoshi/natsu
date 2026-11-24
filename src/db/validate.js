@@ -167,7 +167,7 @@ function checkPasteRow(b, count) {
   count.n += 1;
   if (count.n > LIMITS.blocks) throw bad('paste rows');
   if (!isBlockType(b.type)) throw bad('paste.type');
-  if (b.level !== undefined && (b.type !== 'heading' || ![1, 2, 3].includes(b.level))) throw bad('paste.level');
+  if (b.level !== undefined && (b.type !== 'heading' || ![1, 2, 3, 4].includes(b.level))) throw bad('paste.level');   // 0.18.0 XN-3: 見出し4
   if (b.checked !== undefined && (b.type !== 'todo' || typeof b.checked !== 'boolean')) throw bad('paste.checked');
   if (richText(b.rich) !== '' && b.type === 'divider') throw bad('paste.divider');
   const out = { type: b.type, rich: structuredClone(b.rich) };
@@ -276,7 +276,7 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
   meetingTypeSel: (v) => { if (!mtype.isSelectable(v)) throw bad('meetingType'); return v; },
   // 0.13.0 ED-2: ブロックの型（決まった表）・見出しの段（1〜3）・分ける位置（0 以上の整数。文の長さとサロゲートは命令の中で見る）・コールアウトの絵文字（EQ15 (a): 💡 だけ）
   blockType: (v) => { if (!isBlockType(v)) throw bad('type'); return v; },
-  level: (v) => { if (v !== 1 && v !== 2 && v !== 3) throw bad('level'); return v; },
+  level: (v) => { if (v !== 1 && v !== 2 && v !== 3 && v !== 4) throw bad('level'); return v; },   // 0.18.0 XN-3（決めたこと 63）: 見出し4
   offset: (v) => { if (!Number.isSafeInteger(v) || v < 0 || v > LIMITS.text) throw bad('offset'); return v; },
   icon: (v) => { if (v !== blockEdit.CALLOUT_ICON) throw bad('icon'); return v; },
   // 0.13.1（決めたこと 4）: 字下げの向き（in・out だけ）

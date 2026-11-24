@@ -91,7 +91,7 @@ function checkRow(b, st) {
   if (!blockEdit.TYPE_KEYS.includes(b.type)) throw bad('row type');
   const out = { id: b.id, type: b.type };
   if (b.level !== undefined) {
-    if (b.type !== 'heading' || ![1, 2, 3].includes(b.level)) throw bad('row level');
+    if (b.type !== 'heading' || ![1, 2, 3, 4].includes(b.level)) throw bad('row level');   // 0.18.0 XN-3: 見出し4
     out.level = b.level;
   }
   if (b.toggle !== undefined) {

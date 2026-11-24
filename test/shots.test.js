@@ -263,13 +263,16 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 // ［Claude の変更を戻す］の窓の明暗の4枚を足した（NEW_180。まだ基準が無い。Task G の前に基準にする）。取り直し待ちは 0.18.0 の表の画面（RETAKE_180）
 const NEW_180 = ['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark',
   'search-palette-newtab-light',   // 0.18.0 XE-4（決めたこと 60・CR128）で意図して足した: 検索の窓の Ctrl+Enter の後（まだ基準が無い）
-  'side-row-menu-lock-light', 'side-row-dup-light'];   // 0.18.0 XN-2（決めたこと 61・62）で意図して足した: ロック中のデータベースの行のメニューと複製の後（まだ基準が無い）
+  'side-row-menu-lock-light', 'side-row-dup-light',   // 0.18.0 XN-2（決めたこと 61・62）で意図して足した: ロック中のデータベースの行のメニューと複製の後（まだ基準が無い）
+  'edit-h4-light'];   // 0.18.0 XN-3（決めたこと 63）で意図して足した: 見出し1〜4 の字の大きさ（まだ基準が無い）
 // 0.18.0 CH-1（決めたこと 52・CR104）で意図して変えた: カード「Claude との連携（MCP）」の頭の1行と吹き出しの文が変わるので、項目「要約」を写す今の基準がある6枚を取り直す（RETAKEN_180）
 const RETAKEN_180 = ['settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
   // 0.18.0 XE-4（CR128）で意図して足した: 近道の表に「検索の窓」の行が増えるので、近道の表の2枚と設定の［一般］の3枚（今の基準がある）を取り直す（0.15.0 の R55・0.16.0 と同じ）
   'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark',
   // 0.18.0 XN-2（決めたこと 61）で意図して足した: 行の［···］のメニューの並びと［複製］が変わる（今の基準がある）
-  'side-row-menu-light'];
+  'side-row-menu-light',
+  // 0.18.0 XN-3（決めたこと 63）で意図して足した: 語「みだし」で開く / メニューにトグル見出し4が1行増える（今の基準がある）
+  'edit-slash-light', 'edit-slash-dark'];
 const RETAKE_180 = [...NEW_180, ...RETAKEN_180];
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
 // 0.18.0 CU-1 で意図して直した: 0.18.0 で足した画面（NEW_180）は 0.17.0 の画面に数えない
@@ -1434,7 +1437,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.18.0 XN-2（決めたこと 61・62・CR135）: サイドバーの行のメニューの並びと［複製］・行の Ctrl+D・近道の表の写しの Shift+F10 の説明と Ctrl+D の行。変わる画面は取り直す side-row-menu-light と
   // 足した side-row-menu-lock-light・side-row-dup-light と、近道の表の行が増える設定の画面（XE-4 の取り直しに入っている。RETAKE にある）。
   // 値を今の app.html に合わせた（前の値は 4681753f…）
-  assert.strictEqual(sha, 'e2afe9e9ebf63251494990e3d20730b1f7b11f03beda3dbe4316bd63bd701b3e',
+  // 0.18.0 XN-3（決めたこと 63・CR137）: 見出し4（型の表の写し・記法の写し・貼り付けとメモの照らしの写し・CSS の .h4）。変わる画面は足した edit-h4-light と、/ メニューに
+  // トグル見出し4が増える edit-slash-light・edit-slash-dark（RETAKE にある）。値を今の app.html に合わせた（前の値は e2afe9e9…）
+  assert.strictEqual(sha, '76989c93bbcf6654a296f6dfaebcc3f2c2ee7d40fcbef45f0e71ec754bc5a968',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

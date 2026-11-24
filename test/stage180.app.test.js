@@ -1490,3 +1490,35 @@ test('XN-2: ライブラリの行のメニューも同じ並び。近道の表�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- XN-3（決めたこと 63・AQ12 (a)・F250）: 見出し4
+const typeRowX = async (l, el, text) => { const t = el.querySelector('.txt'); t.focus(); t.textContent = text; l.caret.set(t, text.length); t.dispatchEvent({ type: 'input' }); await l.drain(); return t; };
+test('XN-3: ####＋空白で見出し4（行は .h4・DB の段は 4）・/ メニューに見出し4（右に ####）とトグル見出し4・⠿ の［変換 ▸］にも。字の大きさは見出し3より小さく本文より太い（CSS）', T, async () => {
+  const l = await seeded();
+  try {
+    const { B, bb } = l.made;
+    await open(l, B);
+    await typeRowX(l, rowOf(l, bb), '#### ');
+    assert.ok(rowOf(l, bb).classList.contains('h4'), '#### ＋空白で見出し4の行にならない');
+    assert.deepStrictEqual(l.call('page.get', { id: B }).page.blocks.map((b) => [b.type, b.level]), [['heading', 4]]);
+    const add = l.call('block.insert', { pageId: B, afterBlockId: bb, type: 'paragraph' }).blockId;
+    await open(l, B);
+    await typeRowX(l, rowOf(l, add), '/h4');
+    const opts = () => ($(l, 'slashMenu') ? $(l, 'slashMenu').querySelectorAll('.sopt').map((o) => [o.querySelector('.slabel').textContent, (o.querySelector('.smd') || { textContent: '' }).textContent]) : []);
+    assert.deepStrictEqual(opts(), [['見出し4', '####'], ['トグル見出し4', '']]);
+    await typeRowX(l, rowOf(l, add), '/');
+    const labels = opts().map((x) => x[0]);
+    assert.ok(labels.indexOf('見出し4') === labels.indexOf('見出し3') + 1 && labels.indexOf('トグル見出し4') === labels.indexOf('トグル見出し3') + 1, `/ メニューの並び: ${labels}`);
+    l.key({ key: 'Escape' }, rowOf(l, add).querySelector('.txt')); await l.drain();
+    // ⠿ の［変換 ▸］
+    rowOf(l, add).dispatchEvent({ type: 'contextmenu', preventDefault() {} }); await l.drain();
+    const bm = l.document.querySelector('.blockmenu');
+    bm.querySelectorAll('.mitem').find((b) => b.textContent === '変換 ▸').dispatchEvent({ type: 'click' }); await l.drain();
+    const sub = [...l.document.querySelectorAll('.blockmenu')].pop().querySelectorAll('.mitem').map((b) => b.textContent);
+    assert.ok(sub.includes('見出し4') && sub.includes('トグル見出し4'), `［変換 ▸］: ${sub}`);
+    const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'app.html'), 'utf8');
+    assert.match(css, /\.blk\.heading\.h4 \.txt \{ font-size: 16px; font-weight: 600; line-height: 24px; \}/, '見出し4の字（本文の 16px の太字・見出し3の 17px より小さい）');
+    assert.match(css, /#pageWrap\.look-small \.blk\.heading\.h4 \.txt \{ font-size: 14px; line-height: 22px; \}/);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

@@ -569,7 +569,7 @@ function htmlRows(root) {
     }
     const c = { ...ctx, marks: elementMarks(tag, attrs, st, ctx.marks) };
     let m;
-    if ((m = /^h([1-6])$/.exec(tag))) c.frame = { kind: 'heading', level: Math.min(Number(m[1]), 3), depth: contDepth(ctx.frame) };
+    if ((m = /^h([1-6])$/.exec(tag))) c.frame = { kind: 'heading', level: Math.min(Number(m[1]), 4), depth: contDepth(ctx.frame) };   // 0.18.0 XN-3: h4〜h6 は見出し4（OC-15）
     else if (tag === 'blockquote') c.frame = { kind: 'quote', depth: contDepth(ctx.frame) };
     else if (LISTS.has(tag)) {
       // ul の中に直に ul があれば1段深い（Google ドキュメントの形）。li の中なら、その項目の子
@@ -819,7 +819,7 @@ function fromMarkdown(text) {
       indents.push(width);
       let m;
       if (MD_DIVIDER.test(body)) pushRow(rows, { type: 'divider', runs: [], depth });
-      else if ((m = MD_HEADING.exec(body))) pushRow(rows, { type: 'heading', level: Math.min(m[1].length, 3), runs: mdInline(m[2]), depth });
+      else if ((m = MD_HEADING.exec(body))) pushRow(rows, { type: 'heading', level: Math.min(m[1].length, 4), runs: mdInline(m[2]), depth });   // 0.18.0 XN-3: #### 以上は見出し4（OC-15）
       else if ((m = MD_TODO.exec(body))) pushRow(rows, { type: 'todo', checked: m[1] !== ' ', runs: mdInline(m[2] || ''), depth });
       else if ((m = MD_BULLET.exec(body))) pushRow(rows, { type: 'bullet', runs: mdInline(m[1]), depth });
       else if ((m = MD_NUMBER.exec(body))) pushRow(rows, { type: 'numbered', runs: mdInline(m[1]), depth });

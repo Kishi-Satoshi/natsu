@@ -593,7 +593,7 @@ function marksOk(blocks) {
 test('EK-1: HTML の表（h1〜h6 → 段 1〜3・ul／ol → 箇条書きと番号（‡131 入れ子は子）・チェックの印 → ToDo・blockquote・hr・p・br・table の行 → 「セル / セル」・太字・斜体・下線・取り消し・コード・リンク）', () => {
   assert.deepStrictEqual(PC.fromHtml('<h2>題</h2>'), { blocks: [{ type: 'heading', level: 2, rich: [run('題')] }], inline: false });
   assert.deepStrictEqual(briefOf(PC.fromHtml('<h1>一</h1><h2>二</h2><h3>三</h3><h4>四</h4><h5>五</h5><H6>六</H6>')),
-    ['heading1:一', 'heading2:二', 'heading3:三', 'heading3:四', 'heading3:五', 'heading3:六']);
+    ['heading1:一', 'heading2:二', 'heading3:三', 'heading4:四', 'heading4:五', 'heading4:六']);   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: h4〜h6 は見出し4（OC-15）
   assert.deepStrictEqual(briefOf(PC.fromHtml('<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul><ol><li>d</li><li>e<ol><li>f</li></ol></li></ol>')),
     [['bullet:a', ['bullet:b']], 'bullet:c', 'numbered:d', ['numbered:e', ['numbered:f']]]);
   // 閉じる印の無い li（HTML の省略）も1つずつの項目
@@ -729,7 +729,8 @@ test('EK-1: Markdown の表（#〜####・- ・* ・1. ・- [ ]・- [x]・> （�
   ].join('\n');
   const r = PC.pasteBlocks({ text });
   assert.deepStrictEqual(briefOf(r), [
-    'heading1:一', 'heading2:二', 'heading3:三', 'heading3:四', 'bullet:箇条', 'bullet:星', 'bullet:足し', 'numbered:番号', 'numbered:括弧の番号',
+    'heading1:一', 'heading2:二', 'heading3:三', 'heading4:四', 'bullet:箇条',   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: #### は見出し4（OC-15）
+    'bullet:星', 'bullet:足し', 'numbered:番号', 'numbered:括弧の番号',
     'todo[ ]:まだ', 'todo[x]:済み', 'quote:引用', 'divider:', 'paragraph:const a = 1;', 'paragraph:# 見出しでない', 'paragraph:- 箇条でない',
     'paragraph:太いと住所と斜めとコードと消しと下線でなく太い',
   ]);
@@ -1235,7 +1236,7 @@ test('MB-1: validateMemoDoc（2,001 行・1MB 越え・知らない型・照ら�
     [[mrow('m1', 'paragraph', 'ab', { rich: [run('ab', ['link', 'JavaScript:alert(1)'])] })], '大文字の JavaScript: のリンク'],
     [[mrow('b1', 'paragraph', 'x')], 'm で始まらない ID'],
     [[mrow('m1', 'paragraph', 'x'), mrow('m1', 'paragraph', 'y')], '重なる ID'],
-    [[mrow('m1', 'heading', 'x', { level: 4 })], '段 4'],
+    [[mrow('m1', 'heading', 'x', { level: 5 })], '段 5'],   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: メモの見出し4は通る
     [[mrow('m1', 'bullet', 'x', { level: 2 })], '見出しでない段'],
     [[mrow('m1', 'divider', 'x')], '文のある区切り線'],
     [[mrow('m1', 'heading', 'x', { level: 2, children: [mrow('m2', 'paragraph', 'y')] })], '子を持てない型の子'],

@@ -847,6 +847,8 @@ const SCREENS = [
   // ［複製］の後（元のすぐ下の「 (1)」）。足した画面（まだ基準が無い）
   { name: 'side-row-menu-lock-light', page: 'app', theme: 'light', get answers() { return sideLockedAnswers(); }, act: ROW_MENU_LOCK },
   { name: 'side-row-dup-light', page: 'app', theme: 'light', get answers() { return dupAnswers(); }, act: ROW_DUP },
+  // 0.18.0 XN-3（計画の「取り直す画面（RETAKE）」・決めたこと 63）: 見出し1〜4 と本文の字の大きさを並べた白紙のページ（まだ基準が無い）
+  { name: 'edit-h4-light', page: 'app', theme: 'light', get answers() { return h4Answers(); }, act: OPEN_PAGE },
 ];
 // 0.9.0 O-3（RP9）: 録音バーの画面（形 → 地 → 拡大率 → 状態の順。撮る道具は形・地・拡大率の組ごとに窓を1つ開いて状態を act で替える）。
 // 録音は始めずに見た目だけを撮る（act は pill-states の見本を録音バーの DOM に当てる。撮るときだけ体の地にデスクトップの色を塗る）。
@@ -1000,10 +1002,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // （今の基準がある6枚。0.10.0 で頭の1行を変えたときの4枚と、頭の1行が写る・捲り棒のつまみが変わりうる settings-mcp-running-light・settings-quality-light）を取り直す
 // 0.18.0 XN-2（計画の「取り直す画面（RETAKE）」・決めたこと 61・62）: 行のメニューの並びと［複製］が変わる side-row-menu-light（今の基準がある）を取り直し、
 // ロック中のデータベースの行のメニューと複製の後の2枚を足した（まだ基準が無い）。近道の表の Ctrl+D の行で変わる設定の画面は XE-4 の取り直しに入っている
+// 0.18.0 XN-3（計画の「取り直す画面（RETAKE）」・決めたこと 63）: 見出し1〜4 の edit-h4-light を足し、語「みだし」で開く / メニューに
+// トグル見出し4が1行増える edit-slash-light・edit-slash-dark（今の基準がある）を取り直す
 const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
-  'side-row-menu-lock-light', 'side-row-dup-light',
+  'side-row-menu-lock-light', 'side-row-dup-light', 'edit-h4-light',
   'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
-  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light']);
+  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'edit-slash-light', 'edit-slash-dark']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）
@@ -1137,6 +1141,23 @@ function treeAnswers() {
     'koeApp.pagesSearch': [...kids, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))],
     'koeApp.uiState': { tree: { open: ['p1', 'p1a', 'p1a1', 'p1a1a'] } },
   };
+}
+
+/** 0.18.0 XN-3: 一覧のいちばん上の白紙のページ ph4（見出し1〜4 と本文の行を並べた形） */
+function h4Answers() {
+  const at = '2026-10-17T00:00:00.000Z';
+  const m = { citeState: 'manual', cites: [] };
+  const blocks = [
+    { id: 'k1', type: 'heading', level: 1, text: '見出し1 の行', ...m },
+    { id: 'k2', type: 'paragraph', text: '本文の行。見出しの段ごとの字の大きさを並べる', ...m },
+    { id: 'k3', type: 'heading', level: 2, text: '見出し2 の行', ...m },
+    { id: 'k4', type: 'heading', level: 3, text: '見出し3 の行', ...m },
+    { id: 'k5', type: 'heading', level: 4, text: '見出し4 の行', ...m },
+    { id: 'k6', type: 'paragraph', text: '見出し4 の下の本文の行', ...m },
+  ];
+  const page = { id: 'ph4', kind: 'blank', title: '見出しの段', date: '2026-10-17', memo: '', createdAt: at, updatedAt: at, blocks };
+  const row = { id: 'ph4', title: page.title, date: page.date, durationSec: 0, createdAt: at, updatedAt: at, meetingType: '', hasSummary: true, parentId: null, ord: 'i', kind: 'blank' };
+  return { 'koeApp.pagesSearch': [row, ...LIST.map((p) => ({ ...p, parentId: null, ord: 'i' }))], 'koeApp.pageGet': { page, segments: [] } };
 }
 
 /** 0.18.0 XN-2: サイドバーの一覧の2つ目のデータベース pd1 がロック中 */

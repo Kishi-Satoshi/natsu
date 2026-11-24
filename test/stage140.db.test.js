@@ -771,7 +771,7 @@ test('EK-2・F102: 2,001 行（子孫も数える）・1MB 越え・10 万字の
     [P('paragraph', 'あ'.repeat(100001))],
     [], 'nope', [{ type: 'bullet' }], [{ type: 'nope', rich: [run1('x')] }], [P('bullet', 'x', { level: 2 })], [P('paragraph', 'x', { checked: true })],
     [P('divider', 'x')], [P('bullet', 'x', { id: 'b9' })], [P('bullet', 'x', { cites: ['s2'] })], [{ type: 'bullet', rich: [run1('x', [['link', 'javascript:alert(1)']])] }],
-    [P('heading', 'x', { level: 4 })], [P('bullet', 'x', { children: 'x' })],
+    [P('heading', 'x', { level: 5 })], [P('bullet', 'x', { children: 'x' })],   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: 段 4 は見出し4で通る（段 5 は断る）
   ];
   for (const blocks of bad) {
     const r = paste(db, { blockId: 'b2', rich: [run1('来月の予算案の作成を担当Aが進める')], at: 2, blocks });

@@ -16,11 +16,13 @@ const BLOCK_TYPES = Object.freeze([
   { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '], code: 'Digit1', kids: false, cite: false, since: '0.13.0' },
   { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['みだし2', 'h2', '##'], md: ['## '], code: 'Digit2', kids: false, cite: false, since: 'now' },
   { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['みだし3', 'h3', '###'], md: ['### '], code: 'Digit3', kids: false, cite: false, since: '0.13.0' },
+  // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の決めたこと 63・AQ12 (a)）: 見出し4（近道は無い: Ctrl+Shift+4 は今どおり ToDo。KB にも見出し4の近道は無い）
+  { id: 'h4', key: 'heading', level: 4, label: '見出し4', words: ['h4', '####'], md: ['#### '], kids: false, cite: false, since: '0.18.0' },
   { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '], code: 'Digit4', kids: true, cite: true, since: 'now' },
   { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '], code: 'Digit5', kids: true, cite: true, since: 'now' },
   { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '], code: 'Digit6', kids: true, cite: false, since: '0.13.0' },
   { id: 'toggle', key: 'toggle', label: 'トグル', words: ['とぐる', 'toggle'], md: ['> '], code: 'Digit7', kids: true, cite: false, since: '0.13.1' },
-  { id: 'th', key: 'heading', toggle: true, label: 'トグル見出し1〜3', words: ['とぐるみだし', 'toggle heading'], md: [], kids: true, cite: false, since: '0.13.1' },
+  { id: 'th', key: 'heading', toggle: true, label: 'トグル見出し1〜4', words: ['とぐるみだし', 'toggle heading'], md: [], kids: true, cite: false, since: '0.13.1' },
   { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '], kids: true, cite: false, since: '0.13.0' },
   { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'], kids: false, cite: false, since: '0.13.0' },
   { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [], kids: true, cite: false, since: '0.13.0' },
@@ -28,8 +30,9 @@ const BLOCK_TYPES = Object.freeze([
 // この版で使える行（0.13.1 から型の表の全部。計画 docs/plans/2026-10-27-131.md の「受け渡す名前と形」）
 const VERSION_ROWS = Object.freeze([...BLOCK_TYPES]);
 // / メニューと ⠿ の［変換 ▸］の項目（0.13.1 NR5: 型の表の1行 th（段を持たない）から、トグル見出し1〜3 の3つの項目 th1〜th3 を作る。型の表は 12 行のまま）
+// 0.18.0 XN-3（決めたこと 63）: 見出し4の h4 を型の表に足し（13 行）、トグル見出し4 の th4 も作る
 const MENU_ROWS = Object.freeze(VERSION_ROWS.flatMap((r) => (r.id !== 'th' ? [r]
-  : [1, 2, 3].map((level) => Object.freeze({ ...r, id: `th${level}`, level, label: `トグル見出し${level}` })))));
+  : [1, 2, 3, 4].map((level) => Object.freeze({ ...r, id: `th${level}`, level, label: `トグル見出し${level}`, words: Object.freeze([...r.words, `h${level}`]) })))));   // 0.18.0 XN-3（OC-15・CR137）: /h4 でトグル見出し4も
 // / メニューの鍵（「最近使ったもの」に覚える鍵。0.13.1 で toggle・th1〜th3 を足した 14）
 const MENU_KEYS = Object.freeze(MENU_ROWS.map((r) => r.id));
 const TYPE_KEYS = Object.freeze([...new Set(VERSION_ROWS.map((r) => r.key))]);   // 画面の役の命令が通す型（DB の validate も同じ表）
@@ -43,7 +46,7 @@ const DBVIEW_ROW = Object.freeze({ id: 'dbview', key: 'dbview', label: 'リン�
 const CALLOUT_ICON = '💡';   // EQ15 (a): コールアウトの絵文字は 💡 だけ
 
 const rowById = (id) => MENU_ROWS.find((r) => r.id === id) || null;
-const headingLevel = (b) => (b && (b.level === 1 || b.level === 2 || b.level === 3) ? b.level : 2);   // 段の無い古い見出しは段 2
+const headingLevel = (b) => (b && (b.level === 1 || b.level === 2 || b.level === 3 || b.level === 4) ? b.level : 2);   // 段の無い古い見出しは段 2（0.18.0 XN-3: 段 4 も読む）
 
 // ブロック → 型の表の行（知らない型はテキストの見た目・段の無い見出しは段 2）
 function typeOf(block) {
@@ -102,7 +105,7 @@ const halfOf = (s) => [...String(s)].map((c) => ZEN[c] || c).join('');
 // before（カーソルの前の文）が行頭の記法ちょうどなら { type, level?, strip }。full（行の全部の文）は区切り線の「空の行」を見る
 function shortcutFor(before, { full } = {}) {
   const raw = String(before ?? '');
-  if (!raw || raw.length > 4) return null;
+  if (!raw || raw.length > 5) return null;   // 0.18.0 XN-3: いちばん長い記法は「#### 」の5字
   const s = halfOf(raw);
   if (s === '---') return String(full ?? raw) === raw ? { type: 'divider', strip: raw.length } : null;   // EQ13: 空の行の3つ目の -
   for (const r of VERSION_ROWS) {

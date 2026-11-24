@@ -185,7 +185,7 @@ test('ED-2: merge は今の行の文を前の文のある行の後ろにつな�
 }));
 
 // ---------------------------------------------------------------- 型の変換（F44・F46）
-test('ED-2・F44: turnInto で箇条書き → 番号付き → 箇条書きにすると cites・assignee・due・mark・citeState が元のまま。見出しの level は 1〜3 だけ', T, () => withDb((db) => {
+test('ED-2・F44: turnInto で箇条書き → 番号付き → 箇条書きにすると cites・assignee・due・mark・citeState が元のまま。見出しの level は 1〜4 だけ（0.18.0 XN-3 で 1〜3 から意図して直した）', T, () => withDb((db) => {
   const pick = (b) => ({ cites: b.cites, assignee: b.assignee, due: b.due, dueRaw: b.dueRaw, checked: b.checked, mark: b.mark, citeState: b.citeState });
   const was = get(db).blocks.find((b) => b.id === 'b4');
   for (const type of ['numbered', 'bullet', 'quote', 'todo']) assert.strictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b4', type }).ok, true, type);
@@ -193,7 +193,7 @@ test('ED-2・F44: turnInto で箇条書き → 番号付き → 箇条書きに�
   assert.deepStrictEqual(pick(now), pick(was));
   const h = call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b2', type: 'heading', level: 3 });
   assert.strictEqual(h.result.blocks.find((b) => b.id === 'b2').level, 3);
-  for (const level of [0, 4, 2.5, '2']) assert.deepStrictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b2', type: 'heading', level }).code, 'bad-args', String(level));
+  for (const level of [0, 5, 2.5, '2']) assert.deepStrictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b2', type: 'heading', level }).code, 'bad-args', String(level));
   assert.strictEqual(call(db, 'block.turnInto', { pageId: 'pa1', blockId: 'b2', type: 'callout' }).result.blocks.find((b) => b.id === 'b2').icon, '💡');
 }, { blocks: samplePage('pa1').page.blocks.map((b) => (b.id === 'b4' ? { ...b, mark: 'memo', citeState: 'linked' } : b)) }));
 

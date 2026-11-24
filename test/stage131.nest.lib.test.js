@@ -213,15 +213,15 @@ test('NE-1・NR12: dropSpot の表（上の行と同じ段・右へずらして�
 
 // ---------------------------------------------------------------- 型の表のトグルとトグル見出し（E5・NR5・EQ10 (a)・NR21）
 test('NE-1・NR5: MENU_ROWS は型の表の th から th1〜th3 を作る（段・toggle・名前・語）。MENU_KEYS は 14（toggle・th1〜th3 を足す）。TYPE_KEYS に toggle。recentCheck は toggle・th1 を残す', () => {
-  assert.strictEqual(E.BLOCK_TYPES.length, 12, '型の表は 12 行のまま');
+  assert.strictEqual(E.BLOCK_TYPES.length, 13, '型の表は 12 行のまま');   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: 見出し4（h4）を足して 13 行（th は1行のまま）
   assert.deepStrictEqual(E.VERSION_ROWS.map((r) => r.id), E.BLOCK_TYPES.map((r) => r.id), '0.13.1 は型の表の全部');
-  assert.deepStrictEqual([...E.MENU_KEYS], ['text', 'h1', 'h2', 'h3', 'todo', 'bullet', 'numbered', 'toggle', 'th1', 'th2', 'th3', 'quote', 'divider', 'callout']);
+  assert.deepStrictEqual([...E.MENU_KEYS], ['text', 'h1', 'h2', 'h3', 'h4', 'todo', 'bullet', 'numbered', 'toggle', 'th1', 'th2', 'th3', 'th4', 'quote', 'divider', 'callout']);   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: h4・th4
   const th = E.BLOCK_TYPES.find((r) => r.id === 'th');
-  for (const lv of [1, 2, 3]) {
+  for (const lv of [1, 2, 3, 4]) {
     const r = E.MENU_ROWS.find((x) => x.id === `th${lv}`);
     assert.strictEqual(r.key, 'heading'); assert.strictEqual(r.level, lv); assert.strictEqual(r.toggle, true);
     assert.strictEqual(r.label, `トグル見出し${lv}`);
-    assert.deepStrictEqual([...r.words], [...th.words]);
+    assert.deepStrictEqual([...r.words], [...th.words, `h${lv}`]);   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: 段の語 h1〜h4 も（CR137）
     assert.deepStrictEqual([...r.md], []);
     assert.strictEqual(r.kids, true);
   }
@@ -230,10 +230,11 @@ test('NE-1・NR5: MENU_ROWS は型の表の th から th1〜th3 を作る（段�
   assert.deepStrictEqual(E.recentCheck(['toggle', 'th1', 'quote', 'th']), ['toggle', 'th1', 'quote'], '覚えた toggle・th1 が落ちる（edn-menu-keys）');
   assert.deepStrictEqual(E.recentAdd(['h2'], 'th3'), ['th3', 'h2']);
   const ids2 = (q) => E.slashFilter(q, []).map((i) => i.id);
-  assert.deepStrictEqual(ids2('とぐる'), ['toggle', 'th1', 'th2', 'th3']);
-  assert.deepStrictEqual(ids2('とぐるみだし'), ['th1', 'th2', 'th3']);
-  assert.deepStrictEqual(ids2('みだし'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3'], '「みだし」は「とぐるみだし」にも当たる');
-  assert.deepStrictEqual(ids2('toggle'), ['toggle', 'th1', 'th2', 'th3']);
+  // 0.18.0 XN-3（「意図して変えるテスト」・決めたこと 63）で意図して直した: トグル見出し4（th4）も
+  assert.deepStrictEqual(ids2('とぐる'), ['toggle', 'th1', 'th2', 'th3', 'th4']);
+  assert.deepStrictEqual(ids2('とぐるみだし'), ['th1', 'th2', 'th3', 'th4']);
+  assert.deepStrictEqual(ids2('みだし'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3', 'th4'], '「みだし」は「とぐるみだし」にも当たる');
+  assert.deepStrictEqual(ids2('toggle'), ['toggle', 'th1', 'th2', 'th3', 'th4']);
   assert.deepStrictEqual(ids2(''), [...E.MENU_KEYS]);
 });
 
