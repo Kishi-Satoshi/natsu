@@ -11678,12 +11678,27 @@
   }
   function bookTakeUndo(book, key) { return take(book, key, 'undo'); }
   function bookTakeRedo(book, key) { return take(book, key, 'redo'); }
-  function bookDone(book, key, dir, revertStep) {
-    const entry = typeof revertStep === 'string' ? entryOf([revertStep]) : entryOf([], revertStep && revertStep.literal);
-    if (!entry) return book;
+  function bookDone(book, key, dir, revertStep, from) {
+    const made = typeof revertStep === 'string' ? entryOf([revertStep]) : entryOf([], revertStep && revertStep.literal);
+    if (!made) return book;
+    const entry = from && Array.isArray(from.marks) ? { ...made, marks: from.marks, row: from.row, at: dir === 'undo' ? 0 : 1 } : made;
     const s = slotOf(book, key);
     const to = dir === 'undo' ? 'redo' : 'undo';
     return { ...book, [key]: { ...s, [to]: capped([...s[to], entry]) } };
+  }
+  function bookMark(book, key, marks, step, row) {
+    if (!Array.isArray(marks) || marks.length < 3) return book;
+    const s = slotOf(book, key);
+    const top = s.undo[s.undo.length - 1];
+    if (!top || top.marks || top.fwd) return book;
+    if (step ? !(top.steps.length === 1 && top.steps[0] === step && !top.literal) : (top.steps.length || !top.literal)) return book;
+    return { ...book, [key]: { ...s, undo: [...s.undo.slice(0, -1), { ...top, marks, row, at: marks.length - 1 }] } };
+  }
+  function bookStepped(book, key, dir, entry) {
+    const s = slotOf(book, key);
+    if (dir === 'undo') return { ...book, [key]: { undo: capped([...s.undo, entry]), redo: capped([...s.redo, { steps: [], fwd: true }]) } };
+    if (!s.undo.length) return book;
+    return { ...book, [key]: { ...s, undo: [...s.undo.slice(0, -1), entry] } };
   }
   function bookDrop(book, keyOrPageId) {
     const k = String(keyOrPageId);
@@ -11695,9 +11710,60 @@
     return out;
   }
   // ---- undoBook の写しはここまで
+  // ---- 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57・F245）: typeMarks の写し（src/typeMarks.js。test/stage180.app.test.js が同じ答えかを照らす）
+  const UNDO_PAUSE_MS = 500;   // 打つ手がこれだけ止まったら、次の打鍵から別のまとまり（Q-04・X-35）
+  const MARKS_MAX = 60;        // 1つの保存の印の数（始めの1つを残し、古いまとまりから捨てる）
+  function snapOf(s) {
+    const o = s && typeof s === 'object' ? s : {};
+    return {
+      text: typeof o.text === 'string' ? o.text : '',
+      rich: Array.isArray(o.rich) && o.rich.length ? o.rich : null,
+      caret: Number.isSafeInteger(o.caret) && o.caret >= 0 ? o.caret : 0,
+    };
+  }
+  function sameSnap(a, b) {
+    return Boolean(a && b) && a.text === b.text && JSON.stringify(a.rich || null) === JSON.stringify(b.rich || null);
+  }
+  function markAdd(list, snap, nowMs, { cut = false } = {}) {
+    const l = Array.isArray(list) ? list : [];
+    const s = snapOf(snap);
+    const t = Number.isFinite(nowMs) ? nowMs : 0;
+    if (!l.length) return [{ snap: s, at: t, open: false }];
+    const last = l[l.length - 1];
+    if (sameSnap(last.snap, s)) return cut && last.open ? [...l.slice(0, -1), { ...last, open: false }] : l;
+    const next = { snap: s, at: t, open: !cut };
+    const out = last.open && t - last.at < UNDO_PAUSE_MS ? [...l.slice(0, -1), next] : [...l, next];
+    return out.length > MARKS_MAX ? [out[0], ...out.slice(out.length - MARKS_MAX + 1)] : out;
+  }
+  function marksOf(list) {
+    const out = [];
+    for (const m of Array.isArray(list) ? list : []) {
+      const s = snapOf(m && m.snap);
+      if (out.length && sameSnap(out[out.length - 1], s)) out[out.length - 1] = s; else out.push(s);
+    }
+    return out;
+  }
+  function atOf(entry) {
+    const m = entry && Array.isArray(entry.marks) ? entry.marks : [];
+    return { m, at: entry && Number.isSafeInteger(entry.at) ? entry.at : m.length - 1 };
+  }
+  function stepBack(entry) {
+    const { m, at } = atOf(entry);
+    if (m.length < 3 || at < 2 || at >= m.length) return null;
+    return { entry: { ...entry, at: at - 1 }, from: m[at], to: m[at - 1] };
+  }
+  function stepFwd(entry) {
+    const { m, at } = atOf(entry);
+    if (m.length < 3 || at < 1 || at >= m.length - 1) return null;
+    return { entry: { ...entry, at: at + 1 }, from: m[at], to: m[at + 1] };
+  }
+  // ---- typeMarks の写しはここまで
   let undoBk = {};               // 窓のメモリの列（NaTsu を終える・画面を読み直すと消える）
   let stepBox = null;            // stepGroup の間の { key（最初の歩みの列。0.14.0 MB-4: 要約かメモか）, steps, mark, lit（録音中と録音の前のメモの前と後）}
   let reverting = null;          // edit.revert を送っている間の { pid, tx }（答えの前に onEditStep が戻した行の tx を入れる）
+  let stepping = null;           // 0.18.0 XE-1: edit.textStep を送っている間の { pid, tx }（印を1つ動かした tx は保存の歩みに足す）
+  const lastStepOf = new Map();  // 0.18.0 XE-1: 列の鍵 → onEditStep が最後に渡した歩みの tx（保存の答えの後に、その歩みへ印の並びを持たせる）
+  const savesOut = new Map();    // 0.18.0 XE-1: 列の鍵 → 答えを待っている行の文の保存の数（ほかの保存を待っている間に送った保存には印を持たせない: CR120）
   // MB-4 直し（M2）: その欄を戻している間か（要約と保存したページのメモはページの ID・録音中と録音の前のメモは欄の鍵）
   const revertingAt = (k) => Boolean(reverting && (reverting.pid === curId || reverting.pid === k));
   let undoLit = null;            // 記法の直後の Ctrl+Z で行の頭に戻した記号 { pid, id, mark }（手を付けていない間だけ: R96）
@@ -11733,10 +11799,12 @@
   window.koeApp.onEditStep((s) => {
     if (!s || typeof s.step !== 'string' || typeof s.pageId !== 'string') return;
     if (s.cmd === 'edit.revert') { if (reverting && reverting.pid === s.pageId) reverting.tx = s.step; return; }
+    if (s.cmd === 'edit.textStep') { if (stepping && stepping.pid === s.pageId) stepping.tx = s.step; return; }   // 0.18.0 XE-1
     if (s.cmd === 'page.toDb') toDbSteps.add(s.step);   // 0.17.0 PD-2: データベースにした歩み（戻すと白紙のページ: 知らせと開き直し）
     const key = s.cmd === 'page.setMemoDoc' ? memoKeyOf(s.pageId) : /^blocks?\./.test(String(s.cmd)) || s.cmd === 'todo.toTask' ? noteKey(s.pageId)   // 0.17.0 TK-2: ［タスクにする］は要約の欄・本文の歩み
       : DB_STEP_RE.test(String(s.cmd)) ? dbStepKey(s.pageId) : '';   // 0.16.0 DV-1（決めたこと 47）: 表の命令はデータベースの歩み
     if (!key) return;
+    lastStepOf.set(key, s.step);
     if (stepBox && (stepBox.key === null || stepBox.key === key) && !stepBox.lit) { stepBox.key = key; stepBox.steps.push(s.step); return; }
     undoBk = bookPush(undoBk, key, [s.step]);
     pruneMarks();
@@ -11835,6 +11903,7 @@
     // 決めたこと 9: 行に保存していない文があれば、先に保存する（1歩）。戻すのはその歩み
     await commitRows(pid);
     if (!boxOfKey(pid)) return;
+    if (await markRun(pid, key, memo, dir)) return;   // 0.18.0 XE-1（決めたこと 57）: 印のある保存の歩みは、印を1つずつ戻す・進める
     const got = dir === 'undo' ? bookTakeUndo(undoBk, key) : bookTakeRedo(undoBk, key);
     if (!got.entry) { toast(dir === 'undo' ? 'これ以上は戻せません' : 'やり直せるものはありません'); return; }
     const slotNow = Object.hasOwn(got.book, key) ? got.book[key] : { undo: [], redo: [] };
@@ -11859,11 +11928,78 @@
       return;
     }
     if (run.tx) {
-      undoBk = bookDone(undoBk, key, dir, run.tx);
+      undoBk = bookDone(undoBk, key, dir, run.tx, entry);   // 0.18.0 XE-1: 印のある歩みは、反対の歩みも同じ印を持つ
       if (mark) stepMarks.set(run.tx, mark);
-    } else if (out.literal) undoBk = bookDone(undoBk, key, dir, { literal: out.literal });   // 0.14.0 MB-4: 録音中と録音の前のメモ（窓のメモリ）
+    } else if (out.literal) undoBk = bookDone(undoBk, key, dir, { literal: out.literal }, entry);   // 0.14.0 MB-4: 録音中と録音の前のメモ（窓のメモリ）
     pruneMarks();
     if (mark && dir === 'undo') restoreMark(pid, mark);
+  }
+  // 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57・F245）: 印のある保存の歩み（一番上）の Ctrl+Z は、今の印から1つ前の印へ（edit.textStep。
+  // tx はその歩みに足す。始めの次まで来たら今どおり edit.revert で歩みごと戻す）。やり直しの列の一番上が進みの印なら、Ctrl+Y・Ctrl+Shift+Z は印を1つ進める。
+  // 録音中と録音の前のメモは窓のメモリだけで動かす（DB に送らない）。今の行が印と違えば（Claude や別の欄が書いた）stale で、今の「戻せませんでした」の一言
+  const snapWire = (x) => ({ text: x.text, rich: x.rich || null });
+  async function markRun(pid, key, memo, dir) {
+    const sl = Object.hasOwn(undoBk, key) ? undoBk[key] : null;
+    if (!sl) return false;
+    const top = sl.undo[sl.undo.length - 1];
+    let r = null;
+    if (dir === 'undo') r = top && top.marks ? stepBack(top) : null;
+    else {
+      const nx = sl.redo[sl.redo.length - 1];
+      if (!nx || !nx.fwd) return false;
+      r = top && top.marks ? stepFwd(top) : null;
+      if (!r) { undoBk = bookTakeRedo(undoBk, key).book; return false; }   // 合わない進みの印は捨てる（今の決まりで次の歩みを）
+    }
+    if (!r) return false;
+    const took = dir === 'undo' ? bookTakeUndo(undoBk, key) : bookTakeRedo(undoBk, key);
+    const slotNow = Object.hasOwn(took.book, key) ? took.book[key] : { undo: [], redo: [] };
+    const takenAt = slotNow[dir].length;
+    undoBk = took.book;
+    const run = { pid: memo ? memoTgOf(pid).pageId || pid : pid, tx: null };
+    stepping = run;
+    let code = '';
+    const caret = Math.min(r.to.caret, r.to.text.length);
+    const out = await editAnswer(pid, async () => {
+      try { return await (memo ? memoTextStep(pid, r.entry.row, r.from, r.to) : window.koeApp.editTextStep(pid, r.entry.row, snapWire(r.from), snapWire(r.to))); }
+      catch (e) { code = String((e && (e.code || e.message)) || 'internal'); return null; }
+      finally { if (stepping === run) stepping = null; }
+    }, () => ({ focus: r.entry.row, caret }));
+    if (!out) {
+      if (code === 'stale' || code === 'bad-args') { toast('ほかの所で変わったので、元に戻せませんでした'); undoBk = bookDrop(undoBk, key); return true; }   // 列を空に（edit.revert の stale と同じ）
+      undoBk = putBack(undoBk, key, dir, took.entry, takenAt, slotNow.undo.length);   // 鍵の間・DB が止まっているなどは取った所に戻す
+      if (code !== 'locked') toast(`変更を保存できませんでした: ${code}`);
+      return true;
+    }
+    let entry = run.tx ? { ...r.entry, steps: [...r.entry.steps, run.tx] } : r.entry;
+    if (out.live && entry.literal) entry = { ...entry, literal: { ...entry.literal, after: out.live } };   // 録音中と録音の前のメモ: 戻すときに照らす「後」も今の行に
+    undoBk = bookStepped(undoBk, key, dir, entry);
+    pruneMarks();
+    return true;
+  }
+  // メモの行の印を1つ動かす（保存したページは edit.textStep。録音中と録音の前は窓のメモリの行を替えて main へ送るだけ: DB には送らない）
+  async function memoTextStep(k, row, from, to) {
+    const tg = memoTgOf(k);
+    if (!tg) throw new Error('internal');
+    if (tg.pageId) {
+      const p = await window.koeApp.editTextStep(tg.pageId, row, snapWire(from), snapWire(to));
+      const got = p && p.page ? p.page : p;
+      const doc = memoDocOfPage(got);
+      tg.doc = doc;
+      if (got && curPage && curPage.id === tg.pageId) { curPage.memo = got.memo; curPage.memoDoc = got.memoDoc; }
+      return { page: { id: k, blocks: structuredClone(doc) } };
+    }
+    const doc = structuredClone(tg.doc);
+    const lc = locate(doc, row);
+    const b = lc ? lc.b : null;
+    if (!b || !sameSnap({ text: b.text, rich: b.rich || null }, from)) throw new Error('stale');
+    b.text = to.text;
+    if (to.rich) b.rich = structuredClone(to.rich); else delete b.rich;
+    const ok = await window.koeApp.meetingSetMemo(doc);
+    if (ok === false) throw new Error('bad-args');
+    tg.doc = doc;
+    liveDoc = doc; liveMemo = memoDocView.memoPlain(doc);
+    for (const x of flattenBlocks(doc)) tg.rows.add(x);
+    return { page: { id: k, blocks: structuredClone(doc) }, live: doc };
   }
   // R6（決めたこと 10）: 記法で変えた直後の Ctrl+Z は、打った記号を行の頭に戻す（打った文として次の区切りで保存）
   function restoreMark(pid, m) {
@@ -15275,17 +15411,39 @@
       if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; }
       if (el._b && isFixedB(el._b)) return undefined;   // 0.15.0 PR-2（決めたこと 53・56）: 子ページの行の文は題名を描いたもので、保存しない（0.16.0 DL-1 (2b): リンクドビューの行は文を持たない）
       if (rowsBoxOf(el) && keyOfEl(el) !== pid) return undefined;   // 0.14.0 MB-4: 別の欄の鍵では保存しない（メモの行を要約の命令で送らない）
+      const typed = txt._marks;   // 0.18.0 XE-1: この保存までに積んだ印（保存したら次の打鍵から積み直す）
+      txt._marks = null;
       const b = el._b;
       const memoRow = Boolean(rowsBoxOf(el) && rowsBoxOf(el)._memoTg);
       const v = memoRow ? txt.textContent.trimEnd() : txt.textContent.trim();   // MB-4 直し（M1）: メモの行は頭の空白（前の版の字下げ）を削らない
       // 0.14.0 EB-4（決めたこと 16・17）: 飾りのある行（画面か保存した行）は { rich } を送る（文は DB が rich から作る。飾りの無い行は今どおり { text }）
       const rich = richPatch(txt, b);
+      const key = memoRow ? pid : noteKey(pid);
+      const live = memoRow && memoTgOf(pid) && !memoTgOf(pid).pageId;
+      const was = lastStepOf.get(key);
+      const alone = !savesOut.get(key);
+      // 0.18.0 XE-1（決めたこと 57）: 保存の歩みに、保存の前の形から保存した形までの印の並びを持たせる（DB には送らない）。答えの後に一番上の歩みへ
+      const sent = (p) => {
+        savesOut.set(key, (savesOut.get(key) || 0) + 1);
+        const off = () => { const n = (savesOut.get(key) || 1) - 1; if (n > 0) savesOut.set(key, n); else savesOut.delete(key); };
+        p.then(off, off);
+        return p;
+      };
+      const marked = (r) => {
+        const fin = { text: b.text, rich: Array.isArray(b.rich) && b.rich.length ? b.rich : null, caret: (caretRange(txt) || [b.text.length])[0] };
+        const m = typed ? marksOf(typed) : [];
+        if (m.length < 2 || !alone) return r;
+        const all = marksOf([...m.slice(0, -1), fin].map((x) => ({ snap: x })));
+        const step = live ? null : lastStepOf.get(key);
+        if (live || (step && step !== was)) undoBk = bookMark(undoBk, key, all, step, b.id);
+        return r;
+      };
       if (rich) {
         if ((v === b.text && sameRich(rich, b.rich)) || (txt.textContent === b.text && sameRich(rowRich(txt), b.rich))) return undefined;
         if (v !== b.text && (b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
         b.text = v; b.rich = normalizeRich(rich);
         if (pid === curId && curPage) curPage.summaryEdited = true;   // 点検4: 要約の欄を直した印
-        return saveRow(rowApi(pid).blockUpdate(pid, b.id, { rich }).then((r) => { claudeLost(r); if (pid === curId) refreshList(); }));
+        return saveRow(sent(rowApi(pid).blockUpdate(pid, b.id, { rich })).then(marked).then((r) => { claudeLost(r); if (pid === curId) refreshList(); }));
       }
       if (v === b.text) return undefined;
       if (txt.textContent === b.text) return undefined;   // 点検5: 画面の文が行の文と同じなら直していない（分けた前の文の終わりの空白を削って送り直さない）
@@ -15294,7 +15452,7 @@
       // 本文を変えたら出典との対応は古くなる。store も stale を付けるが、
       // 次に pageGet するまでの間も札で示す。
       if ((b.type === 'bullet' || b.type === 'todo') && b.citeState !== 'manual') { b.citeState = 'stale'; renderCiteBadge(el, b); }
-      return saveRow(rowApi(pid).blockUpdate(pid, b.id, { text: v }).then((r) => { claudeLost(r); if (pid === curId) refreshList(); }));
+      return saveRow(sent(rowApi(pid).blockUpdate(pid, b.id, { text: v })).then(marked).then((r) => { claudeLost(r); if (pid === curId) refreshList(); }));
     };
     // 0.14.0 EB-5（決めたこと 19）: 行から出ると道具の帯を隠す（リンクの欄へ移るときは欄が開いてから。帯・色の項目は押してもフォーカスが移らない）
     txt.onblur = () => { if (slash && slash.el === el) slashClose(); markBarLeave(el); litLeave(el); if (rowsBoxOf(el)) txt._commit(keyOfEl(el)); };
@@ -15332,13 +15490,30 @@
         if (n === 0 || (r && r[0] === 0 && r[1] === n)) { ev.preventDefault(); selAllStart(el); }
         return;
       }
-      if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); }   // 行の中の改行（命令は送らない）
+      if (ev.key === 'Enter' && !mod && ev.shiftKey) { ev.preventDefault(); typeAtCaret(txt, '\n'); noteMark(false); }   // 行の中の改行（命令は送らない。印は切らない: 0.18.0 XE-1・AQ23 (a)）
       else if (ev.key === 'Enter' && !mod) { ev.preventDefault(); splitRow(el); }
       else if (ev.key === 'Backspace' && !mod && !ev.shiftKey && caretAtStart(txt)) { ev.preventDefault(); backRow(el); }
       else if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !mod && !ev.shiftKey) { if (stepRow(el, ev.key === 'ArrowUp' ? -1 : 1)) ev.preventDefault(); }
     };
     // 0.14.0 EB-3（決めたこと 8）: 打つ手が TYPE_PAUSE_MS 止まったら保存する（1回の保存が1歩）。変換中は数えない（確定してから数える）
+    // 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57・AQ23 (a)・AQ24 (a)）: 文が変わるたびに印を積む（typeMarks。窓のメモリだけで、保存は今の 2 秒のまま）。
+    // 打つ手が UNDO_PAUSE_MS 止まった後の打鍵は次のまとまり・日本語入力の確定（cut）はそこでまとまりを閉じる。行の中の改行・1行の貼り付け・飾りは切らない
+    const noteMark = (cut) => {
+      const b = el._b;
+      if (!b || isFixedB(b) || b.type === 'divider') return;
+      if (!txt._marks || txt._marksFor !== b.id) {
+        txt._marksFor = b.id;
+        txt._marks = markAdd([], { text: String(b.text ?? ''), rich: Array.isArray(b.rich) ? b.rich : null, caret: String(b.text ?? '').length }, Date.now());   // 始め（保存した形）
+      }
+      const memoRow = Boolean(rowsBoxOf(el) && rowsBoxOf(el)._memoTg);
+      const rich = richPatch(txt, b);
+      const nr = rich ? normalizeRich(rich) : null;
+      const text = rich ? plainOf(rich) : memoRow ? txt.textContent.trimEnd() : txt.textContent.trim();
+      txt._marks = markAdd(txt._marks, { text, rich: nr, caret: (caretRange(txt) || [text.length])[0] }, Date.now(), { cut });
+    };
+    txt._noteMark = noteMark;
     const pauseSave = () => {
+      noteMark(false);
       if (txt._pause) clearTimeout(txt._pause);
       const pid = keyOfEl(el);
       txt._pause = setTimeout(() => { txt._pause = null; if (boxOfKey(pid) && isIn(txt, boxOfKey(pid))) txt._commit(pid); }, TYPE_PAUSE_MS);
@@ -15363,7 +15538,7 @@
     txt.addEventListener('beforeinput', (ev) => { if (revertingAt(keyOfEl(el)) && ev.cancelable !== false) ev.preventDefault(); });
     // 変換の事象は on〜 の受け口を持たない（GlobalEventHandlers に無い）ので addEventListener で付ける
     txt.addEventListener('compositionstart', () => { txt._composing = true; if (txt._pause) { clearTimeout(txt._pause); txt._pause = null; } });
-    txt.addEventListener('compositionend', () => { txt._composing = false; typedRich(el); pauseSave(); mdCheck(el); slashCheck(el); });
+    txt.addEventListener('compositionend', () => { txt._composing = false; typedRich(el); noteMark(true); pauseSave(); mdCheck(el); slashCheck(el); });   // 0.18.0 XE-1（AQ24 (a)）: 確定ごとに印
     // 0.14.0 EK-3（決めたこと 23〜27）: 貼り付けは行と飾りに変える（HTML の要素は入れない。Ctrl+Shift+V は素の文字だけ・改行は行の中の改行）
     txt.onpaste = (ev) => pasteRow(el, ev);
     // 0.14.0 EB-5 直し（R117）: 落とした文字（ほかのアプリ・文字起こしの欄から）は、貼り付けと同じく素の文字だけを落とした所へ入れ、すぐ保存する（1歩）

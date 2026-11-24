@@ -443,11 +443,12 @@ test('CW-1: T4b: 控えに後の oplog（Claude の書き込みと page.claudeRe
   } finally { t.done(); }
 });
 
-test('CW-1: preload の 74 の名前（page.claudeSnaps・page.claudeRevert）は役 app の命令と同じ集まり。page.claudeSnaps は読む命令（tx なし）・page.claudeRevert は tx 付き', T, async () => {
+// 0.18.0 XE-1 で意図して直した（計画の「意図して変えるテスト」の preload の名前の数）: edit.textStep を足して 75（意図「役 app の命令と同じ集まり」は残す）
+test('CW-1・XE-1: preload の 75 の名前（page.claudeSnaps・page.claudeRevert・edit.textStep）は役 app の命令と同じ集まり。page.claudeSnaps は読む命令（tx なし）・page.claudeRevert は tx 付き', T, async () => {
   const vm = require('node:vm');
   const PRE = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRE)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 74);
+  assert.strictEqual(names.length, 75);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const reads = [.../const DB_READS = new Set\(\[([^\]]*)\]\)/.exec(PRE)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
   assert.ok(reads.includes('page.claudeSnaps') && !reads.includes('page.claudeRevert'));
@@ -1429,4 +1430,46 @@ test('CU-1・点検 3・CR97: Claude の mcp.updateRow の知らせ（changed.pa
   const both = ok(mcp(db, 'mcp.updateRow', { id, title: '新しい題', cells: { 関連: [x.ra] } }), '題名とリレーション');   // D77: データベースの行の題名
   assert.strictEqual(both.changed.pageIds[0], id);
   assert.strictEqual(ok(mcp(db, 'mcp.updateRow', { id, cells: { 関連: [x.ra] } }), '同じ値').changed, undefined, '何も変えないのに知らせた');
+}));
+
+// ---------------------------------------------------------------- XE-1（決めたこと 57・F245）: edit.textStep（Ctrl+Z・Ctrl+Y の印を1つ動かす）
+test('XE-1・F245: edit.textStep: 今の文と飾りが from なら to を書く・違えば stale で何も変えない・UNDO_CMDS にある・役 app だけ・保存の歩みと合わせて edit.revert で始めへ戻る（出典の印も）', T, () => withDb((db, t) => {
+  const { page, segments } = samplePage('pq1');
+  t.seed(page, segments);
+  assert.ok(UNDO_CMDS.has('edit.textStep'));
+  assert.deepStrictEqual(core.COMMANDS['edit.textStep'].roles, ['app']);
+  const before = db.prepare('select text, attrs from blocks where id = ?').get('b2');
+  const at = (id = 'b2') => { const b = ok(call(db, 'page.get', { id: 'pq1' }), 'page.get').result.page.blocks.find((x) => x.id === id); return [b.text, b.rich || null, b.citeState]; };
+  const save = ok(call(db, 'block.update', { pageId: 'pq1', blockId: 'b2', patch: { text: '来月の予算案の作成を担当Aが進める。確認' } }), 'block.update');
+  // from が今の文: to を書く（出典は古い印: block.update と同じ）
+  const s1 = ok(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'b2', from: { text: '来月の予算案の作成を担当Aが進める。確認', rich: null }, to: { text: '来月の予算案の作成を担当Aが進める。', rich: null } }), 'edit.textStep');
+  assert.ok(s1.changed, '変えたのに changed が無い');
+  assert.deepStrictEqual(at(), ['来月の予算案の作成を担当Aが進める。', null, 'stale']);
+  // from が今の文と違う: stale で何も変えない（Claude や別の欄が書いた後の文を上書きしない）
+  const rev = revOf(db, 'b2');
+  const st = call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'b2', from: { text: '来月の予算案の作成を担当Aが進める。確認', rich: null }, to: { text: '別の文', rich: null } });
+  assert.deepStrictEqual([st.ok, st.code], [false, 'stale']);
+  assert.deepStrictEqual([at()[0], revOf(db, 'b2')], ['来月の予算案の作成を担当Aが進める。', rev], 'stale で書いた');
+  // 飾りも照らす（同じ文でも飾りが違えば stale）・飾りを書く
+  const bold = [{ t: '来月の予算案の作成を担当Aが進める。', m: ['b'] }];
+  const st2 = call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'b2', from: { text: '来月の予算案の作成を担当Aが進める。', rich: bold }, to: { text: 'x', rich: null } });
+  assert.deepStrictEqual([st2.ok, st2.code], [false, 'stale'], '飾りの違いを照らさない');
+  ok(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'b2', from: { text: '来月の予算案の作成を担当Aが進める。', rich: null }, to: { text: '来月の予算案の作成を担当Aが進める。', rich: bold } }), '飾りを書く');
+  assert.deepStrictEqual(at().slice(0, 2), ['来月の予算案の作成を担当Aが進める。', bold]);
+  // 形の照らし（rich の素の文字が text と違う・知らない欄）・役 mcp と main は断る
+  for (const bad of [{ text: 'a', rich: [{ t: 'b', m: [] }] }, { text: 'a', rich: null, caret: 1 }, { rich: null }]) {
+    assert.strictEqual(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'b2', from: bad, to: { text: 'a', rich: null } }).code, 'bad-args', JSON.stringify(bad));
+  }
+  for (const role of ['mcp', 'main']) assert.strictEqual(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'b2', from: { text: 'a', rich: null }, to: { text: 'b', rich: null } }, role).ok, false, role);
+  // 保存の歩みと印の歩みを合わせて edit.revert: 保存の前の形（出典の印も）に戻る
+  const s2tx = call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'b2', from: { text: '来月の予算案の作成を担当Aが進める。', rich: bold }, to: { text: '来月の予算案の作成を担当Aが進める。', rich: null } }).tx;
+  ok(call(db, 'edit.revert', { pageId: 'pq1', steps: [save.tx, s1.tx, s2tx] }), 'edit.revert');
+  assert.deepStrictEqual(db.prepare('select text, attrs from blocks where id = ?').get('b2'), before, '保存の前の形に戻らない');
+  // メモの行（保存したページの memoDoc）
+  ok(call(db, 'page.setMemoDoc', { id: 'pq1', doc: [{ id: 'm1', type: 'paragraph', text: 'メモの一行' }] }), 'page.setMemoDoc');
+  ok(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'm1', from: { text: 'メモの一行', rich: null }, to: { text: 'メモの', rich: null } }), 'メモの行');
+  const p = ok(call(db, 'page.get', { id: 'pq1' }), 'page.get').result.page;
+  assert.deepStrictEqual([p.memoDoc.map((b) => b.text), p.memo], [['メモの'], 'メモの\n']);
+  assert.strictEqual(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'm1', from: { text: 'メモの一行', rich: null }, to: { text: 'x', rich: null } }).code, 'stale');
+  assert.strictEqual(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'zz9', from: { text: '', rich: null }, to: { text: 'x', rich: null } }).code, 'stale', '無い行');
 }));

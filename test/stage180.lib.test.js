@@ -433,3 +433,80 @@ test('点検 2・CR93: fixNames の飾りの区切りをまたぐ当たりは、
   const u = NF.fixNames({ blocks: [{ id: 'z', type: 'bullet', text: '担当は山田と山田', rich: [{ t: '担当は山' }, { t: '田と山田', m: ['b'] }] }] }, [], [{ from: '山田', to: '山本' }]);
   assert.deepStrictEqual([u.page.blocks[0].rich, u.counts.summary, u.counts.crossed], [[{ t: '担当は山' }, { t: '田と山本', m: ['b'] }], 1, 1]);
 });
+
+// ---------------------------------------------------------------- XE-1（決めたこと 57・AQ23 (a)・AQ24 (a)・F245）: Ctrl+Z の印（src/typeMarks.js）
+const TM = require('../src/typeMarks');
+const UB = require('../src/undoBook');
+test('XE-1・F245: typeMarks の表（0.4 秒の間は同じ印・0.6 秒で次の印・cut（日本語入力の確定）は時刻によらず次の印・同じ文は足さない・60 まで・stepBack と stepFwd の往復・印が2つの歩みは null）', () => {
+  assert.strictEqual(TM.UNDO_PAUSE_MS, 500);
+  const S = (text, caret = text.length) => ({ text, rich: null, caret });
+  let l = TM.markAdd([], S(''), 0);
+  assert.deepStrictEqual(l, [{ snap: S(''), at: 0, open: false }], '始めは閉じた印');
+  l = TM.markAdd(l, S('あ'), 1000);
+  l = TM.markAdd(l, S('あい'), 1400);   // 0.4 秒: 同じ印
+  l = TM.markAdd(l, S('あいう'), 1800);
+  assert.deepStrictEqual(TM.marksOf(l).map((x) => x.text), ['', 'あいう'], '0.4 秒の間で分けた');
+  l = TM.markAdd(l, S('あいうえ'), 2400);   // 0.6 秒: 次の印
+  assert.deepStrictEqual(TM.marksOf(l).map((x) => x.text), ['', 'あいう', 'あいうえ'], '0.6 秒で分けない');
+  // 確定（cut）: すぐ前（0.1 秒）でも次の印で、その印を閉じる（次の打鍵はすぐでも別の印）
+  l = TM.markAdd(l, S('あいうえ今日'), 2500, { cut: true });
+  l = TM.markAdd(l, S('あいうえ今日は'), 2600);
+  assert.deepStrictEqual(TM.marksOf(l).map((x) => x.text), ['', 'あいう', 'あいうえ今日', 'あいうえ今日は'], '確定で印を閉じない');
+  // 同じ文は足さない（カーソルだけの違いも）
+  const n = l.length;
+  l = TM.markAdd(l, S('あいうえ今日は', 2), 5000);
+  assert.strictEqual(l.length, n, '同じ文を足した');
+  // 飾りの違いは別の文
+  l = TM.markAdd(l, { text: 'あいうえ今日は', rich: [{ t: 'あいうえ今日は', m: ['b'] }], caret: 7 }, 9000);
+  assert.strictEqual(TM.marksOf(l).length, 5, '飾りの違いを同じ文にした');
+  // 60 まで（始めは残る）
+  let m = TM.markAdd([], S('始'), 0);
+  for (let i = 1; i <= 70; i++) m = TM.markAdd(m, S(`始${i}`), i * 1000);
+  assert.strictEqual(m.length, TM.MARKS_MAX);
+  assert.deepStrictEqual([m[0].snap.text, m[1].snap.text, m[m.length - 1].snap.text], ['始', '始12', '始70']);
+  // marksOf は続けて同じ文を1つに（後のカーソル）
+  assert.deepStrictEqual(TM.marksOf([{ snap: S('a', 0) }, { snap: S('a', 1) }, { snap: S('ab') }]), [S('a', 1), S('ab')]);
+  // stepBack・stepFwd の往復（印が2つ・始めの次は null: edit.revert で戻す）
+  const e = { steps: ['a:s1'], marks: [S(''), S('あいう'), S('あいうえお')], row: 'r1', at: 2 };
+  const b1 = TM.stepBack(e);
+  assert.deepStrictEqual([b1.from.text, b1.to.text, b1.entry.at, b1.entry.row, b1.entry.steps], ['あいうえお', 'あいう', 1, 'r1', ['a:s1']]);
+  assert.strictEqual(TM.stepBack(b1.entry), null, '始めの次から印で戻した（edit.revert で戻す）');
+  const f1 = TM.stepFwd(b1.entry);
+  assert.deepStrictEqual([f1.from.text, f1.to.text, f1.entry.at], ['あいう', 'あいうえお', 2]);
+  assert.strictEqual(TM.stepFwd(f1.entry), null, '終わりから進めた');
+  assert.strictEqual(TM.stepFwd({ ...e, at: 0 }), null, '始め（edit.revert のやり直し）から印で進めた');
+  assert.strictEqual(TM.stepBack({ steps: ['a:s1'], marks: [S(''), S('あ')], at: 1 }), null, '印が2つの歩みは null でない');
+  assert.strictEqual(TM.stepBack({ steps: ['a:s1'] }), null);
+});
+
+test('XE-1・F245: undoBook の印（bookMark は保存の歩みにだけ・3つ以上・bookStepped の戻すと進める・bookDone は印を反対の歩みへ）・UNDO_CMDS に edit.textStep', () => {
+  assert.ok(UB.UNDO_CMDS.has('edit.textStep'));
+  const k = UB.bookKey('p1', 'note');
+  const M3 = [{ text: '' }, { text: 'a' }, { text: 'ab' }];
+  let b = UB.bookPush({}, k, ['a:s1']);
+  assert.strictEqual(UB.bookMark(b, k, M3.slice(0, 2), 'a:s1', 'r1'), b, '印が2つで付けた');
+  assert.strictEqual(UB.bookMark(b, k, M3, 'a:other', 'r1'), b, 'ほかの歩みに付けた');
+  b = UB.bookMark(b, k, M3, 'a:s1', 'r1');
+  assert.deepStrictEqual(b[k].undo, [{ steps: ['a:s1'], marks: M3, row: 'r1', at: 2 }]);
+  // 窓のメモリの歩み（step 無し）
+  const lk = UB.bookKey('live', 'memo');
+  const lb = UB.bookMark(UB.bookPush({}, lk, [], { literal: { before: [], after: [] } }), lk, M3, null, 'm1');
+  assert.deepStrictEqual(lb[lk].undo[0].at, 2);
+  // 戻した: 戻す列の上に戻し、やり直しの列に進みの印
+  const t = UB.bookTakeUndo(b, k);
+  b = UB.bookStepped(t.book, k, 'undo', { ...t.entry, steps: ['a:s1', 'a:t1'], at: 1 });
+  assert.deepStrictEqual([b[k].undo.map((e) => [e.steps, e.at]), b[k].redo], [[[['a:s1', 'a:t1'], 1]], [{ steps: [], fwd: true }]]);
+  // 進めた: 進みの印を取り、戻す列の一番上を替える
+  const r = UB.bookTakeRedo(b, k);
+  b = UB.bookStepped(r.book, k, 'redo', { ...b[k].undo[0], steps: ['a:s1', 'a:t1', 'a:t2'], at: 2 });
+  assert.deepStrictEqual([b[k].undo.map((e) => [e.steps, e.at]), b[k].redo], [[[['a:s1', 'a:t1', 'a:t2'], 2]], []]);
+  // edit.revert で戻した歩みの印は反対の歩みへ（戻した後は at 0・やり直した後は at 1）
+  const u = UB.bookTakeUndo(b, k);
+  b = UB.bookDone(u.book, k, 'undo', 'a:r1', u.entry);
+  assert.deepStrictEqual(b[k].redo, [{ steps: ['a:r1'], marks: M3, row: 'r1', at: 0 }]);
+  const y = UB.bookTakeRedo(b, k);
+  b = UB.bookDone(y.book, k, 'redo', 'a:r2', y.entry);
+  assert.deepStrictEqual(b[k].undo, [{ steps: ['a:r2'], marks: M3, row: 'r1', at: 1 }]);
+  // 印の無い歩みは今のまま
+  assert.deepStrictEqual(UB.bookDone({}, k, 'undo', 'a:x', { steps: ['a:y'] })[k].redo, [{ steps: ['a:x'] }]);
+});

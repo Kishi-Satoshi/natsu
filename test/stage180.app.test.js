@@ -651,3 +651,258 @@ test('CH-1: 設定のカード「Claude との連携（MCP）」の頭の1行と
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- XE-1（決めたこと 57・AQ10 (a)・AQ23 (a)・AQ24 (a)・F245）: Ctrl+Z のまとまりは約 0.5 秒と日本語入力の確定
+const XFS = require('node:fs');
+const XHTML = XFS.readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'app.html'), 'utf8');
+const TM = require('../src/typeMarks');
+const UB = require('../src/undoBook');
+const ZK = { key: 'z', code: 'KeyZ', ctrlKey: true };
+const YK = { key: 'y', code: 'KeyY', ctrlKey: true };
+// 白紙のページ（行は texts の数。空の文は空の行）を作って開く
+async function xePage(l, texts) {
+  const id = l.call('page.create', {}).id;
+  l.call('page.setTitle', { id, title: '打つ見本' });   // 白紙のページの題名（D77 の外。試しの字）
+  let after = '';
+  const ids = [];
+  for (const s of texts) {
+    const b = l.call('block.insert', { pageId: id, afterBlockId: after, type: 'paragraph' }).blockId;
+    if (s) l.call('block.update', { pageId: id, blockId: b, patch: { text: s } });
+    ids.push(b); after = b;
+  }
+  await open(l, id);
+  return { id, ids };
+}
+// 打つ（文を置いて input。ms だけ偽の時計を進める）
+async function typeTo(l, t, s, ms = 0) {
+  t.textContent = s; l.caret.set(t, s.length);
+  t.dispatchEvent({ type: 'input' });
+  await l.drain();
+  if (ms) { await l.clock.advance(ms); await l.drain(); }
+}
+// 日本語入力で打って確定する（変換中の input は isComposing。確定の後に ms 進める）
+async function imeTo(l, t, kana, word, ms = 0) {
+  t.dispatchEvent({ type: 'compositionstart' });
+  t.textContent = kana; l.caret.set(t, kana.length);
+  t.dispatchEvent({ type: 'input', isComposing: true });
+  await l.drain();
+  t.textContent = word; l.caret.set(t, word.length);
+  t.dispatchEvent({ type: 'input', isComposing: true });
+  t.dispatchEvent({ type: 'compositionend' });
+  await l.drain();
+  if (ms) { await l.clock.advance(ms); await l.drain(); }
+}
+const rowIn = (l, pid, bid) => l.call('page.get', { id: pid }).page.blocks.find((b) => b.id === bid);
+const press = async (l, k, bid) => { l.key(k, txtOf(l, bid)); await l.drain(200); };
+
+test('XE-1・F245: typeMarks の写し（app.html）と undoBook の印の写しは src と同じ答え', () => {
+  const at = XHTML.indexOf('  // ---- 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57・F245）: typeMarks の写し');
+  const end = XHTML.indexOf('  // ---- typeMarks の写しはここまで');
+  assert.ok(at > 0 && end > at, 'app.html に typeMarks の写しが無い');
+  const app = new Function(`${XHTML.slice(at, end)}\nreturn { UNDO_PAUSE_MS, MARKS_MAX, markAdd, marksOf, stepBack, stepFwd };`)();   // eslint-disable-line no-new-func
+  assert.deepStrictEqual([app.UNDO_PAUSE_MS, app.MARKS_MAX], [TM.UNDO_PAUSE_MS, TM.MARKS_MAX]);
+  const runM = (M) => {
+    const S = (text) => ({ text, rich: null, caret: text.length });
+    let l = M.markAdd([], S(''), 0);
+    const out = [];
+    for (const [s, t, cut] of [['a', 100], ['ab', 400], ['abc', 1000], ['abc今', 1100, true], ['abc今日', 1200], ['abc今日', 1300, true], ['x', 9000]]) { l = M.markAdd(l, S(s), t, { cut }); out.push(M.marksOf(l)); }
+    for (let i = 0; i < 70; i++) l = M.markAdd(l, S(`n${i}`), 20000 + i * 1000);
+    out.push(l.length, M.marksOf(l)[1]);
+    const e = { steps: ['a:1'], marks: M.marksOf(l).slice(0, 4), row: 'r', at: 3 };
+    let b = M.stepBack(e); out.push(b);
+    b = b && M.stepBack(b.entry); out.push(b, b && M.stepBack(b.entry), b && M.stepFwd(b.entry), M.stepFwd(e));
+    return JSON.parse(JSON.stringify(out));
+  };
+  assert.deepStrictEqual(runM(app), runM(TM));
+  const ub = XHTML.slice(XHTML.indexOf('  // ---- undoBook の写し'), XHTML.indexOf('  // ---- undoBook の写しはここまで'));
+  const appB = new Function(`${ub}\nreturn { bookKey, bookPush, bookTakeUndo, bookTakeRedo, bookDone, bookMark, bookStepped };`)();   // eslint-disable-line no-new-func
+  const runB = (B) => {
+    const k = B.bookKey('p', 'note'); const M3 = [{ text: '' }, { text: 'a' }, { text: 'ab' }];
+    let b = B.bookMark(B.bookPush({}, k, ['a:1']), k, M3, 'a:1', 'r');
+    const log = [b];
+    let t = B.bookTakeUndo(b, k); b = B.bookStepped(t.book, k, 'undo', { ...t.entry, at: 1, steps: ['a:1', 'a:2'] }); log.push(b);
+    t = B.bookTakeRedo(b, k); b = B.bookStepped(t.book, k, 'redo', { ...b[k].undo[0], at: 2 }); log.push(b);
+    t = B.bookTakeUndo(b, k); b = B.bookDone(t.book, k, 'undo', 'a:3', t.entry); log.push(b);
+    t = B.bookTakeRedo(b, k); b = B.bookDone(t.book, k, 'redo', 'a:4', t.entry); log.push(b);
+    log.push(B.bookMark(B.bookPush({}, k, [], { literal: { before: [], after: [] } }), k, M3, null, 'm'), B.bookMark(b, k, M3, 'a:x', 'r'));
+    return JSON.parse(JSON.stringify(log));
+  };
+  assert.deepStrictEqual(runB(appB), runB(UB));
+});
+
+test('XE-1・F245: 「あいう」→ 0.6 秒 →「えお」→ 0.6 秒 →「かき」→ 2 秒（保存1回）→ Ctrl+Z で「あいうえお」「あいう」・もう一度で空・Ctrl+Y で「あいう」「あいうえお」「あいうえおかき」。保存の命令は今と同じ1回で、Ctrl+Z・Ctrl+Y の数だけ edit.textStep', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [e] } = await xePage(l, ['']);
+    const t = txtOf(l, e); t.focus();
+    await typeTo(l, t, 'あ', 100); await typeTo(l, t, 'あい', 100); await typeTo(l, t, 'あいう', 600);
+    await typeTo(l, t, 'あいうえ', 100); await typeTo(l, t, 'あいうえお', 600);
+    await typeTo(l, t, 'あいうえおか', 100); await typeTo(l, t, 'あいうえおかき', 1999);
+    assert.strictEqual(l.called('blockUpdate').length, 0, '2 秒より前に保存した（保存の間合いが 0.5 秒）');
+    await l.clock.advance(1); await l.drain();
+    assert.strictEqual(l.called('blockUpdate').length, 1, '保存の命令が今と同じ1回でない');
+    const text = () => rowIn(l, id, e).text;
+    const seen = [];
+    for (const k of [ZK, ZK, ZK, YK, YK, YK]) { await press(l, k, e); seen.push([text(), txtOf(l, e).textContent]); }
+    assert.deepStrictEqual(seen.map((x) => x[0]), ['あいうえお', 'あいう', '', 'あいう', 'あいうえお', 'あいうえおかき'], '印ごとに戻る・進む');
+    assert.deepStrictEqual(seen.map((x) => x[1]), seen.map((x) => x[0]), '画面の文が DB と違う');
+    assert.deepStrictEqual([l.called('blockUpdate').length, l.called('editTextStep').length, l.called('editRevert').length], [1, 4, 2], '保存・印・戻しの命令の数');
+    assert.strictEqual(active(l), txtOf(l, e), 'フォーカスが行に無い');
+    // やり直した後も印で戻る
+    await press(l, ZK, e);
+    assert.strictEqual(text(), 'あいうえお');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-1・F245: 変換中（compositionstart 〜 compositionend）は印を積まない（確定の前の字に戻らない）', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [e] } = await xePage(l, ['']);
+    const t = txtOf(l, e); t.focus();
+    await typeTo(l, t, 'abc', 100);
+    t.dispatchEvent({ type: 'compositionstart' });
+    t.textContent = 'abcきょう'; l.caret.set(t, 6);
+    t.dispatchEvent({ type: 'input', isComposing: true });
+    await l.drain(); await l.clock.advance(600); await l.drain();
+    t.textContent = 'abc今日'; l.caret.set(t, 5);
+    t.dispatchEvent({ type: 'input', isComposing: true });
+    t.dispatchEvent({ type: 'compositionend' });
+    await l.drain(); await l.clock.advance(2000); await l.drain();
+    assert.strictEqual(rowIn(l, id, e).text, 'abc今日');
+    await press(l, ZK, e);
+    assert.strictEqual(rowIn(l, id, e).text, 'abc', '変換中の字（abcきょう）に戻った');
+    await press(l, ZK, e);
+    assert.strictEqual(rowIn(l, id, e).text, '');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-1・F245: 確定ごとに戻る（AQ24 (a)）: 「今日は」を確定 →（0.5 秒より短く）「会議」を確定 → 保存 → Ctrl+Z で「今日は」・もう一度で空（変換の前のひらがなは通らない）。確定の印で保存の命令は増えない', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [e] } = await xePage(l, ['']);
+    const t = txtOf(l, e); t.focus();
+    await imeTo(l, t, 'きょうは', '今日は', 100);
+    await imeTo(l, t, '今日はかいぎ', '今日は会議', 2000);
+    assert.strictEqual(l.called('blockUpdate').length, 1, '確定の印で保存の命令が増えた');
+    await press(l, ZK, e);
+    assert.strictEqual(rowIn(l, id, e).text, '今日は', '確定ごとに戻らない');
+    await press(l, ZK, e);
+    assert.strictEqual(rowIn(l, id, e).text, '', 'ひらがなを通った・戻らない');
+    assert.strictEqual(l.called('blockUpdate').length, 1);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-1・F245: 改行・貼り付け・飾りは打った字と1回で（AQ23 (a)）: 「abc」→ すぐ Shift+Enter →「def」→ Ctrl+Z で空・「abc」→ すぐ1行の貼り付け「xyz」→ Ctrl+Z で空・「abc」を選んですぐ Ctrl+B → Ctrl+Z で空（太字も外れる）', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [r1, r2, r3] } = await xePage(l, ['', '', '']);
+    // Shift+Enter
+    let t = txtOf(l, r1); t.focus();
+    await typeTo(l, t, 'abc', 100);
+    l.key({ key: 'Enter', shiftKey: true }, t); await l.drain();
+    assert.strictEqual(t.textContent, 'abc\n', '前提: 行の中の改行');
+    await l.clock.advance(100); await l.drain();
+    await typeTo(l, t, 'abc\ndef', 2000);
+    assert.strictEqual(rowIn(l, id, r1).text, 'abc\ndef');
+    await press(l, ZK, r1);
+    assert.strictEqual(rowIn(l, id, r1).text, '', 'Shift+Enter で印を切った');
+    // 1行の貼り付け
+    t = txtOf(l, r2); t.focus();
+    await typeTo(l, t, 'abc', 100);
+    t.dispatchEvent({ type: 'paste', clipboardData: { getData: (k) => (k === 'text/plain' ? 'xyz' : '') }, preventDefault() {} });
+    await l.drain(); await l.clock.advance(2000); await l.drain();
+    assert.strictEqual(rowIn(l, id, r2).text, 'abcxyz');
+    await press(l, ZK, r2);
+    assert.strictEqual(rowIn(l, id, r2).text, '', '貼り付けで印を切った');
+    // 飾り（Ctrl+B）
+    t = txtOf(l, r3); t.focus();
+    await typeTo(l, t, 'abc', 100);
+    l.caret.set(t, 0, 3);
+    l.key({ key: 'b', code: 'KeyB', ctrlKey: true }, t); await l.drain();
+    await l.clock.advance(2000); await l.drain();
+    assert.deepStrictEqual(rowIn(l, id, r3).rich, [{ t: 'abc', m: ['b'] }], '前提: 太字');
+    await press(l, ZK, r3);
+    assert.deepStrictEqual([rowIn(l, id, r3).text, rowIn(l, id, r3).rich || null], ['', null], '飾りで印を切った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-1・F245: 記法の変換は別の1回（今のまま）: 行の頭で「- 」→ 箇条書き →「abc」→ Ctrl+Z で空の箇条書き・もう一度でテキストの行の「- 」', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [e] } = await xePage(l, ['']);
+    const t = txtOf(l, e); t.focus();
+    await typeTo(l, t, '- ', 0);
+    await l.drain(200);
+    assert.strictEqual(rowIn(l, id, e).type, 'bullet', '前提: 箇条書き');
+    const u = txtOf(l, e); u.focus();
+    await typeTo(l, u, 'abc', 2000);
+    assert.strictEqual(rowIn(l, id, e).text, 'abc');
+    await press(l, ZK, e);
+    assert.deepStrictEqual([rowIn(l, id, e).type, rowIn(l, id, e).text], ['bullet', ''], '1回目で空の箇条書きにならない');
+    await press(l, ZK, e);
+    assert.deepStrictEqual([rowIn(l, id, e).type, txtOf(l, e).textContent], ['paragraph', '- '], '2回目でテキストの行の「- 」にならない');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-1・F245: 保存していない打ちかけの Ctrl+Z は先に保存してから印で戻る（打ちかけを失わない）', T, async () => {
+  const l = await seeded();
+  try {
+    const { id, ids: [e] } = await xePage(l, ['']);
+    const t = txtOf(l, e); t.focus();
+    await typeTo(l, t, 'あいう', 600);
+    await typeTo(l, t, 'あいうえお', 100);
+    assert.strictEqual(l.called('blockUpdate').length, 0, '前提: まだ保存していない');
+    await press(l, ZK, e);
+    assert.deepStrictEqual(l.called('blockUpdate').map((c) => c.args[2]), [{ text: 'あいうえお' }], '打ちかけを先に保存しない');
+    assert.strictEqual(rowIn(l, id, e).text, 'あいう', '印で戻らない');
+    await press(l, YK, e);
+    assert.strictEqual(rowIn(l, id, e).text, 'あいうえお', '打ちかけを失った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-1・F245: Claude が同じ行を書いた後の印の戻しは stale の一言（Claude の文を上書きしない）', T, async () => {
+  const l = await seeded();
+  try {
+    await open(l, 'pm1');
+    const t = txtOf(l, 'b2'); t.focus();
+    await typeTo(l, t, '来月の予算案の作成を担当Aが進める。', 600);
+    await typeTo(l, t, '来月の予算案の作成を担当Aが進める。確認', 2000);
+    const n = claude(l, 'mcp.fixNames', { pageId: 'pm1', pairs: [{ from: '担当A', to: '担当B' }] }, AT2);
+    l.fire('onClaudeWrote', n.wrote); await l.drain(200);
+    const want = '来月の予算案の作成を担当Bが進める。確認';
+    assert.strictEqual(rowIn(l, 'pm1', 'b2').text, want, '前提: Claude が直した');
+    await press(l, ZK, 'b2');
+    assert.strictEqual(rowIn(l, 'pm1', 'b2').text, want, 'Claude の文を印で上書きした');
+    assert.strictEqual(toastOf(l), 'ほかの所で変わったので、元に戻せませんでした');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-1・F245: 保存したページのメモの行も印で戻る（edit.textStep）・やり直す', T, async () => {
+  const l = await seeded();
+  try {
+    l.call('page.setMemoDoc', { id: 'pm1', doc: [{ id: 'm1', type: 'paragraph', text: '' }] });
+    await open(l, 'pm1');
+    $(l, 'paneBtnMemo').onclick(); await l.drain();
+    const t = memoRow(l, 'm1')._txt; t.focus();
+    await typeTo(l, t, '議題', 600);
+    await typeTo(l, t, '議題の一つ目', 2000);
+    const memo = () => l.call('page.get', { id: 'pm1' }).page.memoDoc[0].text;
+    assert.strictEqual(memo(), '議題の一つ目');
+    l.key(ZK, memoRow(l, 'm1')._txt); await l.drain(200);
+    assert.strictEqual(memo(), '議題');
+    l.key(ZK, memoRow(l, 'm1')._txt); await l.drain(200);
+    assert.strictEqual(memo(), '');
+    l.key(YK, memoRow(l, 'm1')._txt); await l.drain(200);
+    l.key(YK, memoRow(l, 'm1')._txt); await l.drain(200);
+    assert.strictEqual(memo(), '議題の一つ目');
+    assert.strictEqual(l.called('editTextStep').length, 2);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

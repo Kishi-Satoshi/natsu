@@ -298,6 +298,14 @@ const TYPES = Object.freeze(Object.assign(Object.create(null), {
     return [...v];
   },
   richArg: (v) => { richText(v); return structuredClone(v); },
+  // 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57）: 行の文と飾りの印（edit.textStep の from・to）。{ text, rich（飾りの無い行は null）}。
+  // rich があれば素の文字が text と同じ（飾りの照らしは richText）。整えた写し（飾りの無い rich は null）を返す
+  textSnap: (v) => {
+    if (!isObj(v) || Object.keys(v).some((k) => k !== 'text' && k !== 'rich') || !isStr(v.text, LIMITS.text)) throw bad('snap');
+    if (v.rich === undefined || v.rich === null) return { text: v.text, rich: null };
+    if (richText(v.rich) !== v.text) throw bad('snap');
+    return { text: v.text, rich: RT.normalizeRich(structuredClone(v.rich)) };
+  },
   pasteBlocks: checkPasteBlocks,   // 0.14.0 EK-2: block.paste の貼る行
   blockColor: (v) => { if (v !== '' && !(typeof v === 'string' && RT.COLORS.includes(v.replace(/_bg$/, '')))) throw bad('color'); return v; },
   // 0.14.0 MB-2（計画 docs/plans/2026-10-26-140.md の決めたこと 59・R69・R151）: メモの行の並び（page.setMemoDoc）。照らしは src/memoDoc.js の validateMemoDoc

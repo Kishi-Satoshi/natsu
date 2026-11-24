@@ -23,6 +23,8 @@ const UNDO_CMDS = new Set([
   'todo.toTask',
   // 0.17.0 RT-1（決めたこと 70）: 行のテンプレート（データベースの歩み）
   'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl',
+  // 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57）: 印を1つ戻す・進める（その tx は保存の歩みに足し、印が始めの次まで来たら歩みごと edit.revert で戻す）
+  'edit.textStep',
 ]);
 const UNDO_MAX = 100;          // 1つの列の歩みの数（古いものから捨てる）
 const TYPE_PAUSE_MS = 2000;    // 打つ手がこれだけ止まったら保存する（1回の保存が1歩。決めたこと 8）
@@ -54,13 +56,34 @@ function take(book, key, dir) {
 // 戻す歩みを取り出す → { entry | null, book }
 function bookTakeUndo(book, key) { return take(book, key, 'undo'); }
 function bookTakeRedo(book, key) { return take(book, key, 'redo'); }
-// 戻した（dir 'undo'）・やり直した（dir 'redo'）歩みを反対の列へ積む。revertStep は edit.revert の tx か { literal }
-function bookDone(book, key, dir, revertStep) {
-  const entry = typeof revertStep === 'string' ? entryOf([revertStep]) : entryOf([], revertStep && revertStep.literal);
-  if (!entry) return book;
+// 戻した（dir 'undo'）・やり直した（dir 'redo'）歩みを反対の列へ積む。revertStep は edit.revert の tx か { literal }。
+// 0.18.0 XE-1: 戻した歩み from が印を持っていれば、反対の歩みも同じ印を持つ（戻した後は始め at 0・やり直した後は始めの次 at 1）
+function bookDone(book, key, dir, revertStep, from) {
+  const made = typeof revertStep === 'string' ? entryOf([revertStep]) : entryOf([], revertStep && revertStep.literal);
+  if (!made) return book;
+  const entry = from && Array.isArray(from.marks) ? { ...made, marks: from.marks, row: from.row, at: dir === 'undo' ? 0 : 1 } : made;
   const s = slotOf(book, key);
   const to = dir === 'undo' ? 'redo' : 'undo';
   return { ...book, [key]: { ...s, [to]: capped([...s[to], entry]) } };
+}
+// 0.18.0 XE-1（決めたこと 57）: 保存の歩み（一番上。steps が [step] の歩みか、step が無ければ窓のメモリの歩み）に、その行（row）の印の並びを持たせる。
+// 印が3つ以上のときだけ（2つなら今どおりの1歩）。今の印の番号 at は終わり
+function bookMark(book, key, marks, step, row) {
+  if (!Array.isArray(marks) || marks.length < 3) return book;
+  const s = slotOf(book, key);
+  const top = s.undo[s.undo.length - 1];
+  if (!top || top.marks || top.fwd) return book;
+  if (step ? !(top.steps.length === 1 && top.steps[0] === step && !top.literal) : (top.steps.length || !top.literal)) return book;
+  return { ...book, [key]: { ...s, undo: [...s.undo.slice(0, -1), { ...top, marks, row, at: marks.length - 1 }] } };
+}
+// 0.18.0 XE-1: 印を1つ動かした（edit.textStep か窓のメモリ）。entry は動かした後の歩み（edit.textStep の tx は steps に足してある）。
+// 戻した（dir 'undo'。歩みは取り出してある）ら戻す列の上に戻し、やり直しの列に進みの印 { steps: [], fwd: true } を積む。
+// やり直した（dir 'redo'。進みの印は取り出してある）ら戻す列の一番上の歩みを替える
+function bookStepped(book, key, dir, entry) {
+  const s = slotOf(book, key);
+  if (dir === 'undo') return { ...book, [key]: { undo: capped([...s.undo, entry]), redo: capped([...s.redo, { steps: [], fwd: true }]) } };
+  if (!s.undo.length) return book;
+  return { ...book, [key]: { ...s, undo: [...s.undo.slice(0, -1), entry] } };
 }
 // 列を空にする（鍵ならその欄だけ: 再生成は要約の列だけ。ページの ID ならそのページの全部の欄: stale）
 function bookDrop(book, keyOrPageId) {
@@ -73,4 +96,4 @@ function bookDrop(book, keyOrPageId) {
   return out;
 }
 
-module.exports = { UNDO_CMDS, UNDO_MAX, TYPE_PAUSE_MS, bookKey, bookPush, bookTakeUndo, bookTakeRedo, bookDone, bookDrop };
+module.exports = { UNDO_CMDS, UNDO_MAX, TYPE_PAUSE_MS, bookKey, bookPush, bookTakeUndo, bookTakeRedo, bookDone, bookMark, bookStepped, bookDrop };

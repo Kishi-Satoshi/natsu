@@ -1882,6 +1882,8 @@ const IDS_180 = [
   'cu-lost-rich', 'cu-pop-tab', 'cu-pop-gone', 'cu-pop-desc',
   // 0.18.0 点検 3 の残り（2026-11-23。CR115: 行のページの題名の打ちかけ）
   'cu-title-keep',
+  // 0.18.0 Task XE-1（Ctrl+Z のまとまりを約 0.5 秒と日本語入力の確定に）
+  'xe-undo-mark', 'xe-undo-ime', 'xe-undo-commit', 'xe-undo-nocut', 'xe-undo-save2s', 'xe-undo-stale', 'xe-undo-flush', 'xe-undo-redo', 'xe-undo-live',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

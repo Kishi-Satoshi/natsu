@@ -37,7 +37,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.17.0 RT-1（決めたこと 66〜70）: 行のテンプレート（72）
   'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl',
   // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 12・14）: Claude の変更の控えの一覧と戻す（元に戻すの歩みにしない: UNDO_CMDS に入れない）（74）
-  'page.claudeSnaps', 'page.claudeRevert']);
+  'page.claudeSnaps', 'page.claudeRevert',
+  // 0.18.0 XE-1（決めたこと 57）: Ctrl+Z・Ctrl+Y の印を1つ動かす（元に戻すの歩み: UNDO_CMDS。tx は保存の歩みに足す）（75）
+  'edit.textStep']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -52,6 +54,7 @@ const UNDO_CMDS = new Set([
   'page.toDb',   // 0.17.0 PD-1（決めたこと 33）: データベースにした歩み（args.id はそのページ = データベース）
   'todo.toTask',   // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（args.pageId のページの要約の欄・本文の歩み）
   'tpl.add', 'tpl.dup', 'tpl.remove', 'tpl.setDefault', 'row.fromTpl',   // 0.17.0 RT-1（決めたこと 70）: 行のテンプレート（args.db のデータベースの歩み）
+  'edit.textStep',   // 0.18.0 XE-1（決めたこと 57）: 印を1つ動かす（args.pageId のページの歩み）
 ]);
 const editSteps = [];
 function editStep(req) {
@@ -323,6 +326,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.14.0 EB-2（決めたこと 2・6・21）: 元に戻すの歩みの受け口（cb({ cmd, pageId, step })）・自分の歩みを戻す（steps は tx の並び）・行の色（'' で外す）
   onEditStep: (cb) => { if (typeof cb === 'function') editSteps.push(cb); },
   editRevert: (pageId, steps) => dbCall('edit.revert', { pageId, steps }),
+  // 0.18.0 XE-1（決めたこと 57）: 印を1つ動かす（from・to は { text, rich }。今の行が from でなければ stale）
+  editTextStep: (pageId, blockId, from, to) => dbCall('edit.textStep', { pageId, blockId, from, to }),
   blocksSetColor: (pageId, ids, color) => dbCall('blocks.setColor', { pageId, ids, color }),
   // 0.14.0 EK-2（決めたこと 25・30）: 貼り付けは1つの命令（afterId は文のある行の頭のときの、画面で上に見えている行・inside は子の見えている行（文の終わりでも途中でも: BQ31）。
   // 選んだ行の操作も1つの命令（ids は画面の順）。無い引数は送らない（block.* と同じ形）

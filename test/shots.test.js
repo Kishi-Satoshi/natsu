@@ -1415,7 +1415,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は c2f9934d…）
   // 0.18.0 点検 3 の残り（CR115）: 行のページの題名の打ちかけも、Claude が題名を直していたら Claude の題名のまま（<script> の中だけ。新しい字は無く、撮る画面は変わらない）。
   // 値を今の app.html に合わせた（前の値は 98eff969…）
-  assert.strictEqual(sha, '5d64ad8153c6f016f53caa5d92411d0bcac4ec56ba40d9205c767150d963db02',
+  // 0.18.0 XE-1（決めたこと 57・CR117〜CR121）: Ctrl+Z の印（typeMarks の写し・undoBook の写しの bookMark・bookStepped・行の印・markRun・memoTextStep。<script> の中だけ。新しい字は無く、撮る画面は変わらない）。
+  // 値を今の app.html に合わせた（前の値は 5d64ad81…）
+  assert.strictEqual(sha, 'ccc293846d217755aa7d4e1cb094d098c1bebf9af4e0f7908e0b5a9507cb4138',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

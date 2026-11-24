@@ -487,7 +487,8 @@ test('NE-2: preload の APP_COMMANDS（58）は役 app の命令と同じ集ま�
   // 0.17.0 TK-2（「意図して変えるテスト」）で意図して直した: ［タスクにする］todo.toTask を足して 67（照らしは同じ）
   // 0.17.0 RT-1（「意図して変えるテスト」）で意図して直した: 行のテンプレートの tpl.add・tpl.dup・tpl.remove・tpl.setDefault・row.fromTpl を足して 72（照らしは同じ）
   // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」）で意図して直した: Claude の変更の控えの一覧と戻す page.claudeSnaps・page.claudeRevert を足して 74（照らしは同じ）
-  assert.strictEqual(names.length, 74);
+  // 0.18.0 XE-1（同じ「意図して変えるテスト」の行）で意図して直した: Ctrl+Z・Ctrl+Y の印を1つ動かす edit.textStep を足して 75（照らしは同じ）
+  assert.strictEqual(names.length, 75);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const k = exposed.koeApp;
   k.blockIndent('pa1', 'b2', 'in'); k.blockSetOpen('pa1', 't', false); k.blockSetOpenAll('pa1', true);

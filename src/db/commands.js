@@ -1021,6 +1021,50 @@ function editRevert(db, a, ctx) {
   return { ops, pageIds: [a.pageId], result: { page: readPage(db, a.pageId) } };
 }
 
+// ---------------------------------------------------------------- 0.18.0 XE-1: 印を1つ動かす（計画 docs/plans/2026-11-18-180.md の決めたこと 57・F245）
+// 行の文と飾りが印 s と同じか（飾りの無い行は rich を持たない）
+const snapIs = (b, s) => b.text === s.text && isDeepStrictEqual(Array.isArray(b.rich) && b.rich.length ? b.rich : null, s.rich);
+// 印 s を行に書く（文を変えたら block.update と同じく、出典は古い印・短い行の印・人が直した印を付け外す）
+function putSnap(b, s, cited) {
+  if (cited && s.text !== b.text) {
+    if (b.citeState !== 'manual') b.citeState = 'stale';
+    if (isCitable(s.text)) delete b.citeSkip; else b.citeSkip = true;
+    delete b.mark; delete b.unconfirmed; delete b.aiHeading;
+  }
+  b.text = s.text;
+  if (s.rich) putRich(b, s.rich); else delete b.rich;
+}
+function editTextStep(db, a, ctx) {
+  const l = loadPage(db, a.pageId);
+  if (!l) throw refuse('bad-args');
+  const same = (out) => (out.result ? out : { ...out, result: readPage(db, a.pageId) });   // もう to の形なら書かずに今のページ
+  if (BT.locate(l.page.blocks || [], a.blockId)) {
+    return same(editPage(db, a.pageId, ctx, (p) => {
+      const b = BT.locate(p.blocks, a.blockId).b;
+      if (isFixedRow(b) || b.type === 'divider') throw refuse('bad-args');
+      if (!snapIs(b, a.from)) throw refuse('stale');
+      if (snapIs(b, a.to)) return false;
+      putSnap(b, a.to, true);
+      return true;
+    }, { summary: true }));
+  }
+  // メモの行（保存したページの memoDoc）
+  if (!Array.isArray(l.page.memoDoc) || !BT.locate(l.page.memoDoc, a.blockId)) throw refuse('stale');   // その行がもう無い
+  return same(editPage(db, a.pageId, ctx, (p) => {
+    const doc = structuredClone(p.memoDoc);
+    const b = BT.locate(doc, a.blockId).b;
+    if (b.type === 'divider') throw refuse('bad-args');
+    if (!snapIs(b, a.from)) throw refuse('stale');
+    if (snapIs(b, a.to)) return false;
+    putSnap(b, a.to, false);
+    let next;
+    try { next = MD.validateMemoDoc(doc); } catch (_) { throw refuse('bad-args'); }
+    p.memoDoc = next;
+    p.memo = MD.memoPlain(next);
+    return true;
+  }));
+}
+
 // ---------------------------------------------------------------- 0.14.0 EK-2: 貼り付けと、選んだ行をまとめて扱う命令の部品（計画 docs/plans/2026-10-26-140.md の決めたこと 25・30・31・R65・R66・BQ30 (a)）
 // AI の節の見出し（aiSectionHead）を子にする置き場か（s は spotOf の答え。最上位の並びでなければ子になる: R65。人の見出しは citeState: 'manual' で子にできる）
 const headIntoKid = (rows, s) => Boolean(s.parent) && rows.some((b) => BT.aiSectionHead(b));
@@ -4090,6 +4134,10 @@ const DEFS = {
   'edit.revert': { roles: ['app'], write: true, args: { pageId: 'id', steps: 'txs' },
     run: editRevert,
     dupResult: (db, a) => { const page = readPage(db, a.pageId); return page ? { page } : null; } },
+  // 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57・F245）: Ctrl+Z・Ctrl+Y の印を1つ動かす。行の今の文と飾りが from とちょうど同じときだけ to を書く
+  // （違えば stale で何も変えない: Claude や別の欄が書いた後の文を上書きしない）。要約・本文の行とメモの行（memoDoc）。役 app だけ → page
+  'edit.textStep': { roles: ['app'], write: true, args: { pageId: 'id', blockId: 'id', from: 'textSnap', to: 'textSnap' },
+    run: editTextStep, dupResult: reread },
   // 行（ブロック）の色（'red' か 'red_bg'。'' で外す。1つの行でも）。無い行があれば bad-args → page
   // 0.14.0 EK-2（決めたこと 31・R122）: 親の行の色は子孫の行にも付ける・外す（親を選ぶと子も選んだものとして扱う）
   'blocks.setColor': { roles: ['app', 'main'], write: true, args: { pageId: 'id', ids: 'ids', color: 'blockColor' },

@@ -3299,7 +3299,9 @@ test('MB-4 直し・I2（決めたこと 10）: メモの行でも文中の記�
   } finally { l.done(); }
 });
 
-test('MB-4 直し・I3（R177・録音の守り）: 録音中のメモを 1 秒ずつ空けて打つと、止めるたびに 0.5 秒で下書きへ届く（meetingSetMemo の行）。元に戻すの1歩は今どおり 2 秒止まってから（Ctrl+Z の1回で打つ前に戻る）', T, async () => {
+// 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57・「意図して変えるテスト」）で意図して直した: Ctrl+Z の1回で戻るのは 0.5 秒止まった所ごとの印になり、
+// 1 秒ずつ空けた3つの打鍵は3回で戻る（前は 2 秒の保存の1歩で1回）。意図「下書きへの送り（0.5 秒）は歩みにならない」は、戻る回数が打鍵のまとまりの数と同じことで見る
+test('MB-4 直し・I3（R177・録音の守り）: 録音中のメモを 1 秒ずつ空けて打つと、止めるたびに 0.5 秒で下書きへ届く（meetingSetMemo の行）。下書きへの送りは歩みにならず、Ctrl+Z は 0.5 秒止まった所ごとの印で戻る（3回で打つ前に戻る）', T, async () => {
   const l = await bootLive();
   l.s.active = true; l.s.memo = MEMO1; l.s.memoDoc = MD.memoFromText(MEMO1);
   l.fire('onMeetingUpdate', l.s.status());
@@ -3323,8 +3325,36 @@ test('MB-4 直し・I3（R177・録音の守り）: 録音中のメモを 1 秒�
   await l.drain();
   l.key(Z, t);
   await l.drain();
-  assert.deepStrictEqual(memoSets(l)[memoSets(l).length - 1], MD.memoFromText(MEMO1), 'Ctrl+Z の1回で打つ前に戻らない（下書きへの送りが歩みになった）');
+  assert.strictEqual(l.s.memo, '■ 目的\n売上の確認をす\n', 'Ctrl+Z の1回で 0.5 秒止まった所の印へ戻らない');
+  l.key(Z, t);
+  await l.drain();
+  l.key(Z, t);
+  await l.drain();
+  assert.deepStrictEqual(memoSets(l)[memoSets(l).length - 1], MD.memoFromText(MEMO1), 'Ctrl+Z の3回で打つ前に戻らない（下書きへの送りが歩みになった）');
   assert.strictEqual(l.s.memo, MEMO1);
+  assert.deepStrictEqual(l.errors.map(fmt), []);
+});
+
+// 0.18.0 XE-1（計画 docs/plans/2026-11-18-180.md の決めたこと 57・F245）: 録音中と録音の前のメモの印は窓のメモリだけ（この台は録音中のメモの台を持つので、ここに置いた: M47）
+test('XE-1・F245: 録音中のメモの印は DB に送らない（editTextStep・editRevert・pageSetMemoDoc を呼ばず、meetingSetMemo で今の行を送る）。0.5 秒止まった所ごとに戻り、やり直す', T, async () => {
+  const l = await bootLive();
+  l.s.active = true; l.s.memo = MEMO1; l.s.memoDoc = MD.memoFromText(MEMO1);
+  l.fire('onMeetingUpdate', l.s.status());
+  await l.drain();
+  await memoPane(l);
+  const t = mTxt(l, 'm2');
+  t.focus();
+  for (const [s, ms] of [['売上の確認を', 600], ['売上の確認をする', 2000]]) {
+    t.textContent = s; l.caret.set(t, s.length);
+    t.dispatchEvent({ type: 'input' });
+    await l.clock.advance(ms);
+    await l.drain();
+  }
+  assert.strictEqual(l.s.memo, '■ 目的\n売上の確認をする\n');
+  const seen = [];
+  for (const k of [Z, Z, Y, Y]) { l.key(k, mTxt(l, 'm2')); await l.drain(); seen.push(l.s.memo); }
+  assert.deepStrictEqual(seen, ['■ 目的\n売上の確認を\n', MEMO1, '■ 目的\n売上の確認を\n', '■ 目的\n売上の確認をする\n'], '印ごとに戻る・進む');
+  assert.deepStrictEqual([l.called('editTextStep').length, l.called('editRevert').length, l.called('pageSetMemoDoc').length], [0, 0, 0], '録音中のメモの印が DB に頼った');
   assert.deepStrictEqual(l.errors.map(fmt), []);
 });
 
