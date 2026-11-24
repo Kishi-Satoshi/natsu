@@ -39,7 +39,9 @@ const APP_COMMANDS = new Set(['pages.list', 'pages.searchFull', 'pages.actionVie
   // 0.18.0 CW-1（計画 docs/plans/2026-11-18-180.md の決めたこと 12・14）: Claude の変更の控えの一覧と戻す（元に戻すの歩みにしない: UNDO_CMDS に入れない）（74）
   'page.claudeSnaps', 'page.claudeRevert',
   // 0.18.0 XE-1（決めたこと 57）: Ctrl+Z・Ctrl+Y の印を1つ動かす（元に戻すの歩み: UNDO_CMDS。tx は保存の歩みに足す）（75）
-  'edit.textStep']);
+  'edit.textStep',
+  // 0.18.0 XN-1（決めたこと 62）: ページの複製（元に戻すの歩みにしない: UNDO_CMDS に入れない。CR24）（76）
+  'page.duplicate']);
 // 0.14.0 EB-2（決めたこと 6・R1）: 元に戻すの1歩にする命令（src/undoBook.js の UNDO_CMDS と同じ表。sandbox の preload は src を読めないので写す:
 // test/stage140.db.test.js が同じ表かを見る）。答えが ok で changed のときだけ、答えより先に画面の受け口へ { cmd, pageId, step: tx } を渡す
 const UNDO_CMDS = new Set([
@@ -253,6 +255,8 @@ contextBridge.exposeInMainWorld('koeApp', {
   // 0.18.0 CW-1（決めたこと 12・14）: Claude の変更の控えの一覧（新しい順）と、選んだ控えの形に戻す（画面は CU-1 で呼ぶ）
   pageClaudeSnaps: (id) => dbCall('page.claudeSnaps', { id }),
   pageClaudeRevert: (id, sid, rev) => dbCall('page.claudeRevert', rev === undefined ? { id, sid } : { id, sid, rev }),   // 0.18.0 点検 3（CR106）: rev は確かめた時の版
+  // 0.18.0 XN-1（決めたこと 62）: ページの複製（写しの ID が返る。画面は元のページのまま。XN-2 のサイドバーの行のメニューと Ctrl+D が呼ぶ）
+  pageDuplicate: (id) => dbCall('page.duplicate', { id }),
   dbCreate: (parentId, inline) => dbCall('db.create', { ...(parentId ? { parentId } : {}), ...(inline ? { inline } : {}) }),
   dbGet: (id, linked) => dbCall('db.get', { id, ...(linked ? { linked } : {}) }),
   dbView: (id, viewId, from, count, q, open, linked) => dbCall('db.view', { id, viewId, from, count, ...(q ? { q } : {}), ...(Array.isArray(open) && open.length ? { open } : {}), ...(linked ? { linked } : {}) }),   // 0.16.0 DR-1: open は開いたサブアイテムの行

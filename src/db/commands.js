@@ -79,6 +79,8 @@ const TL = require('../mcp/timeline');
 const NF = require('../nameFix');
 const { markdownToBlocks } = require('../minutes');   // 0.18.0 CT-2: Claude が渡す Markdown を本文の行に（要約の書き戻しと同じ読み方。飾りは落ちる）
 const DQ = require('../mcp/dbQuery');   // 0.18.0 CT-3: Claude が名前で渡すセルの読み替え（MCP の道具の先の照らしと同じ1か所）
+// 0.18.0 XN-1（計画 docs/plans/2026-11-18-180.md の決めたこと 62・F249）: ページの複製の操作の並び（中身ごと新しい ID・中の指しの付け替え。純粋な部品）
+const DUPL = require('./duplicate');
 
 const LIVE_PHASES = ['recording', 'paused', 'finalizing'];
 
@@ -139,6 +141,10 @@ const HOT_QUERIES = Object.freeze({
   snapFrom: 'select rid, body from page_snapshot where page_id = ? and rid >= ? order by rid',
   snapDropFrom: 'delete from page_snapshot where page_id = ? and rid >= ?',
   snapPurge: 'delete from page_snapshot where page_id = ?',
+  // 0.18.0 XN-1（決めたこと 62）: 複製の木（ページと行の親だけ。ゴミ箱も）・写す行の全部の欄（主キー）・写すページと行の本文（索引 blocks_page）
+  dupTree: "select id, type, parent_id, trashed_at from blocks where type in ('page', 'row')",
+  dupRow: 'select id, type, page_id, parent_id, ord, text, rich, attrs, rev, created_at, updated_at, trashed_at from blocks where id = ?',
+  dupBody: 'select id, type, page_id, parent_id, ord, text, rich, attrs, rev, created_at, updated_at, trashed_at from blocks where page_id = ? and id <> ?',
 });
 
 // ---------------------------------------------------------------- 行 → ページ
@@ -1253,6 +1259,88 @@ function pageCreate(db, a, ctx) {
   if (body) ops.push(...body);
   applyOps(db, ops);
   return { ops, pageIds: body ? [id, parentId] : [id], result: { page: readPage(db, id), id } };
+}
+
+// 0.18.0 XN-1（計画 docs/plans/2026-11-18-180.md の決めたこと 62・AQ11 (a)・AQ27 (a)・AQ28 (a)・F249・CR24・CR25）: ページの複製（役 app・1つの命令）。
+// 元と子孫（ゴミ箱の子は除く）を新しい ID で写し（duplicate.planDuplicate）、写しの題名は「 (1)」・置き場は元のすぐ後ろ（同じ親の元の次。白紙のページと
+// データベースの行の親なら、本文の元の子ページの行のすぐ後ろにも写しの行。インラインの行ならインラインのまま）。作成者と最終更新者は「自分」・作成日時は今（CR25）。
+// 断る: 無い・ゴミ箱・録音中の写し・見えない（ゴミ箱の行・テンプレートの行の中）ページ・議事録と「議事録」「タスク管理」を含む・ロック中のデータベースそのもの（bad-args）、
+// 写す行が 1 万を越える・本文の表が満杯（too-big）。Ctrl+Z の歩みにしない（UNDO_CMDS に入れない: CR24）→ { id }（写しの ID。画面は元のページのまま）
+// 複製する木の行（根から parent_id をたどったページと行。ゴミ箱の子も入れる: planDuplicate が写さない行を知るため）と、写す行の本文。多すぎれば too-big
+function dupRowsOf(db, rootId) {
+  const kids = new Map();
+  for (const r of db.prepare(HOT_QUERIES.dupTree).all()) if (typeof r.parent_id === 'string') { if (!kids.has(r.parent_id)) kids.set(r.parent_id, []); kids.get(r.parent_id).push(r); }
+  const one = db.prepare(HOT_QUERIES.dupRow);
+  const body = db.prepare(HOT_QUERIES.dupBody);
+  const out = [];
+  const seen = new Set([rootId]);
+  let live = 0;
+  for (const stack = [{ id: rootId, trashed_at: null }]; stack.length;) {
+    const r = stack.pop();
+    const row = one.get(r.id);
+    if (!row) continue;
+    out.push({ ...row });
+    if (row.trashed_at === null || row.trashed_at === undefined) {
+      const b = body.all(row.id, row.id);
+      live += 1 + b.length;
+      if (live > DUPL.DUP_MAX) throw refuse('too-big');
+      for (const x of b) out.push({ ...x });
+    }
+    for (const k of kids.get(r.id) || []) if (!seen.has(k.id)) { seen.add(k.id); stack.push(k); }
+  }
+  return out;
+}
+function pageDuplicate(db, a, ctx) {
+  const rows = pageRowsOf(db);
+  const me = rows.find((r) => r.id === a.id);
+  if (!me || !isListedRow(me)) throw refuse('bad-args');   // 無い・ゴミ箱・録音中の写し
+  const mine = rowScope(db, rows).page(a.id);
+  if (mine && !mine.live) throw refuse('bad-args');   // ゴミ箱の行・テンプレートの行の中の（見えない）ページ
+  const issued = new Set();
+  const idOf = (r) => {
+    for (;;) {
+      const id = r.type === 'page' ? newPageId(db, ctx.now) : r.type === 'row' ? newRowId(db, ctx.now) : newBlockId(db, ctx.now);
+      if (!issued.has(id)) { issued.add(id); return id; }
+    }
+  };
+  const plan = DUPL.planDuplicate(dupRowsOf(db, a.id), a.id, idOf);
+  if (!plan) throw refuse('bad-args');
+  if (plan.blocked === 'too-big') throw refuse('too-big');
+  if (plan.blocked) throw refuse('bad-args');   // 議事録・録音中の写し・「議事録」「タスク管理」・ロック中のデータベースそのもの
+  const at = ctx.now();
+  const iso = at.toISOString();
+  const who = whoOf(ctx);
+  for (const o of plan.ops) {   // CR25: 写しは利用者の新しい書き込み（作成者と最終更新者は「自分」・作成日時と最終更新日時は今）
+    const r = o.row;
+    if (r.type !== 'page' && r.type !== 'row') continue;
+    r.created_at = iso;
+    r.updated_at = iso;
+    if (r.type === 'row') r.attrs.by = { c: who, u: who };
+    if (r.type === 'page' && typeof r.attrs.date === 'string' && r.attrs.kind !== undefined) r.attrs.date = localDate(at);
+  }
+  const root = plan.ops[0].row;
+  const parentId = me.parentId;
+  const inRow = parentId !== null && isRowId(db, parentId);
+  if (parentId !== null) {   // 元のすぐ後ろ（同じ親の兄弟の中で元の次の鍵。白紙のページの子は本文の行の順の鍵: HR14）
+    const listed = rows.filter((r) => r.id === a.id || isListedRow(r));
+    const keyed = inRow ? listed : withBodyOrds(db, listed);
+    const tree = inRow ? rowKidsTree(keyed, parentId) : PT.pageTree(keyed);
+    root.ord = PT.siblingKey(tree, new Map(keyed.map((r) => [r.id, r.ord])), parentId, a.id);
+  } else root.ord = PT.TOP_ORD;
+  const ops = [...plan.ops];
+  // 親の本文の元の子ページの行のすぐ後ろに、写しの子ページの行（元に行が無ければ置かない。満杯の本文なら置かずに作る: R33）
+  const host = parentId === null ? null : rows.find((r) => r.id === parentId);
+  const body = parentId !== null && (inRow || (host && isBlankPage(host.attrs))) ? bodyOps(db, parentId, ctx, (p) => {
+    const s = subSpot(p.blocks, a.id);
+    if (!s) return false;
+    const row = { id: idOf({ type: 'subpage' }), type: 'subpage', text: '', page: root.id };
+    if (s.b.inline === true) { tableRoom(p.blocks); row.inline = true; }
+    s.list.splice(s.index + 1, 0, row);
+    return undefined;
+  }) : null;
+  if (body) ops.push(...body);
+  applyOps(db, ops);
+  return { ops, pageIds: body ? [root.id, parentId] : [root.id], result: { id: root.id } };
 }
 
 // 動かす（決めたこと 4・5・9・16・21）。'' は最上位。afterId は兄弟の後ろ（'' は頭・無ければ末尾。最上位は鍵で並べないので見ない）→ 一覧
@@ -3813,6 +3901,9 @@ const DEFS = {
       const add = JSON.parse(row.ops || '[]').find((o) => o && o.op === 'add' && o.row && o.row.type === 'page');
       return add ? { page: readPage(db, add.id), id: add.id } : null;
     } },
+  // 0.18.0 XN-1（決めたこと 62・F249）: ページの複製（Ctrl+Z の歩みにしない: CR24）→ { id }
+  'page.duplicate': { roles: ['app'], write: true, args: { id: 'id' }, run: pageDuplicate,
+    dupResult: (db, _a, row) => { const add = dupOps(row).find((o) => o && o.op === 'add' && isObj(o.row) && o.row.type === 'page'); return add ? { id: add.id } : null; } },
   'page.move': { roles: ['app'], write: true, lockBlocked: true, args: { id: 'id', parentId: 'idOrEmpty', afterId: 'idOrEmpty?', rowAfter: 'idOrEmpty?', rowParent: 'id?' },   // PR-2 直し（R44）: rowAfter・rowParent
     run: pageMove, dupResult: (db) => listPages(db) },
   'page.restore': { roles: ['app'], write: true, args: { id: 'id' },

@@ -1892,6 +1892,8 @@ const IDS_180 = [
   'xe-pal-keep', 'xe-pal-enter-close', 'xe-pal-focus', 'xe-pal-back', 'xe-pal-back-has', 'xe-pal-link',
   // 0.18.0 Task XE-5（文字の色のメニューの外の押しを通す）。0.17.1 の od-color の from と赤になるテストも直した（CR30）
   'xe-color-pass',
+  // 0.18.0 Task XN-1（ページの複製の命令）
+  'xn-dup-ids', 'xn-dup-refs', 'xn-dup-back', 'xn-dup-title', 'xn-dup-place', 'xn-dup-block', 'xn-dup-lock', 'xn-dup-lockroot', 'xn-dup-trash', 'xn-dup-limit',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

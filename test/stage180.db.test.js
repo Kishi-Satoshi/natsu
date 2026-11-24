@@ -444,16 +444,17 @@ test('CW-1: T4b: 控えに後の oplog（Claude の書き込みと page.claudeRe
 });
 
 // 0.18.0 XE-1 で意図して直した（計画の「意図して変えるテスト」の preload の名前の数）: edit.textStep を足して 75（意図「役 app の命令と同じ集まり」は残す）
-test('CW-1・XE-1: preload の 75 の名前（page.claudeSnaps・page.claudeRevert・edit.textStep）は役 app の命令と同じ集まり。page.claudeSnaps は読む命令（tx なし）・page.claudeRevert は tx 付き', T, async () => {
+// 0.18.0 XN-1 で意図して直した（同じ行）: page.duplicate を足して 76。pageDuplicate は tx 付きで、元に戻すの歩みにしない（CR24）
+test('CW-1・XE-1・XN-1: preload の 76 の名前（page.claudeSnaps・page.claudeRevert・edit.textStep・page.duplicate）は役 app の命令と同じ集まり。page.claudeSnaps は読む命令（tx なし）・page.claudeRevert と page.duplicate は tx 付き', T, async () => {
   const vm = require('node:vm');
   const PRE = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
   const names = [.../const APP_COMMANDS = new Set\(\[([^\]]*)\]\)/.exec(PRE)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.strictEqual(names.length, 75);
+  assert.strictEqual(names.length, 76);
   assert.deepStrictEqual(names.sort(), Object.keys(core.COMMANDS).filter((k) => core.COMMANDS[k].roles.includes('app')).sort());
   const reads = [.../const DB_READS = new Set\(\[([^\]]*)\]\)/.exec(PRE)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
   assert.ok(reads.includes('page.claudeSnaps') && !reads.includes('page.claudeRevert'));
   const undo = [.../const UNDO_CMDS = new Set\(\[([^\]]*)\]\)/.exec(PRE)[1].matchAll(/'([\w.]+)'/g)].map((x) => x[1]);
-  assert.ok(!undo.includes('page.claudeRevert') && !undo.includes('page.claudeSnaps'));
+  assert.ok(!undo.includes('page.claudeRevert') && !undo.includes('page.claudeSnaps') && !undo.includes('page.duplicate'));
   const exposed = {}; const on = {}; let uuid = 0;
   const electron = { contextBridge: { exposeInMainWorld: (k, v) => { exposed[k] = v; } }, ipcRenderer: { on: (ch, fn) => { on[ch] = fn; }, invoke: async () => ({}), send: () => {} } };
   vm.runInNewContext(PRE, { require: () => electron, crypto: { randomUUID: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` }, setTimeout, clearTimeout, console, Promise });
@@ -461,7 +462,8 @@ test('CW-1・XE-1: preload の 75 の名前（page.claudeSnaps・page.claudeReve
   on['db:port']({ ports: [port] });
   exposed.koeApp.pageClaudeSnaps('pa1');
   exposed.koeApp.pageClaudeRevert('pa1', 7);
-  assert.deepStrictEqual(port.sent.map((m) => [m.cmd, m.args, typeof m.tx]), [['page.claudeSnaps', { id: 'pa1' }, 'undefined'], ['page.claudeRevert', { id: 'pa1', sid: 7 }, 'string']]);
+  exposed.koeApp.pageDuplicate('pa1');
+  assert.deepStrictEqual(port.sent.map((m) => [m.cmd, m.args, typeof m.tx]), [['page.claudeSnaps', { id: 'pa1' }, 'undefined'], ['page.claudeRevert', { id: 'pa1', sid: 7 }, 'string'], ['page.duplicate', { id: 'pa1' }, 'string']]);
 });
 
 test('CW-1: 表の形の版は 2・STEPS は2段（版 1 の SQL は 0.15.0 の字のまま）', () => {
@@ -1472,4 +1474,117 @@ test('XE-1・F245: edit.textStep: 今の文と飾りが from なら to を書く
   assert.deepStrictEqual([p.memoDoc.map((b) => b.text), p.memo], [['メモの'], 'メモの\n']);
   assert.strictEqual(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'm1', from: { text: 'メモの一行', rich: null }, to: { text: 'x', rich: null } }).code, 'stale');
   assert.strictEqual(call(db, 'edit.textStep', { pageId: 'pq1', blockId: 'zz9', from: { text: '', rich: null }, to: { text: 'x', rich: null } }).code, 'stale', '無い行');
+}));
+
+// ---------------------------------------------------------------- XN-1（決めたこと 62・AQ11 (a)・AQ27 (a)・AQ28 (a)・F249）: ページの複製の命令 page.duplicate
+const PT = require('../src/pageTree');
+const kidsOf = (db, id) => PT.pageTree(ok(call(db, 'pages.list', {}), 'pages.list').result).kids.get(id) || [];
+const subRowsOf = (db, id) => C.readPage(db, id).blocks.filter((b) => b.type === 'subpage').map((b) => b.page);
+const dumpAll = (c) => [c.prepare('select id, type, page_id, parent_id, ord, text, rich, attrs, rev, created_at, updated_at, trashed_at from blocks order by id').all().map((r) => ({ ...r })),
+  c.prepare('select page_id, id, n, at_ms, text, extra from segments order by page_id, n').all().map((r) => ({ ...r }))];
+test('XN-1・F249: page.duplicate: 題名に「 (1)」（写しの写しも1つだけ・2回複製しても「 (1)」）・元のすぐ後ろ（本文の子ページの行も）・1つの命令・作成者と最終更新者は「自分」で作成日時は今・写しを直しても元は変わらない・ロックした表を中に持つページの写しの表はロック中で行を足しセルを書ける・外の両側の列は片側（外は変わらない）・ロック中のデータベースを根にすると bad-args・UNDO_CMDS に無い・T4b', T, async () => {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    const P = ok(call(db, 'page.create', {}), 'P').result.id;
+    const Q = ok(call(db, 'page.create', { parentId: P }), 'Q').result.id;
+    const after = ok(call(db, 'page.create', { parentId: P }), '後の兄弟').result.id;
+    ok(call(db, 'page.setTitle', { id: Q, title: '複製の元' }), 'setTitle');   // 白紙のページの題名（D77 の会議の題名でない）
+    const qb = ok(call(db, 'block.insert', { pageId: Q, afterBlockId: '', type: 'paragraph' }), 'block.insert').result.blockId;
+    ok(call(db, 'block.update', { pageId: Q, blockId: qb, patch: { text: '元の本文' } }), 'block.update');
+    const D = ok(call(db, 'db.create', { parentId: Q, inline: qb }), 'db.create').result.id;
+    const memoCol = ok(call(db, 'col.add', { db: D, type: 'text', name: 'メモの列' }), 'col.add').result.col.id;
+    const E = ok(call(db, 'db.create', {}), '外のデータベース').result.id;
+    const er = ok(call(db, 'row.add', { db: E, title: '外の行' }), '外の行').result.id;   // データベースの行の題名（D77 の外）
+    const rel = ok(call(db, 'col.add', { db: D, type: 'rel', target: E, both: true, name: '外へ' }), '両側の列').result;
+    const r1 = ok(call(db, 'row.add', { db: D, title: '中の行', cells: { [memoCol]: '中の値' } }), 'row.add').result.id;   // D77 の外（行の題名）
+    ok(call(db, 'rel.link', { db: D, id: r1, col: rel.col.id, ids: [er] }), 'rel.link');
+    ok(call(db, 'db.setLock', { db: D, on: true }), 'db.setLock');
+    const eWas = dumpAll(db)[0].filter((x) => x.id === E || x.id === er);
+    // T4b の控え
+    let Q2 = null;
+    const to = path.join(t.dir, 'copy-xn1.db');
+    await sqlite.backup(db, to);
+    const copy = new sqlite.DatabaseSync(to);
+    try {
+      const k = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
+      const r = ok(call(db, 'page.duplicate', { id: Q }), 'page.duplicate');
+      const at = new Date(clock).toISOString();
+      Q2 = r.result.id;
+      assert.ok(typeof Q2 === 'string' && Q2 !== Q);
+      const logs = db.prepare('select action, actor, page_id from oplog where seq > ?').all(k).map((x) => ({ ...x }));
+      assert.deepStrictEqual(logs, [{ action: 'page.duplicate', actor: 'me', page_id: Q }], '1つの命令（oplog の1行）でない');
+      // 題名・置き場（サイドバーの並びも本文の子ページの行も元のすぐ後ろ）・画面の元のページはそのまま（命令は開かない）
+      const q2 = C.readPage(db, Q2);
+      assert.strictEqual(q2.title, '複製の元 (1)');
+      assert.deepStrictEqual(kidsOf(db, P), [Q, Q2, after], '元のすぐ後ろでない');
+      assert.deepStrictEqual(subRowsOf(db, P), [Q, Q2, after], '本文の子ページの行が元のすぐ後ろでない');
+      assert.strictEqual(q2.createdAt, at, '作成日時が今でない');
+      assert.strictEqual(q2.kind, 'blank');
+      // 本文と中の表（新しい ID・ロック中・外の両側の列は片側）
+      assert.strictEqual(q2.blocks[0].text, '元の本文');
+      assert.notStrictEqual(q2.blocks[0].id, qb);
+      const inl = q2.blocks.find((b) => b.type === 'subpage');
+      assert.ok(inl && inl.inline === true && inl.page !== D, 'インラインの行が写しの表を指さない');
+      const D2 = inl.page;
+      const d2 = db.prepare('select parent_id, text, attrs, created_at from blocks where id = ?').get(D2);
+      const d2a = JSON.parse(d2.attrs);
+      assert.strictEqual(d2.parent_id, Q2);
+      assert.strictEqual(d2.created_at, at);
+      assert.strictEqual(d2a.locked, true, '写しの表のロックが外れた（AQ27 (a)）');
+      const oneSided = { ...rel.col };
+      delete oneSided.back;
+      assert.ok(typeof rel.col.back === 'string');
+      assert.deepStrictEqual(d2a.cols.find((c) => c.id === rel.col.id), oneSided, '外の両側の列を写しでも両側にした（OC-13）');
+      assert.deepStrictEqual(dumpAll(db)[0].filter((x) => x.id === E || x.id === er), eWas, '外のデータベースの列か行を書き替えた（OC-13）');
+      const rows2 = db.prepare("select id, text, attrs, created_at, updated_at from blocks where type = 'row' and parent_id = ?").all(D2);
+      assert.strictEqual(rows2.length, 1);
+      const row2 = JSON.parse(rows2[0].attrs);
+      assert.notStrictEqual(rows2[0].id, r1);
+      assert.deepStrictEqual(row2.cells, { [memoCol]: '中の値', [rel.col.id]: [er] });
+      assert.deepStrictEqual(row2.by, { c: 'me', u: 'me' }, '作成者・最終更新者が「自分」でない');
+      assert.deepStrictEqual([rows2[0].created_at, rows2[0].updated_at], [at, at]);
+      // 写しを直しても元は変わらない
+      ok(call(db, 'block.update', { pageId: Q2, blockId: q2.blocks[0].id, patch: { text: '写しだけの直し' } }), '写しの直し');
+      assert.strictEqual(C.readPage(db, Q).blocks[0].text, '元の本文');
+      ok(call(db, 'row.setCell', { db: D2, id: rows2[0].id, col: memoCol, value: '写しの値' }), 'ロック中の写しの表のセル（D152）');
+      assert.strictEqual(JSON.parse(db.prepare('select attrs from blocks where id = ?').get(r1).attrs).cells[memoCol], '中の値');
+      ok(call(db, 'row.add', { db: D2, title: '写しに足した行' }), 'ロック中の写しの表に行を足す（D152）');   // D77 の外（行の題名）
+      // T4b: 控えに後の oplog を前へ当て直すと同じ
+      for (const x of db.prepare('select ops from oplog where seq > ? order by seq').all(k)) applyOps(copy, JSON.parse(x.ops), 'forward');
+      assert.deepStrictEqual(dumpAll(copy), dumpAll(db));
+    } finally { copy.close(); }
+    // 写しの写しも「 (1)」は1つ・2回複製しても「 (1)」
+    const Q3 = ok(call(db, 'page.duplicate', { id: Q2 }), '写しの写し').result.id;
+    assert.strictEqual(C.readPage(db, Q3).title, '複製の元 (1)');
+    const Q4 = ok(call(db, 'page.duplicate', { id: Q }), '2回目').result.id;
+    assert.strictEqual(C.readPage(db, Q4).title, '複製の元 (1)');
+    assert.deepStrictEqual(kidsOf(db, P), [Q, Q4, Q2, Q3, after]);
+    // ロック中のデータベースそのもの・無い・ゴミ箱のページは bad-args（何も作らない）
+    ok(call(db, 'page.delete', { id: after }), 'delete');
+    const n0 = db.prepare('select count(*) c from blocks').get().c;
+    for (const id of [D, 'pnone000000']) assert.strictEqual(call(db, 'page.duplicate', { id }).code, 'bad-args', id);
+    assert.strictEqual(call(db, 'page.duplicate', { id: after }).code, 'bad-args', 'ゴミ箱のページ');
+    assert.strictEqual(db.prepare('select count(*) c from blocks').get().c, n0, '断ったのに行が増えた');
+    assert.ok(![...UNDO_CMDS].includes('page.duplicate'), 'UNDO_CMDS に入れた（CR24）');
+    assert.deepStrictEqual(core.COMMANDS['page.duplicate'].roles, ['app']);
+  } finally { t.done(); }
+});
+
+test('XN-1・F249: page.duplicate は議事録を含むページを bad-args で断り何も作らない（議事録・「議事録」・「タスク管理」は写さない）。同じ tx の送り直しは同じ写しの ID で、2つ目を作らない', T, () => withDb((db, t) => {
+  const P = ok(call(db, 'page.create', {}), 'P').result.id;
+  const id = meetingPage(t);
+  ok(call(db, 'page.move', { id, parentId: P }), '議事録を白紙のページの中へ');
+  const n0 = db.prepare('select count(*) c from blocks').get().c;
+  assert.strictEqual(call(db, 'page.duplicate', { id: P }).code, 'bad-args');
+  assert.strictEqual(call(db, 'page.duplicate', { id }).code, 'bad-args', '議事録そのもの');
+  assert.strictEqual(db.prepare('select count(*) c from blocks').get().c, n0);
+  const Q = ok(call(db, 'page.create', {}), 'Q').result.id;
+  const tx = txOf('app');
+  const a = ok(call(db, 'page.duplicate', { id: Q }, 'app', tx), '1回目');
+  const n1 = db.prepare('select count(*) c from blocks').get().c;
+  const b = call(db, 'page.duplicate', { id: Q }, 'app', tx);
+  assert.strictEqual(b.ok, true);
+  assert.deepStrictEqual(b.result, a.result, '送り直しの答えが違う');
+  assert.strictEqual(db.prepare('select count(*) c from blocks').get().c, n1, '送り直しで2つ目を作った');
 }));

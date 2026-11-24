@@ -580,3 +580,146 @@ test('XE-3・F247: pickOffset の表（x が字の真ん中より左なら前・
   assert.strictEqual(CL.pickOffset({ x: 40, chars: [{ left: 0, right: 20, offset: 0, end: 2 }] }), 2, 'サロゲートの字の後ろが end でない');
   assert.strictEqual(CL.pickOffset({ x: 12.25, chars: [{ left: 0.5, right: 12.5, offset: 0 }, { left: 12.5, right: 24.5, offset: 1 }] }), 1, '拡大の小数の座標');
 });
+
+// ---------------------------------------------------------------- XN-1（決めたこと 62・AQ11 (a)・AQ27 (a)・AQ28 (a)・F249）: ページの複製（src/db/duplicate.js の planDuplicate）
+// 行は DB の blocks の行の形（attrs と rich は JSON の文字）。ページの題名・データベースの名前は作った物
+const DUP = require('../src/db/duplicate');
+const AT0 = '2026-11-01T00:00:00.000Z';
+const dRow = (id, type, page, parent, ord, attrs = {}, more = {}) => ({ id, type, page_id: page, parent_id: parent, ord, text: more.text ?? '', rich: more.rich === undefined ? null : JSON.stringify(more.rich),
+  attrs: JSON.stringify(attrs), rev: 3, created_at: type === 'page' || type === 'row' ? AT0 : '', updated_at: type === 'page' || type === 'row' ? AT0 : '', trashed_at: more.trashed ?? null });
+const dPage = (id, parent, attrs, more = {}) => dRow(id, 'page', id, parent, more.ord ?? 'i', attrs, { text: more.text ?? `題 ${id}`, trashed: more.trashed });
+const dRowOf = (id, dbId, cells, more = {}) => dRow(id, 'row', id, dbId, more.ord ?? 'a', { cells, by: { c: 'claude', u: 'claude' }, no: more.no ?? 1, ...(more.tpl ? { tpl: true } : {}) }, { text: `行 ${id}`, trashed: more.trashed });
+const dBlock = (id, page, type, attrs = {}, more = {}) => dRow(id, type, page, more.parent ?? page, more.ord ?? 'a', attrs, { text: more.text ?? '', rich: more.rich });
+// 根の白紙のページ P1 の木（外のデータベース DX・外のタスクの行 rT・外のページ PX を指す行も持つ）
+function dupTree() {
+  const D1 = { kind: 'database', locked: true, nextNo: 4,
+    cols: [{ id: 'title', name: '名前', type: 'title' }, { id: 'c1', name: '親アイテム', type: 'rel', db: 'D1', back: 'c2' }, { id: 'c2', name: 'サブアイテム', type: 'rel', db: 'D1', back: 'c1' },
+      { id: 'c3', name: '外の両側', type: 'rel', db: 'DX', back: 'cx' }, { id: 'c4', name: '外の片側', type: 'rel', db: 'DX' }, { id: 'c5', name: 'メモの列', type: 'text' }],
+    views: [{ id: 'v1', name: '表', layout: 'table', filter: { op: 'and', items: [{ col: 'c1', op: 'contains', value: 'r2' }, { col: 'c3', op: 'contains', value: 'rx1' }] } }],
+    sub: { parent: 'c1', kids: 'c2' }, tplDefault: 'rTpl', tplViews: { v1: 'rTpl' } };
+  return [
+    dPage('P1', 'PX', { kind: 'blank', memo: '', date: '2026-11-01' }, { text: '元のページ', ord: 'm' }),
+    dBlock('b1', 'P1', 'paragraph', {}, { text: '本文の一行', rich: [{ t: '本文の', m: ['b'] }, { t: '一行', m: [] }], ord: 'a' }),
+    dBlock('b2', 'P1', 'subpage', { page: 'P2' }, { ord: 'b' }),
+    dBlock('b3', 'P1', 'subpage', { page: 'D1', inline: true }, { ord: 'c' }),
+    dBlock('b4', 'P1', 'dbview', { db: 'D1', views: [{ id: 'v1', name: '表', layout: 'table', filter: { op: 'and', items: [{ col: 'c1', op: 'contains', value: 'r1' }] } }] }, { ord: 'd' }),
+    dBlock('b5', 'P1', 'dbview', { db: 'DX', views: [{ id: 'v1', name: '表', layout: 'table' }] }, { ord: 'e' }),
+    dBlock('b6', 'P1', 'todo', { task: 'rT', done: false }, { text: '外のタスクの ToDo', ord: 'f' }),
+    dBlock('b7', 'P1', 'subpage', { page: 'P3' }, { ord: 'g' }),
+    dBlock('b8', 'P1', 'subpage', { page: 'PX' }, { ord: 'h' }),
+    dBlock('b9', 'P1', 'toggle', {}, { text: '畳む行', ord: 'i' }),
+    dBlock('b10', 'P1', 'paragraph', {}, { text: '畳む行の子', parent: 'b9', ord: 'a' }),
+    dPage('P2', 'P1', { kind: 'blank', memo: '', rowAt: { parent: 'P1', ord: 'b' } }, { ord: 'a' }),
+    dBlock('b11', 'P2', 'paragraph', {}, { text: '子のページの本文' }),
+    dPage('P3', 'P1', { kind: 'blank', memo: '' }, { ord: 'c', trashed: '2026-11-02T00:00:00.000Z' }),
+    dBlock('b12', 'P3', 'paragraph', {}, { text: 'ゴミ箱の子の本文' }),
+    dPage('P5', 'P3', { kind: 'blank', memo: '' }, { trashed: '2026-11-02T00:00:00.000Z' }),
+    dPage('D1', 'P1', D1, { text: '中の表', ord: 'b' }),
+    dRowOf('r1', 'D1', { c1: ['r2'], c3: ['rx1'], c4: ['rx2'], c5: 'メモ', c2: ['rDead'] }, { ord: 'a', no: 1 }),
+    dRowOf('r2', 'D1', { c2: ['r1'] }, { ord: 'b', no: 2 }),
+    dRowOf('rTpl', 'D1', { c5: 'ひな形' }, { ord: 'c', tpl: true }),
+    dRowOf('rDead', 'D1', { c1: ['r1'] }, { ord: 'd', no: 3, trashed: '2026-11-02T00:00:00.000Z' }),
+    dBlock('b13', 'r1', 'paragraph', {}, { text: '行の本文' }),
+    dBlock('b14', 'r1', 'subpage', { page: 'P4' }),
+    dPage('P4', 'r1', { kind: 'blank', memo: '' }),
+    dBlock('b15', 'P4', 'paragraph', {}, { text: '行の中のページの本文' }),
+    dBlock('b16', 'rDead', 'paragraph', {}, { text: 'ゴミ箱の行の本文' }),
+  ];
+}
+const dupIdOf = (r) => `${r.type === 'page' ? 'p' : r.type === 'row' ? 'r' : 'b'}N${r.id}`;
+const dupParse = (row) => ({ ...row, attrs: typeof row.attrs === 'string' ? JSON.parse(row.attrs) : row.attrs });
+
+test('XN-1・F249: planDuplicate の表（どの行も新しい ID・写しの中を指す指しは写しへ・外はそのまま・外の両側の列は片側・ゴミ箱の子は写さない・ロックした表を中に持つページは写せ写しの表もロック中・題名の「 (1)」は1つ）', () => {
+  const rows = dupTree();
+  const r = DUP.planDuplicate(rows, 'P1', dupIdOf);
+  assert.strictEqual(r.blocked, '');
+  const ids = new Set(rows.map((x) => x.id));
+  const byNew = new Map(r.ops.map((o) => [o.id, o.row]));
+  const src = (o) => o.id.slice(2);
+  assert.deepStrictEqual(r.ops.map((o) => o.op), r.ops.map(() => 'add'));
+  assert.ok(r.ops.every((o) => !ids.has(o.id) && o.row.id === o.id), '元の ID を使った行がある');
+  assert.strictEqual(new Set(r.ops.map((o) => o.id)).size, r.ops.length, '写しの ID が重なった');
+  // 写すのはゴミ箱の子（P3・P5・その本文・rDead とその本文）と、ゴミ箱の子を指す本文の行（b7）のほか全部
+  assert.deepStrictEqual(r.ops.map(src).sort(), ['P1', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b8', 'b9', 'b10', 'P2', 'b11', 'D1', 'r1', 'r2', 'rTpl', 'b13', 'b14', 'P4', 'b15'].sort());
+  assert.strictEqual(r.count, r.ops.length);
+  // 木の形: page_id・parent_id は写しの中（根の親は元の親のまま）・並びの鍵は元のまま
+  for (const o of r.ops) {
+    const was = rows.find((x) => x.id === src(o));
+    assert.strictEqual(o.row.type, was.type);
+    assert.strictEqual(o.row.ord, was.ord, `${o.id} の並びの鍵`);
+    assert.strictEqual(o.row.page_id, was.id === 'P1' ? 'pNP1' : dupIdOf(rows.find((x) => x.id === was.page_id)), `${o.id} の page_id`);
+    if (was.id === 'P1') assert.strictEqual(o.row.parent_id, 'PX', '根の親が変わった');
+    else assert.strictEqual(o.row.parent_id, dupIdOf(rows.find((x) => x.id === was.parent_id)), `${o.id} の parent_id`);
+    assert.strictEqual(o.row.trashed_at, null);
+  }
+  const at = (id) => dupParse(byNew.get(id));
+  // 題名・文・飾り
+  assert.strictEqual(at('pNP1').text, '元のページ (1)');
+  assert.strictEqual(at('pNP2').text, '題 P2', '子のページの題名まで (1) にした');
+  assert.strictEqual(at('bNb1').text, '本文の一行');
+  assert.deepStrictEqual(at('bNb1').rich, [{ t: '本文の', m: ['b'] }, { t: '一行', m: [] }]);
+  // 本文の指し: 子ページの行・インラインの行・リンクドビューは写しへ。外のデータベース・外のページ・外のタスクはそのまま
+  assert.deepStrictEqual(at('bNb2').attrs, { page: 'pNP2' });
+  assert.deepStrictEqual(at('bNb3').attrs, { page: 'pND1', inline: true });
+  assert.strictEqual(at('bNb4').attrs.db, 'pND1');
+  assert.deepStrictEqual(at('bNb4').attrs.views[0].filter.items[0], { col: 'c1', op: 'contains', value: 'rNr1' });
+  assert.strictEqual(at('bNb5').attrs.db, 'DX');
+  assert.deepStrictEqual(at('bNb6').attrs, { task: 'rT', done: false });
+  assert.deepStrictEqual(at('bNb8').attrs, { page: 'PX' });
+  assert.deepStrictEqual(at('bNb14').attrs, { page: 'pNP4' });
+  assert.ok(!('rowAt' in at('pNP2').attrs), '子のページの rowAt（元の本文の置き場）を写した');
+  // データベース: ロック・番号・列（自分への列は写しへ・外の両側は片側・外の片側はそのまま）・サブアイテム・テンプレートの既定・ビューの条件
+  const d = at('pND1').attrs;
+  assert.strictEqual(d.locked, true, 'ロックを写さない（AQ27 (a)・OC-14）');
+  assert.strictEqual(d.nextNo, 4);
+  assert.deepStrictEqual(d.cols.find((c) => c.id === 'c1'), { id: 'c1', name: '親アイテム', type: 'rel', db: 'pND1', back: 'c2' });
+  assert.deepStrictEqual(d.cols.find((c) => c.id === 'c2'), { id: 'c2', name: 'サブアイテム', type: 'rel', db: 'pND1', back: 'c1' });
+  assert.deepStrictEqual(d.cols.find((c) => c.id === 'c3'), { id: 'c3', name: '外の両側', type: 'rel', db: 'DX' }, '外の両側の列を写しでも両側にした（OC-13）');
+  assert.deepStrictEqual(d.cols.find((c) => c.id === 'c4'), { id: 'c4', name: '外の片側', type: 'rel', db: 'DX' });
+  assert.deepStrictEqual(d.sub, { parent: 'c1', kids: 'c2' });
+  assert.strictEqual(d.tplDefault, 'rNrTpl');
+  assert.deepStrictEqual(d.tplViews, { v1: 'rNrTpl' });
+  assert.deepStrictEqual(d.views[0].filter.items, [{ col: 'c1', op: 'contains', value: 'rNr2' }, { col: 'c3', op: 'contains', value: 'rx1' }]);
+  // 行: セルのリレーションは写しの中なら写しへ・外はそのまま・ゴミ箱の行（写さない）は外す。番号・テンプレートの印はそのまま
+  assert.deepStrictEqual(at('rNr1').attrs.cells, { c1: ['rNr2'], c3: ['rx1'], c4: ['rx2'], c5: 'メモ' });
+  assert.deepStrictEqual(at('rNr2').attrs.cells, { c2: ['rNr1'] });
+  assert.strictEqual(at('rNr1').attrs.no, 1);
+  assert.strictEqual(at('rNrTpl').attrs.tpl, true);
+  // 元の行は1つも変えない（入れた物を書き換えない）
+  assert.deepStrictEqual(rows, dupTree());
+  // 写しの写し: 題名の「 (1)」は1つ（Q-22）。末が「 (1)」でない題名（「 (2)」・空）には足す
+  const again = DUP.planDuplicate([{ ...rows[0], text: '元のページ (1)' }], 'P1', dupIdOf);
+  assert.strictEqual(again.ops[0].row.text, '元のページ (1)', '写しの写しの題名が「 (1) (1)」');
+  assert.strictEqual(DUP.planDuplicate([{ ...rows[0], text: '元 (2)' }], 'P1', dupIdOf).ops[0].row.text, '元 (2) (1)');
+  assert.strictEqual(DUP.dupTitle(''), '(1)');
+  assert.strictEqual(DUP.dupTitle('あ'.repeat(500)).length, 500, '題名の上限（500 字）を越えた');
+  assert.ok(DUP.dupTitle('あ'.repeat(500)).endsWith('あ (1)'));
+});
+
+test('XN-1・F249: planDuplicate の blocked（議事録・録音中の写し・「議事録」「タスク管理」を含む・ロック中のデータベースそのもの）と、ゴミ箱の議事録は写さないので断らない・1 万を越えれば too-big', () => {
+  const blank = (id, parent, more) => dPage(id, parent, { kind: 'blank', memo: '' }, more);
+  const plan = (rows, root = 'R') => DUP.planDuplicate(rows, root, dupIdOf);
+  const none = (r, why) => { assert.strictEqual(r.blocked, why); assert.deepStrictEqual(r.ops, []); };
+  none(plan([blank('R', null), dPage('M', 'R', { memo: '', date: '2026-11-01' })]), 'meeting');
+  none(plan([dPage('R', null, { memo: '' })]), 'meeting');
+  none(plan([blank('R', null), dPage('L', 'R', { memo: '', meeting: { phase: 'recording' } })]), 'live');
+  none(plan([blank('R', null), dPage('Dm', 'R', { kind: 'database', role: 'minutes', cols: [], views: [] })]), 'role');
+  none(plan([blank('R', null), dPage('Dt', 'R', { kind: 'database', role: 'tasks', cols: [], views: [] })]), 'role');
+  none(plan([dPage('R', null, { kind: 'database', locked: true, cols: [], views: [] })]), 'locked');
+  // 行の本文の中のページの下の議事録も
+  none(plan([dPage('R', null, { kind: 'database', cols: [], views: [] }), dRowOf('rr', 'R', {}), dPage('Pm', 'rr', { memo: '' })]), 'meeting');
+  // ゴミ箱の議事録は写さないので断らない
+  const ok1 = plan([blank('R', null), dPage('M', 'R', { memo: '' }, { trashed: AT0 })]);
+  assert.strictEqual(ok1.blocked, '');
+  assert.deepStrictEqual(ok1.ops.map((o) => o.id), ['pNR']);
+  // 1 万（ページ・行・ブロックの合計）まで写せ、越えれば too-big（何も作らない）
+  const big = (n) => [blank('R', null), ...Array.from({ length: n - 1 }, (_, i) => dBlock(`k${i}`, 'R', 'paragraph', {}, { text: `${i}` }))];
+  assert.strictEqual(DUP.DUP_MAX, 10000);
+  const atMax = plan(big(10000));
+  assert.strictEqual(atMax.blocked, '');
+  assert.strictEqual(atMax.count, 10000);
+  none(plan(big(10001)), 'too-big');
+  // 根が無い・ゴミ箱の根は null（命令が bad-args）
+  assert.strictEqual(plan([blank('X', null)]), null);
+  assert.strictEqual(plan([blank('R', null, { trashed: AT0 })]), null);
+});
