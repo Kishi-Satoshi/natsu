@@ -1244,7 +1244,8 @@ test('PS-5・D124・D125: find/page-tree.md に節 #private・#rename・#library
   assert.ok(!/見出し「議事録」の行の右の ［＋］/.test(t));
   // 行のメニューの並び（決めたこと 29）と、木のキーの表の Ctrl+Shift+R（SHORTCUTS と同じ説明）
   // 0.15.1 を出した main を 0.16.0 に取り込んだとき（0.16.0 の計画の R123）に意図して直した: 0.16.0 の［中にデータベースを作る］（［中にページを作る］の次）も
-  assert.ok(secOf(t, 'tree').includes('（［リンクを写す］・［名前を変える］・［移動先…］・［中にページを作る］・［中にデータベースを作る］・［新しいタブで開く］・［削除］）'), '行のメニューの並びが違う');
+  // 0.18.0 XN-6（計画 docs/plans/2026-11-18-180.md の決めたこと 61・「意図して変えるテスト」）で意図して直した: 決めたこと 61 の並び（［複製］を足した）
+  assert.ok(secOf(t, 'tree').includes('（［リンクを写す］・［複製］・［名前を変える］・［移動先…］・［削除］・［新しいタブで開く］・［中にページを作る］・［中にデータベースを作る］）'), '行のメニューの並びが違う');
   const { SHORTCUTS } = require('../src/shortcuts');
   const r = SHORTCUTS.find((x) => x.keys === 'Ctrl+Shift+R');
   assert.ok(secOf(t, 'tree').includes(`| [[${r.keys}]] | ${r.what} |`), '木のキーの表に Ctrl+Shift+R の行が無い（SHORTCUTS と違う）');

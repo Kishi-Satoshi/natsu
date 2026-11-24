@@ -1,7 +1,7 @@
 ---
 title: 議事録を探す
 description: ［検索］か Ctrl+P で開く検索の窓で、議事録と白紙のページの題名・本文・メモ・文字起こしと、データベースの行を探す。中のページと行には場所が出る。済んでいないアクションの一覧も見られる
-updated: 2026-11-13
+updated: 2026-11-24
 sources: src/renderer/app.html, src/db/search.js, src/cite.js, CHANGELOG.md, README.md
 related: find/page-tree, find/delete-and-backups, summary/citations
 ---

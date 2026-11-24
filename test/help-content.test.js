@@ -715,7 +715,7 @@ test('EK-7（E6・E7・E8・E9）: summary/edit-summary に文字の飾り・元
   const t = read(fileOf('summary/edit-summary'));
   const marks = ek7Sec(t, 'marks');
   for (const w of ['[[Ctrl+B]]', '[[Ctrl+I]]', '[[Ctrl+U]]', '[[Ctrl+Shift+S]]', '[[Ctrl+E]]', '[[Ctrl+K]]', '[[Ctrl+Shift+H]]', '`**文字**`', '`*文字*`', '`~文字~`', '［色 ▸］', '文字の色', '背景の色', '既定',
-    '開けるのは https・http・mailto と NaTsu のリンクだけです', '［リンクを付ける］', '［外す］', '[[Ctrl]] を押しながら', '/あか', '［コピー］']) assert.ok(marks.includes(w), `飾りの節に「${w}」が無い`);
+    '開けるのは https・http・mailto と NaTsu のリンクだけです', '［リンクを付ける］', '［外す］', '[[Ctrl]] を押しながら', '/赤', '［コピー］']) assert.ok(marks.includes(w), `飾りの節に「${w}」が無い`);   // 0.18.0 XN-6（計画 docs/plans/2026-11-18-180.md の AQ32 (a)・「意図して変えるテスト」）で意図して直した: 読みの「/あか」は当たらないので、名前の「/赤」
   const undo = ek7Sec(t, 'undo');
   for (const w of ['[[Ctrl+Z]]', '[[Ctrl+Shift+Z]]', '[[Ctrl+Y]]', 'NaTsu を終えると消えます', 'これ以上は戻せません', 'やり直せるものはありません', 'ほかの所で変わったので、元に戻せませんでした', '100', '2 秒', 'ページごと', 'メモ']) {
     assert.ok(undo.includes(w), `元に戻すの節に「${w}」が無い`);
@@ -1505,7 +1505,8 @@ test('0.17.0 Task G: 設計書の版の表の 0.17.0 の欄・節「利用者が
   // 0.17.0 Task NB-4（計画 docs/plans/2026-11-13-170.md の「意図して変えるテスト」・決めたこと 93・94）で意図して直した: 第5部で実機（OB・OB2）の 29 項目と
   // X-16〜X-34 を足し、NB-5 で X-35〜X-38 を足したので、数の字を今の数にした（意図「項目の数が行と合う」は NB-1 の数えるテストが行を数えて引き継ぐ）
   // 0.17.0 点検 4（rv61 軽い 5・R101）で意図して直した: X-39 を足したので X の数の字を 39 にした（意図「項目の数が行と合う」は NB-1 の数えるテストが引き継ぐ）
-  assert.ok(nb.includes('N 30・Q-S 12・A 10・V-T 44・R 27・J 25 で、**計 313 項目**') && nb.includes('SC 8 件') && nb.includes('X 39 件'), 'notion-behavior の項目の数が合わない');
+  // 0.18.0 XN-6（計画 docs/plans/2026-11-18-180.md の決めたこと 67・「意図して変えるテスト」）で意図して直した: X-40〜X-44 を足して「X 44 件」に（意図「項目の数が行の数と合う」は残す）
+  assert.ok(nb.includes('N 30・Q-S 12・A 10・V-T 44・R 27・J 25 で、**計 313 項目**') && nb.includes('SC 8 件') && nb.includes('X 44 件'), 'notion-behavior の項目の数が合わない');
   // 計画: R83・今の状態
   assert.strictEqual(plan.split('\n').filter((l) => l.startsWith('- **R83（')).length, 1, '計画に R83 が1つでない');
   // 0.17.0 Task G の後半（R105）で意図して直した: 計画の頭の今の状態は「Task G 済み・リリースの合図待ち」になり、前半の後の状態はその下に記録として残る
@@ -1602,7 +1603,8 @@ test('0.17.0 Task NB-1・F215: 違いの行（20章の X が X-01〜X-38 で、X
   const xs = [...c20.matchAll(/^\| (X-\d+) \|/gm)].map((m) => m[1]);
   // 0.17.0 Task NB-5 で X-35〜X-38 を足した（まだ比べていなかった Q-04・Q-05・Q-09・Q-17。Q-15 は同じだったので足さない）
   // 0.17.0 点検 4（rv61 軽い 5・R101）で意図して直した: V-T44 の末の文の X-39 を足した（意図「20章の X が番号の順にそろう」は残す）
-  assert.deepStrictEqual(xs, Array.from({ length: 39 }, (_, i) => `X-${String(i + 1).padStart(2, '0')}`), '20章の X の行が X-01〜X-39 でない');
+  // 0.18.0 XN-6（計画 docs/plans/2026-11-18-180.md の決めたこと 67・「意図して変えるテスト」）で意図して直した: X-40〜X-44 を足した（意図「20章の X が番号の順にそろう」は残す）
+  assert.deepStrictEqual(xs, Array.from({ length: 44 }, (_, i) => `X-${String(i + 1).padStart(2, '0')}`), '20章の X の行が X-01〜X-44 でない');
   for (const [id, q, code] of [['X-35', 'Q-04', '`TYPE_PAUSE_MS`'], ['X-36', 'Q-05', '`fromPlain`'], ['X-37', 'Q-09', '`stepRow`'], ['X-38', 'Q-17', '`app.html`']]) {
     const row = nbRow(nb, id);
     assert.ok(row.includes(`（${q}。`) && row.includes(code) && row.includes('持ち主に問う') && !row.includes('0.17.0 で直す'), `${id} に ${q}・今のコード・持ち主に問う、が無い（0.17.0 では直さない）`);
@@ -1751,7 +1753,8 @@ test('0.17.0 点検 4（rv61 軽い 4・軽い 5・XQ1〜XQ4）: 設計書の D1
   // 軽い 5: X-39（V-T44 の末の文）
   const x39 = rowOf(nb, 'X-39');
   assert.ok(x39.includes('V-T44') && x39.includes('`dbAddRow`') && x39.includes('後の版で持ち主に問う') && x39.endsWith(' | OB2 | 11a |'), 'X-39 に V-T44・今のコード・後の版で問う、が無い');
-  assert.ok(nb.includes('X 39 件'), '項目の数の X が 39 件でない');
+  // 0.18.0 XN-6（計画 docs/plans/2026-11-18-180.md の決めたこと 67・「意図して変えるテスト」）で意図して直した: X-40〜X-44 を足して「X 44 件」に（意図「項目の数が行の数と合う」は残す）
+  assert.ok(nb.includes('X 44 件'), '項目の数の X が 44 件でない');
 });
 
 // ---------------------------------------------------------------- 0.17.1 Task OD-4（計画 docs/plans/2026-11-18-171.md の OD-4・M5）
@@ -1878,4 +1881,191 @@ test('CH-1: start/claude-mcp の題は「Claude から議事録を読む・書�
   assert.ok(read(fileOf('start/what-natsu-does')).includes('頼んだときは書き戻します'), 'start/what-natsu-does の Claude の節が今の形でない');
   // site.json の「はじめに」の説明
   assert.ok(site.categories.find((c) => c.id === 'start').description.includes('Claude から議事録を読む・書き戻す'), 'site.json の「はじめに」の説明に Claude の書き戻しが無い');
+});
+
+// ---------------------------------------------------------------- 0.18.0 Task XN-6（計画 docs/plans/2026-11-18-180.md の決めたこと 67・設計書の直しの案 6）
+// notion-behavior の違いの行に 0.18.0 の形（X-23・X-27〜X-30・X-35〜X-38）・X-40〜X-44・24 章の OC の行の括弧を答えの形に。
+// 設計書の第2回（E2・E3・E4・E5・E7・E8）・第3回の検索パレット（U1）・第5回の行のメニュー（H2）・第17回 L6 の書き添え。
+// ヘルプの記事の ↑↓・/ メニュー・見出し4・貼り付け・Ctrl+Z・行のメニューと［複製］（字は計画の「画面の文」の XN-6 の行）
+const plan180 = () => read('docs/plans/2026-11-18-180.md');
+// 持ち主の答え（計画の「問答の答え」の字のまま）
+const XN6_AQ = {
+  AQ10: '保存は2秒のまま（おすすめ）', AQ11: '並びを合わせ、［複製］を足す（おすすめ）', AQ12: '4 段にする（おすすめ）', AQ13: 'Notion に合わせる（おすすめ）',
+  AQ14: '外す（おすすめ）', AQ15: '乗せたとき・フォーカスだけ（おすすめ）', AQ17: '記録して後の版で問う（おすすめ）', AQ21: 'Notion と同じ（おすすめ）',
+  AQ22: '今のまま（おすすめ）', AQ23: '区切らない（おすすめ）', AQ24: '確定ごとに区切る（おすすめ）', AQ25: 'Notion と同じ（おすすめ）', AQ26: '後ろに開く（おすすめ）',
+  AQ27: '複製できるようにする（おすすめ）', AQ28: '0.18.0 では1つ（おすすめ）', AQ29: '5つ目で閉じる（おすすめ）', AQ30: 'Notion に合わせる（おすすめ）', AQ32: '外す（おすすめ）',
+};
+const aqWords = (k) => `${k} (a)「${XN6_AQ[k]}」`;
+
+test('XN-6: 持ち主の答えの字（このテストが使う AQ の字）は計画の「問答の答え」の表の字のまま', { timeout: 5000 }, () => {
+  const plan = plan180();
+  for (const [k, w] of Object.entries(XN6_AQ)) {
+    const rows = plan.split('\n').filter((l) => l.startsWith(`| ${k} `));
+    assert.strictEqual(rows.length, 1, `計画の問答の答えに ${k} の行が1つでない`);
+    assert.ok(rows[0].includes(`| 「${w}」 |`), `${k} の答えの字が計画と違う`);
+  }
+});
+
+test('XN-6: notion-behavior の X-23・X-27〜X-30・X-35〜X-38 の行の末に「（0.18.0 の形: 設計書 D163・計画の決めたこと n）」と持ち主の答え。前の字は頭からそのまま・出典と回の列も同じ。X-28 に 2026-11-14 と 2026-11-21 の両方の記録と 5つ目', { timeout: 5000 }, () => {
+  const nb = nbDoc();
+  const crypto = require('node:crypto');
+  const h = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
+  // [id, 決めたこと, 答え, 3485d22 の食い違いの列の長さ・sha256 の頭 16 字, 出典と回の列]
+  const ROWS = [
+    ['X-23', '61・62', ['AQ11', 'AQ27', 'AQ28'], 259, '17e8e84eaf142d66', ' | OB | 5・17 |'],
+    ['X-27', '63', ['AQ12'], 118, 'e1beb2f83b6fbac9', ' | OB | 16 |'],
+    ['X-28', '64', ['AQ13', 'AQ29'], 147, '6a30ecce59c06007', ' | OB | 2a |'],
+    ['X-29', '65', ['AQ14', 'AQ30', 'AQ32'], 126, '699e0469d1356839', ' | OB | 2a |'],
+    ['X-30', '66', ['AQ15'], 214, '2ed689af67fa9b4b', ' | OB | 17 |'],
+    ['X-35', '57', ['AQ10', 'AQ23', 'AQ24'], 300, '7f6cbf89d6ed13d1', ' | OB | 2b |'],
+    ['X-36', '58', ['AQ21', 'AQ22'], 280, 'df1b38c130d012ca', ' | OB | 2b |'],
+    ['X-37', '59', ['AQ25'], 261, '7facf9244d1828ce', ' | OB | 2a |'],
+    ['X-38', '60', ['AQ26'], 219, '6b096b62d96ff5bb', ' | OB | 3 |'],
+  ];
+  for (const [id, n, aqs, len, sha, tail] of ROWS) {
+    const row = nbRow(nb, id);
+    const cell = nbCells(row)[1];
+    assert.strictEqual(h(cell.slice(0, len)), sha, `${id} の前の字が頭から残っていない`);
+    assert.ok(row.endsWith(tail), `${id} の出典と回の列が変わった`);
+    assert.ok(cell.endsWith(`（0.18.0 の形: 設計書 D163・計画の決めたこと ${n}）`), `${id} の末に 0.18.0 の形（決めたこと ${n}）が無い`);
+    for (const k of aqs) assert.ok(cell.slice(len).includes(aqWords(k)), `${id} に ${k} の答えが無い`);
+    assert.ok(!cell.includes('0.17.0 で直す'), `${id} に「0.17.0 で直す」がある`);
+  }
+  const x28 = nbCells(nbRow(nb, 'X-28'))[1];
+  assert.ok(x28.includes('4つ続けて打つと閉じる') && x28.includes('OC-16') && x28.includes('4つまでは開いたままで、5つ目を確定した時に閉じる') && x28.includes('どちらの記録も直さずに残す'), 'X-28 に 2026-11-14 と 2026-11-21 の両方の記録が無い');
+  assert.ok(x28.slice(147).includes('NaTsu 0.18.0 は5つ目で閉じる'), 'X-28 に 0.18.0 は5つ目で閉じる、が無い');
+  assert.ok(nbCells(nbRow(nb, 'X-23'))[1].includes('X-44'), 'X-23 に「データなしで複製する」の違い（X-44）への指しが無い');
+});
+
+test('XN-6: notion-behavior の 20 章の X は X-01〜X-44。X-40 は Q-05 の Ctrl+Shift+V（AQ17・後の版で問う）、X-41〜X-44 は 24 章の OC と AQ の答え（出典 OB5・回 0.18.0）。「項目の数」は X 44 件', { timeout: 5000 }, () => {
+  const nb = nbDoc();
+  const c20 = nb.slice(nb.indexOf('\n## 20. '), nb.indexOf('\n## 21. '));
+  assert.deepStrictEqual([...c20.matchAll(/^\| (X-\d+) \|/gm)].map((m) => m[1]), Array.from({ length: 44 }, (_, i) => `X-${String(i + 1).padStart(2, '0')}`), '20章の X の行が X-01〜X-44 でない');
+  const x40 = nbRow(nb, 'X-40');
+  assert.ok(x40.includes('（Q-05。') && x40.includes('Ctrl+Shift+V') && x40.includes(aqWords('AQ17')) && x40.includes('後の版で問う') && x40.endsWith(' | OB | 2b |'), 'X-40 の形が違う');
+  for (const [id, oc, aq, more] of [['X-41', 'OC-03', null, '後の版で問う'], ['X-42', 'OC-04', 'AQ22', '最後に貼った行の末'], ['X-43', 'OC-07', 'AQ24', 'ひらがな'], ['X-44', 'OC-12', 'AQ28', '後の版で問う']]) {
+    const row = nbRow(nb, id);
+    assert.ok(row.includes(`（${oc}。`) && row.includes(more) && row.endsWith(' | OB5 | 0.18.0 |'), `${id} に ${oc}・出典 OB5・回 0.18.0 が無い`);
+    if (aq) assert.ok(row.includes(aqWords(aq)), `${id} に ${aq} の答えが無い`);
+  }
+  assert.ok(nbRow(nb, 'X-44').includes('データなしで複製する'), 'X-44 に「データなしで複製する」が無い');
+  const sec = nb.slice(nb.indexOf('\n## 項目の数\n'));
+  const xl = sec.split('\n').find((l) => l.startsWith('- 設計書との食い違い: '));
+  assert.ok(xl && xl.startsWith('- 設計書との食い違い: X 44 件（') && xl.includes('0.18.0 の Task XN-6 で') && xl.includes('X-40〜X-44'), '「項目の数」の X が 44 件でない');
+});
+
+test('XN-6: notion-behavior の 24 章の頭に違いの行 X-41〜X-44 を足したこと（「答えの後に足す」は無い）。OC の行の末の括弧は答えの形（AQ は (a) 付き・「初版の計画は」が無い・0.18.0 の形と決めたこと）で、前の字と OC-01〜OC-18・出典 OB5 はそのまま', { timeout: 5000 }, () => {
+  const nb = nbDoc();
+  const crypto = require('node:crypto');
+  const h = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
+  const a24 = nb.indexOf('\n## 24. ');
+  const c24 = nb.slice(a24, nb.indexOf('\n## 項目の数\n'));
+  const head = c24.split('\n').find((l) => l.startsWith('**確かめた日と方法:**'));
+  assert.ok(head && !head.includes('答えの後に足す') && head.includes('X-41〜X-44'), '24 章の頭が答えの後の形でない');
+  const rows = [...c24.matchAll(/^\| (OC-\d+) \|.*\| (\S+) \| (\S+) \|$/gm)].map((m) => [m[1], m[2], m[3]]);
+  assert.deepStrictEqual(rows, Array.from({ length: 18 }, (_, i) => [`OC-${String(i + 1).padStart(2, '0')}`, 'OB5', '0.18.0']), '24 章の行が OC-01〜OC-18（出典 OB5・回 0.18.0）でない');
+  for (const [id] of rows) {
+    const cell = nbCells(nbRow(nb, id))[1];
+    assert.ok(!/AQ\d+(?!\d| \(a\))/.test(cell), `${id} に (a) の無い AQ の問いの形が残る`);
+    assert.ok(!cell.includes('初版の計画は'), `${id} に「初版の計画は」が残る`);
+  }
+  // [id, 3485d22 の括弧の前までの長さ, sha256 の頭 16 字, 決めたこと]
+  const OC = [['OC-01', 145, '72b2fc1404f7366f', '68'], ['OC-04', 134, '93d0152921fa76df', '58'], ['OC-05', 131, '0382d9469aa9b09a', '58'], ['OC-06', 147, 'f2f42b6a04c454eb', '57'],
+    ['OC-07', 113, 'f5fabf6352426d34', '57'], ['OC-09', 116, 'aa5ca1d537a52579', '59'], ['OC-11', 170, 'd6d870d4b5a835bf', '60'], ['OC-12', 233, 'dffba1cfdc30f24f', '61・62'],
+    ['OC-14', 91, '494e037bb73751d3', '62'], ['OC-16', 132, '42fc9ffd521de14d', '64'], ['OC-17', 128, '425b4c8412c1d176', '65']];
+  for (const [id, len, sha, n] of OC) {
+    const cell = nbCells(nbRow(nb, id))[1];
+    assert.strictEqual(h(cell.slice(0, len)), sha, `${id} の括弧の前の字が変わった`);
+    const tail = cell.slice(len);
+    assert.ok(tail.startsWith('（') && tail.endsWith('）') && tail.includes('0.18.0') && /AQ\d+ \(a\)/.test(tail) && tail.includes(`決めたこと ${n}`), `${id} の末の括弧が答えの形（0.18.0・AQ の (a)・決めたこと ${n}）でない`);
+  }
+  assert.ok(nbCells(nbRow(nb, 'OC-06'))[1].includes('（「すぐ」の間は測っていない。') && nbCells(nbRow(nb, 'OC-16'))[1].includes('（2026-11-14 の Q-06 は「4つ続けて打つと閉じる」と記録していて、1つ違う。半角の字では確かめていない。'), 'OC-06・OC-16 の括弧の頭の記録の字が消えた');
+  assert.ok(c24.includes('\n**確かめていないこと:** 版の番号・'), '24 章の「確かめていないこと」が消えた');
+});
+
+test('XN-6: 設計書の E2・E3・E4・E5・E7・E8・U1・H2・L6 に D163 の書き添え（0.18.0 の形）。書き添えを除くと 3485d22 の行と同じ。E4 と H2 の末は前のテストの見る形のまま。「見出しの段数 level を足すだけ」と保存の形の見出しの段数は変えない', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const crypto = require('node:crypto');
+  const h = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
+  const rowOf = (k) => { const xs = d.split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.strictEqual(xs.length, 1, `${k} の行が1つでない`); return xs[0]; };
+  const ADD = / ?\*\*（[^*]*D163: 0\.18\.0 [^*]*）\*\*/g;
+  const ROWS = [['E2', '35cc338da7778189', ['ひらがなの読み', '5つ目', '「リスト」']], ['E3', '72f791f92ca8dbb3', ['`#### `']], ['E4', '125da9a37551eae9', ['D161', '見た目の行', '区切り線と子ページの行は飛ばし', '題名の欄']],
+    ['E5', 'c5a6f471fe0db5b1', ['見出し4', 'トグル見出し4', '要約の見出しは3段のまま']], ['E7', '58592daa63e1e748', ['D159', '約 0.5 秒', '確定', '2 秒']], ['E8', 'b349c6fc03569614', ['D160', '改行', 'すぐ下']],
+    ['U1', 'e1557e768f4a728e', ['D162', '後ろに開き', '開いたまま']], ['H2', '46dfff88f96b603f', ['D8', '［複製］', 'Ctrl+D']], ['L6', 'bc11ef70fa0e00ec', ['［複製］', '議事録を含むページの複製は第17回']]];
+  for (const [k, sha, ws] of ROWS) {
+    const r = rowOf(k);
+    const adds = r.match(ADD) || [];
+    assert.strictEqual(adds.length, 1, `${k} に D163 の書き添えが1つでない`);
+    assert.strictEqual(h(r.replace(ADD, '')), sha, `${k} の書き添えの外の字が変わった`);
+    for (const w of ws) assert.ok(adds[0].includes(w), `${k} の書き添えに「${w}」が無い`);
+  }
+  assert.ok(rowOf('E4').endsWith('2026-11-15・11-16 の持ち主の答えと Notion の画面の確かめ）** |') && rowOf('H2').endsWith('**（D145）データベースの行を開くとビューの行** |'), 'E4・H2 の末が変わった');
+  assert.ok(d.includes('見出しの段数 `level` を足すだけ'), '「出典の照合」の「見出しの段数 `level` を足すだけ」が消えた');
+  assert.ok(d.includes('`#`→1、`##`→2、`###` 以下→3 とし、読み取りのテストを足す。'), '保存の形の見出しの段数（要約は3段のまま）が変わった');
+});
+
+// 「画面の文」の XN-6 の行の字（ヘルプの記事に、この字がそのままある）
+const XN6_HELP = [
+  ['summary/edit-summary', 'rows', '**[[↑]]・[[↓]]:** 行の中では、見た目の1行ずつ動きます。最初の見た目の行で [[↑]]、最後の見た目の行で [[↓]] を押すと、上・下の行へ移ります（横の位置はそのままです）。区切り線とページの行は飛ばし、本文の中のデータベースでは表の題名の欄に入ります。'],
+  ['summary/edit-summary', 'slash', '続けて打った言葉で絞り込めます（「見出し」「todo」「h1」など）。型の名前か英語の語で探します（ひらがなの読みでは当たりません）。「トグル」で「トグル」と「トグル見出し1〜4」、「リスト」で箇条書き・番号付き・トグルが出ます。'],
+  ['summary/edit-summary', 'slash', '当たらない字を5つ続けて打つと閉じます（4つまでは開いたままです）。打った言葉はそのまま残り、その行で `/` を打ち直すまで開きません。'],
+  ['summary/edit-summary', 'markdown', '| `# `・`## `・`### `・`#### ` | 見出し1・見出し2・見出し3・見出し4 |'],
+  ['summary/edit-summary', 'marks', '/ のメニューでも、`/赤`・`/red` のように色の名前を打つと、文字の色と背景の色が出ます。`/background` と打つと、背景の色だけが出ます。'],
+  ['summary/edit-summary', 'nest', '見出しも「トグル見出し1〜4」にできます。'],
+  ['summary/edit-summary', 'paste', '**ふつうの文:** 改行1つで分かれた行は、1つのテキストの行の中の改行になります。空の行の所で、別のテキストの行に分けます（空の行は行になりません）。'],
+  ['summary/edit-summary', 'paste', '`#`〜`####` は見出し1〜4です（`#####` より多くても見出し4）。'],
+  ['summary/edit-summary', 'paste', 'ふつうの文を何行か、文のあるテキストの行・箇条書き・ToDo の途中か終わりに貼ると、その行は変えずに、すぐ下に新しいテキストの行として入ります（空の箇条書き・ToDo でも同じで、その行は空のまま残ります）。'],
+  ['summary/edit-summary', 'paste', 'そのほかで文の途中なら、行をそこで分け、貼った行を間に入れます。'],
+  ['summary/edit-summary', 'paste', '貼った後は、最後に貼った行の終わりにカーソルがあります。'],
+  ['summary/edit-summary', 'undo', '打った文字は、打つ手が約 0.5 秒止まるたびと、日本語入力で変換を確定するたびに区切り、[[Ctrl+Z]] の1回で1つ分ずつ戻ります。すぐ続けた行の中の改行（[[Shift+Enter]]）・1行の貼り付け・飾りは、前に打った字と同じ1回で戻ります。確定した言葉は、変換の前の字に戻らずに消えます。'],
+  ['summary/edit-summary', 'undo', '打った文字は、打つ手が 2 秒止まるか、ほかの行やほかの所へ移るたびに保存します。打っている途中で [[Ctrl+Z]] を押すと、保存してから戻します。'],
+  ['find/page-tree', 'tree', '（［リンクを写す］・［複製］・［名前を変える］・［移動先…］・［削除］・［新しいタブで開く］・［中にページを作る］・［中にデータベースを作る］）'],
+  ['find/page-tree', 'tree', '［複製］ か、行で [[Ctrl+D]] を押すと、そのページを、中のページ・本文・データベース（行・ビュー・テンプレート）ごと写します。写しの題名の後ろには「 (1)」が付き、開いている画面は元のページのままです。中のページの写しは元のページの次に並びます（いちばん上のページの写しは、作った新しい順なので、いちばん上に並びます）。'],
+  ['find/page-tree', 'tree', 'ロックしたデータベースは、写しもロックしたままです。ロック中のデータベースの行のメニューには ［複製］ がありません。議事録・「議事録」・「タスク管理」を含むページは複製できません（［複製］ が灰色で、乗せると理由が出ます）。写すものが多すぎるときは「大きすぎて複製できません」と出ます。複製は [[Ctrl+Z]] では戻りません（要らなければ ［削除］ してください）。'],
+  ['find/page-tree', 'library', '行のメニュー（右クリック・[[Shift+F10]]）と [[Ctrl+Shift+R]]・[[Ctrl+D]] は、サイドバーの行と同じです。'],
+];
+
+test('XN-6: ヘルプの記事の ↑↓・/ メニュー（5つ目・名前と英語の語・「リスト」）・見出し4・/赤・貼り付け（すぐ下・空の行で分ける・カーソル）・Ctrl+Z（約 0.5 秒と確定ごと・保存は 2 秒）・行のメニューの並びと［複製］（Ctrl+D・ロックしたまま写す）は「画面の文」の XN-6 の行の字のまま。前の字は無い', { timeout: 5000 }, () => {
+  const plan = plan180();
+  const scr = plan.slice(plan.indexOf('\n## 画面の文'), plan.indexOf('\n## 意図して変えるテスト'));
+  const row = scr.split('\n').filter((l) => l.startsWith('| ヘルプの記事（XN-6 で直した字。'));
+  assert.strictEqual(row.length, 1, '「画面の文」に XN-6 のヘルプの記事の行が1つでない');
+  assert.ok(row[0].includes('持ち主の決まり「実装中の確かめは Notion に合わせるかおすすめを選ぶ（2026-11-23 の持ち主の言葉）」'), 'XN-6 の行に持ち主の決まりが無い');
+  for (const [ref, id, s] of XN6_HELP) {
+    assert.ok(ek7Sec(read(fileOf(ref)), id).includes(s), `${ref} の #${id} に「${s.slice(0, 30)}…」が無い`);
+    if (!s.startsWith('| ')) assert.ok(row[0].includes(s), `「画面の文」の XN-6 の行に「${s.slice(0, 30)}…」が無い`);
+  }
+  assert.ok(row[0].includes('見出し4の記法の行'), '「画面の文」の XN-6 の行に記法の表の見出し4の行が無い');
+  const t = read(fileOf('summary/edit-summary'));
+  for (const old of ['「みだし」「todo」', '「とぐるみだし」', '`/あか`', 'あかいはいけい', '1行ずつテキストの行になります。空の行は詰めます。', '打つ手が 2 秒止まるか、ほかの行やほかの所へ移るたびに1つの操作になります', '行の頭で [[↑]]・行の終わりで [[↓]]', 'トグル見出し1〜3']) {
+    assert.ok(!t.includes(old), `summary/edit-summary に前の字「${old}」が残る`);
+  }
+  const pt = read(fileOf('find/page-tree'));
+  assert.ok(!pt.includes('（［リンクを写す］・［名前を変える］・［移動先…］・［中にページを作る］'), 'find/page-tree に前の行のメニューの並びが残る');
+  const d = SHORTCUTS.find((x) => x.keys === 'Ctrl+D' && x.where === 'サイドバーのページの一覧');
+  assert.ok(d && ek7Sec(pt, 'tree').includes(`| [[Ctrl+D]] | ${d.what} |`), 'find/page-tree の木のキーの表に Ctrl+D の行が無い（SHORTCUTS と同じ説明）');
+  // 検索の窓の Ctrl+Enter（XE-4 で直した字: CR127）
+  assert.ok(read(fileOf('find/search')).includes('[[Ctrl+Enter]] で新しいタブに開きます（後ろに開き、見ているページと検索の窓はそのままです）。'), 'find/search に後ろに開く形が無い');
+  const app = L.appLabelText(ROOT);
+  for (const ref of ['summary/edit-summary', 'find/page-tree', 'find/search', 'settings/hotkeys']) {
+    const a = articles.find((x) => x.ref === ref);
+    assert.deepStrictEqual(L.missingLabels(a.text, app), [], `${ref}: アプリに無い ［…］`);
+    assert.ok(metaOf(a).updated >= '2026-11-24', `${ref}: updated を直した日にしていない`);
+    assert.ok(!/notion/i.test(a.text), `${ref}: Notion の名前がある`);
+    assert.ok(!/<pre|```/.test(a.text), `${ref}: pre の要素を使った`);
+  }
+});
+
+test('XN-6: 前の版のテストが見ている字は消えていない（X-35〜X-38 の XQ の答え・D159〜D162 の行の末・OC-01〜OC-18 の番号と出典・X-23・X-27〜X-30 の「今のまま」と NQ1 の答え）', { timeout: 5000 }, () => {
+  const nb = nbDoc();
+  for (const [id, w] of [['X-35', 'XQ1「約 0.5 秒にする」'], ['X-36', 'XQ2「Notion と同じ 1 つの文にする」'], ['X-37', 'XQ3「後の版で Notion に合わせる（おすすめ）」'], ['X-38', 'XQ4「開いたままにする（おすすめ）」']]) {
+    assert.ok(nbRow(nb, id).includes(w) && nbRow(nb, id).includes('持ち主に問う'), `${id} の XQ の答えが消えた`);
+  }
+  for (const id of ['X-23', 'X-27', 'X-28', 'X-29', 'X-30']) assert.ok(nbRow(nb, id).includes('NQ1「編集と表のキーを直す（おすすめ）」') && nbRow(nb, id).includes('今のまま'), `${id} の NQ1 の答えが消えた`);
+  const d = read('docs/plans/natsu-design.md');
+  for (const k of ['D159', 'D160', 'D161', 'D162']) {
+    const r = d.split('\n').filter((l) => l.startsWith(`| ${k} |`));
+    assert.ok(r.length === 1 && r[0].endsWith('**（2026-11-18: 0.18.0 で作る: D163）** |'), `${k} の行の末が変わった`);
+  }
+  for (let i = 1; i <= 18; i += 1) assert.ok(nbRow(nb, `OC-${String(i).padStart(2, '0')}`).endsWith(' | OB5 | 0.18.0 |'), `OC-${i} の出典と回が変わった`);
 });

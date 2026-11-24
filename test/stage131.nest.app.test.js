@@ -882,7 +882,8 @@ test('NE-5: 記事「要約を書き直す」に入れ子とトグルの節（{#
   const md = art.slice(art.indexOf('{#markdown}'), art.indexOf('{#handles}'));
   assert.ok(md.includes('| `> ` | トグル |'), '記法の表に「> 」が無い');
   const slash = art.slice(art.indexOf('{#slash}'), art.indexOf('{#markdown}'));
-  assert.ok(slash.includes('「トグル」') && slash.includes('「トグル見出し1〜3」'), '/ メニューの節にトグルが無い');
+  // 0.18.0 XN-6（計画 docs/plans/2026-11-18-180.md の決めたこと 63・「意図して変えるテスト」）で意図して直した: 見出し4を足したので「トグル見出し1〜4」
+  assert.ok(slash.includes('「トグル」') && slash.includes('「トグル見出し1〜4」'), '/ メニューの節にトグルが無い');
   const L = require('../tools/lib/help-labels');
   assert.deepStrictEqual(L.missingLabels(art, L.appLabelText(ROOT)), []);
   assert.ok(!/<pre|```/.test(art), 'pre の要素を使った');
