@@ -1882,6 +1882,7 @@ const IDS_180 = [
   'cu-lost-rich', 'cu-pop-tab', 'cu-pop-gone', 'cu-pop-desc',
   // 0.18.0 点検 3 の残り（2026-11-23。CR115: 行のページの題名の打ちかけ）
   'cu-title-keep',
+  'cu-menu-nowrap',   // 0.18.0 Task G（前半）の直し（CR163）: 「···」のメニューの項目は折り返さない
   // 0.18.0 Task XE-1（Ctrl+Z のまとまりを約 0.5 秒と日本語入力の確定に）
   'xe-undo-mark', 'xe-undo-ime', 'xe-undo-commit', 'xe-undo-nocut', 'xe-undo-save2s', 'xe-undo-stale', 'xe-undo-flush', 'xe-undo-redo', 'xe-undo-live', 'xe-undo-fold',
   // 0.18.0 Task XE-2（何行かの素の文の貼り付け）
@@ -1914,7 +1915,7 @@ function planRows180() {
   return [...table.matchAll(/^\| ((?:cw|cs|ct|cp|cu|xe|xn)-[A-Za-z0-9-]*) \|/gm)].map((m) => m[1]);
 }
 // 0.18.0 Task G（前半。計画の Task G「IDS_180（…の全部。表とちょうど同じ）」・CR160）で意図して変えた: 作っている間の「表の行の順に並んだ一部」から、表の全部とちょうど同じに（0.17.0 の R83 と同じ）
-test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の「変異の表」の cw-・cs-・ct-・cp-・cu-・xe-・xn- の行とちょうど同じ（行の順・242 行）。その頭の変異は IDS_180 にある。どれも決まったテストのファイルを持ち、why が 0.18.0 で始まる。前の版の頭に当たらず、前の版の IDS に 0.18.0 の頭が無い', { timeout: 5000 }, () => {
+test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の「変異の表」の cw-・cs-・ct-・cp-・cu-・xe-・xn- の行とちょうど同じ（行の順・243 行）。その頭の変異は IDS_180 にある。どれも決まったテストのファイルを持ち、why が 0.18.0 で始まる。前の版の頭に当たらず、前の版の IDS に 0.18.0 の頭が無い', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_180.filter((id) => !byId.has(id)), [], 'IDS_180 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_180).size, IDS_180.length, 'IDS_180 に重なり');
@@ -1925,10 +1926,10 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
   // 点検 2（2026-11-23）の読む答えの直しで cs- を 1・ct- を 3 足した（194 → 198）。書く道具の答えと照らしの直しで cs- を 4・ct- を 8 足した（198 → 210）。
   // CU-1 で cu- を 1 足した（cu-snap-count: CR95。210 → 211）。点検 3（2026-11-23）で cu- を 22 足した（CR106〜CR113。211 → 233）。
   // 点検 3 の残りで cu- を 1 足した（cu-title-keep: CR115。233 → 234）。XN-2 で xn- を 1 足した（xn-menu-key-off: CR136。234 → 235）。
-  // 点検 4（2026-11-24）で xe- を 3・xn- を 4 足した（CR148〜CR153。235 → 242）
-  assert.strictEqual(rows.length, 242, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 33・xe- 37・xn- 35）が読めない');
+  // 点検 4（2026-11-24）で xe- を 3・xn- を 4 足した（CR148〜CR153。235 → 242）。Task G（前半）の直しで cu- を 1 足した（cu-menu-nowrap: CR163。242 → 243）
+  assert.strictEqual(rows.length, 243, '計画の 0.18.0 の表（cw- 42・cs- 31・ct- 60・cp- 4・cu- 34・xe- 37・xn- 35）が読めない');
   assert.deepStrictEqual(['cw', 'cs', 'ct', 'cp', 'cu', 'xe', 'xn'].map((k) => [k, rows.filter((id) => id.startsWith(`${k}-`)).length]),
-    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 33], ['xe', 37], ['xn', 35]], '計画の表の頭ごとの数が違う');
+    [['cw', 42], ['cs', 31], ['ct', 60], ['cp', 4], ['cu', 34], ['xe', 37], ['xn', 35]], '計画の表の頭ごとの数が違う');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_180.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_180, rows, 'IDS_180 が計画の「変異の表」の 0.18.0 の行とちょうど同じでない（行の順）');

@@ -190,6 +190,37 @@ test('CU-1・F244: 控えの無いページの「···」は今と同じ項目�
   } finally { l.done(); }
 });
 
+// 0.18.0 Task G（前半）の直し（計画の CR163。取り直しで「···」の［Claude の変更を戻す］が「…戻 / す」と2行に折り返していた: CR162 (1)）:
+// 「···」のメニュー（#pMenu）の項目は折り返さず、メニューはいちばん長い項目の幅まで広がり、右の端は「···」に揃えたまま。本物の字の幅は偽の DOM では測れないので、
+// 規則（app.html の <style>）を見て、［Claude の変更を戻す］がその規則の項目（#pMenu の .mitem）であることを本物の画面で見る。本物の Chromium の1行の高さと
+// 窓の中かは、撮る道具の page-menu-claude-light・-dark・-zoom200-light の手が見る（tools/shots/screens.js の OPEN_CLAUDE_MENU）
+test('Task G 直し・CR163: 「···」のメニューの項目は折り返さない（white-space: nowrap）・メニューはいちばん長い項目の幅（width: max-content）で右の端は「···」に揃える（right: 0）。［Claude の変更を戻す］は #pMenu の .mitem', T, async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const simcss = require('./helpers/simcss');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.html'), 'utf8');
+  const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+  const rules = simcss.parse(css);
+  const item = simcss.declsFor(rules, '.pacts .pmenu .mitem');
+  assert.strictEqual(item['white-space'], 'nowrap', '「···」のメニューの項目が折り返す（white-space: nowrap が無い）');
+  const menu = simcss.declsFor(rules, '.pmenu');
+  assert.deepStrictEqual([menu.position, menu.right, menu.width], ['absolute', '0', 'max-content'], '「···」のメニューの幅か右の端の揃えが違う');
+  const boxes = rules.filter((r) => r.sel.split(',').map((x) => x.trim()).some((x) => x === '.pmenu' || x === '#pMenu' || x === '.pacts .pmenu'));
+  assert.ok(boxes.every((r) => !('max-width' in r.decls) && (!('width' in r.decls) || r.decls.width === 'max-content')), '「···」のメニューに幅を絞る規則がある');
+  const l = await seeded();
+  try {
+    claude(l, 'mcp.updateAction', { pageId: 'pm1', blockId: 'b4', done: true }, AT1);
+    await open(l, 'pm1');
+    await clickEl(l, $(l, 'pMore'), 40);
+    const it = moreItem(l, UNDO_ITEM);
+    assert.ok(it && it.classList.contains('mitem') && it.parentNode === $(l, 'pMenu') && $(l, 'pMenu').classList.contains('pmenu'), '［Claude の変更を戻す］が「···」のメニューの .mitem でない');
+    let up = $(l, 'pMenu');
+    while (up && !(up.classList && up.classList.contains('pacts'))) up = up.parentNode;
+    assert.ok(up, '「···」のメニューが .pacts の中に無い（項目の規則が当たらない）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
 test('CU-1・F234: #claudePop の行（時刻・道具の言葉・数。新しい順）・説明・［この前に戻す］の名前。描くのは textContent。↑↓ で移り、変換中の Esc では閉じず、Esc で閉じてフォーカスが「···」へ', T, async () => {
   const l = await seeded();
   try {

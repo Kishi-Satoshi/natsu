@@ -241,8 +241,16 @@ const OPEN_CLAUDE_AT = (then) => `(async () => {
 const OPEN_CLAUDE_PAGE = OPEN_CLAUDE_AT(`document.getElementById('paneBtnNote').click();
   await until(() => document.getElementById('toast').classList.contains('show'), '左下の知らせが出ない');`);
 // 0.18.0 CU-1: 控えのあるページの「···」（［削除］の前に［Claude の変更を戻す］）
+// 0.18.0 Task G（前半）の直し（計画の CR163）: 本物の Chromium で、「···」のメニューの項目がどれも1行（高さがいちばん低い項目と同じ）・メニューは窓の中・
+// 右の端は「···」に揃う、を見る（違えば投げて撮れない。明暗と拡大 200% の3枚で）
 const OPEN_CLAUDE_MENU = OPEN_CLAUDE_AT(`document.getElementById('pMore').click();
-  await until(() => item(), '［Claude の変更を戻す］が無い');`);
+  await until(() => item(), '［Claude の変更を戻す］が無い');
+  const m = document.getElementById('pMenu').getBoundingClientRect();
+  const hs = [...document.querySelectorAll('#pMenu .mitem')].map((b) => b.getBoundingClientRect().height);
+  if (Math.max(...hs) > Math.min(...hs) + 1) throw new Error('「···」のメニューの項目が折り返している: ' + hs.map((h) => Math.round(h)).join(','));
+  if (m.left < 0 || m.top < 0 || m.right > window.innerWidth || m.bottom > window.innerHeight) throw new Error('「···」のメニューが窓の外に出る: ' + [m.left, m.top, m.right, m.bottom].map(Math.round).join(','));
+  const b = document.getElementById('pMore').getBoundingClientRect();
+  if (Math.abs(m.right - b.right) > 1) throw new Error('「···」のメニューの右の端が「···」に揃わない: ' + Math.round(m.right) + ' / ' + Math.round(b.right));`);
 // 0.18.0 CU-1: ［Claude の変更を戻す］の窓（3 行）
 // 0.18.0 XE-4（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」・決めたこと 60・AQ26 (a)）: 1行目のページを開いて検索の窓を開き、開いていないページの結果で
 // Ctrl+Enter（新しいタブは後ろのタブの帯の末に足され、見ているページと検索の窓はそのまま）。窓が閉じた・タブが増えないときは投げる（撮れない）
@@ -514,7 +522,11 @@ const ROW_MENU_OF = (pid, check) => `(async () => {
   ${check}
   return 1;
 })()`;
-const ROW_MENU_LOCK = ROW_MENU_OF('pd1', "if (names.includes('複製') || names.includes('名前を変える') || names.includes('移動先…')) throw new Error('ロック中のデータベースの行に［複製］［名前を変える］［移動先…］がある: ' + names.join('・'));");
+const ROW_MENU_LOCK = ROW_MENU_OF('pd1', "if (names.includes('複製') || names.includes('名前を変える') || names.includes('移動先…')) throw new Error('ロック中のデータベースの行に［複製］［名前を変える］［移動先…］がある: ' + names.join('・'));"
+  // 0.18.0 Task G（前半）の直し（CR165）: 開いたページが、メニューを開いた行のデータベース（題名と表）であること
+  + " for (let i = 0; i < 30 && !document.querySelector('#pDb .dbrow'); i++) await w(100);"
+  + " if (document.getElementById('pTitle').textContent !== '案件の一覧' || !document.querySelector('#pDb .dbrow')) throw new Error('開いたページがメニューの行のデータベースでない: ' + document.getElementById('pTitle').textContent);"
+  + " if (!document.querySelector('.treemenu')) throw new Error('行のメニューが閉じた');");
 // 0.18.0 XN-2: 「次回の議題」の行の［···］→［複製］で、元のすぐ下に「次回の議題 (1)」（一覧の答えは写しを含む形。開いているページは元のまま）
 const ROW_DUP = `(async () => {
   const w = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -840,6 +852,9 @@ const SCREENS = [
   // この4枚の答えだけ（ほかの画面の種は控え無しのまま: pageClaudeSnaps の答えが無い）
   { name: 'page-claude-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, events: [['onClaudeWrote', { pageIds: ['p1'], what: 'summary' }]], act: OPEN_CLAUDE_PAGE },
   { name: 'page-menu-claude-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_MENU },
+  // 0.18.0 Task G（前半）の直し（CR163・CR164）: 「···」のメニューが折り返さないことを暗い地と拡大 200% でも見る（まだ基準が無い）
+  { name: 'page-menu-claude-dark', page: 'app', theme: 'dark', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_MENU },
+  { name: 'page-menu-claude-zoom200-light', page: 'app', theme: 'light', zoom: 2, get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_MENU },
   { name: 'claude-pop-light', page: 'app', theme: 'light', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_POP },
   { name: 'claude-pop-dark', page: 'app', theme: 'dark', get answers() { return claudeAnswers(); }, act: OPEN_CLAUDE_POP },
   // 0.18.0 XE-4（計画の「取り直す画面（RETAKE）」・決めたこと 60）: 検索の窓の Ctrl+Enter の後（窓は開いたまま・新しいタブは後ろ）
@@ -1010,7 +1025,7 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // edit-slash-recent-light（今の基準がある）も取り直す（XN-3 で取り直しに入れ忘れた）
 // 0.18.0 XN-5（CR142）: ⠿ のメニューの［変換 ▸］に見出し4とトグル見出し4が増える edit-block-menu-light（今の基準がある。XN-3 で入れ忘れた）と、
 // 見出しの印が乗せたときだけになるサイドバーの出るアプリの画面の全部（0.17.0 の RETAKE_170 と同じ形）
-const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
+const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'page-menu-claude-dark', 'page-menu-claude-zoom200-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
   'side-row-menu-lock-light', 'side-row-dup-light', 'edit-h4-light',
   'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
   'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'sidebar-db-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light', 'edit-block-menu-light',
@@ -1169,9 +1184,11 @@ function h4Answers() {
 }
 
 /** 0.18.0 XN-2: サイドバーの一覧の2つ目のデータベース pd1 がロック中 */
+// 0.18.0 Task G（前半）の直し（計画の CR165）: 行のメニューを開く手（ROW_MENU_OF）は一覧のいちばん上の行（pd1「案件の一覧」）を開くので、本文もそのデータベース
+//（ロック中の表: lockedAnswers のページと表の答え）にする（前は本文が既定の議事録のままで、タブと本文が食い違って写っていた）。一覧は sideDbAnswers のまま
 function sideLockedAnswers() {
   const a = sideDbAnswers();
-  return { ...a, 'koeApp.pagesSearch': a['koeApp.pagesSearch'].map((p) => (p.id === 'pd1' ? { ...p, locked: true } : p)) };
+  return { ...lockedAnswers(), 'koeApp.pagesSearch': a['koeApp.pagesSearch'].map((p) => (p.id === 'pd1' ? { ...p, locked: true } : p)) };
 }
 
 /** 0.18.0 XN-2: サイドバーの木（treeAnswers）の「次回の議題」p1b のすぐ下に写し p1b2「次回の議題 (1)」（［複製］の答えは写しの ID） */

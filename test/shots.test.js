@@ -261,7 +261,9 @@ const NEW_151 = ['side-private-folded-light', 'side-private-folded-dark', 'side-
 // 0.15.1 を出した main の取り込み（R123）で意図して直した: 0.16.0 で足した画面（NEW_160）は 0.15.1 の画面に数えない
 // 0.18.0 CU-1（計画 docs/plans/2026-11-18-180.md の「取り直す画面（RETAKE）」）で意図して変えた: Claude の要約の札と左下の知らせ・控えのあるページの「···」・
 // ［Claude の変更を戻す］の窓の明暗の4枚を足した（NEW_180。まだ基準が無い。Task G の前に基準にする）。取り直し待ちは 0.18.0 の表の画面（RETAKE_180）
-const NEW_180 = ['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark',
+const NEW_180 = ['page-claude-light', 'page-menu-claude-light',
+  'page-menu-claude-dark', 'page-menu-claude-zoom200-light',   // 0.18.0 Task G（前半）の直し（CR163・CR164）で意図して足した: 「···」のメニューが折り返さないかを暗い地と拡大 200% でも（まだ基準が無い）
+  'claude-pop-light', 'claude-pop-dark',
   'search-palette-newtab-light',   // 0.18.0 XE-4（決めたこと 60・CR128）で意図して足した: 検索の窓の Ctrl+Enter の後（まだ基準が無い）
   'side-row-menu-lock-light', 'side-row-dup-light',   // 0.18.0 XN-2（決めたこと 61・62）で意図して足した: ロック中のデータベースの行のメニューと複製の後（まだ基準が無い）
   'edit-h4-light'];   // 0.18.0 XN-3（決めたこと 63）で意図して足した: 見出し1〜4 の字の大きさ（まだ基準が無い）
@@ -370,7 +372,8 @@ test('G2: 撮る画面は決まった並び（第1b回の 13 と第1b2回の検�
   assert.deepStrictEqual(SH.SCREENS.filter((s) => s.zoom).map((s) => [s.name, s.zoom]), [['notes-page-zoom200-light', 2], ['settings-zoom200-dark', 2], ['live-banner-zoom200-dark', 2],
     ['settings-record-zoom200-light', 2], ['settings-info-zoom200-light', 2], ['live-late-zoom200-light', 2], ['live-ready-zoom200-light', 2],
     ['edit-types-zoom150-light', 1.5], ['edit-nested-zoom200-light', 2], ['edit-toolbar-zoom200-light', 2], ['sidebar-tree-zoom200-light', 2], ['look-wide-zoom200-light', 2], ['look-small-zoom200-light', 2],
-    ['side-private-zoom200-light', 2], ['library-zoom200-light', 2], ['db-table-zoom200-light', 2]]);   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直し・0.15.0 PL-3（全幅の拡大 200%）・0.15.1 PS-2（見出しの行）で意図して足した
+    ['side-private-zoom200-light', 2], ['library-zoom200-light', 2], ['db-table-zoom200-light', 2],
+    ['page-menu-claude-zoom200-light', 2]]);   // 0.18.0 Task G（前半）の直し（CR164）で意図して足した   // 0.9.2 I-4・0.9.4 S-8・0.13.0 RDY-3・ED-7・0.13.1 NE-4a・0.14.0 EB-5 直し・0.15.0 PL-3（全幅の拡大 200%）・0.15.1 PS-2（見出しの行）で意図して足した
   const live = SH.SCREENS.find((s) => s.name === 'live-light');
   const st = live.answers['koeApp.meetingStatus'];
   assert.ok(st.active && st.cloud && st.pauses.length === 1, '記録中の画面に一時停止の印か［PC の中だけ］が出ない');
@@ -1453,7 +1456,10 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // （RETAKE にある: SIDE_180）。値を今の app.html に合わせた（前の値は 7f750f27…）
   // 0.18.0 点検 4（CR148〜CR152）: 帳面の通す窓の opener・構造の命令の印の捨て（typedFold）・読めないときの ↑↓・Ctrl+D の繰り返し・複製の断りの符号（<script> の中だけ。
   // 新しい字は無く、撮る画面は変わらない）。値を今の app.html に合わせた（前の値は cbc56a2d…）
-  assert.strictEqual(sha, '6413b59ec53fbec280ec847e59dec77d858b0e6b91afe057773f4104a7d68438',
+  // 0.18.0 Task G（前半）の直し（CR163）: 「···」のメニュー（.pmenu）の項目を折り返さず（white-space: nowrap）、メニューをいちばん長い項目の幅に（width: max-content）。
+  // 変わる画面は「···」のメニューを写す page-menu-claude-light（と足した -dark・-zoom200-light）と、ほかの「···」の画面（page-menu-link・page-menu-look。どれも RETAKE にある: SIDE_180）。
+  // 値を今の app.html に合わせた（前の値は 6413b59e…）
+  assert.strictEqual(sha, 'b1922ed83fb63f711740a24b0724c1ad55d8556093c9b43bdef0d9d995aca0ad',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
