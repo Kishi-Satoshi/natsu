@@ -1306,3 +1306,68 @@ test('XE-4・F248: 貼ったリンクの行の Ctrl+Enter も後ろのタブで�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- XE-5（第3版。N171-8・AQ31 (a)・決めたこと 68・F253）: 文字の色のメニューの外の押しは通す
+const pressAt = async (l, el, o = {}) => { const r = l.press(el, o); await l.clock.advance(0); await l.drain(60); return r; };
+test('XE-5・F253: 文字の色のメニューの外の押しは通す（N171-8・AQ31）: (a) 本文の別の行の字 → 閉じて押しが全部届き（止める印が立たない）カーソルはその行・色は付かない (b) サイドバーの別のページ → 閉じてそのページが開く (c) 本文の行の ＋ → 閉じて ＋ が動く (d) 帳面に載ったまま（Esc で色のメニューだけ閉じ選んだ字はそのまま・Ctrl+K でリンクの窓を開くと色のメニューは閉じる） (e) リンクの窓・/リンクドビュー の窓は今までどおり閉じるだけ', T, async () => {
+  const l = await seeded();
+  try {
+    const { id: P, ids: [x, y] } = await xePage(l, ['あいうえお', 'かきくけこ']);
+    const row = (bid) => rowsOf(l).find((e) => e.dataset.id === bid);
+    const menuOn = () => $(l, 'pNote').querySelector('#colorMenu');
+    const openColor = async (bid, s = 1, e = 3) => {
+      const t = txtOf(l, bid); t.focus(); l.caret.set(t, s, e); t.dispatchEvent({ type: 'mouseup' }); await l.drain(20);
+      const cb = $(l, 'pNote').querySelector('#markBar').querySelectorAll('button').find((b) => b.title === '色');
+      assert.ok(cb, '前提: 帯の［色］が無い');
+      cb.dispatchEvent({ type: 'click' }); await l.drain(20);
+      assert.ok(menuOn(), '前提: 文字の色のメニューが開かない');
+    };
+    const all = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+    // (a) 本文の別の行の字
+    await openColor(y);
+    let r = await pressAt(l, txtOf(l, x));
+    assert.strictEqual(Boolean(menuOn()), false, '(a) 本文の別の行を押しても文字の色のメニューが残る');
+    assert.deepStrictEqual(all.filter((t) => !r.got.includes(t)), [], '(a) 押した行に届かない事象がある（閉じるだけ）');
+    assert.ok(!r.events.pointerdown.defaultPrevented && !r.events.mousedown.defaultPrevented, '(a) 押しの既定（フォーカスの移り・カーソル）を止めた');
+    assert.strictEqual(who(active(l)), `txt:${x}`, '(a) カーソルが押した行へ移らない');
+    r = await pressAt(l, txtOf(l, x));
+    assert.deepStrictEqual(all.filter((t) => !r.got.includes(t)), [], '(a) 閉じた後の押しが止まる（止める印が残る）');
+    await l.clock.advance(2000); await l.drain();
+    assert.ok(!rowIn(l, P, y).rich && !row(y).querySelector('[data-color]'), '(a) 押した所か選んだ字に色が付いた');
+    // (b) サイドバーの別のページ
+    await openColor(y);
+    r = await pressAt(l, $(l, 'plist').querySelectorAll('.pitem').find((e) => e.dataset.pid === 'pm1'));
+    await l.drain(120);
+    assert.strictEqual(Boolean(menuOn()), false, '(b) サイドバーのページを押しても文字の色のメニューが残る');
+    assert.ok(r.got.includes('click') && rowsOf(l).some((e) => e.dataset.id === 'b2'), '(b) サイドバーのページが開かない');
+    // (c) 本文の行の ＋
+    await open(l, P);
+    await openColor(y);
+    const ins = l.called('blockInsert').length;
+    r = await pressAt(l, row(x).querySelector('.plus'));
+    await l.drain(120);
+    assert.strictEqual(Boolean(menuOn()), false, '(c) 行の ＋ を押しても文字の色のメニューが残る');
+    assert.ok(r.got.includes('click'), '(c) 行の ＋ の click が届かない');
+    assert.strictEqual(l.called('blockInsert').length, ins + 1, '(c) 行の ＋ が行を足さない');
+    l.key({ key: 'Escape' }, active(l)); await l.drain(40);
+    // (d) 帳面に載ったまま: Esc で色のメニューだけ閉じ、選んだ字はそのまま。開いたまま Ctrl+K でリンクの窓を開くと色のメニューは閉じる
+    await open(l, P);
+    await openColor(y, 1, 3);
+    l.key({ key: 'Escape' }, txtOf(l, y)); await l.drain(40);
+    assert.deepStrictEqual([Boolean(menuOn()), l.caret.get(txtOf(l, y))], [false, [1, 3]], '(d) Esc で文字の色のメニューだけが閉じない・選んだ字が替わった');
+    await openColor(y, 1, 3);
+    l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, txtOf(l, y)); await l.drain(40);
+    assert.deepStrictEqual([Boolean(menuOn()), Boolean($(l, 'pNote').querySelector('#linkPop'))], [false, true], '(d) Ctrl+K でリンクの窓を開いても文字の色のメニューが残る（開くのは1つ）');
+    // (e) リンクの窓・/リンクドビュー の窓は今までどおり閉じるだけ（通す印がほかの窓に広がらない）
+    let n = l.called('blockInsert').length;
+    r = await pressAt(l, row(x).querySelector('.plus'));
+    assert.deepStrictEqual([Boolean($(l, 'pNote').querySelector('#linkPop')), r.got.includes('click'), l.called('blockInsert').length], [false, false, n], '(e) リンクの窓の外の ＋ が動いた');
+    const t = txtOf(l, x); t.focus(); t.textContent = '/リンクドビュー'; l.caret.set(t, t.textContent.length); t.dispatchEvent({ type: 'input' }); await l.drain();
+    l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(200);
+    assert.ok($(l, 'pNote').querySelector('.dbpickwin'), '前提: /リンクドビュー の窓が開かない');
+    n = l.called('blockInsert').length;
+    r = await pressAt(l, row(y).querySelector('.plus'));
+    assert.deepStrictEqual([Boolean($(l, 'pNote').querySelector('.dbpickwin')), r.got.includes('click'), l.called('blockInsert').length], [false, false, n], '(e) /リンクドビュー の窓の外の ＋ が動いた');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});

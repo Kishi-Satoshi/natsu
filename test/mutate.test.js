@@ -1890,6 +1890,8 @@ const IDS_180 = [
   'xe-arrow-edge', 'xe-arrow-x', 'xe-arrow-keepx', 'xe-arrow-skip', 'xe-arrow-dbtitle', 'xe-arrow-linked', 'xe-arrow-title-out', 'xe-arrow-fixed',
   // 0.18.0 Task XE-4（検索の窓の Ctrl+Enter は後ろのタブ・窓は開いたまま）
   'xe-pal-keep', 'xe-pal-enter-close', 'xe-pal-focus', 'xe-pal-back', 'xe-pal-back-has', 'xe-pal-link',
+  // 0.18.0 Task XE-5（文字の色のメニューの外の押しを通す）。0.17.1 の od-color の from と赤になるテストも直した（CR30）
+  'xe-color-pass',
 ];
 const PREFIX_180 = /^(cw|cs|ct|cp|cu|xe|xn)-/;
 function planRows180() {

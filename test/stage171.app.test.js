@@ -668,7 +668,9 @@ const slashIn = async (l, t, text) => { t.focus(); t.textContent = text; l.caret
 const selectIn = (l, id, s, e) => { const t = txtOf(l, id); t.focus(); l.caret.set(t, s, e); t.dispatchEvent({ type: 'mouseup' }); return t; };
 
 // 0.17.1 OD-5（決めたこと 23・PQ171-11）で意図して直した: / メニューを外した（/ メニューの外の押しは閉じて押した所にも届く。下の「OD-5・F218: / メニューの外の押しは通す」で見る）
-test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026-11-21 の PQ171-7 の答え）: サイドバーの行のメニュー・⋮⋮・プライベートの［···］・パンくずの［…］・リンクの窓・文字の色・/リンクドビュー を開いたまま本文の行の ＋（押してもフォーカスが動かない部品）を押すと、閉じるだけで ＋ は動かない', T, async () => {
+// 0.18.0 XE-5（計画 docs/plans/2026-11-18-180.md の決めたこと 68・AQ31 (a)・「意図して変えるテスト」）で意図して直した: 文字の色を外した（OD-5 と同じ。文字の色のメニューの外の押しは
+// 閉じて押した所にも届く。test/stage180.app.test.js の「XE-5・F253: 文字の色のメニューの外の押しは通す」で見る）
+test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026-11-21 の PQ171-7 の答え）: サイドバーの行のメニュー・⋮⋮・プライベートの［···］・パンくずの［…］・リンクの窓・/リンクドビュー を開いたまま本文の行の ＋（押してもフォーカスが動かない部品）を押すと、閉じるだけで ＋ は動かない', T, async () => {
   const l = await openNote();
   try {
     const { P, b1, deep, nb } = l.made;
@@ -694,11 +696,6 @@ test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026
     let t = selectIn(l, 'x', 0, 2);
     l.key({ key: 'k', code: 'KeyK', ctrlKey: true }, t); await l.drain(40);
     await shut('リンクの窓', () => $(l, 'pNote').querySelector('#linkPop'), 'y');
-    // 文字の色（帯の［色］）
-    t = selectIn(l, 'x', 1, 3); await l.drain(20);
-    const cb = $(l, 'pNote').querySelector('#markBar').querySelectorAll('button').find((x) => x.title === '色');
-    cb.dispatchEvent({ type: 'click' }); await l.drain(20);
-    await shut('文字の色', () => $(l, 'pNote').querySelector('#colorMenu'), 'y');
     // パンくずの［…］（6 段の入れ子のいちばん下）
     await open(l, deep[5]);
     await clickEl(l, $(l, 'crumb').children.find((e) => e.dataset && e.dataset.crumb === 'more'), 40);

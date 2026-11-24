@@ -1426,7 +1426,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は c1c80467…）
   // 0.18.0 XE-4（決めたこと 60・CR127・CR128）: 検索の窓の Ctrl+Enter は後ろのタブ（openPageTab の back・openResult・openLinkRow・近道の表の写しに「検索の窓」の行）。変わる画面は足した search-palette-newtab-light と、近道の表の行が増える設定の5枚（RETAKE にある）。
   // 値を今の app.html に合わせた（前の値は 0465fdbf…）
-  assert.strictEqual(sha, 'f1fd2ed7e52a2f978bc41cce90ff80457f74eb272a500358a62e14e92eef9a6a',
+  // 0.18.0 XE-5（決めたこと 68・AQ31 (a)・CR129）: 文字の色のメニューを通す窓に（popPush の pass: true。<script> の中だけ。新しい字は無く、撮る画面は変わらない）。
+  // 値を今の app.html に合わせた（前の値は f1fd2ed7…）
+  assert.strictEqual(sha, '4681753f0b74dd01a708381bf6aa929035f86ac9a0cda5a06c0cf485cc97670a',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 
@@ -1883,6 +1885,9 @@ test('OD-3・F225: judgeDismiss の表（どの手も、押した後の窓の数
     // 0.17.1 OD-5（決めたこと 23）: / メニューの外の押しは届く。フォーカスかカーソルが押した行に無ければ NG
     ['slash-row', { pops: 0, row: 'b1', caret: 'b1' }, { row: 'b2', caret: 'b1' }],
     ['slash-caret', { pops: 0, row: 'b1', caret: 'b1' }, { row: 'b1', caret: '' }],
+    // 0.18.0 XE-5: 16. 文字の色のメニュー → 本文の別の行を押す → 窓 0・フォーカスとカーソルはその行。色のメニューが残る・閉じるだけ（押した行に移らない）なら NG
+    ['color-left', { pops: 0, row: 'b1', caret: 'b1' }, { pops: 1, row: 'b2', caret: 'b2' }],
+    ['color-shut-only', { pops: 0, row: 'b1', caret: 'b1' }, { pops: 0, row: 'b2', caret: 'b2' }],
   ]) {
     j = SH.judgeDismiss([dstep(name, [ok(want, got)])]);
     assert.deepStrictEqual([j.ok, j.bad], [false, [name]], `${name}: 止め損ねを OK と読んだ`);
@@ -1895,6 +1900,9 @@ test('OD-3・F225: judgeDismiss の表（どの手も、押した後の窓の数
   assert.deepStrictEqual([j.ok, j.bad], [true, []], '/ メニューの手がそろっているのに NG');
   j = SH.judgeDismiss([dstep('slash', [ok({ pops: 0, row: 'b1', caret: 'b1' }, { pops: 1, row: 'b2', caret: 'b2' })])]);
   assert.deepStrictEqual([j.ok, j.bad], [false, ['slash']], '/ メニューの閉じ残り・押しの止め過ぎを OK と読んだ');
+  // 0.18.0 XE-5: 16. 文字の色のメニュー → 本文の別の行を押す → 窓 0・フォーカスとカーソルはその行なら OK
+  j = SH.judgeDismiss([dstep('color', [ok({ pops: 0, row: 'b1', caret: 'b1' }, { row: 'b1', caret: 'b1' })])]);
+  assert.deepStrictEqual([j.ok, j.bad], [true, []], '文字の色のメニューの手がそろっているのに NG');
   // 捲り棒の手: 窓の数だけを照らす（捲れたかは記録だけ）。捲り棒が無ければ参考（OK）
   j = SH.judgeDismiss([dstep('bar', [ok({ pops: 0, sel: [] }, { sel: ['r1:c1'], scrolled: 40 })], true)]);
   assert.strictEqual(j.ok, true, '捲り棒の手で窓の数のほかを照らした');
@@ -1942,7 +1950,8 @@ test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本
   const names = SH.DISMISS_STEPS.map((s) => s.name);
   // 0.17.1 直し（R27）で意図して足した: 本物のタップ（DevTools の Input.dispatchTouchEvent）の手 ref-touch・touch
   // 0.17.1 OD-5（決めたこと 23・PQ171-11）で意図して足した: 15 の手 slash（/ メニューの外の押しは通す）
-  assert.deepStrictEqual(names, ['ref', 'head', 'cell', 'title-z', 'lock', 'right', 'middle', 'drag-title', 'grip', 'double', 'bar', 'tab-esc', 'filter', 'pick', 'ref-touch', 'touch', 'slash']);
+  // 0.18.0 XE-5（計画 docs/plans/2026-11-18-180.md の決めたこと 68・「意図して変えるテスト」）で意図して足した: 16 の手 color（文字の色のメニューの外の押しは通す）
+  assert.deepStrictEqual(names, ['ref', 'head', 'cell', 'title-z', 'lock', 'right', 'middle', 'drag-title', 'grip', 'double', 'bar', 'tab-esc', 'filter', 'pick', 'ref-touch', 'touch', 'slash', 'color']);
   const by = new Map(SH.DISMISS_STEPS.map((s) => [s.name, s]));
   const wants = (n) => by.get(n).acts.map((a) => a.want);
   assert.deepStrictEqual(wants('ref'), [{ pops: 0, sel: ['r2:title'] }], '本物の押しが届くかの手（窓が無いときはセルが選ばれる）');
@@ -1966,6 +1975,11 @@ test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本
   assert.match(by.get('slash').open, /' \/'/, '/ メニューの手が行の末で / を打たない');
   assert.match(by.get('slash').open, /dataset\.id === 'b2'/, '/ メニューの手が b2 の行で開かない');
   assert.match(by.get('slash').acts[0].press.at, /dataset\.id === 'b1'/, '/ メニューの手が b1 の行を押さない');
+  // 0.18.0 XE-5: 文字の色のメニューの手（b2 の字を選んで帯の［色］で開き、b1 の字を押す）
+  assert.deepStrictEqual(wants('color'), [{ pops: 0, row: 'b1', caret: 'b1' }], '文字の色のメニューの外の押しは、閉じてフォーカスとカーソルが押した行へ（XE-5）');
+  assert.match(by.get('color').open, /dataset\.id === 'b2'/, '文字の色のメニューの手が b2 の行で開かない');
+  assert.match(by.get('color').open, /b\.title === '色'/, '文字の色のメニューの手が帯の［色］を押さない');
+  assert.match(by.get('color').acts[0].press.at, /dataset\.id === 'b1'/, '文字の色のメニューの手が b1 の行を押さない');
   // 押し方: 右・中・なぞる・2回続けた押し・取っ手の引っ張り・捲り棒・キー
   const act = (n, i = 0) => by.get(n).acts[i];
   assert.strictEqual(act('right').press.button, 'right');
