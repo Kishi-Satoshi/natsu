@@ -694,8 +694,9 @@ const SCREENS = [
   { name: 'live-ready-zoom200-light', page: 'app', theme: 'light', zoom: 2, answers: readyAnswers(), act: OPEN_READY },
   // 0.13.0 ED-5（E2・EQ8）: / メニュー（「みだし」で絞った形の明暗と、語を打つ前に頭に「最近使ったもの」が出た形）。足した画面（まだ基準が無い）。
   // 撮る道具は koeApp.uiState に見本の答えを持たない（{ ok: true }）ので、ほかの画面は「最近使ったもの」が無いまま撮れる
-  { name: 'edit-slash-light', page: 'app', theme: 'light', act: OPEN_SLASH('みだし') },
-  { name: 'edit-slash-dark', page: 'app', theme: 'dark', act: OPEN_SLASH('みだし') },
+  // 0.18.0 XN-4（決めたこと 65・AQ14 (a)）: ひらがなの読みでは当たらないので、語は名前の「見出し」（見出し1〜4 とトグル見出し1〜4）
+  { name: 'edit-slash-light', page: 'app', theme: 'light', act: OPEN_SLASH('見出し') },
+  { name: 'edit-slash-dark', page: 'app', theme: 'dark', act: OPEN_SLASH('見出し') },
   { name: 'edit-slash-recent-light', page: 'app', theme: 'light', answers: { 'koeApp.uiState': { slashRecent: ['h2', 'todo'] } }, act: OPEN_SLASH('') },
   // 0.13.0 ED-6（E1）: ⠿ のメニューと［変換 ▸］の中（文のある行なので区切り線は灰色）。足した画面（まだ基準が無い）
   { name: 'edit-block-menu-light', page: 'app', theme: 'light', act: OPEN_BLOCK_MENU },
@@ -1005,10 +1006,12 @@ const OVL_094 = (states) => PS.FORMS.flatMap((form) => Object.keys(PS.DESKS).fla
 // 0.18.0 XN-2 の直し（CR139）: データベースの行のメニューを開いた sidebar-db-light（今の基準がある）も、並びと［複製］が変わるので取り直す
 // 0.18.0 XN-3（計画の「取り直す画面（RETAKE）」・決めたこと 63）: 見出し1〜4 の edit-h4-light を足し、語「みだし」で開く / メニューに
 // トグル見出し4が1行増える edit-slash-light・edit-slash-dark（今の基準がある）を取り直す
+// 0.18.0 XN-4（決めたこと 65・CR141）: edit-slash-light・dark の語を「見出し」に替えた（見出し4の行も出る）。語を打つ前の全部の項目に見出し4とトグル見出し4が増える
+// edit-slash-recent-light（今の基準がある）も取り直す（XN-3 で取り直しに入れ忘れた）
 const RETAKE = new Set(['page-claude-light', 'page-menu-claude-light', 'claude-pop-light', 'claude-pop-dark', 'search-palette-newtab-light',
   'side-row-menu-lock-light', 'side-row-dup-light', 'edit-h4-light',
   'settings-summary-light', 'settings-info-claude-light', 'settings-mcp-light', 'settings-info-mcp-light', 'settings-mcp-running-light', 'settings-quality-light',
-  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'sidebar-db-light', 'edit-slash-light', 'edit-slash-dark']);
+  'settings-shortcuts-light', 'settings-shortcuts-db-light', 'settings-light', 'settings-dark', 'settings-zoom200-dark', 'side-row-menu-light', 'sidebar-db-light', 'edit-slash-light', 'edit-slash-dark', 'edit-slash-recent-light']);
 const PERF = [{ name: 'open-2000-blocks', budgetMs: 500 }];   // 3回開いた中央値で見る
 const TIME_ZONE = 'Asia/Tokyo';
 const TOLERANCE = 2;   // 色の差（0〜255）がこれ以下の画素は同じとみなす。CI の機械の CPU ごとの描き方の1段の差を拾わないため（揺れの確かめ judgePair は 0 で見る）

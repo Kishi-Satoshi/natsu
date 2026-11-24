@@ -11557,21 +11557,20 @@
   }
   // 行（ブロック）の色の値（'red' は文字の色・'red_bg' は背景の色・'' で外す）
   const blockColorValue = (kind, name) => (name ? (kind === 'bg' ? `${name}_bg` : name) : '');
-  // / メニューの色の項目（S-03。「/あか」「/red」「/あかいはいけい」など。型の項目の写し SLASH_ROWS とは別の表）
+  // / メニューの色の項目（S-03。「/赤」「/red」「/background」など。型の項目の写し SLASH_ROWS とは別の表）。0.18.0 XN-4（決めたこと 65・AQ32 (a)）: ひらがなの読みを外した
   const COLOR_WORDS = Object.freeze({
-    gray: ['はいいろ', 'ぐれー', 'gray', 'grey'], brown: ['ちゃいろ', 'brown'], orange: ['おれんじ', 'だいだい', 'orange'], yellow: ['きいろ', 'yellow'],
-    green: ['みどり', 'green'], blue: ['あお', 'blue'], purple: ['むらさき', 'purple'], pink: ['ぴんく', 'もも', 'pink'], red: ['あか', 'red'],
+    gray: ['gray', 'grey'], brown: ['brown'], orange: ['orange'], yellow: ['yellow'],
+    green: ['green'], blue: ['blue'], purple: ['purple'], pink: ['pink'], red: ['red'],
   });
-  const BG_JOIN = Object.freeze({ gray: 'の', brown: 'い', orange: 'の', yellow: 'い', green: 'の', blue: 'い', purple: 'の', pink: 'の', red: 'い' });
   const SLASH_COLORS = Object.freeze([
-    { id: 'color:', kind: 'color', value: '', label: '既定', md: [], words: ['きてい', 'いろなし', 'default'] },
+    { id: 'color:', kind: 'color', value: '', label: '既定', md: [], words: ['default'] },
     ...COLORS.map((n) => ({ id: `color:${n}`, kind: 'color', value: n, label: COLOR_LABELS[n], md: [], words: COLOR_WORDS[n] })),
     ...COLORS.map((n) => ({ id: `bg:${n}`, kind: 'bg', value: `${n}_bg`, label: COLOR_LABELS[n], md: [],
-      words: [`${COLOR_WORDS[n][0]}${BG_JOIN[n]}はいけい`, `${COLOR_WORDS[n][0]}のはいけい`, `${n} background`, 'はいけい', 'background'] })),
+      words: [`${n} background`, 'background'] })),
   ]);
-  // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25）: / メニューの［ページ］（よみ: ぺーじ・page）。ページの本文の欄（議事録の［AI 要約］と
+  // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25）: / メニューの［ページ］（語: page。0.18.0 XN-4 でよみの「ぺーじ」を外した）。ページの本文の欄（議事録の［AI 要約］と
   // 白紙のページの本文）だけに出す（メモの欄には出さない）。型の表（SLASH_ROWS・blockEdit の MENU_ROWS）の外の項目で、「最近使ったもの」にも入れない
-  const SLASH_PAGE = Object.freeze({ id: 'page', label: 'ページ', md: [], words: ['ぺーじ', 'page'] });
+  const SLASH_PAGE = Object.freeze({ id: 'page', label: 'ページ', md: [], words: ['page'] });
   function slashPageHits(q, el) {
     const k = keyOfEl(el);
     if (!k || isMemoKey(k) || k !== curId) return [];   // 0.16.0 R97（2026-11-09 の持ち主の答え・M14）: データベースの行の本文にも作れる（前は R92 で出さなかった）
@@ -11579,8 +11578,8 @@
     return slashHit(SLASH_PAGE, q) ? [{ id: SLASH_PAGE.id, group: '' }] : [];
   }
   // 0.16.0 DL-1 (2b)（決めたこと 39・40・R107 の画面の文）: 白紙のページの本文だけの［データベース］［リンクドビュー］（型の表の外。「最近使ったもの」に入れない）
-  const SLASH_DB = Object.freeze({ id: 'db:inline', label: 'データベース', md: [], words: ['でーたべーす', 'database'] });
-  const SLASH_LINKED = Object.freeze({ id: 'db:linked', label: 'リンクドビュー', md: [], words: ['りんくどびゅー', 'linked'] });
+  const SLASH_DB = Object.freeze({ id: 'db:inline', label: 'データベース', md: [], words: ['database'] });   // 0.18.0 XN-4（AQ32 (a)）: よみを外した
+  const SLASH_LINKED = Object.freeze({ id: 'db:linked', label: 'リンクドビュー', md: [], words: ['linked'] });
   const SLASH_DBS = [SLASH_DB, SLASH_LINKED];
   function slashDbHits(q, el) {
     const k = keyOfEl(el);
@@ -15786,22 +15785,22 @@
   // / メニューの項目（src/blockEdit.js の MENU_ROWS の写し: 鍵・型・段・トグル・名前・当たる語・記法。test/stage130.edit.app.test.js が照らす）。
   // 0.13.1（NR5）: トグルとトグル見出し1〜3（型の表の1行 th から3つの項目）を足した
   const SLASH_ROWS = [
-    { id: 'text', key: 'paragraph', label: 'テキスト', words: ['てきすと', 'text', 'plain'], md: [] },
-    { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '] },
-    { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['みだし2', 'h2', '##'], md: ['## '] },
-    { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['みだし3', 'h3', '###'], md: ['### '] },
+    { id: 'text', key: 'paragraph', label: 'テキスト', words: ['text', 'plain'], md: [] },
+    { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['見出し1', 'h1', '#'], md: ['# '] },
+    { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['h2', '##'], md: ['## '] },
+    { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['h3', '###'], md: ['### '] },
     { id: 'h4', key: 'heading', level: 4, label: '見出し4', words: ['h4', '####'], md: ['#### '] },
-    { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '] },
-    { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '] },
-    { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '] },
-    { id: 'toggle', key: 'toggle', label: 'トグル', words: ['とぐる', 'toggle'], md: ['> '] },
-    { id: 'th1', key: 'heading', level: 1, toggle: true, label: 'トグル見出し1', words: ['とぐるみだし', 'toggle heading', 'h1'], md: [] },
-    { id: 'th2', key: 'heading', level: 2, toggle: true, label: 'トグル見出し2', words: ['とぐるみだし', 'toggle heading', 'h2'], md: [] },
-    { id: 'th3', key: 'heading', level: 3, toggle: true, label: 'トグル見出し3', words: ['とぐるみだし', 'toggle heading', 'h3'], md: [] },
-    { id: 'th4', key: 'heading', level: 4, toggle: true, label: 'トグル見出し4', words: ['とぐるみだし', 'toggle heading', 'h4'], md: [] },
-    { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '] },
-    { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'] },
-    { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [] },
+    { id: 'todo', key: 'todo', label: 'ToDo', words: ['todo'], md: ['[] '] },
+    { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['bullet', 'リスト'], md: ['- ', '* ', '+ '] },
+    { id: 'numbered', key: 'numbered', label: '番号付き', words: ['number', 'numbered', 'リスト'], md: ['1. '] },
+    { id: 'toggle', key: 'toggle', label: 'トグル', words: ['toggle', 'リスト'], md: ['> '] },
+    { id: 'th1', key: 'heading', level: 1, toggle: true, label: 'トグル見出し1', words: ['toggle heading', 'h1'], md: [] },
+    { id: 'th2', key: 'heading', level: 2, toggle: true, label: 'トグル見出し2', words: ['toggle heading', 'h2'], md: [] },
+    { id: 'th3', key: 'heading', level: 3, toggle: true, label: 'トグル見出し3', words: ['toggle heading', 'h3'], md: [] },
+    { id: 'th4', key: 'heading', level: 4, toggle: true, label: 'トグル見出し4', words: ['toggle heading', 'h4'], md: [] },
+    { id: 'quote', key: 'quote', label: '引用', words: ['quote'], md: ['" '] },
+    { id: 'divider', key: 'divider', label: '区切り線', words: ['divider', '---'], md: ['---'] },
+    { id: 'callout', key: 'callout', label: 'コールアウト', words: ['callout'], md: [] },
   ];
   const MENU_KEYS_VIEW = SLASH_ROWS.map((r) => r.id);
   function slashQuery(before) {
@@ -15822,8 +15821,16 @@
     const rec = recentCheck(recent);
     if (!q) return [...rec.map((id) => ({ id, group: 'recent' })), ...MENU_KEYS_VIEW.map((id) => ({ id, group: 'types' }))];
     const found = SLASH_ROWS.filter((r) => slashHit(r, q)).map((r) => r.id);
-    if (!found.length) return q.length >= 3 ? null : [];
+    if (!found.length) return [];
     return [...rec.filter((id) => found.includes(id)), ...found.filter((id) => !rec.includes(id))].map((id) => ({ id, group: '' }));
+  }
+  const SLASH_CLOSE_AT = 5;
+  function slashMiss(prev, query, found) {
+    if (found) return { miss: 0, close: false };
+    const was = prev && Number.isSafeInteger(prev.miss) && prev.miss > 0 ? prev.miss : 0;
+    const before = prev && typeof prev.query === 'string' ? [...prev.query].length : 0;
+    const miss = Math.max(0, was + [...String(query ?? '')].length - before);
+    return { miss, close: miss >= SLASH_CLOSE_AT };
   }
   function recentAdd(recent, key) {
     const rec = recentCheck(recent);
@@ -15854,8 +15861,16 @@
     const colors = slashColorHits(query);   // 0.14.0 EB-5（決めたこと 21・S-03）: 語を打ったら色の項目も（型の後ろ）
     const pageIt = slashPageHits(query, el);   // 0.15.0 PH-4（決めたこと 25）: ページの本文の［ページ］（型の後ろ・色の前）
     const dbIt = slashDbHits(query, el);   // 0.16.0 DL-1 (2b): 白紙のページの本文の［データベース］［リンクドビュー］（［ページ］の後ろ）
-    if (types === null && !colors.length && !pageIt.length && !dbIt.length) { if (slash && slash.el === el) slashClose(); return; }   // 当たりが無いまま3文字（EQ8）
-    const items = [...(types || []), ...pageIt, ...dbIt, ...colors];
+    const items = [...types, ...pageIt, ...dbIt, ...colors];
+    // 0.18.0 XN-4（決めたこと 64・AQ29 (a)）: 当たりの無い間に打った字を数え、5つ目で閉じる（打った字は残す。Esc と同じく、その / では開き直さない）
+    const prev = el._slashMiss && el._slashMiss.start === start ? el._slashMiss : null;
+    const m = slashMiss(prev, query, items.length > 0);
+    el._slashMiss = { start, miss: m.miss, query };
+    if (m.close) {
+      el._slashOff = start; el._slashMiss = null;
+      if (slash && slash.el === el) slashClose();
+      return;
+    }
     const keep = slash && slash.el === el && slash.start === start ? slash.items[slash.sel] : null;
     const sel = Math.max(0, keep ? items.findIndex((x) => x.id === keep.id && x.group === keep.group) : 0);
     if (slash && slash.el !== el) slashClose();

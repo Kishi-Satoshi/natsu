@@ -1522,3 +1522,75 @@ test('XN-3: ####＋空白で見出し4（行は .h4・DB の段は 4）・/ メ�
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
+
+// ---------------------------------------------------------------- XN-4（決めたこと 64・65・AQ13 (a)・AQ29 (a)・AQ32 (a)・F251）: / メニューの閉じ方と語
+const BEX = require('../src/blockEdit');
+const slashOnX = (l) => $(l, 'slashMenu') && $(l, 'slashMenu').parentNode ? $(l, 'slashMenu') : null;
+const slashKeysX = (l) => (slashOnX(l) ? slashOnX(l).querySelectorAll('.sopt').map((o) => o.dataset.key) : null);
+test('XN-4・F251: / の後に当たらない字を4つまで打っても開いたまま（「当てはまる型がありません」）・5つ目で閉じて打った字は残る・閉じた後に Backspace で / まで戻しても開かない・新しく / を打てば開く・変換中の字は数えない（確定した字の数を足す）', T, async () => {
+  const l = await seeded();
+  try {
+    const { B, bb } = l.made;
+    await open(l, B);
+    const el = rowOf(l, bb);
+    await typeRowX(l, el, '');
+    for (const [s, on] of [['/', true], ['/ぬ', true], ['/ぬぬ', true], ['/ぬぬぬ', true], ['/ぬぬぬぬ', true]]) {
+      await typeRowX(l, el, s);
+      assert.strictEqual(Boolean(slashOnX(l)), on, s);
+    }
+    assert.strictEqual(slashOnX(l).querySelector('.snone').textContent, '当てはまる型がありません');
+    const t = await typeRowX(l, el, '/ぬぬぬぬぬ');
+    assert.strictEqual(slashOnX(l), null, '5つ目で閉じない');
+    assert.strictEqual(t.textContent, '/ぬぬぬぬぬ', '閉じるときに打った字が消えた');
+    for (const s of ['/ぬぬぬぬ', '/ぬぬ', '/']) { await typeRowX(l, el, s); assert.strictEqual(slashOnX(l), null, `閉じた後の Backspace（${s}）で開いた`); }
+    await typeRowX(l, el, '');
+    await typeRowX(l, el, '/');
+    assert.ok(slashOnX(l), '新しく / を打っても開かない');
+    // 変換中の字は数えない: 「/ぬぬぬ」を変換中（compositionstart〜）に打っても数えず、確定で3字を足す。続けて2字を確定すると閉じる
+    await typeRowX(l, el, '');
+    await typeRowX(l, el, '/');
+    t.dispatchEvent({ type: 'compositionstart' });
+    t.textContent = '/ぬぬぬぬぬぬ'; l.caret.set(t, 7); t.dispatchEvent({ type: 'input', isComposing: true }); await l.drain();
+    assert.ok(slashOnX(l), '変換中の字で閉じた');
+    t.textContent = '/ぬぬぬ'; l.caret.set(t, 4);
+    t.dispatchEvent({ type: 'compositionend' }); await l.drain();
+    assert.ok(slashOnX(l), '確定した3字で閉じた');
+    t.dispatchEvent({ type: 'compositionstart' });
+    t.textContent = '/ぬぬぬぬぬ'; l.caret.set(t, 6);
+    t.dispatchEvent({ type: 'compositionend' }); await l.drain();
+    assert.strictEqual(slashOnX(l), null, '3字の後に2字を確定しても閉じない（CR26）');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('XN-4（AQ32 (a)）: 型の表の外の項目もひらがなの読みでは当たらない（/あか・/ぺーじ・/でーたべーす・/りんくどびゅー）。名前と英語の語（/赤・/red・/background・/ページ・/page・/データベース・/リンクドビュー・/linked）は当たる。「/リスト」は箇条書き・番号付き・トグル', T, async () => {
+  const l = await seeded();
+  try {
+    const { B, bb } = l.made;
+    await open(l, B);
+    const el = rowOf(l, bb);
+    for (const s of ['/あか', '/ぺーじ', '/でーたべーす', '/りんくどびゅー', '/あかいはいけい', '/きてい', '/みだし', '/とぐる']) {
+      await typeRowX(l, el, '');
+      await typeRowX(l, el, s);
+      assert.deepStrictEqual(slashKeysX(l) || [], [], `${s} が当たった`);   // 5字以上を1回で打った語は、当たりが無いので閉じる（null）
+    }
+    const hit = async (s, key) => { await typeRowX(l, el, ''); await typeRowX(l, el, s); assert.ok((slashKeysX(l) || []).includes(key), `${s} で ${key} が出ない: ${slashKeysX(l)}`); };
+    await hit('/赤', 'color:red'); await hit('/red', 'color:red'); await hit('/赤', 'bg:red'); await hit('/background', 'bg:red');
+    await hit('/ページ', 'page'); await hit('/page', 'page'); await hit('/データベース', 'db:inline'); await hit('/database', 'db:inline');
+    await hit('/リンクドビュー', 'db:linked'); await hit('/linked', 'db:linked'); await hit('/リンク', 'db:linked');
+    // 「/red background」は空白で / メニューが閉じる（今の決まり: EQ7）ので打てない。背景の色は「/赤」「/background」で出る（M59）
+    await typeRowX(l, el, ''); await typeRowX(l, el, '/リスト');
+    assert.deepStrictEqual(slashKeysX(l), ['bullet', 'numbered', 'toggle']);
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+test('XN-4・F251: 画面の写しの slashMiss・SLASH_CLOSE_AT が src/blockEdit.js と同じ答え（写しの型の表の語も src と同じ: test/stage130.edit.app.test.js）', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'app.html'), 'utf8');
+  const a = html.indexOf('  const SLASH_CLOSE_AT = ');
+  const b = html.indexOf('\n  }\n', html.indexOf('  function slashMiss(', a)) + 4;
+  assert.ok(a > 0 && b > a, '写しが無い');
+  const app = new Function(`${html.slice(a, b)}\nreturn { SLASH_CLOSE_AT, slashMiss };`)();   // eslint-disable-line no-new-func
+  assert.strictEqual(app.SLASH_CLOSE_AT, BEX.SLASH_CLOSE_AT);
+  for (const prev of [null, { miss: 0, query: '' }, { miss: 2, query: 'ぬぬ' }, { miss: 4, query: 'abcd' }, { miss: 'x', query: 3 }]) {
+    for (const q of ['', 'ぬ', 'ぬぬぬ', 'abcde', '𠮷𠮷𠮷']) for (const found of [true, false]) assert.deepStrictEqual(app.slashMiss(prev, q, found), BEX.slashMiss(prev, q, found), `${JSON.stringify(prev)}|${q}|${found}`);
+  }
+});

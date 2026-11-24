@@ -2412,7 +2412,7 @@ test('R97: 行の本文の /ページ で行の中に白紙のページを作っ
     const b = l.call('block.insert', { pageId: r0, afterBlockId: '', type: 'paragraph' }).blockId;
     l.fire('onOpenLink', { id: r0, anchor: '' }); await l.drain(200);
     const t = $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === b).querySelector('.txt');
-    t.focus(); t.textContent = '/ぺーじ'; l.caret.set(t, t.textContent.length); t.dispatchEvent({ type: 'input' }); await l.drain();
+    t.focus(); t.textContent = '/ページ'; l.caret.set(t, t.textContent.length); t.dispatchEvent({ type: 'input' }); await l.drain();
     const sm = $(l, 'pNote').querySelector('.slashmenu');
     assert.deepStrictEqual(sm.querySelectorAll('.sopt').map((o) => o.textContent), ['ページ']);
     l.key({ key: 'Enter', code: 'Enter' }, t);
@@ -2910,11 +2910,12 @@ test('DL-1 (2b)・F141: 白紙のページの / メニューに［データベ�
     const t = bodyRow(l, l.b1).querySelector('.txt');
     await slashIn(l, t, '/');
     assert.deepStrictEqual(slashOpts(l).slice(-3), ['ページ', 'データベース', 'リンクドビュー'], '語の無い / メニューの型の後ろに無い');
-    for (const [q, want] of [['でーたべーす', ['データベース']], ['database', ['データベース']], ['りんくどびゅー', ['リンクドビュー']], ['linked', ['リンクドビュー']]]) {
+    // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 65・AQ32 (a)）で意図して直した: よみ（でーたべーす・りんくどびゅー）を外したので、名前と英語で
+    for (const [q, want] of [['データベース', ['データベース']], ['database', ['データベース']], ['リンクドビュー', ['リンクドビュー']], ['linked', ['リンクドビュー']]]) {
       await slashIn(l, t, `/${q}`);
       assert.deepStrictEqual(slashOpts(l), want, `/${q}`);
     }
-    await slashIn(l, t, '/でーたべーす');
+    await slashIn(l, t, '/データベース');
     l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(); await l.drain(300);
     assert.deepStrictEqual(l.called('dbCreate').map((c) => c.args), [[l.P, l.b1]], '/データベース が打った行で dbCreate の1回でない');
     const b = l.call('page.get', { id: l.P }).page.blocks.find((x) => x.id === l.b1);
@@ -2934,7 +2935,7 @@ test('DL-1 (2b)・F141（R107）: /リンクドビュー の窓。1手目「つ�
   try {
     l.fire('onPageOpen', l.P); await l.drain(300);
     const t = bodyRow(l, l.b1).querySelector('.txt');
-    await slashIn(l, t, '/りんく');
+    await slashIn(l, t, '/リンク');
     l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(200);
     const w = pickWin(l);
     assert.ok(w, '窓が開かない');
@@ -2955,10 +2956,10 @@ test('DL-1 (2b)・F141（R107）: /リンクドビュー の窓。1手目「つ�
     l.key({ key: 'Escape' }, l.document.activeElement); await l.drain(100);
     assert.ok(!pickWin(l), 'Esc で閉じない');
     assert.deepStrictEqual(l.called('blockInsertDbView'), [], 'Esc で置いた');
-    assert.ok(l.document.activeElement === t && t.textContent === '/りんく', 'Esc で打った行へ戻らない（打った文字は残す）');
+    assert.ok(l.document.activeElement === t && t.textContent === '/リンク', 'Esc で打った行へ戻らない（打った文字は残す）');
     // もう一度（Esc で閉じた / ではもう開かないので、打ち直す）: 元のビュー「担当別」を写す → blockInsertDbView(ページ, 打った行, データベース, ビュー) の1回・打った文は消える
     await slashIn(l, t, '');
-    await slashIn(l, t, '/りんく');
+    await slashIn(l, t, '/リンク');
     l.key({ key: 'Enter', code: 'Enter' }, t); await l.drain(200);
     await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
     await clickEl(l, winOpts(l).find((o) => o.textContent === '担当別'), 400);
@@ -3060,12 +3061,12 @@ test('DL-1 (2b)・F141（R113 (a)・DQ10・DQ11）: 行のメニュー［イン�
     l.fire('onPageOpen', l.P); await l.drain(400);
     $(l, 'toast').textContent = '';
     const tn = bodyRow(l, nb).querySelector('.txt');
-    await slashIn(l, tn, '/でーたべーす');
+    await slashIn(l, tn, '/データベース');
     l.key({ key: 'Enter', code: 'Enter' }, tn); await l.drain(); await l.drain(300);
     assert.strictEqual($(l, 'toast').textContent, '1つのページに置けるデータベースの表は 10 までです。', '/データベース の 11 個目');
     $(l, 'toast').textContent = '';
     const tn2 = bodyRow(l, nb).querySelector('.txt');
-    await slashIn(l, tn2, '/りんく');
+    await slashIn(l, tn2, '/リンク');
     l.key({ key: 'Enter', code: 'Enter' }, tn2); await l.drain(200);
     await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
     await clickEl(l, winOpts(l).find((o) => o.textContent === '新しい表から始める'), 400);
@@ -3403,12 +3404,12 @@ test('R120・rv53 軽い 1: 本文の表が 10 より少ないときの too-big 
     assert.strictEqual($(l, 'toast').textContent, '変更を保存できませんでした: too-big', '［インラインにする］の too-big（表は 0）に 10 の知らせを出した');
     $(l, 'toast').textContent = '';
     const tn = bodyRow(l, l.b1).querySelector('.txt');
-    await slashIn(l, tn, '/でーたべーす');
+    await slashIn(l, tn, '/データベース');
     l.key({ key: 'Enter', code: 'Enter' }, tn); await l.drain(); await l.drain(300);
     assert.strictEqual($(l, 'toast').textContent, 'ページを作れませんでした。', '/データベース の too-big（表は 0）に 10 の知らせを出した');
     $(l, 'toast').textContent = '';
     const tn2 = bodyRow(l, l.b2).querySelector('.txt');
-    await slashIn(l, tn2, '/りんく');
+    await slashIn(l, tn2, '/リンク');
     l.key({ key: 'Enter', code: 'Enter' }, tn2); await l.drain(200);
     await clickEl(l, winOpts(l).find((o) => o.textContent === 'ケース台帳'), 200);
     await clickEl(l, winOpts(l).find((o) => o.textContent === '新しい表から始める'), 400);

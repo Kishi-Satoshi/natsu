@@ -561,8 +561,8 @@ test('ED-5: 行頭で / を打つと listbox が出て項目は型の表の順�
     assert.deepStrictEqual(keysOf(l), [...E.MENU_KEYS, 'page']);   // 0.15.0 PH-4（計画 docs/plans/2026-11-03-150.md の決めたこと 25・R25）で意図して変えた: ページの本文の / メニューは型の後ろに［ページ］
     assert.deepStrictEqual(headsOf(l), ['ブロックの型']);
     assert.strictEqual(l.document.activeElement, t, 'フォーカスが行から離れた');
-    t = typeInput(l, 'e1', '/みだし');
-    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3', 'th4']);   // 0.13.1 NE-1 で意図して変えた:「みだし」は「とぐるみだし」にも当たる（NR5）。0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: トグル見出し4も
+    t = typeInput(l, 'e1', '/見出し');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: ひらがなの読みでは当たらないので名前で
+    assert.deepStrictEqual(keysOf(l), ['h1', 'h2', 'h3', 'h4', 'th1', 'th2', 'th3', 'th4']);   // 0.13.1 NE-1 で意図して変えた:「みだし」は「とぐるみだし」にも当たる（NR5）。0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: トグル見出し4も
     assert.deepStrictEqual(headsOf(l), []);
     for (const k of ['ArrowDown', 'ArrowDown']) assert.strictEqual(l.key({ key: k }, t).defaultPrevented, true);
     const ev = l.key({ key: 'Enter' }, t);
@@ -650,15 +650,15 @@ test('ED-5・F42: メニューを開いて Esc → メニューが閉じ、ev.de
     $(l, 'listSelect').dispatchEvent({ type: 'click' });
     await l.drain();
     assert.strictEqual(selOn(), true);
-    const t = typeInput(l, 'e1', '/みだ');
+    const t = typeInput(l, 'e1', '/見出');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で
     assert.ok(slashBoxOf(l));
     const ev = l.key({ key: 'Escape' }, t);
     await l.drain();
     assert.strictEqual(ev.defaultPrevented, true);
     assert.strictEqual(slashBoxOf(l), null);
-    assert.strictEqual(t.textContent, '/みだ');
+    assert.strictEqual(t.textContent, '/見出');
     assert.strictEqual(selOn(), true, 'メニューの Esc で一覧の選択が外れた');
-    typeInput(l, 'e1', '/みだし');
+    typeInput(l, 'e1', '/見出し');
     assert.strictEqual(slashBoxOf(l), null, 'Esc で閉じたのに開き直した');
     const rec = l.calls.filter((c) => /^(meeting(Toggle|Start|Discard|SetPaused|Stop)|toggleRecording|cancel)/.test(c.method));
     assert.deepStrictEqual(rec.map((c) => c.method), []);
@@ -693,7 +693,8 @@ test('ED-5: ＋ を押すと下に行が足され（blockInsert の1回）、そ
   } finally { l.done(); }
 });
 
-test('ED-5: aria-activedescendant が選んでいる項目を指す・当たりなしで「当てはまる型がありません」・3文字当たりなしで閉じる', T, async () => {
+// 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・AQ29 (a)）で意図して直した: 当たらない字の3つ目では閉じず、5つ目で閉じる（名前も）
+test('ED-5: aria-activedescendant が選んでいる項目を指す・当たりなしで「当てはまる型がありません」・当たらない字の5つ目で閉じる', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
     let t = typeInput(l, 'e1', '/');
@@ -708,7 +709,11 @@ test('ED-5: aria-activedescendant が選んでいる項目を指す・当たり�
     assert.strictEqual(slashBoxOf(l).querySelector('.snone').textContent, '当てはまる型がありません');
     assert.strictEqual(t.getAttribute('aria-activedescendant'), null);
     typeInput(l, 'e1', '/zzz');
-    assert.strictEqual(slashBoxOf(l), null);
+    assert.ok(slashBoxOf(l) !== null, '当たらない字の3つ目で閉じた');
+    typeInput(l, 'e1', '/zzzz');
+    assert.ok(slashBoxOf(l) !== null, '当たらない字の4つ目で閉じた');
+    typeInput(l, 'e1', '/zzzzz');
+    assert.ok(slashBoxOf(l) === null, '当たらない字の5つ目で閉じない');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
@@ -873,13 +878,13 @@ test('ED-5（決めたこと 41・R19）: / メニューはページを替える
       returns: { meetingStatus: () => status, meetingPrepare: () => { status = { active: false, prep: { memo: '', meetingType: null } }; return { ok: true }; } },
     });
     try {
-      const t = typeInput(l, 'p1', 'あいうえお /みだ');
+      const t = typeInput(l, 'p1', 'あいうえお /見出');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で
       assert.ok(slashBoxOf(l));
       if (how === 'open') l.fire('onPageOpen', 'pb2'); else await $(l, 'mtToggleBtn').onclick();
       await l.drain();
       assert.strictEqual(l.document.querySelectorAll('.slashmenu').length, 0, how);
       assert.strictEqual(t.getAttribute('aria-activedescendant'), null);
-      assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'p1', { text: 'あいうえお /みだ' }]], how);
+      assert.deepStrictEqual(sent(l), [['blockUpdate', 'pa1', 'p1', { text: 'あいうえお /見出' }]], how);
       assert.deepStrictEqual(l.errors.map(fmt), []);
     } finally { l.done(); }
   }

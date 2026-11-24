@@ -28,7 +28,9 @@ test('ED-1: BLOCK_TYPES はこの計画の型の表と1行ずつ同じ（名前�
     assert.strictEqual(r.level, lv ? Number(lv[1]) : undefined, `${i}: level`);
     assert.strictEqual(r.toggle, keyCol.includes('`toggle: true`') ? true : undefined, `${i}: toggle`);
     assert.strictEqual(r.label, r.id === 'th' ? label.replace('1〜3', '1〜4') : label, `${i}: label`);
-    assert.deepStrictEqual([...r.words], words.split('・'), `${i}: words`);
+    // 0.18.0 XN-4（決めたこと 65・AQ14 (a)・AQ30 (a)）で意図して直した: ひらがなの読みと「チェック」「メモ書き」を外し、番号付きとトグルに「リスト」を足した
+    const want = words.split('・').filter((w) => !/^[\u3041-\u309fー0-9]+$/.test(w) && w !== 'チェック' && w !== 'メモ書き');
+    assert.deepStrictEqual([...r.words], r.id === 'numbered' || r.id === 'toggle' ? [...want, 'リスト'] : want, `${i}: words`);
     assert.deepStrictEqual([...r.md], md === '—' ? [] : [...md.matchAll(/`([^`]+)`/g)].map((m) => m[1]), `${i}: md`);
     const d = /Ctrl\+Shift\+(\d)/.exec(code);
     assert.strictEqual(r.code, d ? `Digit${d[1]}` : undefined, `${i}: code`);
@@ -111,21 +113,21 @@ test('ED-1: slashQuery・slashFilter の表（半角の / だけ・日本語の�
   assert.deepStrictEqual(E.slashQuery('予算　/h2'), { open: true, query: 'h2' });
   for (const s of ['a/b', 'a/', '／', '／みだし', '・', '・みだし', '/a b', '', '予算']) assert.strictEqual(E.slashQuery(s).open, false, s);
   const ids = (q, r) => { const x = E.slashFilter(q, r); return x === null ? null : x.map((i) => i.id); };
-  assert.deepStrictEqual(ids('みだし'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3', 'th4']);   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: トグル見出し4も   // 「とぐるみだし」にも当たる（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）
+  assert.deepStrictEqual(ids('みだし'), [], 'ひらがなの読みで当たった');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: ひらがなの読みは当たらない（OC-17）。0.18.0 XN-3 で足したトグル見出し4も同じ   // 「とぐるみだし」にも当たる（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）
   assert.deepStrictEqual(ids('todo'), ['todo']);
   assert.deepStrictEqual(ids('TODO'), ['todo']);
   assert.deepStrictEqual(ids('h2'), ['h2', 'th2']);   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: /h2 はトグル見出し2にも当たる（CR137）
   assert.deepStrictEqual(ids('見出し'), ['h1', 'h2', 'h3', 'h4', 'th1', 'th2', 'th3', 'th4']);
-  assert.deepStrictEqual(ids('だし'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3', 'th4'], '途中からでも当たる');   // 見出し4にはひらがなの読みを足していない（ひらがなの読みは XN-4 で外す: 決めたこと 65）
-  assert.deepStrictEqual(ids('とぐる'), ['toggle', 'th1', 'th2', 'th3', 'th4'], '0.13.1 からトグルを出す（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）');
+  assert.deepStrictEqual(ids('出し'), ['h1', 'h2', 'h3', 'h4', 'th1', 'th2', 'th3', 'th4'], '途中からでも当たる');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前の途中で
+  assert.deepStrictEqual(ids('トグル'), ['toggle', 'th1', 'th2', 'th3', 'th4'], '0.13.1 からトグルを出す（0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で）（0.13.1 NE-1 で意図して変えた: 計画 docs/plans/2026-10-27-131.md の「意図して変えるテスト」。版の型の表に従う意図は同じ）');
   assert.deepStrictEqual(ids('zz'), [], '当たりなし（2文字はまだ開いている）');
-  assert.strictEqual(ids('zzz'), null, '当たりなしで3文字なら閉じる');
+  assert.deepStrictEqual(ids('zzz'), [], '当たりなしでも空の並び');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 閉じるかは slashMiss（5つ目）が決める（3文字で null を返さない）
   assert.deepStrictEqual(ids(''), [...E.MENU_KEYS]);
   assert.deepStrictEqual(E.slashFilter('', []).map((i) => i.group), E.MENU_KEYS.map(() => 'types'));
   const all = E.slashFilter('', ['h2', 'todo']);
   assert.deepStrictEqual(all.map((i) => `${i.group}:${i.id}`), ['recent:h2', 'recent:todo', ...E.MENU_KEYS.map((k) => `types:${k}`)]);
-  assert.deepStrictEqual(ids('み', ['h3']), ['h3', 'h1', 'h2', 'th1', 'th2', 'th3', 'th4'], '語を打った後は当たったうちの最近使ったものを先に');   // 0.18.0 XN-3 で意図して直した: トグル見出し4も
-  assert.deepStrictEqual(E.slashFilter('み', ['h3']).map((i) => i.group), ['', '', '', '', '', '', ''], '語を打った後は見出しを出さない');   // 0.18.0 XN-3 で意図して直した: トグル見出し4の1つが増えた
+  assert.deepStrictEqual(ids('見', ['h3']), ['h3', 'h1', 'h2', 'h4', 'th1', 'th2', 'th3', 'th4'], '語を打った後は当たったうちの最近使ったものを先に');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で
+  assert.deepStrictEqual(E.slashFilter('見', ['h3']).map((i) => i.group), ['', '', '', '', '', '', '', ''], '語を打った後は見出しを出さない');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で（見出し4・トグル見出し4も）
   assert.deepStrictEqual(ids('', ['x', 1]), [...E.MENU_KEYS], '壊れた最近使ったものでも開く');
 });
 

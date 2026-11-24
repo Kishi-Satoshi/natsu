@@ -609,13 +609,13 @@ test('PH-4: 見出し「議事録」の行の［＋］・行の［＋］・/ペ�
     const t = noteTxt(l, 'b2');
     const was = t.textContent;
     t.focus();
-    t.textContent = `${was} /ぺーじ`;
+    t.textContent = `${was} /ページ`;   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で
     l.caret.set(t, t.textContent.length);
     t.dispatchEvent({ type: 'input' });
     await l.drain();
     const menu = $(l, 'pNote').querySelector('.slashmenu');
     assert.ok(menu, '/ メニューが開かない');
-    assert.deepStrictEqual(menu.querySelectorAll('.sopt').map((o) => o.textContent), ['ページ'], '/ぺーじ で［ページ］が出ない');
+    assert.deepStrictEqual(menu.querySelectorAll('.sopt').map((o) => o.textContent), ['ページ'], '/ページ で［ページ］が出ない');
     l.key({ key: 'Enter', code: 'Enter' }, t);
     await l.drain(); await l.drain();
     assert.deepStrictEqual(l.called('pageCreate').map((c) => c.args)[2], ['pa1'], '/ページ が開いているページの中に作らない');
@@ -673,7 +673,7 @@ test('PH-4 直し・R29 (1): ［ページ］はメモの欄の / メニューに
     // ページの本文の欄で［ページ］を選んでも、uiSave の slashRecent に page を入れない
     const t = noteTxt(l, 'b2');
     t.focus();
-    t.textContent = `${t.textContent} /ぺーじ`;
+    t.textContent = `${t.textContent} /ページ`;
     l.caret.set(t, t.textContent.length);
     t.dispatchEvent({ type: 'input' });
     await l.drain();

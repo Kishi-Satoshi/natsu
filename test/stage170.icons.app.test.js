@@ -591,7 +591,7 @@ test('IV-4・F192: `/コールアウト` で作った行も同じ線の絵。保
     l.fire('onPageOpen', top); await l.drain(80);
     const rowEl = () => $(l, 'pNote').querySelectorAll('.blk').find((e) => e.dataset.id === b);
     const t = rowEl()._txt;
-    t.focus(); t.textContent = '/こーるあうと'; l.caret.set(t, t.textContent.length); t.dispatchEvent({ type: 'input' }); await l.drain();
+    t.focus(); t.textContent = '/コールアウト'; l.caret.set(t, t.textContent.length); t.dispatchEvent({ type: 'input' }); await l.drain();
     const opt = $(l, 'pNote').querySelector('.slashmenu');
     assert.ok(opt, '前提: / のメニュー');
     l.key({ key: 'Enter' }, t); await l.drain(80);

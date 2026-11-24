@@ -231,9 +231,10 @@ test('NE-1・NR5: MENU_ROWS は型の表の th から th1〜th3 を作る（段�
   assert.deepStrictEqual(E.recentAdd(['h2'], 'th3'), ['th3', 'h2']);
   const ids2 = (q) => E.slashFilter(q, []).map((i) => i.id);
   // 0.18.0 XN-3（「意図して変えるテスト」・決めたこと 63）で意図して直した: トグル見出し4（th4）も
-  assert.deepStrictEqual(ids2('とぐる'), ['toggle', 'th1', 'th2', 'th3', 'th4']);
-  assert.deepStrictEqual(ids2('とぐるみだし'), ['th1', 'th2', 'th3', 'th4']);
-  assert.deepStrictEqual(ids2('みだし'), ['h1', 'h2', 'h3', 'th1', 'th2', 'th3', 'th4'], '「みだし」は「とぐるみだし」にも当たる');
+  // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: ひらがなの読みでなく名前で（トグル見出しの語は「toggle heading」と段の語）
+  assert.deepStrictEqual(ids2('トグル'), ['toggle', 'th1', 'th2', 'th3', 'th4']);
+  assert.deepStrictEqual(ids2('トグル見出し'), ['th1', 'th2', 'th3', 'th4']);
+  assert.deepStrictEqual(ids2('見出し'), ['h1', 'h2', 'h3', 'h4', 'th1', 'th2', 'th3', 'th4'], '「見出し」は「トグル見出し」にも当たる');
   assert.deepStrictEqual(ids2('toggle'), ['toggle', 'th1', 'th2', 'th3', 'th4']);
   assert.deepStrictEqual(ids2(''), [...E.MENU_KEYS]);
 });

@@ -777,3 +777,39 @@ test('XN-3・F250: markdownToBlocks の #### は今どおり段 3（要約の見
   const text = FMT.meetingMarkdown(page, [], { header: false }).text;
   assert.deepStrictEqual(text.split('\n').filter((l) => /段\d$/.test(l)), ['### 段1', '### 段2', '#### 段3', '##### 段4']);
 });
+
+// ---------------------------------------------------------------- XN-4（決めたこと 64・65・AQ13 (a)・AQ14 (a)・AQ29 (a)・AQ30 (a)・F251）: / メニューの閉じ方と語
+test('XN-4・F251: slashMiss の表（当たりのある間は 0・当たらない字の 1〜4 は開いたまま・5 で閉じる・当たらないままの Backspace で1つ減る・当たる語に戻れば 0・3字を1回で確定すると 3・その後に2字で 5）', () => {
+  assert.strictEqual(BE.SLASH_CLOSE_AT, 5);
+  let st = { miss: 0, query: '' };
+  const step = (q, found) => { const r = BE.slashMiss(st, q, found); st = { miss: r.miss, query: q }; return [r.miss, r.close]; };
+  assert.deepStrictEqual(step('見', true), [0, false]);
+  assert.deepStrictEqual(step('見ぬ', false), [1, false]);
+  assert.deepStrictEqual(step('見ぬぬ', false), [2, false]);
+  assert.deepStrictEqual(step('見ぬぬぬ', false), [3, false]);
+  assert.deepStrictEqual(step('見ぬぬぬぬ', false), [4, false], '4つ目で閉じた（2026-11-14 の記録の形。AQ29 (a) は5つ目）');
+  assert.deepStrictEqual(step('見ぬぬぬ', false), [3, false], '当たらないままの Backspace で減らない');
+  assert.deepStrictEqual(step('見ぬぬぬぬ', false), [4, false]);
+  assert.deepStrictEqual(step('見ぬぬぬぬぬ', false), [5, true], '5つ目で閉じない');
+  st = { miss: 4, query: 'ぬぬぬぬ' };
+  assert.deepStrictEqual(step('', true), [0, false], '当たる語に戻っても数え直さない');
+  st = { miss: 0, query: '' };
+  assert.deepStrictEqual(step('ぬぬぬ', false), [3, false], '3字を1回で確定したら 3（CR26）');
+  assert.deepStrictEqual(step('ぬぬぬぬぬ', false), [5, true], '3字の後に2字を確定すると 5 で閉じる');
+  assert.deepStrictEqual(BE.slashMiss(null, 'abc', false), { miss: 3, close: false });
+  assert.deepStrictEqual(BE.slashMiss({ miss: 0, query: '' }, '𠮷𠮷', false), { miss: 2, close: false }, '字はコードポイントで数える');
+});
+test('XN-4・F251: slashFilter: ひらがなの読み（みだし・とぐる・こーるあうと・てきすと）では当たらない・名前（見出・出し）と英語の語（h1・head）は当たる・「チェック」「メモ書き」「やること」は何も当たらない・「リスト」は箇条書き・番号付き・トグル（ToDo とトグル見出しには当たらない）・当たりが無いときは空の並び（null を返さない）', () => {
+  const ids = (q) => { const x = BE.slashFilter(q, []); assert.ok(Array.isArray(x), `${q} の答えが並びでない`); return x.map((i) => i.id); };
+  for (const q of ['みだし', 'とぐる', 'こーるあうと', 'てきすと', 'かじょうがき', 'ばんごう', 'いんよう', 'くぎり', 'とぅーどぅー', 'チェック', 'メモ書き', 'やること', 'メモ', 'ぬぬぬぬぬぬ']) {
+    assert.deepStrictEqual(ids(q), [], q);
+  }
+  assert.ok(ids('見出').includes('h1') && ids('見出').includes('h4'));
+  assert.ok(ids('出し').includes('h2'));
+  assert.deepStrictEqual(ids('h1'), ['h1', 'th1']);
+  assert.ok(ids('head').includes('th1'));
+  assert.deepStrictEqual(ids('リスト'), ['bullet', 'numbered', 'toggle'], '「リスト」（OC-17・AQ30 (a)）');
+  assert.deepStrictEqual(ids('todo'), ['todo']);
+  assert.deepStrictEqual(ids('コール'), ['callout']);
+  for (const r of BE.MENU_ROWS) for (const w of r.words) assert.ok(!/^[ぁ-ゟー0-9]+$/.test(w), `${r.id} にひらがなだけの語 ${w}`);
+});

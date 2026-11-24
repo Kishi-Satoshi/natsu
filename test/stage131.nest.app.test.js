@@ -503,10 +503,10 @@ test('NE-4b・EQ10 (a): 空の行の頭で『> 』と打つと blockTurnInto（t
     await l.drain();
     assert.deepStrictEqual(sent(l), [['blockTurnInto', 'pa1', 'x', 'toggle']]);
     l.calls.length = 0;
-    t = typeIn(l, 'u1', '/とぐる');
+    t = typeIn(l, 'u1', '/トグル');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で
     t.dispatchEvent({ type: 'input' });
     assert.deepStrictEqual($(l, 'pNote').querySelector('.slashmenu').querySelectorAll('.sopt').map((o) => o.dataset.key), ['toggle', 'th1', 'th2', 'th3', 'th4']);   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 63）で意図して直した: トグル見出し4も
-    t = typeIn(l, 'u1', 'u1の文 /とぐるみだし');
+    t = typeIn(l, 'u1', 'u1の文 /トグル見出し');
     t.dispatchEvent({ type: 'input' });
     assert.deepStrictEqual($(l, 'pNote').querySelector('.slashmenu').querySelectorAll('.sopt').map((o) => o.dataset.key), ['th1', 'th2', 'th3', 'th4']);
     press(l, t, 'ArrowDown');

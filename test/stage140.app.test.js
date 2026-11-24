@@ -858,7 +858,7 @@ test('EB-4（決めたこと 14・21）: 飾りの9色は明暗の両方にあ�
 test('EB-3 直し・I1（決めたこと 2・R98）: 空の行の「/区切り線」（型の変換と下の行）は Ctrl+Z の1回で両方戻る', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
-    const t = typeIn(l, 'e1', '/くぎり');
+    const t = typeIn(l, 'e1', '/区切り');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で
     t.dispatchEvent({ type: 'input' });
     await l.drain();
     l.key({ key: 'Enter' }, t);
@@ -1293,12 +1293,13 @@ test('EB-5（決めたこと 21・S-03）: ⠿ のメニューの［色 ▸］�
     await l.drain();
     assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args).slice(2), [['pa1', ['p1'], '']]);
     assert.strictEqual(rowOf(l, 'p1').getAttribute('data-bbg'), null);
-    // / メニューの色: 空の行で「/あか」→ 文字の色と背景の色の赤が出て、Enter（文字の色の赤）で blocksSetColor の1回・打った語は消える・1歩
+    // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: ひらがなの読みでなく名前（「/赤」）で。背景の色は ↓ で選ぶ（「/あかいはいけい」の読みは外した）
+    // / メニューの色: 空の行で「/赤」→ 文字の色と背景の色の赤が出て、Enter（文字の色の赤）で blocksSetColor の1回・打った語は消える・1歩
     const n = l.steps.length;
-    const e = typeIn(l, 'e1', '/あか');
+    const e = typeIn(l, 'e1', '/赤');
     e.dispatchEvent({ type: 'input' });
     const sm = $(l, 'pNote').querySelector('#slashMenu');
-    assert.ok(sm, '「/あか」で / メニューが出ない');
+    assert.ok(sm, '「/赤」で / メニューが出ない');
     assert.deepStrictEqual(sm.querySelectorAll('.shead').map((h) => h.textContent), ['文字の色', '背景の色']);
     assert.deepStrictEqual(sm.querySelectorAll('.sopt').map((o) => [o.dataset.key, o.textContent]), [['color:red', '赤'], ['bg:red', '赤']]);
     l.key({ key: 'Enter' }, e);
@@ -1307,10 +1308,11 @@ test('EB-5（決めたこと 21・S-03）: ⠿ のメニューの［色 ▸］�
     assert.strictEqual(txtOf(l, 'e1').textContent, '');
     assert.strictEqual(rowOf(l, 'e1').getAttribute('data-bcolor'), 'red');
     assert.strictEqual(l.steps.length, n + 1);
-    // 文のある行で「/あかいはいけい」→ 背景の色の赤だけ。打った語を除いた文を保存してから色（2つの命令で1歩）
-    const p = typeIn(l, 'p1', 'あいうえお /あかいはいけい');
+    // 文のある行で「/赤」→ ↓ で背景の色の赤。打った語を除いた文を保存してから色（2つの命令で1歩）
+    const p = typeIn(l, 'p1', 'あいうえお /赤');
     p.dispatchEvent({ type: 'input' });
-    assert.deepStrictEqual($(l, 'pNote').querySelector('#slashMenu').querySelectorAll('.sopt').map((o) => o.dataset.key), ['bg:red']);
+    assert.deepStrictEqual($(l, 'pNote').querySelector('#slashMenu').querySelectorAll('.sopt').map((o) => o.dataset.key), ['color:red', 'bg:red']);
+    l.key({ key: 'ArrowDown' }, p);
     l.key({ key: 'Enter' }, p);
     await l.drain();
     assert.deepStrictEqual(l.called('blocksSetColor').map((c) => c.args).slice(4), [['pa1', ['p1'], 'red_bg']]);

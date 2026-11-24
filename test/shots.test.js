@@ -273,7 +273,8 @@ const RETAKEN_180 = ['settings-summary-light', 'settings-info-claude-light', 'se
   'side-row-menu-light',
   'sidebar-db-light',   // 0.18.0 XN-2 の直し（CR139）で意図して足した: データベースの行のメニューを開いた画面（今の基準がある）
   // 0.18.0 XN-3（決めたこと 63）で意図して足した: 語「みだし」で開く / メニューにトグル見出し4が1行増える（今の基準がある）
-  'edit-slash-light', 'edit-slash-dark'];
+  'edit-slash-light', 'edit-slash-dark',
+  'edit-slash-recent-light'];   // 0.18.0 XN-4（CR141）で意図して足した: 語を打つ前の / メニューに見出し4とトグル見出し4が増える（今の基準がある）
 const RETAKE_180 = [...NEW_180, ...RETAKEN_180];
 // 0.17.0 IV-1（計画 docs/plans/2026-11-13-170.md の「取り直す画面（RETAKE）」）: 既定のアイコンが変わるアプリの画面の全部（RETAKE_170。Task G の前に基準にする）
 // 0.18.0 CU-1 で意図して直した: 0.18.0 で足した画面（NEW_180）は 0.17.0 の画面に数えない
@@ -1440,7 +1441,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 4681753f…）
   // 0.18.0 XN-3（決めたこと 63・CR137）: 見出し4（型の表の写し・記法の写し・貼り付けとメモの照らしの写し・CSS の .h4）。変わる画面は足した edit-h4-light と、/ メニューに
   // トグル見出し4が増える edit-slash-light・edit-slash-dark（RETAKE にある）。値を今の app.html に合わせた（前の値は e2afe9e9…）
-  assert.strictEqual(sha, '76989c93bbcf6654a296f6dfaebcc3f2c2ee7d40fcbef45f0e71ec754bc5a968',
+  // 0.18.0 XN-4（決めたこと 64・65・AQ32 (a)・CR140）: / メニューの閉じ方（slashMiss の写し・5つ目で閉じる）と語（型の表の写しと色・［ページ］・［データベース］・［リンクドビュー］の
+  // ひらがなの読みを外した）。変わる画面は / メニューを写す edit-slash-light・dark・edit-slash-recent-light（RETAKE にある）。値を今の app.html に合わせた（前の値は 76989c93…）
+  assert.strictEqual(sha, '7f750f2778caa3509f73d736c812483b8a7c18e8897681149245779c47cab166',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

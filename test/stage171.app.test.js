@@ -702,7 +702,7 @@ test('OD-2・F218: 今閉じる窓も帳面に載る（決めたこと 12。2026
     await shut('パンくずの［…］', () => l.document.querySelectorAll('.treemenu').find((m) => m.getAttribute('aria-label') === '隠れた段'), nb, deep[5]);
     // /リンクドビュー の窓（白紙のページ）
     await open(l, P);
-    await slashIn(l, txtOf(l, b1), '/りんく');
+    await slashIn(l, txtOf(l, b1), '/リンク');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 名前で
     l.key({ key: 'Enter', code: 'Enter' }, txtOf(l, b1)); await l.drain(200);
     await shut('/リンクドビュー の窓', () => $(l, 'pNote').querySelector('.dbpickwin'), b1, P);
     assert.deepStrictEqual(l.errors.map(fmt), []);
@@ -812,7 +812,7 @@ test('OD-5・F218: / メニューの外の押しは通す（N171-6・PQ171-11）
     r = await pressEl(l, txtOf(l, 'x'));
     assert.deepStrictEqual(all.filter((t) => !r.got.includes(t)), [], '(a) 閉じた後の押しが止まる（止める印が残る）');
     // (d) 閉じた後に元の行で続けて打っても、その / では開き直さない（R12）
-    await slashIn(l, txtOf(l, 'y'), '/み');
+    await slashIn(l, txtOf(l, 'y'), '/見');   // 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の「意図して変えるテスト」・決めたこと 64・65・AQ14 (a)・AQ32 (a)）で意図して直した: 読みを外すと当たらないまま開いて「閉じた / では開き直さない」を見なくなるので、当たる語で
     assert.strictEqual(Boolean(slashOn()), false, '(d) 閉じた / の行で続けて打つと / メニューが開き直した');
     // 右の押しも通す（決めたこと 23）: 閉じて、押した行の右の押しのメニュー（⋮⋮ のメニュー）が開く
     await slashIn(l, txtOf(l, 'x'), 'あいうえお /');

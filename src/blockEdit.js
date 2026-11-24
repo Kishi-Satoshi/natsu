@@ -9,23 +9,25 @@ const { graphemeEnds, safeOffset } = require('./grapheme');
 const { richMarkdown } = require('./richText');
 
 // 型の表（計画の「ブロックの型の表」と1行ずつ同じ。test/stage130.edit.lib.test.js が計画の表と照らす）。
+// 0.18.0 XN-4（計画 docs/plans/2026-11-18-180.md の決めたこと 65・AQ14 (a)・AQ30 (a)）: 語からひらがなの読み（ひらがなと「ー」と数字だけの語）と「チェック」「メモ書き」を外し、
+// 「リスト」を番号付きとトグルにも足した（実機の確かめ OC-17 と同じ形。名前と英語の語は今のまま）
 // key は DB の type・id は / メニューと「最近使ったもの」の鍵・words は / で当たる語・md は行頭の記法・code は近道（Ctrl+Shift+ の ev.code）・
 // kids は子を持てるか（0.13.1）・cite は出典のチップが付くか・since は版（now は前からある型）
 const BLOCK_TYPES = Object.freeze([
-  { id: 'text', key: 'paragraph', label: 'テキスト', words: ['てきすと', 'text', 'plain'], md: [], code: 'Digit0', kids: true, cite: false, since: 'now' },
-  { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['みだし1', '見出し1', 'h1', '#'], md: ['# '], code: 'Digit1', kids: false, cite: false, since: '0.13.0' },
-  { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['みだし2', 'h2', '##'], md: ['## '], code: 'Digit2', kids: false, cite: false, since: 'now' },
-  { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['みだし3', 'h3', '###'], md: ['### '], code: 'Digit3', kids: false, cite: false, since: '0.13.0' },
+  { id: 'text', key: 'paragraph', label: 'テキスト', words: ['text', 'plain'], md: [], code: 'Digit0', kids: true, cite: false, since: 'now' },
+  { id: 'h1', key: 'heading', level: 1, label: '見出し1', words: ['見出し1', 'h1', '#'], md: ['# '], code: 'Digit1', kids: false, cite: false, since: '0.13.0' },
+  { id: 'h2', key: 'heading', level: 2, label: '見出し2', words: ['h2', '##'], md: ['## '], code: 'Digit2', kids: false, cite: false, since: 'now' },
+  { id: 'h3', key: 'heading', level: 3, label: '見出し3', words: ['h3', '###'], md: ['### '], code: 'Digit3', kids: false, cite: false, since: '0.13.0' },
   // 0.18.0 XN-3（計画 docs/plans/2026-11-18-180.md の決めたこと 63・AQ12 (a)）: 見出し4（近道は無い: Ctrl+Shift+4 は今どおり ToDo。KB にも見出し4の近道は無い）
   { id: 'h4', key: 'heading', level: 4, label: '見出し4', words: ['h4', '####'], md: ['#### '], kids: false, cite: false, since: '0.18.0' },
-  { id: 'todo', key: 'todo', label: 'ToDo', words: ['とぅーどぅー', 'todo', 'やること', 'チェック'], md: ['[] '], code: 'Digit4', kids: true, cite: true, since: 'now' },
-  { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['かじょうがき', 'bullet', 'リスト'], md: ['- ', '* ', '+ '], code: 'Digit5', kids: true, cite: true, since: 'now' },
-  { id: 'numbered', key: 'numbered', label: '番号付き', words: ['ばんごう', 'number', 'numbered'], md: ['1. '], code: 'Digit6', kids: true, cite: false, since: '0.13.0' },
-  { id: 'toggle', key: 'toggle', label: 'トグル', words: ['とぐる', 'toggle'], md: ['> '], code: 'Digit7', kids: true, cite: false, since: '0.13.1' },
-  { id: 'th', key: 'heading', toggle: true, label: 'トグル見出し1〜4', words: ['とぐるみだし', 'toggle heading'], md: [], kids: true, cite: false, since: '0.13.1' },
-  { id: 'quote', key: 'quote', label: '引用', words: ['いんよう', 'quote'], md: ['" '], kids: true, cite: false, since: '0.13.0' },
-  { id: 'divider', key: 'divider', label: '区切り線', words: ['くぎり', 'divider', '---'], md: ['---'], kids: false, cite: false, since: '0.13.0' },
-  { id: 'callout', key: 'callout', label: 'コールアウト', words: ['こーるあうと', 'callout', 'メモ書き'], md: [], kids: true, cite: false, since: '0.13.0' },
+  { id: 'todo', key: 'todo', label: 'ToDo', words: ['todo'], md: ['[] '], code: 'Digit4', kids: true, cite: true, since: 'now' },
+  { id: 'bullet', key: 'bullet', label: '箇条書き', words: ['bullet', 'リスト'], md: ['- ', '* ', '+ '], code: 'Digit5', kids: true, cite: true, since: 'now' },
+  { id: 'numbered', key: 'numbered', label: '番号付き', words: ['number', 'numbered', 'リスト'], md: ['1. '], code: 'Digit6', kids: true, cite: false, since: '0.13.0' },
+  { id: 'toggle', key: 'toggle', label: 'トグル', words: ['toggle', 'リスト'], md: ['> '], code: 'Digit7', kids: true, cite: false, since: '0.13.1' },
+  { id: 'th', key: 'heading', toggle: true, label: 'トグル見出し1〜4', words: ['toggle heading'], md: [], kids: true, cite: false, since: '0.13.1' },
+  { id: 'quote', key: 'quote', label: '引用', words: ['quote'], md: ['" '], kids: true, cite: false, since: '0.13.0' },
+  { id: 'divider', key: 'divider', label: '区切り線', words: ['divider', '---'], md: ['---'], kids: false, cite: false, since: '0.13.0' },
+  { id: 'callout', key: 'callout', label: 'コールアウト', words: ['callout'], md: [], kids: true, cite: false, since: '0.13.0' },
 ].map((r) => Object.freeze({ ...r, words: Object.freeze([...r.words]), md: Object.freeze([...r.md]) })));
 // この版で使える行（0.13.1 から型の表の全部。計画 docs/plans/2026-10-27-131.md の「受け渡す名前と形」）
 const VERSION_ROWS = Object.freeze([...BLOCK_TYPES]);
@@ -129,14 +131,25 @@ const hits = (r, q) => {
   const f = q.toLowerCase();
   return [r.label, ...r.words].some((w) => w.toLowerCase().includes(f));
 };
-// 項目の並び → [{ id, group }]（group は 'recent'・'types'・''）。当たりが無いまま3文字打ったら null（閉じる）
+// 項目の並び → [{ id, group }]（group は 'recent'・'types'・''）。当たりが無ければ空の並び（0.18.0 XN-4: 閉じるかは slashMiss が決める。前は3文字で null）
 function slashFilter(query, recent) {
   const q = String(query ?? '');
   const rec = recentCheck(recent);
   if (!q) return [...rec.map((id) => ({ id, group: 'recent' })), ...MENU_KEYS.map((id) => ({ id, group: 'types' }))];
   const found = MENU_ROWS.filter((r) => hits(r, q)).map((r) => r.id);
-  if (!found.length) return q.length >= 3 ? null : [];
+  if (!found.length) return [];
   return [...rec.filter((id) => found.includes(id)), ...found.filter((id) => !rec.includes(id))].map((id) => ({ id, group: '' }));
+}
+// 0.18.0 XN-4（決めたこと 64・AQ13 (a)・AQ29 (a)・CR26）: 当たりの無い間に打った字の数 → { miss, close }。prev は前の { miss, query }（無ければ 0 と空）。
+// 当たりがあれば 0。当たらなければ、前の語からの字の数の増減（コードポイント）を足す（当たらないままの Backspace で1つ減る・何字かを1回で確定すると
+// その字の数を足す）。SLASH_CLOSE_AT（5）で閉じる（当たらない字が4つまでは開いたまま: OC-16）。変換中の字は呼び手が渡さない（確定してから数える）
+const SLASH_CLOSE_AT = 5;
+function slashMiss(prev, query, found) {
+  if (found) return { miss: 0, close: false };
+  const was = prev && Number.isSafeInteger(prev.miss) && prev.miss > 0 ? prev.miss : 0;
+  const before = prev && typeof prev.query === 'string' ? [...prev.query].length : 0;
+  const miss = Math.max(0, was + [...String(query ?? '')].length - before);
+  return { miss, close: miss >= SLASH_CLOSE_AT };
 }
 // 選んだ鍵を頭に足す（新しい順・同じ鍵は1つ・3つまで）→ 新しい配列
 function recentAdd(recent, key) {
@@ -289,6 +302,6 @@ function lisIndexes(seq) {
 module.exports = {
   BLOCK_TYPES, VERSION_ROWS, MENU_ROWS, MENU_KEYS, TYPE_KEYS, RECENT_MAX, CALLOUT_ICON, SUBPAGE_ROW, DBVIEW_ROW,
   typeOf, isTyped, headingLevel, safeOffset, splitText, splitRich, joinRich,
-  shortcutFor, slashQuery, slashFilter, recentAdd, recentCheck,
+  shortcutFor, slashQuery, slashFilter, SLASH_CLOSE_AT, slashMiss, recentAdd, recentCheck,
   nextTypeOnEnter, backspaceAtStart, numberLabels, keyAction, blocksMarkdown, patchPlan,
 };
