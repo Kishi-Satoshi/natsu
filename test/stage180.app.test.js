@@ -1540,9 +1540,10 @@ test('XN-4・F251: / の後に当たらない字を4つまで打っても開い�
     }
     assert.strictEqual(slashOnX(l).querySelector('.snone').textContent, '当てはまる型がありません');
     const t = await typeRowX(l, el, '/ぬぬぬぬぬ');
-    assert.strictEqual(slashOnX(l), null, '5つ目で閉じない');
+    // XN-4 の直し（CR147）: 開いたメニューの要素を assert に渡さない（違ったときに偽の DOM の木を深くまで文字にして、メモリを使い切る）
+    assert.ok(slashOnX(l) === null, '5つ目で閉じない');
     assert.strictEqual(t.textContent, '/ぬぬぬぬぬ', '閉じるときに打った字が消えた');
-    for (const s of ['/ぬぬぬぬ', '/ぬぬ', '/']) { await typeRowX(l, el, s); assert.strictEqual(slashOnX(l), null, `閉じた後の Backspace（${s}）で開いた`); }
+    for (const s of ['/ぬぬぬぬ', '/ぬぬ', '/']) { await typeRowX(l, el, s); assert.ok(slashOnX(l) === null, `閉じた後の Backspace（${s}）で開いた`); }
     await typeRowX(l, el, '');
     await typeRowX(l, el, '/');
     assert.ok(slashOnX(l), '新しく / を打っても開かない');
@@ -1558,7 +1559,7 @@ test('XN-4・F251: / の後に当たらない字を4つまで打っても開い�
     t.dispatchEvent({ type: 'compositionstart' });
     t.textContent = '/ぬぬぬぬぬ'; l.caret.set(t, 6);
     t.dispatchEvent({ type: 'compositionend' }); await l.drain();
-    assert.strictEqual(slashOnX(l), null, '3字の後に2字を確定しても閉じない（CR26）');
+    assert.ok(slashOnX(l) === null, '3字の後に2字を確定しても閉じない（CR26）');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
