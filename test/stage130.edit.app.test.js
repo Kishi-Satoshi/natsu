@@ -365,13 +365,17 @@ test('ED-4: テキストの行の頭で Backspace → blockMerge の1回（前�
   } finally { l.done(); }
 });
 
-test('ED-4: ↑ を行の頭で押すと上の行の終わりへ、↓ を終わりで押すと下の行の頭へ（EQ14 (a)）。途中では本物の動きのまま', T, async () => {
+// 0.18.0 XE-3（計画 docs/plans/2026-11-18-180.md の決めたこと 59・AQ25 (a)・「意図して変えるテスト」）で意図して直した: ↑ は最初の見た目の行・↓ は最後の見た目の行なら
+// 文の途中でも隣の行へ（OC-10）。折り返した行の真ん中の見た目の行では本物の動きのまま（見た目の行の四角は台の l.caret.geom で置く）
+test('ED-4・XE-3: ↑ を行の頭で押すと上の行の終わりへ、↓ を終わりで押すと下の行の頭へ（EQ14 (a)）。折り返した行の真ん中の見た目の行では本物の動きのまま', T, async () => {
   const l = await openReal({ pa1: BASE() });
   try {
     const t = typeIn(l, 'p1', 'あいうえお', 2);
+    l.caret.geom(t, () => ({ caret: { top: 20, bottom: 40, left: 30 }, lines: [{ top: 0, bottom: 20 }, { top: 20, bottom: 40 }, { top: 40, bottom: 60 }] }));
     let ev = l.key({ key: 'ArrowUp' }, t);
     assert.strictEqual(ev.defaultPrevented, false);
     assert.strictEqual(l.document.activeElement, t);
+    l.caret.geom(t, () => null);
     l.caret.set(t, 0);
     ev = l.key({ key: 'ArrowUp' }, t);
     assert.strictEqual(ev.defaultPrevented, true);

@@ -546,3 +546,37 @@ test('XE-2・F246: Markdown の印のある文字（- a\\n- b）・HTML の貼�
   const p = PC.pasteBlocks({ text: 'a\nb' });
   assert.deepStrictEqual([txtsOf(p), p.below, p.inline], [['a\nb'], true, false]);
 });
+
+// ---------------------------------------------------------------- XE-3（決めたこと 59・AQ25 (a)・F247）: 折り返した行の ↑↓（src/caretLine.js）
+const CL = require('../src/caretLine');
+test('XE-3・F247: edgeOf の表（1行は only・3行の1行目は first・3行目は last・2行目は middle・行の境のカーソルは下の行・同じ見た目の行の四角はまとめる・拡大 200% の小数の座標）', () => {
+  const L3 = [{ top: 0, bottom: 20 }, { top: 20, bottom: 40 }, { top: 40, bottom: 60 }];
+  const at = (top, bottom = top + 20) => ({ top, bottom });
+  assert.strictEqual(CL.edgeOf({ caret: at(0), lines: [{ top: 0, bottom: 20 }] }), 'only');
+  assert.strictEqual(CL.edgeOf({ caret: at(0), lines: [{ top: 0, bottom: 20 }, { top: 1, bottom: 19 }] }), 'only', '同じ見た目の行の2つの箱を2行にした');
+  assert.strictEqual(CL.edgeOf({ caret: at(0), lines: L3 }), 'first');
+  assert.strictEqual(CL.edgeOf({ caret: at(20), lines: L3 }), 'middle');
+  assert.strictEqual(CL.edgeOf({ caret: at(40), lines: L3 }), 'last');
+  assert.strictEqual(CL.edgeOf({ caret: { top: 10, bottom: 30 }, lines: L3 }), 'middle', '行の境のカーソル（前の行の末と次の行の頭）が下の行でない');
+  assert.strictEqual(CL.edgeOf({ caret: { top: 30, bottom: 50 }, lines: L3 }), 'last');
+  // 拡大 200%（小数の座標・行の高さ 18.4px）
+  const Z = [{ top: 100.2, bottom: 118.6 }, { top: 118.6, bottom: 137 }, { top: 137, bottom: 155.4 }];
+  assert.deepStrictEqual([at(100.2, 118.6), at(118.6, 137), at(137, 155.4)].map((c) => CL.edgeOf({ caret: c, lines: Z })), ['first', 'middle', 'last']);
+  assert.strictEqual(CL.edgeOf({ caret: { top: 100.6, bottom: 118.2 }, lines: [{ top: 100.2, bottom: 118.6 }, { top: 100.4, bottom: 118.5 }, { top: 118.6, bottom: 137 }] }), 'first', '小数のずれで同じ行を別の行にした');
+  // 読めない（四角が無い・カーソルが無い）は only
+  assert.strictEqual(CL.edgeOf({}), 'only');
+  assert.strictEqual(CL.edgeOf({ caret: null, lines: L3 }), 'only');
+  assert.deepStrictEqual(CL.linesOf([{ top: 40, bottom: 60 }, { top: 0, bottom: 20 }, { top: 2, bottom: 18 }]), [{ top: 0, bottom: 20 }, { top: 40, bottom: 60 }]);
+});
+test('XE-3・F247: pickOffset の表（x が字の真ん中より左なら前・右なら後ろ・行より右なら行の末・空の行は 0・サロゲートの字は end まで）', () => {
+  const chars = [{ left: 0, right: 10, offset: 4 }, { left: 10, right: 20, offset: 5 }, { left: 20, right: 30, offset: 6 }];
+  assert.strictEqual(CL.pickOffset({ x: 4, chars }), 4);
+  assert.strictEqual(CL.pickOffset({ x: 6, chars }), 5);
+  assert.strictEqual(CL.pickOffset({ x: 14.9, chars }), 5);
+  assert.strictEqual(CL.pickOffset({ x: 15.1, chars }), 6);
+  assert.strictEqual(CL.pickOffset({ x: -5, chars }), 4, '行より左が頭でない');
+  assert.strictEqual(CL.pickOffset({ x: 500, chars }), 7, '行より右が行の末でない');
+  assert.strictEqual(CL.pickOffset({ x: 3, chars: [] }), 0);
+  assert.strictEqual(CL.pickOffset({ x: 40, chars: [{ left: 0, right: 20, offset: 0, end: 2 }] }), 2, 'サロゲートの字の後ろが end でない');
+  assert.strictEqual(CL.pickOffset({ x: 12.25, chars: [{ left: 0.5, right: 12.5, offset: 0 }, { left: 12.5, right: 24.5, offset: 1 }] }), 1, '拡大の小数の座標');
+});

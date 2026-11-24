@@ -435,9 +435,16 @@ async function load(htmlPath, opt = {}) {
       set: (el, n) => { at.set(el, [n, n]); },
       select: (el, a, b) => { at.set(el, [a, b]); },   // 0.14.0 EB-4: 範囲を選ぶ（飾りを付けた後も選んだ所を残す）
       point: (el) => (pt.has(el) ? pt.get(el) : null),   // 0.14.0 EB-5 直し: 落とした所（本物は caretRangeFromPoint）。l.caret.point(el, n) で置く
+      // 0.18.0 XE-3（計画 docs/plans/2026-11-18-180.md の決めたこと 59）: 見た目の行の四角（本物は Range.getClientRects）。台が l.caret.geom(el, fn) で
+      // 置いたときだけ答える（fn はカーソルの位置 → { caret, lines }）。置かなければ持たない（見た目の行は1つ: 今の偽の DOM と同じ）
+      geom: (el) => (geo.has(el) && Element.focused === el && at.has(el) ? geo.get(el)(at.get(el)[0]) : null),
+      chars: (el, which) => (chs.has(el) ? chs.get(el)(which) : null),
     };
     const pt = new Map();
-    log.caret = { set: (el, s, e = s) => { at.set(el, [s, e]); }, get: (el) => (at.has(el) ? at.get(el).slice() : null), point: (el, n) => { pt.set(el, n); } };
+    const geo = new Map();
+    const chs = new Map();
+    log.caret = { set: (el, s, e = s) => { at.set(el, [s, e]); }, get: (el) => (at.has(el) ? at.get(el).slice() : null), point: (el, n) => { pt.set(el, n); },
+      geom: (el, fn) => { geo.set(el, fn); }, chars: (el, fn) => { chs.set(el, fn); } };
   }
   const console2 = { log: noop, warn: noop, info: noop, debug: noop, error: (...a) => log.consoleErrors.push(a.map((x) => (x && x.message) || String(x)).join(' ')) };
 

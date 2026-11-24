@@ -1419,7 +1419,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 値を今の app.html に合わせた（前の値は 5d64ad81…）
   // 0.18.0 XE-2（決めたこと 58・CR122・CR123）: 何行かの素の文の貼り付け（pasteConvert の写しの fromPlain・pasteRow の下に入れる形・pasteBelow・pasteRows の戻す選んだ所。<script> の中だけ。新しい字は無く、撮る画面は変わらない）。
   // 値を今の app.html に合わせた（前の値は ccc29384…）
-  assert.strictEqual(sha, 'c1c804676b4fc2e4bf7f388a989224670ffd79ca6722ff270d93af88fd2ebc5f',
+  // 0.18.0 XE-3（決めたこと 59・CR124・CR125）: 折り返した行の ↑↓（caretLine の写し・継ぎ目の geom と chars・stepRow の見た目の行と移る先・題名の欄の ↑↓。<script> の中だけ。新しい字は無く、撮る画面は変わらない）。
+  // 値を今の app.html に合わせた（前の値は c1c80467…）
+  assert.strictEqual(sha, '0465fdbfe386d9f92225ec579a14c00ccb06dce066d82e377cabd05194de08da',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

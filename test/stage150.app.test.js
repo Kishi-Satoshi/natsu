@@ -745,7 +745,8 @@ test('PR-2・F123: 白紙のページの本文に「アイコン 題名」の行
     assert.ok(l.document.activeElement === noteTxt(l, 'q2'), '↓ で下の行へ移らない');
     noteTxt(l, 'q2').focus(); l.caret.set(noteTxt(l, 'q2'), 0);
     l.key({ key: 'ArrowUp' }, noteTxt(l, 'q2'));
-    assert.ok(l.document.activeElement === subEl(l, k1)._txt, '↑ で子ページの行へ移らない');
+    // 0.18.0 XE-3（計画 docs/plans/2026-11-18-180.md の決めたこと 59・AQ25 (a)・「意図して変えるテスト」）で意図して直した: ↑ は子ページの行を飛ばして上の文の行へ（子ページの行に止まらない: OC-09）
+    assert.ok(l.document.activeElement === noteTxt(l, 'q1'), '↑ で子ページの行を飛ばして上の行へ移らない');
     // Enter で開く・押すと開く・Ctrl+クリックで新しいタブ
     l.key({ key: 'Enter', code: 'Enter' }, subEl(l, k1)._txt);
     await l.drain();

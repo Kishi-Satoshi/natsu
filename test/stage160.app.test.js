@@ -3266,7 +3266,9 @@ test('R120・rv53 I-1: 本文の表（インライン・リンクドビュー）
   } finally { l.done(); }
 });
 // rv53 I-2（2026-11-13 の持ち主の答え「表を飛ばす（おすすめ）」）: 本文の ↑・↓ はインラインの表とリンクドビューの行を飛ばす（表へは Tab か押して入る）
-test('R120 (a)・rv53 I-2: 本文の ↑・↓ はインラインの表とリンクドビューの行を飛ばして、次・前の行の文へ（表の行の見えない文の欄に入らない）', T, async () => {
+// 0.18.0 XE-3（計画 docs/plans/2026-11-18-180.md の決めたこと 59・AQ25 (a)・「意図して変えるテスト」）で意図して直した: インラインの表は飛ばさず題名の欄に入る（OC-09。0.16.0 R120 (a) は
+// インラインの表について AQ25 (a) で替わった）。リンクドビューは今どおり飛ばす。表の行の見えない文の欄に入らないことは同じ
+test('R120 (a)・rv53 I-2・XE-3: 本文の ↑・↓ はインラインの表では題名の欄に入り、リンクドビューの行は飛ばして、次・前の行の文へ（表の行の見えない文の欄に入らない）', T, async () => {
   const l = await openDb({ before: (call, d) => {
     const s = linkSetup(call, d);   // 本文: b1・b2（段落）
     const t1 = call('block.insert', { pageId: s.P, afterBlockId: s.b1, type: 'paragraph' }).blockId;
@@ -3281,15 +3283,20 @@ test('R120 (a)・rv53 I-2: 本文の ↑・↓ はインラインの表とリン
     const txtOf = (id) => bodyRow(l, id).querySelector('.txt');
     assert.ok(hostOf(l, l.t1) && hostOf(l, l.L), '表が2つ描かれていない');
     const step = async (from, key) => { const t = txtOf(from); t.focus(); l.caret.set(t, key === 'ArrowDown' ? t.textContent.length : 0); return press(l, t, { key }); };
+    const title = hostOf(l, l.t1).querySelector('.dbtitle');
     let ev = await step(l.b1, 'ArrowDown');
-    assert.ok(active(l) === txtOf(l.b2), '↓ がインラインの表の行を飛ばして次の行へ動かない');
+    assert.ok(active(l) === title, '↓ でインラインの表の題名の欄に入らない');
     assert.ok(ev.defaultPrevented, '動いた ↓ を止めない');
+    ev = await press(l, title, { key: 'ArrowDown' });
+    assert.ok(active(l) === txtOf(l.b2), '題名の欄の ↓ で次の行へ動かない');
     ev = await step(l.b2, 'ArrowDown');
     assert.ok(active(l) === txtOf(l.b3), '↓ がリンクドビューの行を飛ばして次の行へ動かない');
     await step(l.b3, 'ArrowUp');
     assert.ok(active(l) === txtOf(l.b2), '↑ がリンクドビューの行を飛ばして前の行へ動かない');
     await step(l.b2, 'ArrowUp');
-    assert.ok(active(l) === txtOf(l.b1), '↑ がインラインの表の行を飛ばして前の行へ動かない');
+    assert.ok(active(l) === title, '↑ でインラインの表の題名の欄に入らない');
+    await press(l, title, { key: 'ArrowUp' });
+    assert.ok(active(l) === txtOf(l.b1), '題名の欄の ↑ で前の行へ動かない');
     assert.ok(!$(l, 'pNote').querySelectorAll('.blk.dbinline').some((e) => e.querySelector('.txt') === active(l)), '表の行の文の欄にフォーカスがある');
     assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }

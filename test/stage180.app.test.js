@@ -692,6 +692,13 @@ async function imeTo(l, t, kana, word, ms = 0) {
   await l.drain();
   if (ms) { await l.clock.advance(ms); await l.drain(); }
 }
+// フォーカスのある要素の名前（要素そのものは assert の値に渡さない: 偽の DOM の差を描くと止まらない。R117）
+const who = (el) => {
+  if (!el) return 'none';
+  const blk = typeof el.closest === 'function' ? el.closest('.blk') : null;
+  const kind = el.classList && el.classList.contains('dbtitle') ? 'title' : el.classList && el.classList.contains('txt') ? 'txt' : String(el.tagName || el.id || '?');
+  return blk ? `${kind}:${blk.dataset.id}` : `${kind}#${el.id || ''}`;
+};
 const rowIn = (l, pid, bid) => l.call('page.get', { id: pid }).page.blocks.find((b) => b.id === bid);
 const press = async (l, k, bid) => { l.key(k, txtOf(l, bid)); await l.drain(200); };
 
@@ -747,7 +754,7 @@ test('XE-1・F245: 「あいう」→ 0.6 秒 →「えお」→ 0.6 秒 →「�
     assert.deepStrictEqual(seen.map((x) => x[0]), ['あいうえお', 'あいう', '', 'あいう', 'あいうえお', 'あいうえおかき'], '印ごとに戻る・進む');
     assert.deepStrictEqual(seen.map((x) => x[1]), seen.map((x) => x[0]), '画面の文が DB と違う');
     assert.deepStrictEqual([l.called('blockUpdate').length, l.called('editTextStep').length, l.called('editRevert').length], [1, 4, 2], '保存・印・戻しの命令の数');
-    assert.strictEqual(active(l), txtOf(l, e), 'フォーカスが行に無い');
+    assert.strictEqual(who(active(l)), `txt:${e}`, 'フォーカスが行に無い');
     // やり直した後も印で戻る
     await press(l, ZK, e);
     assert.strictEqual(text(), 'あいうえお');
@@ -956,7 +963,7 @@ test('XE-2・F246（AQ21 (a)・AQ22 (a)）: 空のテキストの行は貼った
     let blocks = l.call('page.get', { id }).page.blocks;
     assert.deepStrictEqual(blocks.slice(1, 3).map((b) => [b.id === a, b.type, b.text]), [[true, 'paragraph', '12345'], [false, 'paragraph', 'あ\nい']], '今の行が割れた・すぐ下に無い');
     const last = blocks[2].id;
-    assert.deepStrictEqual([active(l), l.caret.get(txtOf(l, last))], [txtOf(l, last), [3, 3]], 'カーソルが最後に貼った行の末に無い（AQ22 (a)）');
+    assert.deepStrictEqual([who(active(l)), l.caret.get(txtOf(l, last))], [`txt:${last}`, [3, 3]], 'カーソルが最後に貼った行の末に無い（AQ22 (a)）');
     // 末
     t = txtOf(l, a); t.focus(); l.caret.set(t, 5);
     pastePlain(t, 'う\nえ'); await l.drain(200);
@@ -1080,5 +1087,116 @@ test('XE-2・F246: 下に入れる貼り付けが断られても、今の行の�
     assert.ok(refuse, '前提: blockPaste を呼ばない');
     refuse(); await l.drain(200);
     assert.deepStrictEqual([txtOf(l, a).textContent, l.caret.get(txtOf(l, a))], ['12345', [1, 3]], '断られた後に選んだ所が戻らない');
+  } finally { l.done(); }
+});
+
+// ---------------------------------------------------------------- XE-3（決めたこと 59・AQ25 (a)・F247）: 折り返した行の ↑↓・移る先の行
+const CLs = require('../src/caretLine');
+const UPK = { key: 'ArrowUp' };
+const DNK = { key: 'ArrowDown' };
+test('XE-3・F247: 画面の写しの caretLine が src と同じ答え', () => {
+  const at = XHTML.indexOf('  // ---- 0.18.0 XE-3（計画 docs/plans/2026-11-18-180.md の決めたこと 59・F247）: caretLine の写し');
+  const end = XHTML.indexOf('  // ---- caretLine の写しはここまで');
+  assert.ok(at > 0 && end > at, 'app.html に caretLine の写しが無い');
+  const app = new Function(`${XHTML.slice(at, end)}\nreturn { linesOf, edgeOf, pickOffset };`)();   // eslint-disable-line no-new-func
+  const L3 = [{ top: 0, bottom: 20 }, { top: 20, bottom: 40 }, { top: 40, bottom: 60 }];
+  for (const g of [{}, { caret: { top: 0, bottom: 20 }, lines: L3 }, { caret: { top: 20, bottom: 40 }, lines: L3 }, { caret: { top: 10, bottom: 30 }, lines: L3 }, { caret: { top: 40, bottom: 60 }, lines: L3 }]) assert.strictEqual(app.edgeOf(g), CLs.edgeOf(g));
+  const chars = [{ left: 0, right: 10, offset: 0 }, { left: 10, right: 20, offset: 1, end: 3 }];
+  for (const x of [-1, 4, 6, 14, 16, 99, NaN]) assert.strictEqual(app.pickOffset({ x, chars }), CLs.pickOffset({ x, chars }));
+  assert.deepStrictEqual(app.linesOf([{ top: 5, bottom: 9 }, { top: 0, bottom: 10 }]), CLs.linesOf([{ top: 5, bottom: 9 }, { top: 0, bottom: 10 }]));
+});
+// 見た目の行の四角（台の l.caret.geom）: 1行 10 字・字の幅 10px・行の高さ 20px。chars は 'first'・'last' の見た目の行の字
+function wrapGeom(l, t, n) {
+  const rows = Math.max(1, Math.ceil(n / 10));
+  l.caret.geom(t, (pos) => ({ caret: { top: Math.min(Math.floor(pos / 10), rows - 1) * 20, bottom: Math.min(Math.floor(pos / 10), rows - 1) * 20 + 20, left: pos === n && pos % 10 === 0 && pos ? 100 : (pos % 10) * 10 }, lines: Array.from({ length: rows }, (_, i) => ({ top: i * 20, bottom: i * 20 + 20 })) }));
+  l.caret.chars(t, (which) => {
+    const from = which === 'last' ? (rows - 1) * 10 : 0;
+    const to = which === 'last' ? n : Math.min(n, 10);
+    return Array.from({ length: to - from }, (_, k) => ({ left: k * 10, right: k * 10 + 10, offset: from + k, end: from + k + 1 }));
+  });
+}
+test('XE-3: 3行に折り返した行の2行目の ↑ は隣の行へ移らない（既定）・1行目の ↑ は上の行の最後の見た目の行の同じ x へ・続けて ↑↑ で最初の x を保つ・最後の見た目の行の ↓ は下の行の最初の見た目の行の同じ x へ・Shift+↑ は今どおり', T, async () => {
+  const l = await seeded();
+  try {
+    const { ids: [A, B, C, D] } = await xePage(l, ['あいうえおかきくけこ', 'さし', 'たちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわを', 'なにぬ']);
+    for (const [id, n] of [[A, 10], [B, 2], [C, 30], [D, 3]]) wrapGeom(l, txtOf(l, id), n);
+    const c = txtOf(l, C);
+    c.focus(); l.caret.set(c, 15);
+    let ev = l.key(UPK, c);
+    assert.deepStrictEqual([ev.defaultPrevented, who(active(l))], [false, `txt:${C}`], '2行目の ↑ で隣の行へ移った');
+    l.caret.set(c, 5);
+    ev = l.key(UPK, c);
+    assert.strictEqual(ev.defaultPrevented, true, '1行目の ↑ を止めない');
+    assert.strictEqual(who(active(l)), `txt:${B}`, '1行目の ↑ で上の行へ移らない');
+    assert.deepStrictEqual(l.caret.get(txtOf(l, B)), [2, 2], '短い行は末へ');
+    ev = l.key(UPK, txtOf(l, B));
+    assert.strictEqual(who(active(l)), `txt:${A}`);
+    assert.deepStrictEqual(l.caret.get(txtOf(l, A)), [5, 5], '続けた ↑↑ で最初の x を保たない（短い行を通った後）');
+    // ほかのキーで x を忘れる・最後の見た目の行の ↓ は下の行の同じ x へ
+    l.key({ key: 'End' }, txtOf(l, A));
+    c.focus(); l.caret.set(c, 21);
+    ev = l.key(DNK, c);
+    assert.deepStrictEqual([ev.defaultPrevented, who(active(l)), l.caret.get(txtOf(l, D))], [true, `txt:${D}`, [1, 1]], '最後の見た目の行の ↓ が下の行の同じ x へ移らない');
+    // Shift+↑ は今どおり（行を移らない）
+    c.focus(); l.caret.set(c, 5);
+    l.key({ key: 'ArrowUp', shiftKey: true }, c);
+    assert.notStrictEqual(who(active(l)), `txt:${B}`, 'Shift+↑ で上の行へ移った');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
+  } finally { l.done(); }
+});
+
+test('XE-3・F247（AQ25 (a)）: 区切り線と子ページの行は飛ばす・本文の中のデータベースは題名の欄へ（↓ で欄の頭・↑ で欄の末。表のセルには入らない）・題名の欄の ↓ で次の文の行・↑ で前の文の行・リンクドビューは今どおり飛ばす・見られない表は飛ばす・区切り線や子ページの行にフォーカスがある所からの ↑↓ は隣の文の行へ', T, async () => {
+  const l = await seeded();
+  try {
+    const P = l.call('page.create', {}).id;
+    l.call('page.setTitle', { id: P, title: '移る見本' });   // 白紙のページの題名（D77 の外。試しの字）
+    const para = (after, text) => { const b = l.call('block.insert', { pageId: P, afterBlockId: after, type: 'paragraph' }).blockId; if (text) l.call('block.update', { pageId: P, blockId: b, patch: { text } }); return b; };
+    const a = para('', 'あいう');
+    const dv = l.call('block.insert', { pageId: P, afterBlockId: a, type: 'divider' }).blockId;
+    const k = l.call('page.create', { parentId: P, placeAt: dv }).id;
+    const kr = l.call('page.get', { id: P }).page.blocks.find((b) => b.type === 'subpage' && b.page === k).id;
+    const b = para(kr, 'えお');
+    const t0 = para(b, '');
+    const D1 = l.call('db.create', { parentId: P, inline: t0 }).id;
+    const rowOfDb = (d) => l.call('page.get', { id: P }).page.blocks.find((x) => x.type === 'subpage' && x.page === d).id;
+    const t1 = rowOfDb(D1);
+    const c = para(t1, 'かき');
+    const D2 = l.call('db.create', {}).id;
+    const L = l.call('block.insertDbView', { pageId: P, afterId: c, db: D2 }).blockId;
+    const e = para(L, 'くけ');
+    const t3 = para(e, '');
+    const D3 = l.call('db.create', { parentId: P, inline: t3 }).id;
+    const t2 = rowOfDb(D3);
+    const f = para(t2, 'こさ');
+    await open(l, P); await l.drain(300);
+    l.call('page.delete', { id: D3 });   // 見られない表（開いている間にゴミ箱へ: 灰色の行・題名の欄が使えない）
+    l.fire('onPagesUpdated'); await l.drain(300);
+    const row = (id) => rowsOf(l).find((x) => x.dataset.id === id);
+    const title = (id) => row(id).querySelector('.dbtitle');
+    assert.ok(title(t1) && !title(t1).disabled && title(t2) && title(t2).disabled && row(L).querySelector('.dbtitle'), '前提: 表の題名の欄（見られない表は使えない）');
+    const go = (from, key) => { const t = from.classList && from.classList.contains('dbtitle') ? from : txtOf(l, from); t.focus(); if (!t.classList.contains('dbtitle')) l.caret.set(t, key === DNK ? t.textContent.length : 0); return l.key(key, t); };
+    const path = [];
+    let ev = go(a, DNK); path.push(active(l));
+    assert.ok(ev.defaultPrevented);
+    go(b, DNK); path.push(active(l));
+    go(title(t1), DNK); path.push(active(l));
+    go(c, DNK); path.push(active(l));
+    go(e, DNK); path.push(active(l));
+    assert.deepStrictEqual(path.map(who), [`txt:${b}`, `title:${t1}`, `txt:${c}`, `txt:${e}`, `txt:${f}`], '↓ の移る先（区切り線・子ページの行・リンクドビュー・見られない表を飛ばし、表は題名の欄）');
+    path.length = 0;
+    go(f, UPK); path.push(active(l));
+    go(e, UPK); path.push(active(l));
+    go(c, UPK); path.push(active(l));
+    go(title(t1), UPK); path.push(active(l));
+    go(b, UPK); path.push(active(l));
+    assert.deepStrictEqual(path.map(who), [`txt:${e}`, `txt:${c}`, `title:${t1}`, `txt:${b}`, `txt:${a}`], '↑ の移る先');
+    assert.ok(!row(L).querySelector('.dbtitle').focused && active(l) !== row(L).querySelector('.dbtitle'), 'リンクドビューの題名の欄に入った');
+    // 区切り線・子ページの行にフォーカスがある所から
+    txtOf(l, dv).focus(); l.key(DNK, txtOf(l, dv));
+    assert.strictEqual(who(active(l)), `txt:${b}`, '区切り線からの ↓ が隣の文の行へ移らない（子ページの行に止まった）');
+    txtOf(l, kr).focus(); l.key(UPK, txtOf(l, kr));
+    assert.strictEqual(who(active(l)), `txt:${a}`, '子ページの行からの ↑ が隣の文の行へ移らない（区切り線に止まった）');
+    assert.ok(!$(l, 'pNote').querySelectorAll('.blk.dbinline').some((x) => x.querySelector('.txt') === active(l)), '表の行の見えない文の欄にフォーカスがある');
+    assert.deepStrictEqual(l.errors.map(fmt), []);
   } finally { l.done(); }
 });
