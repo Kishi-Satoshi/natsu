@@ -1979,6 +1979,7 @@ test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本
   assert.deepStrictEqual(wants('color'), [{ pops: 0, row: 'b1', caret: 'b1' }], '文字の色のメニューの外の押しは、閉じてフォーカスとカーソルが押した行へ（XE-5）');
   assert.match(by.get('color').open, /dataset\.id === 'b2'/, '文字の色のメニューの手が b2 の行で開かない');
   assert.match(by.get('color').open, /b\.title === '色'/, '文字の色のメニューの手が帯の［色］を押さない');
+  assert.match(by.get('color').open, /last\.length - 4/, '文字の色のメニューの手が b2 の末の字を選ばない（帯が押す b1 の行の頭に重なる: CR130）');
   assert.match(by.get('color').acts[0].press.at, /dataset\.id === 'b1'/, '文字の色のメニューの手が b1 の行を押さない');
   // 押し方: 右・中・なぞる・2回続けた押し・取っ手の引っ張り・捲り棒・キー
   const act = (n, i = 0) => by.get(n).acts[i];

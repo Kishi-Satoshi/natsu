@@ -1988,12 +1988,14 @@ const DISMISS_OPEN_SLASH = `document.getElementById('paneBtnNote').click();
   t.textContent = t.textContent + ' /';
   const sel = getSelection(); const rg = document.createRange(); rg.selectNodeContents(t); rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg);
   t.dispatchEvent(new InputEvent('input', { bubbles: true }));`;
-// 0.18.0 XE-5（計画 docs/plans/2026-11-18-180.md の決めたこと 68・AQ31 (a)・F253）: 本文の行（b2）の字を全部選んで帯の［色］で文字の色のメニューを開く文
+// 0.18.0 XE-5（計画 docs/plans/2026-11-18-180.md の決めたこと 68・AQ31 (a)・F253）: 本文の行（b2）の末の4字を選んで帯の［色］で文字の色のメニューを開く文。
+// 帯は選んだ字の上の左に出るので、末の字を選ぶと、押す b1 の行の頭（左から 40px）に重ならない（5c4ab79 の CI で字を全部選ぶと帯が重なった: CR130）
 const DISMISS_OPEN_COLOR = `document.getElementById('paneBtnNote').click();
   await new Promise((r) => setTimeout(r, 100));
   const t = ${DISMISS_TXT('b2')};
   t.focus();
-  const sel = getSelection(); const rg = document.createRange(); rg.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(rg);
+  const w = document.createTreeWalker(t, NodeFilter.SHOW_TEXT); let last = null; for (let n = w.nextNode(); n; n = w.nextNode()) last = n;
+  const sel = getSelection(); const rg = document.createRange(); rg.setStart(last, Math.max(0, last.length - 4)); rg.setEnd(last, last.length); sel.removeAllRanges(); sel.addRange(rg);
   t.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   await new Promise((r) => setTimeout(r, 100));
   [...document.querySelectorAll('#markBar button')].find((b) => b.title === '色').click();`;
@@ -2023,7 +2025,7 @@ const DISMISS_STEPS = [
   // 0.17.1 OD-5（決めたこと 23・PQ171-11）: / メニューは通す窓。本文の行（b2）の末で / を打ってメニューを開き、上の行（b1。メニューは b2 の下に開くので隠れない）の字を
   // 押すと、閉じて、フォーカスとカーソルはその行へ移る（押しが届く）
   { name: 'slash', screen: 'edit-slash-light', open: DISMISS_OPEN_SLASH, acts: [{ press: { at: DISMISS_TXT('b1') }, want: { pops: 0, row: 'b1', caret: 'b1' } }] },
-  // 0.18.0 XE-5（決めたこと 68・AQ31 (a)）: 文字の色のメニューも通す窓。b2 の行の字を選んで帯の［色］で開き、上の b1 の行の字を押すと、閉じて、
+  // 0.18.0 XE-5（決めたこと 68・AQ31 (a)）: 文字の色のメニューも通す窓。b2 の行の末の字を選んで帯の［色］で開き、上の b1 の行の字を押すと、閉じて、
   // フォーカスとカーソルはその行へ移る（押しが届く）
   { name: 'color', screen: 'edit-slash-light', open: DISMISS_OPEN_COLOR, acts: [{ press: { at: DISMISS_TXT('b1') }, want: { pops: 0, row: 'b1', caret: 'b1' } }] },
 ];
