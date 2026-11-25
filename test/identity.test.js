@@ -1009,12 +1009,12 @@ test('0.17.1: CHANGELOG の 0.17.1 の節（承認した字のまま移した）
 });
 
 // 0.18.0（計画 docs/plans/2026-11-18-180.md の「CHANGELOG の節」・Task G・AQ48・CR157・CR166）: Task G の前半で持ち主の読む言葉に直して日付の無い節として移し、2026-11-24 に持ち主が
-// 取り直しの見比べと一緒に「この見た目と字でよい（おすすめ）」と答えた字のまま、版を 0.18.0 に上げる commit で日付つきの見出し（## natsu-v0.18.0 （2026-11-24））にした。
+// 取り直しの見比べと一緒に「この見た目と字でよい（おすすめ）」と答えた字のまま、版を 0.18.0 に上げる commit で日付つきの見出し（## natsu-v0.18.0 （2026-11-24））にし、出す日（2026-11-25）に日を替えた（CR168）。
 // 出す日が変われば見出しの日だけを替える
 test('0.18.0: CHANGELOG の 0.18.0 の節（承認した字のまま）は日付つきの見出しで CHANGELOG の頭（0.17.1 の節のすぐ上）にあり、頭の1行と箇条を承認の字で書き、計画の番号と下書きの印を写さず、引いた［…］は src/ にある', () => {
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
-  assert.ok(lines.includes('## natsu-v0.18.0 （2026-11-24）'), 'CHANGELOG.md に「## natsu-v0.18.0 （2026-11-24）」の見出しが無い');
+  assert.ok(lines.includes('## natsu-v0.18.0 （2026-11-25）'), 'CHANGELOG.md に「## natsu-v0.18.0 （2026-11-25）」の見出しが無い');
   assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.18.0'), '0.18.0 の節が CHANGELOG の頭に無い');
   assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.0') + 1) === cl.indexOf('\n## natsu-v0.17.1'), '0.18.0 の節のすぐ下が 0.17.1 の節でない');
   const sec = secOf(cl, '## natsu-v0.18.0');
