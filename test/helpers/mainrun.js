@@ -500,6 +500,13 @@ const { titleAt } = require('./titles');
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 //   0.18.1 PF-1（計画 docs/plans/2026-11-25-181.md）:
 //     --cpus=N      … main.js が読む os.cpus() の数を N にする（スレッドの既定と前の版の既定の移しを、機械の CPU の数に関わらず見る）
+//   0.18.1 PF-4:
+//     --start-when-recovering … 会議を始める前に、偽の whisper が区間（試しでない）の要求を受けるまで待つ（起動の片付けの会議の後の文字起こしの頼みが
+//                     エンジンの中にある間に録音を始める。--extra-queue と hang-first・FAKE_HANG_N=1 で、その頼みが返らない形にする）
+//     --orphan=same|other … 起動の前に、前の NaTsu が残したエンジンの形を置く: 文字起こしのポートを塞ぐ node のプロセスを起こし、その番号と
+//                     偽の whisper の名前（fake-whisper.js）を <userData>/data/engine-proc.json に書く。偽の execFile は tasklist.exe の
+//                     「PID eq <番号>」に、same なら fake-whisper.js、other なら other.exe の名前で答える。呼んだ引数を out.tasklistCalls に、
+//                     塞ぐプロセスが終わりまで生きていたかを out.orphanAlive に、出力の時の engine-proc.json を out.engineProcFile に
 //   0.18.1 PF-3: --pace の stamp が "same" なら、main がこの場面で使う印（{ set: 'manual', threads: 起こすときの数, prio: 2 }）にする
 //     --prio=fail   … main.js の os.setPriority が EACCES で投げる。旗が無くても、main.js の os.setPriority は本物を呼ばずに
 //                     out.prioCalls（{ pid, priority, kid: 起こした子の pid か }）に残す（試験の偽の whisper の優先度を下げない）
@@ -562,6 +569,10 @@ const paceFlag = flagVal('--pace');
 const cpusFlag = Number(flagVal('--cpus')) || 0;
 const prioFlag = flagVal('--prio');
 const prioCalls = [];
+// 0.18.1 PF-4: 会議の後の文字起こしの頼みの間に録音を始める・前の NaTsu が残したエンジン（頭の注釈）
+const startWhenRecovering = flags.includes('--start-when-recovering');
+const orphanFlag = flagVal('--orphan');
+let orphanKid = null;
 // 0.9.4 S-5: --clock-seq=<i>:<ミリ秒>,… … i 番目（0 から）の区間を送る前に main の時計（と中継の試しの時計）をその分だけ進める
 const clockSeq = new Map((flagVal('--clock-seq') || '').split(',').filter(Boolean).map((x) => x.split(':').map(Number)));
 // 0.9.4 S-3: 会議の後の文字起こしを引き直す・ページを消して引き直す・止めた後に後回しにする・待ち行列が無くなるまで待つ
@@ -1058,6 +1069,14 @@ process.on('exit', () => {
   process.env.FAKE_LOG = flog;
   const localPort = fixedPort || await freePort();
   const sumPort = fixedSumPort || await freePort();
+  // 0.18.1 PF-4（--orphan）: 文字起こしのポートを塞ぐプロセス（前の NaTsu が残したエンジンの代わり）を起こし、口が開くまで待つ
+  if (orphanFlag) {
+    orphanKid = cp.spawn(process.execPath, ['-e', `require('net').createServer().listen(${localPort}, '127.0.0.1', () => console.log('up'))`], { stdio: ['ignore', 'pipe', 'ignore'] });
+    kids.push(orphanKid);
+    await new Promise((resolve, reject) => { orphanKid.stdout.once('data', resolve); orphanKid.once('exit', () => reject(new Error('mainrun: --orphan のプロセスが起きない'))); });
+    fs.mkdirSync(path.join(userData, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(userData, 'data', 'engine-proc.json'), JSON.stringify({ schema: 1, pid: orphanKid.pid, exe: 'fake-whisper.js' }));
+  }
   if (fakeText) process.env.FAKE_TEXT = fakeText;
   // 偽の要約モデル。大きさの床（300MB）だけを超えればよい（残りは疎）
   let sumModel = '';
@@ -2075,6 +2094,14 @@ process.on('exit', () => {
       if (/(^|[\\/])powershell\.exe$/i.test(String(_cmd)) && Array.isArray(_args) && String(_args[_args.length - 1]).includes("SendWait('^v')")) {
         pasteSims.push(_args);
         if (done) setImmediate(() => done(null, '', ''));
+        return anyProxy();
+      }
+      // 0.18.1 PF-4（--orphan）: tasklist.exe の「PID eq <番号>」に、残ったエンジンの名前（same）かほかのアプリの名前（other）で答える
+      if (orphanFlag && /(^|[\\/])tasklist\.exe$/i.test(String(_cmd)) && Array.isArray(_args) && _args.some((a) => /^PID eq \d+$/.test(String(a)))) {
+        tasklistCalls.push({ cmd: _cmd, args: _args, opts: typeof _opts === 'function' ? null : _opts });
+        const pid = /^PID eq (\d+)$/.exec(String(_args.find((a) => /^PID eq \d+$/.test(String(a)))))[1];
+        const name = orphanFlag === 'same' ? 'fake-whisper.js' : 'other.exe';
+        if (done) setImmediate(() => done(null, `"${name}","${pid}","Console","1","12,345 K"\r\n`, ''));
         return anyProxy();
       }
       // 0.10.0 C-2: --tasklist のときは tasklist.exe に答える（頭の注釈）。0.10.1 CD-3 で意図して変えた: MCP の場面では旗が無ければ stopped。
@@ -3465,6 +3492,7 @@ process.on('exit', () => {
     }
   };
   if (warmSettle) { await settleWarm(1); out.warmSpawns = [spawns.length]; }
+  if (startWhenRecovering) await waitFor(() => fs.readFileSync(flog, 'utf8').split('\n').some((l) => l.startsWith('served ')), 15000);   // 0.18.1 PF-4
   out.start = await handlers['meeting:toggle']();
   if (warmSettle) { await settleWarm(out.warmSpawns[0] + 1); out.warmSpawns.push(spawns.length); }
   if (oldSet && autoFetchFn) { autoFetchFn(); await sleep(50); }   // 0.15.1 GV-2: 記録中に起動のときの自動の取り込みを始める（係は記録が終わるまで待つ）
@@ -4012,6 +4040,13 @@ process.on('exit', () => {
   out.engineFetchStatus = handlers['engine:fetch-status'] ? await handlers['engine:fetch-status']() : null;   // 第0b回 Task 13
   out.spawns = warmSnap ? warmSnap.spawns : spawns;
   out.prioCalls = prioCalls.slice();   // 0.18.1 PF-1
+  // 0.18.1 PF-4（--orphan）: tasklist の呼び出し・塞ぐプロセスが生きているか・今の engine-proc.json
+  if (orphanFlag) {
+    out.tasklistCalls = tasklistCalls.slice();
+    out.orphanAlive = orphanKid.exitCode === null && orphanKid.signalCode === null;
+    const t = readUser('data/engine-proc.json');
+    out.engineProcFile = t ? t.toString('utf8') : null;
+  }
   out.seq = seq;
   out.atReady = atReady;
   out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));

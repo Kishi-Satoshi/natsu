@@ -1947,6 +1947,23 @@ function oldDefaultThreads(n) {
   const c = Number.isInteger(n) && n > 0 ? n : 1;
   return [...new Set([Math.max(4, c - 2), Math.max(4, Math.floor(c / 2))])].filter((t) => t !== defaultThreads(c));
 }
+// ---------------------------------------------------------------- 0.18.1 PF-4（決めたこと 8）: 前の NaTsu が残したエンジン
+// tasklist.exe /FI "PID eq <番号>" /NH /FO CSV の答えから、その番号のプロセスの名前（イメージ名）を読む。無い・読めない → null
+function tasklistImageOf(text, pid) {
+  if (typeof text !== 'string' || !Number.isInteger(pid) || pid <= 0) return null;
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^"([^"]+)","(\d+)"/.exec(line.trim());
+    if (m && Number(m[2]) === pid) return m[1];
+  }
+  return null;
+}
+// engine-proc.json の記録（{ pid, exe }）と、今その番号で動いているプロセスの名前が同じか（大文字小文字は問わない）。
+// 番号がほかのアプリに再び使われていたら（名前が違う・分からない）止めない（F259）
+function orphanMatches(rec, image) {
+  if (!rec || typeof rec !== 'object' || !Number.isInteger(rec.pid) || rec.pid <= 0 || typeof rec.exe !== 'string' || !rec.exe) return false;
+  return typeof image === 'string' && image.toLowerCase() === rec.exe.toLowerCase();
+}
+
 // 前の版の既定のままの設定を新しい既定へ移す（決めたこと 3・4）。純粋: 移すキーと新しい値の物を返す（移す物が無ければ {}）。
 // settings.json は既定の数をそのまま書いているので、選んだ数と見分けられない。前の既定と同じ数を自分で選んだ人も移る（［設定］で戻せる）
 function oldDefaultsPatch(s, n) {
@@ -2043,10 +2060,12 @@ function paceSaved(st, prev, { model, stamp, now, from } = {}) {
   if (!keepSlow && r === null) return null;
   return { ...base, rtf: r === null ? (p && Number.isFinite(p.rtf) ? p.rtf : null) : mix(r), slow: keepSlow, at: now, from: 'live' };
 }
-/** PC への要求の待ち時間 = min(30 分, max(240 秒, max(音声, 30 秒) × max(rtf, 1) × 2 + 60 秒))（rtf が無ければ 1） */
-function localTimeoutMs({ audioMs, rtf } = {}) {
+// 0.18.1 PF-4（決めたこと 7）: 会議の後の頼み（after）で覚えの rtf が無いときの見込み（90 秒の区間で 600 秒・30 秒の区間で 240 秒）
+const AFTER_RTF = 3;
+/** PC への要求の待ち時間 = min(30 分, max(240 秒, max(音声, 30 秒) × max(rtf, 1) × 2 + 60 秒))（rtf が無ければ 1。会議の後の頼み（after）は 3） */
+function localTimeoutMs({ audioMs, rtf, after = false } = {}) {
   const a = Math.max(Number.isFinite(audioMs) ? audioMs : 0, PACE_WINDOW_MS);
-  const k = Math.max(Number.isFinite(rtf) ? rtf : 1, 1);
+  const k = Math.max(Number.isFinite(rtf) ? rtf : (after === true ? AFTER_RTF : 1), 1);
   return Math.min(1800000, Math.max(240000, Math.round(a * k * 2 + 60000)));
 }
 /** 会議の後に PC で文字起こしする目安（分）= 音声 × max(rtf, 1) を分に切り上げ */
@@ -2421,6 +2440,7 @@ module.exports = {
   // 0.9.4 S-1（文字起こしの安定化）
   defaultThreads, oldDefaultThreads, oldDefaultsPatch,   // 0.18.1 PF-1
   paceStamp, sameStamp,   // 0.18.1 PF-3
+  tasklistImageOf, orphanMatches,   // 0.18.1 PF-4
   localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, pendingLeft, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
   // 0.12.0 SP-1（2つの流れの文字起こし。timeline.js の表と部品を出し直す）
   VOICE_LEVEL, FRAME_MAX_MS, PAUSE_CUT_MS, LONG_PAUSE_MS, MIN_SEG_MS, IDLE_CUT_MS, PRE_ROLL_MS, BLEED_SHARE, BLEED_NEAR_MS,

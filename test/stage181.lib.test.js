@@ -3,6 +3,7 @@
  *  PF-1: 文字起こしのスレッドの既定（lib.defaultThreads。settings.js の defaultSettings も同じ数）・前の版の既定（lib.oldDefaultThreads）と移し（lib.oldDefaultsPatch）
  *  PF-2: 文字起こしの間隔の既定 30 秒（settings.js・lib.segmentBaseMs）・前の版の 75 秒の移し（lib.oldDefaultsPatch）・録音中は変えない（F260）
  *  PF-3: 「遅い」の覚えの印（lib.paceStamp・lib.sameStamp。印の違う覚えは無いのと同じ）と覚える条件（lib.paceSaved。速さの数 3 つ以上で理由 two・big だけ）
+ *  PF-4: 会議の後の待ち時間（lib.localTimeoutMs の after。rtf が空なら 3）・残ったエンジンの照らし（lib.tasklistImageOf・lib.orphanMatches）
  */
 'use strict';
 
@@ -142,4 +143,33 @@ test('PF-3 覚える条件: 「遅い」と覚えるのは、その会議で速�
   assert.deepStrictEqual([big3.why, save(big3).slow], ['big', true]);
   // 遅くない会議は今どおり遅くないと書く
   assert.strictEqual(save(run([S(15000), S(15000), S(15000)])).slow, false);
+});
+
+// ---------------------------------------------------------------- PF-4（決めたこと 7・8）
+test('PF-4 会議の後の待ち時間: 会議の後の頼み（after）は、覚えの rtf が空なら 3 とみる（90 秒の区間で 600 秒・30 秒の区間で 240 秒）。覚えの rtf があればそれ。会議中は今どおり 1', T, () => {
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 90000, after: true }), 600000);
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 30000, after: true }), 240000);
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 120000, after: true }), 780000);
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 120000, rtf: 1.7, after: true }), 468000);
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 120000, rtf: 0.5, after: true }), 300000);   // rtf は 1 より小さくしない（今どおり）
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 600000, after: true }), 1800000);   // 30 分まで
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 90000 }), 240000);
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 120000 }), 300000);
+  assert.strictEqual(L.localTimeoutMs({ audioMs: 120000, after: false }), 300000);
+});
+
+test('PF-4 ほかのプロセス: tasklist の答え（CSV）から、その番号のプロセスの名前だけを読む。記録の名前と同じ（大文字小文字は問わない）ときだけ止める', T, () => {
+  const line = (name, pid) => `"${name}","${pid}","Console","1","123,456 K"\r\n`;
+  assert.strictEqual(L.tasklistImageOf(line('whisper-server.exe', 4321), 4321), 'whisper-server.exe');
+  assert.strictEqual(L.tasklistImageOf(line('whisper-server.exe', 4321), 432), null);
+  assert.strictEqual(L.tasklistImageOf('INFO: No tasks are running which match the specified criteria.\r\n', 4321), null);
+  for (const x of ['', null, undefined, 42, '"a","b"', 'whisper-server.exe 4321']) assert.strictEqual(L.tasklistImageOf(x, 4321), null, String(x));
+  assert.strictEqual(L.tasklistImageOf(`${line('chrome.exe', 1)}${line('Whisper-Server.EXE', 4321)}`, 4321), 'Whisper-Server.EXE');
+  const rec = { schema: 1, pid: 4321, exe: 'whisper-server.exe' };
+  assert.strictEqual(L.orphanMatches(rec, 'whisper-server.exe'), true);
+  assert.strictEqual(L.orphanMatches(rec, 'WHISPER-SERVER.EXE'), true);
+  // 番号がほかのアプリに再び使われている（F259）・分からない・記録の形が悪い → 止めない
+  for (const [r, img] of [[rec, 'chrome.exe'], [rec, null], [rec, ''], [null, 'whisper-server.exe'], [{ pid: 4321 }, 'whisper-server.exe'], [{ pid: 'x', exe: 'whisper-server.exe' }, 'whisper-server.exe'], [{ pid: 0, exe: 'whisper-server.exe' }, 'whisper-server.exe']]) {
+    assert.strictEqual(L.orphanMatches(r, img), false, JSON.stringify([r, img]));
+  }
 });

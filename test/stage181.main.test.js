@@ -4,6 +4,8 @@
  *  PF-1: 起こしたエンジンのスレッドの数（既定と前の版の既定の移し。メモリの中だけ）・優先度（通常より低い。失敗しても起こす）
  *  PF-2: PC の中で文字起こしする会議の区切り（既定 30 秒・前の版の 75 秒の移し。メモリの中だけ）
  *  PF-3: 「遅い」の覚え（local-pace.json）の印。印の無い・違う覚えは会議の始めにも待ち時間にも使わない。書く覚えに印を書く
+ *  PF-4: 会議の後の文字起こしの時間切れ（回数に数え・待ち行列の後ろへ回し・その回は止める・3 回で保留）・会議の後の待ち時間（rtf が空なら 3）・
+ *        録音を始めたら会議の後の頼みを切る（数えない）・前の NaTsu が残したエンジン（engine-proc.json と tasklist の名前の照らし）
  */
 'use strict';
 
@@ -109,4 +111,82 @@ test('PF-3 前の版の覚え: 0.18.0 までの「遅い」の覚え（印が無
   assert.deepStrictEqual(j.stamp, { set: 'manual', threads: 4, prio: 2 });
   assert.deepStrictEqual(Object.keys(j).sort(), ['at', 'from', 'model', 'rtf', 'schema', 'slow', 'stamp']);
   assert.ok(!old.paceFile.includes('/') && !old.paceFile.includes('\\\\'), '覚えにパスを書いた');
+});
+
+// ---------------------------------------------------------------- PF-4（決めたこと 7・8）
+const queueOf = (x) => x.map((q) => q.items.map((it) => ({ id: it.id, tries: it.tries, held: it.held })));
+const LATE_SEG = '（文字起こし待ち: PC の文字起こしが間に合わなかったので、後で文字起こしします）';
+const lateLines = (log) => log.filter((l) => l.startsWith('手元の文字起こしの時間切れ'));
+test('PF-4 時間切れの区間: 会議の後の時間切れは回数に数え（recovery.json に残る）、3 回で保留（音声を残し「音声は残してあります」の文）。保留の区間は次の引き金で試さない', T, async () => {
+  const o = await run(['hang-first', '--segs=1', '--after-retry', '--recover-again=3'], { env: { FAKE_HANG_N: '4' } });
+  assert.deepStrictEqual(queueOf(o.queueAfterRetry), [[{ id: 's1', tries: 1, held: undefined }]], JSON.stringify(o.afterRetry.engineLog));
+  assert.ok(o.afterRetry.engineLog.includes('復旧の文字起こし: 時間切れの区間 s1 を待ち行列の後ろへ回しました（1 回目）'), o.afterRetry.engineLog.join('\n'));
+  assert.ok(o.afterRetry.engineLog.includes('復旧の文字起こしを止めました（理由: late）。残りの 1 区間の音声と待ち行列は残します'), o.afterRetry.engineLog.join('\n'));
+  assert.deepStrictEqual(o.afterRetry.segments, [{ text: LATE_SEG, failed: true }]);
+  assert.deepStrictEqual(queueOf(o.again[0].queue), [[{ id: 's1', tries: 2, held: undefined }]]);
+  const t3 = o.again[1];
+  assert.deepStrictEqual(queueOf(t3.queue), [[{ id: 's1', tries: 3, held: true }]], JSON.stringify(t3.log));
+  assert.strictEqual(t3.pages[0].segments[0].text, '（この区間の認識に失敗: PC の文字起こしが時間内に終わりませんでした。音声は残してあります）');
+  assert.ok(t3.log.includes('復旧の文字起こし: 時間切れが 3 回の区間 s1 は、自動ではやり直さずに音声を残します'), t3.log.join('\n'));
+  assert.strictEqual(t3.wavs.length, 1);
+  // 次の引き金ではエンジンへ送らない（F256: 保留の区間は試さない）。WAV も待ち行列も残る
+  const t4 = o.again[2];
+  assert.strictEqual(t4.requests, 0, JSON.stringify(t4));
+  assert.deepStrictEqual([queueOf(t4.queue), t4.wavs.length], [[[{ id: 's1', tries: 3, held: true }]], 1]);
+});
+
+test('PF-4 ほかの区間が進む: 会議の後の時間切れの区間は待ち行列の後ろへ回し、その回は止める（時間切れは1回まで）。次の引き金はほかの区間から進み、ほかの区間は文字になる', T, async () => {
+  // 会議の s1（3 秒）が時間切れ（遅いになり s2（2 秒）は残す）→ 会議の後: s1 がまた時間切れ → 後ろへ → 次の引き金: s2 が文字になり、s1 はまた時間切れ（2 回目）。
+  // 偽の whisper は 3 秒の WAV（16kHz・16 ビットで 96000 バイト）の要求だけを数えて答えない
+  const o = await run(['hang-first', '--segs=2', '--after-retry', '--recover-again=1'], { env: { FAKE_HANG_N: '3', FAKE_HANG_MIN_BYTES: '90000' } });
+  assert.deepStrictEqual(queueOf(o.queueAfterRetry), [[{ id: 's2', tries: undefined, held: undefined }, { id: 's1', tries: 1, held: undefined }]], o.afterRetry.engineLog.join('\n'));
+  // その回は s1 の時間切れで止めた（s2 を送っていない: 会議の後の時間切れは1つ・その後の要求は無い）
+  assert.strictEqual(lateLines(o.afterRetry.engineLog).length, 2, o.afterRetry.engineLog.join('\n'));
+  const a = o.again[0];
+  assert.deepStrictEqual(queueOf(a.queue), [[{ id: 's1', tries: 2, held: undefined }]], a.log.join('\n'));
+  const segs = a.pages[0].segments;
+  assert.ok(segs.length === 2 && segs[0].failed && !segs[1].failed && segs[1].text.startsWith('本日の議題は進捗の確認です'), JSON.stringify(segs));
+});
+
+test('PF-4 会議の後の待ち時間: 会議の後の頼みは、覚えの rtf が空なら 3 とみる（120 秒の区間で 780 秒。会議中は今どおり 300 秒）', T, async () => {
+  const o = await run(['hang-first', '--segs=1', '--seg-ms=120000', '--after-retry'], { scale: '0.002', env: { FAKE_HANG_N: '2' } });
+  assert.deepStrictEqual(lateLines(o.afterRetry.engineLog), [
+    '手元の文字起こしの時間切れ: s1（音声 120 秒・待ち 300 秒）。エンジンを起こし直します',
+    '手元の文字起こしの時間切れ: s1（音声 120 秒・待ち 780 秒）。エンジンを起こし直します',
+  ], o.afterRetry.engineLog.join('\n'));
+});
+
+test('PF-4 録音を始めたとき: 会議の後の文字起こしの頼みがエンジンの中にある間に録音を始めると、その頼みを切ってエンジンを起こし直す。切った区間は時間切れに数えず（F257）待ち行列に残し、録音が終わったら文字にする', T, async () => {
+  const o = await run(['hang-first', '--extra-queue=localonly3', '--segs=1', '--start-when-recovering', '--wait-queue-empty'], { scale: '0.02', env: { FAKE_HANG_N: '1' } });
+  const log = o.afterQueue.log;
+  const cut = log.indexOf('手元の文字起こしを切りました: s1（音声 3 秒）。録音を始めたため、エンジンを起こし直します');
+  assert.ok(cut >= 0, log.join('\n'));
+  assert.ok(log.includes('復旧の文字起こしを止めました（理由: busy）。残りの 3 区間の音声と待ち行列は残します'), log.join('\n'));
+  assert.deepStrictEqual(lateLines(log), [], log.join('\n'));
+  // 切った後にエンジンを起こし直し、会議の区間を文字にした。録音を止めた後に前の会議の3区間も文字にした
+  assert.ok(whisperSpawns(o).length >= 2, brief(o));
+  assert.ok(o.afterQueue.pages.length === 2 && o.afterQueue.pages.every((p) => p.segments.length > 0 && p.segments.every((x) => !x.failed)), JSON.stringify(o.afterQueue.pages));
+});
+
+test('PF-4 残ったエンジン: 起動のときポートが塞がっていて、engine-proc.json の番号のプロセスが今も同じ名前（tasklist）なら止め、ポートが空いてから起こす。起こしたエンジンの番号を engine-proc.json に書く', T, async () => {
+  const o = await run(['text', '--segs=1', '--orphan=same']);
+  assert.strictEqual(o.orphanAlive, false, brief(o));
+  assert.ok(o.engineLog.some((l) => /^文字起こしエンジン: 前の NaTsu が残したエンジン（fake-whisper\.js・番号 \d+）を止めました$/.test(l)), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => /他のプロセスが使用中/.test(l)), o.engineLog.join('\n'));
+  assert.ok(o.tasklistCalls.length >= 1 && o.tasklistCalls.every((c) => c.args.length === 5 && c.args[0] === '/FI' && /^PID eq \d+$/.test(c.args[1]) && c.args.slice(2).join(' ') === '/NH /FO CSV'), JSON.stringify(o.tasklistCalls));
+  assert.ok(o.tasklistCalls.every((c) => c.opts && c.opts.windowsHide === true && !c.opts.shell), JSON.stringify(o.tasklistCalls));
+  assert.ok(o.pages[0].segments.length === 1 && !o.pages[0].segments[0].failed, JSON.stringify(o.pages));
+  // 今のエンジンの記録（番号は起こした偽の whisper のもの・名前だけでパスは書かない）
+  const rec = JSON.parse(o.engineProcFile);
+  assert.deepStrictEqual(Object.keys(rec).sort(), ['exe', 'pid', 'schema']);
+  assert.ok(rec.exe === 'fake-whisper.js' && o.prioCalls.some((c) => c.pid === rec.pid && c.kid), JSON.stringify([rec, o.prioCalls]));
+});
+
+test('PF-4 ほかのプロセス: engine-proc.json の番号が今はほかのアプリ（tasklist の名前が違う）なら止めず、今までどおり「ポートが使われている」（F259）', T, async () => {
+  const o = await run(['text', '--segs=1', '--orphan=other', '--offline']);
+  assert.strictEqual(o.orphanAlive, true, brief(o));
+  assert.ok(o.tasklistCalls.length >= 1, JSON.stringify(o.tasklistCalls));
+  assert.ok(!o.engineLog.some((l) => /前の NaTsu が残したエンジン/.test(l)), o.engineLog.join('\n'));
+  assert.ok(o.engineLog.some((l) => /^文字起こしエンジン: .*他のプロセスが使用中/.test(l)), o.engineLog.join('\n'));
+  assert.strictEqual(whisperSpawns(o).length, 0, brief(o));
 });

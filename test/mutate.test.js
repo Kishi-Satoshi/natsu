@@ -1954,6 +1954,8 @@ const IDS_181 = [
   'pf-seg-default', 'pf-seg-migrate', 'pf-seg-fallback',
   // 0.18.1 Task PF-3（遅いの覚え）
   'pf-stamp', 'pf-pace-keep',
+  // 0.18.1 Task PF-4（会議の後のやり直しと残りのエンジン）
+  'pf-late-count', 'pf-late-rotate', 'pf-after-rtf', 'pf-abort', 'pf-orphan', 'pf-orphan-name',
 ];
 const PREFIX_181 = /^pf-/;
 function planRows181() {
@@ -1963,7 +1965,7 @@ function planRows181() {
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   return [...table.matchAll(/^\| (pf-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
 }
-test('G3・0.18.1: 0.18.1 の変異が一覧にそろい、IDS_181 は計画の「変異の表」の pf- の行（PF-6 の pf-name- を除く）の頭からの一部（行の順）。pf- の変異は IDS_181 にある。どれも決まったテストのファイルを持ち、why が 0.18.1 で始まる。前の版の IDS に pf- が無い', { timeout: 5000 }, () => {
+test('G3・0.18.1: 0.18.1 の変異が一覧にそろい、IDS_181 は計画の「変異の表」の pf- の行（PF-6 の pf-name- を除く）とちょうど同じ（行の順）。pf- の変異は IDS_181 にある。どれも決まったテストのファイルを持ち、why が 0.18.1 で始まる。前の版の IDS に pf- が無い', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_181.filter((id) => !byId.has(id)), [], 'IDS_181 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_181).size, IDS_181.length, 'IDS_181 に重なり');
@@ -1975,6 +1977,8 @@ test('G3・0.18.1: 0.18.1 の変異が一覧にそろい、IDS_181 は計画の�
   assert.strictEqual(rows.length, 15);
   assert.deepStrictEqual(IDS_181.filter((id) => !rows.includes(id)), [], '計画の「変異の表」（pf-name- を除く）に無い変異');
   assert.deepStrictEqual(IDS_181, rows.slice(0, IDS_181.length), 'IDS_181 が計画の「変異の表」の行の順の頭からの一部でない');
+  // 0.18.1 PF-4 で PF-1〜PF-4 の行がそろった: pf-name- を除く表の行とちょうど同じ（PF-6 は第3版の承認の後に足し、そのとき pf-name- も数える）
+  assert.deepStrictEqual(IDS_181, rows, 'IDS_181 が計画の「変異の表」の pf- の行（pf-name- を除く）とちょうど同じでない（行の順）');
   for (const ids of [IDS_132, IDS_140, IDS_150, IDS_151, IDS_160, IDS_170, IDS_171, IDS_180]) assert.deepStrictEqual(ids.filter((id) => PREFIX_181.test(id)), [], '前の版の IDS に pf-');
   for (const id of IDS_181) {
     const m = byId.get(id);

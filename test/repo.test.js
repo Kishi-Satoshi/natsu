@@ -506,10 +506,12 @@ test('文字起こしが切れる問題への3段の対策が入っている', (
   // (2) 時間切れを音声の長さに比例させる（固定240秒で9分の区間が丸ごと消えた）
   // 0.9.4 S-2（決めたこと 15・16）で意図して直した: 待ち時間は mainlib.localTimeoutMs（音声の長さと測った速さ。stage094.lib で実行）で決め、
   // PC への要求は Node の fetch（AbortSignal の時計）でなく localhttp.postInference（自前の時計だけ）で送る
-  assert.match(main, /const planMs = localTimeoutMs\(\{ audioMs: Number\(durationMs\) \|\| 0, rtf: pacedRtf\(\) \}\);/);
+  // 0.18.1 PF-4（計画 docs/plans/2026-11-25-181.md の決めたこと 7・8・「意図して変えるテスト」）で意図して直した: 会議の後の頼み（after: rtf が無ければ 3）と、
+  // 録音を始めたら切る口（signal）を渡す（実行は stage181.lib・stage181.main の「PF-4」）
+  assert.match(main, /const planMs = localTimeoutMs\(\{ audioMs: Number\(durationMs\) \|\| 0, rtf: pacedRtf\(\), after: opts\.after === true \}\);/);
   // やり直し（0.1.1）も含めて、計算した待ち時間の内に収める
   assert.match(main, /const deadline = Date\.now\(\) \+ waitMs;/, '計算した待ち時間が使われていない');
-  assert.match(main, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\) \}\);/, '計算した待ち時間が使われていない');
+  assert.match(main, /timeoutMs: Math\.max\(1, deadline - Date\.now\(\)\), signal: opts\.signal \}\);/, '計算した待ち時間が使われていない');
   // 第1c回 Task A-4（意図して変えた）: 区間と音声入力は transcribeAuto を通り、手元の道で transcribeLocal に尻尾と長さをそのまま渡す
   // 0.9.1 Q-2（意図して変えた）: 音声入力は { dictation: true } を渡す。経路を決めて送る所は transcribeRouted（transcribeAuto は無音と作り話を見てから呼ぶ）
   assert.match(main, /transcribeAuto\(buffer, tail, durationMs[,)]/);
