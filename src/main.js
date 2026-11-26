@@ -4760,23 +4760,23 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
         if (settings.removeFillers) text = dictTidy.dropFillers(text);
       } catch (e) {
         const kind = e && !e.refused && e.sttRoute && e.sttRoute.route === 'local' ? lib.localFailKind(e) : '';
-        // 0.18.1 PF-4（決めたこと 7・M3）: PC の時間切れは回数 tries に数え、3 回で held（音声は残す。［もう一度文字起こし］で試せる）。保留でなければ
-        // 待ち行列の後ろへ回す。どちらもその回はそこで止める（1 回の起こしで時間切れは1つまで。次の回はほかの区間から進む）。録音を始めて切った頼み（busy）は数えない
-        if (e && kind === 'late' && !e.keepForRetry && !e.engineMissing) {
-          const lateTries = (Number.isInteger(item.tries) && item.tries > 0 ? item.tries : 0) + 1;
-          const held = lateTries >= RECOVERY_TRIES_MAX;
-          if (held) await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: `（この区間の認識に失敗: ${localErrorText(e)}。音声は残してあります）` });
-          const moved = held ? { ...q.items[i], tries: lateTries, held: true } : { ...q.items[i], tries: lateTries };
-          const rest = left.concat(q.items.slice(i + 1), [moved]).filter((it) => it && it.wav && fs.existsSync(it.wav));
-          engineLog(held ? `復旧の文字起こし: 時間切れが ${lateTries} 回の区間 ${item.id} は、自動ではやり直さずに音声を残します`
-            : `復旧の文字起こし: 時間切れの区間 ${item.id} を待ち行列の後ろへ回しました（${lateTries} 回目）`);
-          engineLog(`復旧の文字起こしを止めました（理由: late）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
-          saveRecoveryQueue({ ...q, items: rest });   // F256: 回数と並びを recovery.json に残す
-          sendRecoveryPending(q.pageId, rest, false);
-          forceStopNotice(q, rest);
-          return { ...q, items: rest };
-        }
         if (e && (e.keepForRetry || e.engineMissing || kind === 'late' || kind === 'down')) {
+          // 0.18.1 PF-4（決めたこと 7・M3）: PC の時間切れは回数 tries に数え、3 回で held（音声は残す。［もう一度文字起こし］で試せる）。保留でなければ
+          // 待ち行列の後ろへ回す。どちらもその回はそこで止める（1 回の起こしで時間切れは1つまで。次の回はほかの区間から進む）。録音を始めて切った頼み（busy）は数えない
+          if (kind === 'late' && !e.keepForRetry && !e.engineMissing) {
+            const lateTries = (Number.isInteger(item.tries) && item.tries > 0 ? item.tries : 0) + 1;
+            const held = lateTries >= RECOVERY_TRIES_MAX;
+            if (held) await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: `（この区間の認識に失敗: ${localErrorText(e)}。音声は残してあります）` });
+            const moved = held ? { ...q.items[i], tries: lateTries, held: true } : { ...q.items[i], tries: lateTries };
+            const rest = left.concat(q.items.slice(i + 1), [moved]).filter((it) => it && it.wav && fs.existsSync(it.wav));
+            engineLog(held ? `復旧の文字起こし: 時間切れが ${lateTries} 回の区間 ${item.id} は、自動ではやり直さずに音声を残します`
+              : `復旧の文字起こし: 時間切れの区間 ${item.id} を待ち行列の後ろへ回しました（${lateTries} 回目）`);
+            engineLog(`復旧の文字起こしを止めました（理由: late）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
+            saveRecoveryQueue({ ...q, items: rest });   // F256: 回数と並びを recovery.json に残す
+            sendRecoveryPending(q.pageId, rest, false);
+            forceStopNotice(q, rest);
+            return { ...q, items: rest };
+          }
           const rest = stopAt(i);
           engineLog(`復旧の文字起こしを止めました（理由: ${e.cloudCode || (kind === 'late' || kind === 'down' ? kind : 'engine')}）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
           sendRecoveryPending(q.pageId, rest, false);
