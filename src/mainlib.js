@@ -852,22 +852,25 @@ function recoverSegments(segments, exists) {
 const SEGMENT_MS_CAP = 300000;
 const LOCAL_SEGMENT_MS_CAP = 90000;
 function nextSegmentMs(pending, currentMs, baseMs, delta) {
-  const base = Math.min(LOCAL_SEGMENT_MS_CAP, Math.max(1000, Number(baseMs) || 75000));
+  const base = Math.min(LOCAL_SEGMENT_MS_CAP, Math.max(1000, Number(baseMs) || 30000));   // 0.18.1 PF-2: 無ければ既定の 30 秒（前は 75 秒）
   const cur = Number(currentMs) > 0 ? Math.min(LOCAL_SEGMENT_MS_CAP, Number(currentMs)) : base;
   if (pending <= 1) return base;
   if (pending > 3 && delta > 0) return Math.min(LOCAL_SEGMENT_MS_CAP, cur * 2);
   return cur;
 }
 
-// ---------------------------------------------------------------- 区切りの長さ: オンライン 15 秒・オフライン 75 秒（第1d回 A-5・D16・RF40）
+// ---------------------------------------------------------------- 区切りの長さ: オンライン 15 秒・オフライン 30 秒（第1d回 A-5・D16・RF40。0.18.1 PF-2 で既定を 75 秒から 30 秒に）
 // 中継で文字起こしする会議は区切りを 15 秒にして止まりに早く気づけるようにする。手元の whisper・オフライン・［この会議は PC の中だけ］は
-// 設定の長さ（既定 75 秒。15 秒より短いと言葉の途中で切れることが増えて精度が落ちる）。
+// 設定の長さ（既定 30 秒。0.18.1 PF-2（決めたこと 4）で 75 秒から。15 秒より短いと言葉の途中で切れることが増えて精度が落ちる）。
 // 録音バー（overlay.html。変えない）は、始めの segmentSec を丸めずに使い、途中の overlay:segment-ms は SEG_MIN_MS（20 秒）〜
 // SEG_MAX_MS（300 秒）に丸めて次の区間から使う。だから 15 秒になるのは始めに 15 を渡した会議だけで、途中で短い側へ戻すときは 20 秒
 // （設計書 D16 の「正直な限界」）。main は録音バーが今使っている値と同じ値を持つ（丸める前の値を持つと、同じ長さを何度も送る）。
 // 区切りは区間ごとに今の経路で決め、同じ側が SEG_SWITCH_AFTER 区間続いてから替える（1 区間の失敗で長さを揺らさない）。
 // ログイン切れ・上限・会社の鍵の誤り・PC の中だけは、続けて手元になると分かっているのですぐ長い側
 const ONLINE_SEGMENT_SEC = 15;        // 中継で文字起こしする会議の区切り
+// 0.18.1 PF-2（決めたこと 4）: PC の中で文字起こしする会議の区切りの既定（秒）と、前の版の既定
+const DEFAULT_SEGMENT_SEC = 30;
+const OLD_DEFAULT_SEGMENT_SEC = 75;
 const OVERLAY_SEG_MIN_MS = 20000;     // 録音バー（overlay.html の SEG_MIN_MS。変えない）が途中の値を丸める下限の写し
 const SEG_SWITCH_AFTER = 2;           // 同じ側が続けてこの数になったら替える（行ったり来たりしない）
 const STICKY_LOCAL = ['local-only', 'signed-out', 'login', 'daily-cap', 'quota', 'upstream-auth'];   // この理由の手元はすぐ長い側
@@ -989,9 +992,9 @@ function segmentModeNext(st, { route, why } = {}) {
   return { mode: STICKY_LOCAL.includes(why) || why === 'slow' || n >= SEG_SWITCH_AFTER ? 'long' : mode, localRun: n, cloudRun: 0 };
 }
 
-/** 区切りの基準（ミリ秒）。short は設定に関わらず 15 秒、long は設定の長さ（無ければ 75 秒。0.9.4 S-1: 90 秒まで） */
+/** 区切りの基準（ミリ秒）。short は設定に関わらず 15 秒、long は設定の長さ（無ければ 30 秒: 0.18.1 PF-2。0.9.4 S-1: 90 秒まで） */
 function segmentBaseMs(mode, settingsSec) {
-  return mode === 'short' ? ONLINE_SEGMENT_SEC * 1000 : Math.min(LOCAL_SEGMENT_MS_CAP, (Number(settingsSec) || 75) * 1000);
+  return mode === 'short' ? ONLINE_SEGMENT_SEC * 1000 : Math.min(LOCAL_SEGMENT_MS_CAP, (Number(settingsSec) || DEFAULT_SEGMENT_SEC) * 1000);
 }
 
 /** 途中で録音バーへ送る値（録音バーが丸めるのと同じ 20〜300 秒） */
@@ -1944,12 +1947,13 @@ function oldDefaultThreads(n) {
   const c = Number.isInteger(n) && n > 0 ? n : 1;
   return [...new Set([Math.max(4, c - 2), Math.max(4, Math.floor(c / 2))])].filter((t) => t !== defaultThreads(c));
 }
-// 前の版の既定のままの設定を新しい既定へ移す（決めたこと 3）。純粋: 移すキーと新しい値の物を返す（移す物が無ければ {}）。
+// 前の版の既定のままの設定を新しい既定へ移す（決めたこと 3・4）。純粋: 移すキーと新しい値の物を返す（移す物が無ければ {}）。
 // settings.json は既定の数をそのまま書いているので、選んだ数と見分けられない。前の既定と同じ数を自分で選んだ人も移る（［設定］で戻せる）
 function oldDefaultsPatch(s, n) {
   const patch = {};
   if (!s || typeof s !== 'object') return patch;
   if (oldDefaultThreads(n).includes(s.localThreads)) patch.localThreads = defaultThreads(n);
+  if (s.segmentSec === OLD_DEFAULT_SEGMENT_SEC) patch.segmentSec = DEFAULT_SEGMENT_SEC;
   return patch;
 }
 

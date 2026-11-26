@@ -1471,7 +1471,9 @@ test('基準の画像（test/shots/win32）は今の app.html で撮ったもの
   // 0.18.0 Task G（前半）の直し（CR163）: 「···」のメニュー（.pmenu）の項目を折り返さず（white-space: nowrap）、メニューをいちばん長い項目の幅に（width: max-content）。
   // 変わる画面は「···」のメニューを写す page-menu-claude-light（と足した -dark・-zoom200-light）と、ほかの「···」の画面（page-menu-link・page-menu-look。どれも RETAKE にある: SIDE_180）。
   // 値を今の app.html に合わせた（前の値は 6413b59e…）
-  assert.strictEqual(sha, 'b1922ed83fb63f711740a24b0724c1ad55d8556093c9b43bdef0d9d995aca0ad',
+  // 0.18.1 PF-2（計画 docs/plans/2026-11-25-181.md の決めたこと 4・CR5・CR6）: 「議事録の文字起こし間隔（秒）」の説明を「（既定30秒。最初の1回は20秒）」に、欄の読み込みと保存の
+  // 既定を 30 に（<script> の中）。欄と説明は閉じた［詳細設定］の中にあり、撮る画面には写らない見込み（CI の shots の比べで確かめる）。値を今の app.html に合わせた（前の値は b1922ed8…）
+  assert.strictEqual(sha, '39b857287067b220402974bfcbc1b867205a4f5830355221bb23094d1854582e',
     'app.html が基準の画像を撮った時と違う。Windows の CI の画面の比べ（捲り棒のつまみも）を見て、基準を取り直してからこの値を直す');
 });
 

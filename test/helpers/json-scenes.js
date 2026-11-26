@@ -23,6 +23,7 @@ const pretty = (o) => JSON.stringify(o, null, 2);   // 今の saveJson が書く
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 const CP932_NIHONGO = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]);
 // 今の利用者がふつうに持っている設定（30 のキー。localThreads は CPU の移し替えに当たらない 3）
+// 0.18.1 PF-2（計画 docs/plans/2026-11-25-181.md の決めたこと 4）で意図して変えた: segmentSec は前の版の既定の移し（75 → 30）に当たらない 60（前は 75）
 // 0.9.0 O-1（設計書 D25）で意図して変えた: 0.9.0 の置き場所 pillSlot を足した（0.9.0 で一度起動した人の形）。前の版が書いた pillPos・pillCustom は
 // 知らないキーとして残っている（0.9.0 は読み書きしない）。pillSlot があるので、起動の前の位置の直し（migratePillSlot）はこの設定を書き直さない
 // 読めない間の登録 → 読み直し（retrySettingsRead）→ その後に globalShortcut.register へ渡したキーと、登録しているキー
@@ -43,7 +44,7 @@ const TYPICAL = {
   vadModelPath: '', useVad: true, suppressNst: true, sumServerExe: '', sumModelPath: '', sumPort: 8991, sumThreads: 3, language: 'ja',
   hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', micId: 'mic-1', pillPos: 'top-right', pillCustom: { x: 40, y: 60 }, pillSlot: 'top-right',
   autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, theme: 'dark', stayInTray: false,
-  dictionary: ['見積', '検収'], useBuiltinTerms: true, useSystemAudio: false, maxHistory: 300, segmentSec: 75, sumCtx: 32768, engineIdleMin: 10,
+  dictionary: ['見積', '検収'], useBuiltinTerms: true, useSystemAudio: false, maxHistory: 300, segmentSec: 60, sumCtx: 32768, engineIdleMin: 10,
 };
 const HISTORY = [{ id: 'h1', text: '前の口述', raw: '前の口述', createdAt: '2026-10-01T00:00:00.000Z', durationSec: 3, procMs: 900, chars: 4 }];
 // 画面（app.html の save）が送る 29 のキー

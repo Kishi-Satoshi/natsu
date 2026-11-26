@@ -1695,7 +1695,7 @@ function fixtures() {
       localServerExe: `${ENGINE_DIR}\\whisper\\whisper-server.exe`, localModelPath: `${ENGINE_DIR}\\models\\ggml-model.bin`,
       localThreads: 4, localPort: 8990, vadModelPath: '', useVad: true, suppressNst: true,
       engineIdleMin: 10, autoSummarize: true,   // 0.10.0 LS-3 で要約のエンジンのキーを外した
-      hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', segmentSec: 75, pillPos: 'bottom', micId: '',
+      hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', segmentSec: 30, pillPos: 'bottom', micId: '',   // 0.18.1 PF-2（計画の CR5）: 既定の 30 秒（前は 75 秒）
       language: 'ja', autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false,
       dictionary: ['議事録', '結合試験'], useBuiltinTerms: true, stayInTray: false, theme: 'system', useSystemAudio: false,
     },

@@ -2,6 +2,7 @@
  * stage181.main.test.js — 0.18.1（計画 docs/plans/2026-11-25-181.md）の main の場面。偽の Electron の上で main.js を本当に動かして確かめる
  * （helpers/mainrun.js。論理 CPU の数は --cpus、優先度は out.prioCalls と --prio=fail）。
  *  PF-1: 起こしたエンジンのスレッドの数（既定と前の版の既定の移し。メモリの中だけ）・優先度（通常より低い。失敗しても起こす）
+ *  PF-2: PC の中で文字起こしする会議の区切り（既定 30 秒・前の版の 75 秒の移し。メモリの中だけ）
  */
 'use strict';
 
@@ -65,4 +66,21 @@ test('PF-1 起こしたエンジンの優先度: 起こした whisper の番号�
   const lines = fail.engineLog.filter((l) => /優先度/.test(l));
   assert.strictEqual(lines.length, fail.prioCalls.length, fail.engineLog.join('\n'));
   for (const l of lines) assert.strictEqual(l, '文字起こしエンジン: 優先度を下げられませんでした（EACCES）。通常の優先度のまま動かします');
+});
+
+// ---------------------------------------------------------------- PF-2（決めたこと 4）
+const starts = (o) => o.overlaySent.filter((x) => x && typeof x === 'object').map((x) => x.segmentSec);
+test('PF-2 前の版の間隔: settings.json の 75 秒（前の版の既定）は 30 秒で始める（録音バーへの始めの segmentSec・記録の行）。選んだ 60 秒・無いとき（既定 30 秒）。settings.json は書き換えない', T, async () => {
+  const [old75, chose60, none] = await Promise.all([
+    run(['text', '--relay=text', '--offline', '--segs=1', add({ segmentSec: 75 })]),
+    run(['text', '--relay=text', '--offline', '--segs=1', add({ segmentSec: 60 })]),
+    run(['text', '--relay=text', '--offline', '--segs=1']),
+  ]);
+  assert.deepStrictEqual(starts(old75), [30], JSON.stringify(old75.overlaySent));
+  assert.ok(old75.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 start）'), old75.engineLog.join('\n'));
+  assert.strictEqual(old75.savedSettings.segmentSec, 75);
+  assert.deepStrictEqual(starts(chose60), [60], JSON.stringify(chose60.overlaySent));
+  assert.ok(chose60.engineLog.includes('文字起こしの状態: 区切り 60 秒（long・理由 start）'), chose60.engineLog.join('\n'));
+  assert.deepStrictEqual(starts(none), [30], JSON.stringify(none.overlaySent));
+  assert.ok(none.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 start）'), none.engineLog.join('\n'));
 });

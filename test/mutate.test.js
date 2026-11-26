@@ -1950,6 +1950,8 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
 const IDS_181 = [
   // 0.18.1 Task PF-1（スレッドと優先度）
   'pf-threads', 'pf-threads-small', 'pf-migrate', 'pf-priority',
+  // 0.18.1 Task PF-2（文字起こしの間隔）
+  'pf-seg-default', 'pf-seg-migrate', 'pf-seg-fallback',
 ];
 const PREFIX_181 = /^pf-/;
 function planRows181() {

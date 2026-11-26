@@ -1369,7 +1369,8 @@ const isKotobaModel = () => /kotoba/i.test(path.basename(engineModel(whisperEng)
 // 設定のエンジン欄に出す、モデルの勧め。kotoba は同じ区間で large-v3-turbo の 3 倍ほど誤り、速さはほぼ同じ
 // コマンドは文末に札を付けて置く（文の途中に置くと、後ろの語までひと続きのコマンドと読まれる。engineIssueMessage と同じ）。
 // 前の版の setup-local-engine.ps1 は既定が kotoba なので、-Model を必ず付けて示す
-const KOTOBA_NOTE = '文字起こしのモデルが kotoba-whisper です。75 秒ずつの文字起こしでは文の抜け落ちが多いため、'
+// 0.18.1 PF-2（決めたこと 5）: 区切りの既定が 30 秒になったので「75 秒ずつの」を「長い区切りの」に（字は Task G で持ち主に見せる）
+const KOTOBA_NOTE = '文字起こしのモデルが kotoba-whisper です。長い区切りの文字起こしでは文の抜け落ちが多いため、'
   + 'large-v3-turbo に替えることをおすすめします。setup-local-engine.ps1 を置いたフォルダ（local-engine フォルダの一つ上）で'
   + ' PowerShell を開いて下のコマンドを実行し、表示されたモデルのパスを［詳細設定］の「文字起こし」にある'
   + '「モデルファイル（ggml-*.bin）のパス」に貼り付けてください（欄を離れると保存されます）。'

@@ -37,41 +37,43 @@ test('D16: ログインしてオンラインなら、録音バーへの始めの
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
+// 0.18.1 PF-2（計画 docs/plans/2026-11-25-181.md の決めたこと 4・「意図して変えるテスト」）で意図して変えた: PC の中で文字起こしする会議の区切り（長い側）の既定は
+// 30 秒（前は 75 秒）。この節の 75 秒・75000 を 30 秒・30000 に直した（場面の settings.json は segmentSec を書かず、既定を使う）
 for (const [name, args] of [['オフライン', ['--relay=text', '--offline']], ['ログインしていない', ['--relay=text', '--signed-out']]]) {
-  test(`D16: ${name}なら始めから 75 秒（記録に『区切り 75 秒（long・理由 start）』）`, T, async () => {
+  test(`D16: ${name}なら始めから 30 秒（記録に『区切り 30 秒（long・理由 start）』）`, T, async () => {
     const o = await run(['text', ...args, '--segs=2']);
-    assert.deepStrictEqual(starts(o), [75], JSON.stringify(o.overlaySent));
+    assert.deepStrictEqual(starts(o), [30], JSON.stringify(o.overlaySent));
     assert.deepStrictEqual(live(o), [], JSON.stringify(o.overlaySent));
-    assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 75 秒（long・理由 start）'), o.engineLog.join('\n'));
+    assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 start）'), o.engineLog.join('\n'));
     assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
   });
 }
 
-test('D16: hold の日（daily-cap の後に始めた会議）は始めから 75 秒。上限に達した区間の後すぐ 75 秒。日が替わった会議は 15 秒に戻る', T, async () => {
+test('D16: hold の日（daily-cap の後に始めた会議）は始めから 30 秒。上限に達した区間の後すぐ 30 秒。日が替わった会議は 15 秒に戻る', T, async () => {
   const o = await run(['text', '--json-scene=relay-day', '--relay=daily-cap']);
-  // 1つ目の会議（ログイン・オンライン）は 15、11 分後の2つ目（hold の間）は 75、日が替わった3つ目は 15
-  assert.deepStrictEqual(starts(o), [15, 75, 15], JSON.stringify(o.overlaySent));
-  // 1つ目の会議の2つ目の区間で 429 daily-cap → その区間の後すぐ 75 秒（同じ側が2区間続くのを待たない）
-  assert.deepStrictEqual(o.overlaySent.slice(0, 2).map((x) => (typeof x === 'number' ? x : x.segmentSec)), [15, 75000], JSON.stringify(o.overlaySent));
-  assert.deepStrictEqual(live(o), [75000], JSON.stringify(o.overlaySent));
+  // 1つ目の会議（ログイン・オンライン）は 15、11 分後の2つ目（hold の間）は 30、日が替わった3つ目は 15
+  assert.deepStrictEqual(starts(o), [15, 30, 15], JSON.stringify(o.overlaySent));
+  // 1つ目の会議の2つ目の区間で 429 daily-cap → その区間の後すぐ 30 秒（同じ側が2区間続くのを待たない）
+  assert.deepStrictEqual(o.overlaySent.slice(0, 2).map((x) => (typeof x === 'number' ? x : x.segmentSec)), [15, 30000], JSON.stringify(o.overlaySent));
+  assert.deepStrictEqual(live(o), [30000], JSON.stringify(o.overlaySent));
 });
 
-test('D16・RF28: ［この会議は PC の中だけ］を押すと、その場で 75 秒を送る（次の区間から）。中継へは1回も送らない', T, async () => {
+test('D16・RF28: ［この会議は PC の中だけ］を押すと、その場で 30 秒を送る（次の区間から）。中継へは1回も送らない', T, async () => {
   const o = await run(['text', '--relay=text', '--local-only', '--segs=2']);
   assert.strictEqual(o.localOnly && o.localOnly.ok, true, JSON.stringify(o.localOnly));
   assert.deepStrictEqual(starts(o), [15], JSON.stringify(o.overlaySent));
-  assert.strictEqual(o.overlaySent[1], 75000, `押した直後に 75 秒を送っていない: ${JSON.stringify(o.overlaySent)}`);
-  assert.ok(live(o).every((ms) => ms >= 75000), `PC の中だけの会議で短い区切りを送った: ${JSON.stringify(o.overlaySent)}`);
+  assert.strictEqual(o.overlaySent[1], 30000, `押した直後に 30 秒を送っていない: ${JSON.stringify(o.overlaySent)}`);
+  assert.ok(live(o).every((ms) => ms >= 30000), `PC の中だけの会議で短い区切りを送った: ${JSON.stringify(o.overlaySent)}`);
   assert.strictEqual(posts(o.relayCalls), 0, `中継へ送った: ${o.relayCalls}`);
   // 押した直後（最初の区間の文字起こしより前）に送る。区間の後の「PC の中だけはすぐ長い側」だけに頼らない
-  const at = o.engineLog.indexOf('文字起こしの状態: 区切り 75 秒（long・理由 local-only）');
+  const at = o.engineLog.indexOf('文字起こしの状態: 区切り 30 秒（long・理由 local-only）');
   const s1 = o.engineLog.findIndex((l) => /区間 s1 → local/.test(l));
-  assert.ok(at >= 0 && s1 > at, `押した直後に 75 秒にしていない: ${o.engineLog.join('\n')}`);
+  assert.ok(at >= 0 && s1 > at, `押した直後に 30 秒にしていない: ${o.engineLog.join('\n')}`);
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
 // 0.9.4 S-1（決めたこと 30・依頼7）で意図して直した: 中継に届かない（一時の失敗）区間は PC でやり直すが、区切りの側には数えないので、
-// 長い側（75 秒）へ替えず 15 秒のまま（前は 2 区間続いたら 75 秒にし、戻って 20 秒にした）。区間が全部文字になり、経路の数は同じ
+// 長い側（0.18.1 PF-2 から既定 30 秒。前は 75 秒）へ替えず 15 秒のまま（前は 2 区間続いたら 75 秒にし、戻って 20 秒にした）。区間が全部文字になり、経路の数は同じ
 test('D16: 会議の途中で中継が止まっても（届かない区間が 4 つ続いても）、区切りは 15 秒のまま。その区間は PC で文字起こしする', T, async () => {
   const o = await run(['text', '--relay-seq=ccnnnncc', '--segs=8']);
   assert.deepStrictEqual(starts(o), [15]);
@@ -79,7 +81,7 @@ test('D16: 会議の途中で中継が止まっても（届かない区間が 4 
   assert.strictEqual(o.pages[0].segments.length, 8, JSON.stringify(o.pages[0].segments));
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 4, local: 4, provider: 'openai' });
-  assert.ok(!o.engineLog.some((l) => /区切り 75 秒/.test(l)), o.engineLog.join('\n'));
+  assert.ok(!o.engineLog.some((l) => /区切り (30|75) 秒/.test(l)), o.engineLog.join('\n'));
 });
 
 test('D16: 1 区間だけ中継が 502 でも区切りは変えない（その区間は PC でやり直す）', T, async () => {
@@ -90,20 +92,20 @@ test('D16: 1 区間だけ中継が 502 でも区切りは変えない（その�
   assert.deepStrictEqual(o.pages[0].route.stt, { cloud: 3, local: 1, provider: 'openai' });
 });
 
-test('D16: ログインが切れたら、その区間の後すぐ 75 秒', T, async () => {
+test('D16: ログインが切れたら、その区間の後すぐ 30 秒', T, async () => {
   const o = await run(['text', '--relay-seq=cl']);
   assert.deepStrictEqual(starts(o), [15]);
-  assert.deepStrictEqual(live(o), [75000], JSON.stringify(o.overlaySent));
-  assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 75 秒（long・理由 login）'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(live(o), [30000], JSON.stringify(o.overlaySent));
+  assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 login）'), o.engineLog.join('\n'));
   assert.ok(texts(o.pages[0].segments), JSON.stringify(o.pages[0].segments));
 });
 
-test('D16: ログインが切れて PC で起こした区間がエンジンの失敗でも、その区間の後すぐ 75 秒（理由は login。A-5 の点検）', T, async () => {
+test('D16: ログインが切れて PC で起こした区間がエンジンの失敗でも、その区間の後すぐ 30 秒（理由は login。A-5 の点検）', T, async () => {
   // 手元のエンジンが 200 のまま誤りを返す err200: 2 区間目は中継の 401 で手元に落ち、手元でも失敗する
   const o = await run(['err200', '--relay-seq=cl']);
   assert.deepStrictEqual(starts(o), [15]);
-  assert.deepStrictEqual(live(o), [75000], JSON.stringify(o.overlaySent));
-  assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 75 秒（long・理由 login）'), o.engineLog.join('\n'));
+  assert.deepStrictEqual(live(o), [30000], JSON.stringify(o.overlaySent));
+  assert.ok(o.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 login）'), o.engineLog.join('\n'));
 });
 
 // 0.9.4 S-5（決めたこと 29・依頼7）で意図して直した: クラウドで文字起こしする会議（15 秒の側）は、待ちが積もっても区切りを伸ばさない

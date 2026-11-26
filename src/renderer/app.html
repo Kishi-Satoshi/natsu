@@ -2115,7 +2115,7 @@
               <div class="field">
                 <label for="segmentSec">議事録の文字起こし間隔（秒）</label>
                 <input type="text" id="segmentSec" />
-                <div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>
+                <div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定30秒。最初の1回は20秒）。</div>
                 <div class="desc ng lockNote" hidden>記録中は PC の中の文字起こしの設定を変更できません</div>
               </div>
               <div class="field">
@@ -18702,7 +18702,7 @@
     $('engineIdleMin').value = intOr(s.engineIdleMin, 10);   // 0 は「止めない」。|| で既定に化けさせない
     $('meetingHotkey').value = s.meetingHotkey || '';
     showKeyCaps('meetingHotkey');
-    $('segmentSec').value = s.segmentSec || 75;
+    $('segmentSec').value = s.segmentSec || 30;   // 0.18.1 PF-2（決めたこと 4）: 既定は 30 秒
     $('pillPos').value = s.pillSlot || 'bottom-center';   // 0.9.0 O-4（RP1）: 置き場所の名前（前の版の pillPos・pillCustom は読まない）
     $('language').value = s.language || 'ja';
     $('removeFillers').checked = s.removeFillers !== false;
@@ -19100,7 +19100,7 @@
       suppressNst: $('suppressNst').checked,
       engineIdleMin: intOr($('engineIdleMin').value, 10),
       meetingHotkey: $('meetingHotkey').value.trim() || 'Alt+M',
-      segmentSec: parseInt($('segmentSec').value, 10) || 75,
+      segmentSec: parseInt($('segmentSec').value, 10) || 30,   // 0.18.1 PF-2: 空なら既定の 30 秒
       pillSlot: $('pillPos').value,   // 0.9.0 O-4（RP1）: 欄の id は前のまま、保存は置き場所の名前
       micId: $('micSelect').value,
       language: $('language').value,

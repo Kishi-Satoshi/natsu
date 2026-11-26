@@ -17,7 +17,7 @@ const TODAY = {
   localServerExe: '', localModelPath: '', localPort: 8990, localThreads: T, vadModelPath: '', useVad: true, suppressNst: true,
   sumServerExe: '', sumModelPath: '', sumPort: 8991, sumThreads: T, language: 'ja', hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M',
   micId: '', pillPos: 'bottom', pillCustom: null, autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false,
-  theme: 'system', stayInTray: false, dictionary: [], useBuiltinTerms: true, useSystemAudio: false, maxHistory: 500, segmentSec: 75,
+  theme: 'system', stayInTray: false, dictionary: [], useBuiltinTerms: true, useSystemAudio: false, maxHistory: 500, segmentSec: 30,   // 0.18.1 PF-2 で意図して変えた（既定 30 秒。前は 75）
   sumCtx: 16384, engineIdleMin: 10,
 };
 // 第1a回の画面（app.html の save）が送る 29 のキー（第1c回 Task C-2 で下の5つを足して 34。pillCustom は録音バーを動かしたときだけ main が書く）

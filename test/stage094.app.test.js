@@ -42,7 +42,8 @@ test('Q3: ヘルプに PC の区切りは 90 秒まで（設定の画面は変�
   const line = fs.readFileSync(path.join(ROOT, 'help', 'articles', 'record', 'status-line.md'), 'utf8');
   assert.match(line, /長くても 90 秒/);
   const html = fs.readFileSync(APP, 'utf8');
-  assert.ok(html.includes('<div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定75秒。最初の1回は20秒）。</div>'), '設定の画面の説明を変えた');
+  // 0.18.1 PF-2（計画 docs/plans/2026-11-25-181.md の決めたこと 4・「意図して変えるテスト」）で意図して変えた: 既定は 30 秒（前は 75 秒）
+  assert.ok(html.includes('<div class="desc">短いほど早く画面に出ますが、文の切れ目が増えます（既定30秒。最初の1回は20秒）。</div>'), '設定の画面の説明を変えた');
   assert.strictEqual(require('../src/mainlib').LOCAL_SEGMENT_MS_CAP, 90000);
 });
 

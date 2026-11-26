@@ -74,7 +74,7 @@ function normalizeSettings(raw, defaults) {
     ? s.dictionary.map((w) => String(w ?? '').trim()).filter(Boolean) : [];
   s.localPort = clampInt(s.localPort, 1024, 65535, d.localPort || 8990);
   s.localThreads = clampInt(s.localThreads, 1, 64, d.localThreads || 4);
-  s.segmentSec = clampInt(s.segmentSec, 20, 300, d.segmentSec || 75);
+  s.segmentSec = clampInt(s.segmentSec, 20, 300, d.segmentSec || 30);   // 0.18.1 PF-2（決めたこと 4）: 既定は 30 秒（前は 75 秒）
   // 第3段（v0.11.0）で足した 2 つ。古い settings.json には無いので既定で埋める
   s.engineIdleMin = clampIntOrZero(s.engineIdleMin, 0, 120, d.engineIdleMin ?? 10);   // 使われないエンジンを止めるまでの分（#58）
   for (const k of REMOVED_KEYS) delete s[k];
@@ -130,7 +130,8 @@ function defaultSettings(cpuCount) {
     // 議事録のときだけ、パソコンから出ている音（Web会議の相手の声）も録る。
     // 既定は false。同席者の声を残すかどうかは、その場で人が決めること。
     useSystemAudio: false,
-    segmentSec: 75,
+    // 0.18.1 PF-2（決めたこと 4）: PC の中で文字起こしする会議の区切り。既定 30 秒（whisper の窓1つ分。前は 75 秒）。クラウドの会議は設定に関わらず 15 秒
+    segmentSec: 30,
     // 使われないエンジンを止めるまでの分。0 = 止めない（#58。releaseIdleEngines）
     engineIdleMin: 10,
     // 空なら Claude Code を探す（第1c回 Task B-1 の findClaude）
