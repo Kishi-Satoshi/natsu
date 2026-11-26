@@ -194,3 +194,40 @@ test('PF-5 ヘルプ: trouble/slow-pc は「3 回まで試して」が時間内�
   // 画面に無い言葉の［…］を足さない（設定の場所は「…」で書く）
   assert.ok(!/［詳細設定］|［スレッド数］|［ローカル AI］/.test(t), '［…］に画面のボタンでない言葉');
 });
+
+// ---------------------------------------------------------------- PF-6（決めたこと 10・AQ181-10〜AQ181-12 の (a)）
+// 議事録の上の行（lib.routeLabel）で、PC の中で文字起こしした区間を「オフライン」と呼ぶ。保存の形（route.stt.local）は変えない
+test('PF-6 経路の行: PC の中だけの会議は「🖥 文字起こし: オフライン」、クラウドと混ざった会議は「…12・オフライン 2」。クラウドだけは今どおり。「PC」の字は出さない', T, () => {
+  assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 0, local: 3 } }, ''), ['🖥 文字起こし: オフライン']);
+  assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 12, local: 2, provider: 'openai' } }, 'OpenAI'), ['☁ 文字起こし: クラウド（OpenAI）12・オフライン 2']);
+  assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 5, local: 0, provider: 'openai' } }, 'OpenAI'), ['☁ 文字起こし: クラウド（OpenAI）5']);
+  for (const r of [{ stt: { cloud: 0, local: 1 } }, { stt: { cloud: 1, local: 1 } }, { stt: { cloud: 0, local: 2 }, summary: { by: 'local' } }]) {
+    for (const l of L.routeLabel(r, 'OpenAI')) assert.ok(!/PC/.test(l), `「PC」が残っている: ${l}`);
+  }
+});
+
+test('PF-6 要約の行: 0.9.x で PC の中で作った要約（by local）は「🖥 要約: オフライン」。ほかの要約の行は今どおり', T, () => {
+  assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 0, local: 2 }, summary: { by: 'local' } }, ''), ['🖥 文字起こし: オフライン', '🖥 要約: オフライン']);
+  assert.deepStrictEqual(L.routeLabel({ summary: { by: 'local' } }, ''), ['🖥 要約: オフライン']);
+  assert.deepStrictEqual(L.routeLabel({ summary: { by: 'claude-code' } }, ''), ['✨ 要約: Claude Code']);
+  assert.deepStrictEqual(L.routeLabel({ summary: { by: 'claude' } }, ''), ['🤖 要約: Claude（本人）']);
+});
+
+test('PF-6 字: ヘルプ（record/status-line・summary/how-summaries）と README の例の字が新しい名前。録音中の「文字起こし中（この PC）」・ローカル AI の設定の字は変えない', T, () => {
+  const ex = '「☁ 文字起こし: クラウド（OpenAI）12・オフライン 2」「✨ 要約: Claude Code」のように出ます';
+  const old = '（0.9.x で PC の中で作った要約は「🖥 要約: オフライン」と出ます）';
+  const status = read('help', 'articles', 'record', 'status-line.md');
+  const how = read('help', 'articles', 'summary', 'how-summaries.md');
+  const readme = read('README.md');
+  assert.ok(status.includes(ex) && status.includes(old), 'record/status-line.md');
+  assert.ok(how.includes('「✨ 要約: Claude Code」のように出ます') && how.includes(old), 'summary/how-summaries.md');
+  assert.ok(readme.includes(ex) && readme.includes(old), 'README.md');
+  for (const [f, t] of [['record/status-line.md', status], ['summary/how-summaries.md', how]]) assert.ok(/^updated: 2026-11-2[6-9]$/m.test(t), `${f}: updated を直していない`);
+  for (const [f, t] of [['record/status-line.md', status], ['summary/how-summaries.md', how], ['README.md', readme]]) {
+    assert.ok(!/文字起こし: PC|・PC \d|要約: PC/.test(t), `${f} に前の名前が残っている`);
+  }
+  // 変えない所（AQ181-11 の (a)）
+  const app = read('src', 'renderer', 'app.html');
+  assert.ok(app.includes("const head = `文字起こし中（${s.route === 'cloud' ? 'クラウド' : 'この PC'}）`;"), '録音中の状態の行を変えた');
+  assert.ok(app.includes('ローカル AI'), '設定のローカル AI の字');
+});

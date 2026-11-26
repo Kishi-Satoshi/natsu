@@ -28,10 +28,11 @@ test('0.11.0 M-2: メモや文字起こしに「【会議の文字起こし】�
 });
 
 test('OL6: 経路の表示の行', () => {
+  // 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10）で意図して変えた: PC の中の文字起こし・要約は「オフライン」（前は「PC」）
   assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 12, local: 2, provider: 'groq' }, summary: { by: 'claude-code' } }, 'Groq（無料枠）'),
-    ['☁ 文字起こし: クラウド（Groq（無料枠））12・PC 2', '✨ 要約: Claude Code']);
+    ['☁ 文字起こし: クラウド（Groq（無料枠））12・オフライン 2', '✨ 要約: Claude Code']);
   assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 0, local: 3, provider: 'groq' }, summary: { by: 'local' } }, 'Groq（無料枠）'),
-    ['🖥 文字起こし: PC', '🖥 要約: PC（オフライン）']);
+    ['🖥 文字起こし: オフライン', '🖥 要約: オフライン']);
   assert.deepStrictEqual(L.routeLabel({ stt: { cloud: 5, local: 0, provider: 'openai' } }, 'OpenAI'), ['☁ 文字起こし: クラウド（OpenAI）5']);
   assert.deepStrictEqual(L.routeLabel(undefined, 'x'), []);
   assert.deepStrictEqual(L.routeLabel({ stt: 'x', summary: 3 }, 'x'), [], '形の違う欄で落ちた');

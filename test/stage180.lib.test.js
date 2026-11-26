@@ -169,7 +169,8 @@ test('CS-2: routeLabel の表に「🤖 要約: Claude（本人）」（今の2�
   assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'claude', at: '2026-11-22T00:00:00.000Z' } }, ''), ['🤖 要約: Claude（本人）']);
   assert.deepStrictEqual(lib.routeLabel({ stt: { cloud: 2, local: 0, provider: 'openai' }, summary: { by: 'claude' } }, 'OpenAI'), ['☁ 文字起こし: クラウド（OpenAI）2', '🤖 要約: Claude（本人）']);
   assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'claude-code' } }, ''), ['✨ 要約: Claude Code']);
-  assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'local' } }, ''), ['🖥 要約: PC（オフライン）']);
+  // 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10）で意図して変えた: PC の中の文字起こし・要約は「オフライン」（前は「PC」）
+  assert.deepStrictEqual(lib.routeLabel({ summary: { by: 'local' } }, ''), ['🖥 要約: オフライン']);
 });
 
 // ---------------------------------------------------------------- CS-3（決めたこと 23〜26・F237）: 名前の直しの部品（src/nameFix.js）

@@ -93,7 +93,8 @@ test('D-1: json-backend の残りの命令（経路の行・page.put は DB が�
       segments: [{ id: 's1', atMs: 0, durationMs: 1000, text: '発言' }, { id: 's2', atMs: 1000, durationMs: 1000, text: '次の発言' }] }, { tx: 'meeting:1' });
     assert.notStrictEqual(p.id, 'pignored');
     const got = await jb.call('page.get', { id: p.id });
-    assert.deepStrictEqual(got.page.routeText, ['☁ 文字起こし: クラウド（Groq（無料枠））2・PC 1']);
+    // 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10）で意図して変えた: PC の中の文字起こし・要約は「オフライン」（前は「PC」）
+    assert.deepStrictEqual(got.page.routeText, ['☁ 文字起こし: クラウド（Groq（無料枠））2・オフライン 1']);
     assert.strictEqual(await jb.call('page.get', { id: 'nope' }), null);
     // page.put: page.get の答え（rev・routeText つき）をそのまま渡しても、その2つはファイルに残らない
     const put = await jb.call('page.put', { page: { ...got.page, rev: 7, summaryError: '要約の文' }, baseRev: 7 });

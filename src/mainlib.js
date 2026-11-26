@@ -1411,6 +1411,7 @@ function buildClaudeInput({ memoText, plain, template }) {
 // ページのプロパティの行に出す経路（第1c回 OL6）。route はページの route（main の maybeFinalizeMeeting・doRunSummary が書く）、
 // providerLabel はその文字起こしの送り先の表示の名前。画面は mainlib を読めないので、main が page:get の返事に添える。
 // 文字起こしは区間の数（クラウドと PC）、要約は1回ごとの経路。形の違う欄は出さない（古いページ・壊れたページは []）
+// 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10・AQ181-10〜AQ181-12）: PC の中で文字起こし・要約した分は「オフライン」と呼ぶ（前は「PC」。保存の形 route.stt.local・summary.by は同じ）
 function routeLabel(route, providerLabel) {
   const out = [];
   if (!route || typeof route !== 'object') return out;
@@ -1418,12 +1419,12 @@ function routeLabel(route, providerLabel) {
   const stt = route.stt;
   if (stt && typeof stt === 'object') {
     const cloud = n(stt.cloud), local = n(stt.local);
-    if (cloud) out.push(`☁ 文字起こし: クラウド（${String(providerLabel || stt.provider || '')}）${cloud}${local ? `・PC ${local}` : ''}`);
-    else if (local) out.push('🖥 文字起こし: PC');
+    if (cloud) out.push(`☁ 文字起こし: クラウド（${String(providerLabel || stt.provider || '')}）${cloud}${local ? `・オフライン ${local}` : ''}`);
+    else if (local) out.push('🖥 文字起こし: オフライン');
   }
   const by = route.summary && typeof route.summary === 'object' ? route.summary.by : '';
   if (by === 'claude-code') out.push('✨ 要約: Claude Code');
-  else if (by === 'local') out.push('🖥 要約: PC（オフライン）');
+  else if (by === 'local') out.push('🖥 要約: オフライン');
   else if (by === 'claude') out.push('🤖 要約: Claude（本人）');   // 0.18.0 CS-2（決めたこと 19）: Claude デスクトップが書き戻した要約（mcp.writeSummary）
   return out;
 }

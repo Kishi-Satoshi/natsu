@@ -1,13 +1,13 @@
 ---
 title: 要約の作られ方
 description: 要約はいつもご自分の Claude Code で作る。つながっていないときは要約待ちにして、つながったら自動で作る。作り直すときと、上限のとき
-updated: 2026-10-26
+updated: 2026-11-26
 sources: README.md, CHANGELOG.md, src/renderer/app.html, src/main.js, src/claude-cli.js
 related: summary/summary-types, summary/edit-summary, summary/citations
 ---
 
 録音を止めると、文字起こしとメモから要約を作ります。
-どこで作ったかは、議事録の上の行に「✨ 要約: Claude Code」のように出ます（0.9.x で PC の中で作った要約は「🖥 要約: PC（オフライン）」のままです）。
+どこで作ったかは、議事録の上の行に「✨ 要約: Claude Code」のように出ます（0.9.x で PC の中で作った要約は「🖥 要約: オフライン」と出ます）。
 
 ## どこで作るか {#where}
 

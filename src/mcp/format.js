@@ -72,18 +72,19 @@ function quoteLines(memo) {
   });
 }
 
-// 経路の欄（一覧と会議の頭）。route は DB の attrs.route（中の名前は出さない）
+// 経路の欄（一覧と会議の頭）。route は DB の attrs.route（中の名前は出さない）。
+// 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10・AQ181-11・AQ181-12）: PC の中の文字起こしと要約は「オフライン」（前は「PC」。議事録の上の行と同じ名前）
 function sttOf(route) {
   const stt = route && typeof route === 'object' && route.stt && typeof route.stt === 'object' ? route.stt : null;
   if (!stt) return '';
   const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
   const cloud = n(stt.cloud), local = n(stt.local);
-  return cloud && local ? '両方' : cloud ? 'クラウド' : local ? 'PC' : '';
+  return cloud && local ? '両方' : cloud ? 'クラウド' : local ? 'オフライン' : '';
 }
 function summaryOf(entry, route) {
   if (!entry.hasSummary) return 'なし';
   const by = route && typeof route === 'object' && route.summary && typeof route.summary === 'object' ? route.summary.by : '';
-  return by === 'claude-code' ? 'あり（Claude Code）' : by === 'local' ? 'あり（PC）' : 'あり';
+  return by === 'claude-code' ? 'あり（Claude Code）' : by === 'local' ? 'あり（オフライン）' : 'あり';
 }
 
 // 0.15.0 PH-7（計画 docs/plans/2026-11-03-150.md の決めたこと 34・F116・HR19）: 白紙のページの印（会議の種類と長さの代わり）と無題の名前
@@ -289,7 +290,7 @@ function propLines(page, place = '', dump = null) {
   const stt = sttOf(page.route);
   if (stt) lines.push(`- 文字起こし: ${stt}`);
   const by = page.route && typeof page.route === 'object' && page.route.summary && typeof page.route.summary === 'object' ? page.route.summary.by : '';
-  if (by === 'claude-code' || by === 'local') lines.push(`- 要約: ${by === 'claude-code' ? 'Claude Code' : 'PC'}`);
+  if (by === 'claude-code' || by === 'local') lines.push(`- 要約: ${by === 'claude-code' ? 'Claude Code' : 'オフライン'}`);
   const cs = citeStatOf(Array.isArray(page.blocks) ? page.blocks : []);
   if (cs.total > 0) lines.push(`- 出典: ${cs.linked}/${cs.total}`);
   const st = stateLine(page.stateLog);

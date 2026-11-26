@@ -1,7 +1,7 @@
 ---
 title: 文字起こしの状態と帯
 description: 録音中のページの「文字起こし中（クラウド）」の行と、問題があるときに出る帯・Windows の知らせ
-updated: 2026-10-28
+updated: 2026-11-26
 sources: src/main.js, src/mainlib.js, src/renderer/app.html, src/renderer/overlay.html, README.md, CHANGELOG.md
 related: record/start-stop, record/pc-only, start/login
 ---
@@ -72,4 +72,4 @@ related: record/start-stop, record/pc-only, start/login
 
 ## 議事録の上の行 {#route}
 
-議事録ができると、上の行に、どこで処理したかが「☁ 文字起こし: クラウド（OpenAI）12・PC 2」「✨ 要約: Claude Code」のように出ます（0.9.x で PC の中で作った要約は「🖥 要約: PC（オフライン）」のままです）。
+議事録ができると、上の行に、どこで処理したかが「☁ 文字起こし: クラウド（OpenAI）12・オフライン 2」「✨ 要約: Claude Code」のように出ます（0.9.x で PC の中で作った要約は「🖥 要約: オフライン」と出ます）。

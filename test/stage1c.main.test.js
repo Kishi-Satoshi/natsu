@@ -117,7 +117,8 @@ test('RF28: ［この会議は PC の中だけ］なら、中継に音声を送�
   // C-3: 画面と同じ IPC（meeting:set-local-only）で押し、会議の状態に印と「クラウドで処理する PC か」が載る
   assert.deepStrictEqual(l.localOnly, { ok: true, localOnly: true });
   assert.deepStrictEqual(l.statusLocalOnly, { localOnly: true, cloud: true });
-  assert.deepStrictEqual(l.pages[0].routeText.slice(0, 1), ['🖥 文字起こし: PC']);
+  // 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10）で意図して変えた: PC の中の文字起こし・要約は「オフライン」（前は「PC」）
+  assert.deepStrictEqual(l.pages[0].routeText.slice(0, 1), ['🖥 文字起こし: オフライン']);
   // ［PC の中だけ］の区間では札を復号しない（復号は起動と会議の始めの経路の確かめの分だけで、区間の数では増えない）
   const l1 = await run(['text', '--relay=text', '--local-only', '--segs=1']);
   assert.strictEqual(l.decrypts, l1.decrypts, `［PC の中だけ］の区間で札を復号した（区間 2 つで ${l.decrypts} 回・1つで ${l1.decrypts} 回）`);
@@ -330,5 +331,6 @@ test('今の場面を守る: --claude を付けない要約の場面は、届く
   assert.deepStrictEqual(o.claude, []);
   assert.strictEqual(llamaSpawned(o), false);
   assert.strictEqual(o.pages[0].summaryError, '要約待ち（つながったら作ります）');
-  assert.deepStrictEqual(o.pages[0].routeText, ['🖥 文字起こし: PC']);
+  // 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10）で意図して変えた: PC の中の文字起こし・要約は「オフライン」（前は「PC」）
+  assert.deepStrictEqual(o.pages[0].routeText, ['🖥 文字起こし: オフライン']);
 });
