@@ -4,6 +4,7 @@
  *  PF-2: 文字起こしの間隔の既定 30 秒（settings.js・lib.segmentBaseMs）・前の版の 75 秒の移し（lib.oldDefaultsPatch）・録音中は変えない（F260）
  *  PF-3: 「遅い」の覚えの印（lib.paceStamp・lib.sameStamp。印の違う覚えは無いのと同じ）と覚える条件（lib.paceSaved。速さの数 3 つ以上で理由 two・big だけ）
  *  PF-4: 会議の後の待ち時間（lib.localTimeoutMs の after。rtf が空なら 3）・残ったエンジンの照らし（lib.tasklistImageOf・lib.orphanMatches）
+ *  PF-5: ヘルプ trouble/slow-pc（3 回までは時間切れの区間にも当たる・PC が重いときはスレッド数を下げる・覚えと録音の始まりの直し）
  */
 'use strict';
 
@@ -172,4 +173,24 @@ test('PF-4 ほかのプロセス: tasklist の答え（CSV）から、その番�
   for (const [r, img] of [[rec, 'chrome.exe'], [rec, null], [rec, ''], [null, 'whisper-server.exe'], [{ pid: 4321 }, 'whisper-server.exe'], [{ pid: 'x', exe: 'whisper-server.exe' }, 'whisper-server.exe'], [{ pid: 0, exe: 'whisper-server.exe' }, 'whisper-server.exe']]) {
     assert.strictEqual(L.orphanMatches(r, img), false, JSON.stringify([r, img]));
   }
+});
+
+// ---------------------------------------------------------------- PF-5（決めたこと 9）
+test('PF-5 ヘルプ: trouble/slow-pc は「3 回まで試して」が時間内に終わらない区間にも当たり、その区間は後ろへ回すと書く。PC 全体が重いときの手（スレッド数を下げる）がある。覚えと録音を始めたときの形が 0.18.1 のコードと同じ', T, () => {
+  const t = read('help', 'articles', 'trouble', 'slow-pc.md');
+  const sec = (id) => { const i = t.indexOf(`{#${id}}`); assert.ok(i > 0, `節 #${id} が無い`); const j = t.indexOf('\n## ', i); return t.slice(i, j < 0 ? t.length : j); };
+  const kept = sec('kept');
+  assert.ok(kept.includes('PC の文字起こしが何度も失敗する区間（時間内に終わらなかった区間も）は、3 回まで試して、その後は自動ではやり直さずに音声を残します。'), kept);
+  assert.ok(kept.includes('時間内に終わらなかった区間は、待ち行列の後ろへ回し、ほかの区間を先に文字起こしします。'), kept);
+  const heavy = sec('heavy');
+  for (const w of ['会議のアプリや画面の操作より後に回し', '優先度を「通常より低い」', '既定で 4 まで', '「スレッド数」', '［設定］の「ローカル AI」の「詳細設定」', '遅くなります']) assert.ok(heavy.includes(w), `『PC 全体が重いとき』に「${w}」が無い`);
+  assert.ok(/^## PC 全体が重いとき \{#heavy\}$/m.test(t), '見出し');
+  const what = sec('what');
+  assert.ok(what.includes('PC で 3 区間以上文字起こしした会議で、区間の長さより長くかかった区間が 2 つ続いた・1 つで 1.5 倍を越えたときだけ'), what);
+  assert.ok(!what.includes('判断は使っている文字起こしのモデルごとに 14 日覚え'), '前の覚えの形が残っている');
+  const after = sec('after');
+  assert.ok(after.includes('録音を始めたときに文字起こししていた区間は、録音が終わってからもう一度文字起こしします。'), after);
+  assert.ok(/^updated: 2026-11-2[5-9]$/m.test(t), 'updated を直していない');
+  // 画面に無い言葉の［…］を足さない（設定の場所は「…」で書く）
+  assert.ok(!/［詳細設定］|［スレッド数］|［ローカル AI］/.test(t), '［…］に画面のボタンでない言葉');
 });
