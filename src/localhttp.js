@@ -51,7 +51,8 @@ async function postInference({ port, form, timeoutMs, signal, request = http.req
       if (destroy && req) { try { req.destroy(); } catch (_) { /* 壊せなくても断る */ } }
       reject(e);
     }
-    if (signal && signal.aborted) { onAbort(); return; }
+    // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR23）: 送る前に切られていた頼みには unsent の印を付ける（呼び手はエンジンを止めない）
+    if (signal && signal.aborted) { const e = new Error('取り消しました'); e.name = 'AbortError'; e.unsent = true; fail(e, false); return; }
     try {
       req = request({
         host: '127.0.0.1', port: Number(port), path: '/inference', method: 'POST', agent: false,

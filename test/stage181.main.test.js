@@ -6,6 +6,7 @@
  *  PF-3: 「遅い」の覚え（local-pace.json）の印。印の無い・違う覚えは会議の始めにも待ち時間にも使わない。書く覚えに印を書く
  *  PF-4: 会議の後の文字起こしの時間切れ（回数に数え・待ち行列の後ろへ回し・その回は止める・3 回で保留）・会議の後の待ち時間（rtf が空なら 3）・
  *        録音を始めたら会議の後の頼みを切る（数えない）・前の NaTsu が残したエンジン（engine-proc.json と tasklist の名前の照らし）
+ *  0.18.1 点検の直し（計画の CR22・CR23）: 時間切れが続く区間が保留になった後の要約・送る前に切った頼み（エンジンを止めない）
  */
 'use strict';
 
@@ -16,10 +17,10 @@ const path = require('node:path');
 const { execScene, sceneTimeout } = require('./helpers/scene-slots');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
-const run = (args, { scale = '0.005', env = {} } = {}) => new Promise((resolve, reject) => {
+const run = (args, { scale = '0.005', env = {}, limit = 20000 } = {}) => new Promise((resolve, reject) => {
   execScene(process.execPath, [RUN, ...args], {
     env: { ...process.env, NATSU_TEST_STT_SLEEP_SCALE: '0.01', NATSU_TEST_ONLINE_MEMO_SCALE: '0.001', NATSU_TEST_LOCAL_TIME_SCALE: scale, ...env },
-    maxBuffer: 1 << 24, timeout: 20000,
+    maxBuffer: 1 << 24, timeout: limit,
   }, (err, stdout, stderr) => {
     if (err) { reject(new Error(`mainrun ${args.join(' ')} が失敗: ${err.message}\n${stderr}`)); return; }
     resolve(JSON.parse(stdout.trim().split('\n').pop()));
@@ -148,6 +149,36 @@ test('PF-4 ほかの区間が進む: 会議の後の時間切れの区間は待�
   assert.ok(segs.length === 2 && segs[0].failed && !segs[1].failed && segs[1].text.startsWith('本日の議題は進捗の確認です'), JSON.stringify(segs));
 });
 
+// 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR22・決めたこと 7 の理由「要約まで進む」）: 時間切れの続く区間が 3 回目で保留になった回は止めずに最後まで進み、
+// 要約を待たせた会議（「文字起こし待ちの音声があります。…」）は、残りが保留の区間だけで文字のある区間があれば、その回で文字になった区間が無くても要約を作る（1 回だけ）
+const WAIT_SUMMARY = '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。';
+const startsOf = (o) => o.again.map((a) => a.summaryStarts);
+test('PF-4 時間切れが続く区間の後の要約: s1 がいつも時間切れの会議（s2 は文字になる）。s1 が 3 回目で保留になった回で、文字になった区間が無くても要約を作る（1 回だけ）', T, async () => {
+  const o = await run(['hang-first', '--segs=2', '--after-retry', '--recover-again=4'], { env: { FAKE_HANG_N: '99', FAKE_HANG_MIN_BYTES: '90000' } });
+  const logs = o.again.map((a) => a.log.join('\n')).join('\n---\n');
+  // 1 回目の引き直し: s2 が文字になり、s1 は 2 回目の時間切れ（後ろへ回してその回は止める: 要約はまだ）
+  assert.deepStrictEqual(queueOf(o.again[0].queue), [[{ id: 's1', tries: 2, held: undefined }]], logs);
+  assert.strictEqual(o.again[0].summaryStarts, 0, logs);
+  // 2 回目の引き直し: s1 は 3 回目の時間切れで保留（止めずに最後まで進む）→ 要約を作る
+  const t3 = o.again[1];
+  assert.deepStrictEqual(queueOf(t3.queue), [[{ id: 's1', tries: 3, held: true }]], logs);
+  assert.ok(t3.log.includes('復旧の文字起こし: 時間切れが 3 回の区間 s1 は、自動ではやり直さずに音声を残します'), logs);
+  assert.ok(!t3.log.includes('復旧の文字起こしを止めました（理由: late）。残りの 1 区間の音声と待ち行列は残します'), logs);
+  assert.deepStrictEqual(startsOf(o), [0, 1, 0, 0], logs);
+  const last = o.again[o.again.length - 1];
+  assert.ok(last.pages[0].summaryError !== WAIT_SUMMARY, JSON.stringify(last.pages));
+  // 保留の区間は音声を残し、もう送らない
+  assert.deepStrictEqual([last.requests, last.wavs.length], [0, 1], logs);
+});
+
+test('PF-4 時間切れが続く区間の後の要約（文字が無い会議）: 区間が s1 だけでいつも時間切れなら、保留になっても要約は作らない（要約の欄は文字起こし待ちのまま）', T, async () => {
+  const o = await run(['hang-first', '--segs=1', '--after-retry', '--recover-again=3'], { env: { FAKE_HANG_N: '99' } });
+  const logs = o.again.map((a) => a.log.join('\n')).join('\n---\n');
+  assert.deepStrictEqual(queueOf(o.again[1].queue), [[{ id: 's1', tries: 3, held: true }]], logs);
+  assert.deepStrictEqual(startsOf(o), [0, 0, 0], logs);
+  assert.strictEqual(o.again[2].pages[0].summaryError, WAIT_SUMMARY, JSON.stringify(o.again[2].pages));
+});
+
 test('PF-4 会議の後の待ち時間: 会議の後の頼みは、覚えの rtf が空なら 3 とみる（120 秒の区間で 780 秒。会議中は今どおり 300 秒）', T, async () => {
   const o = await run(['hang-first', '--segs=1', '--seg-ms=120000', '--after-retry'], { scale: '0.002', env: { FAKE_HANG_N: '2' } });
   assert.deepStrictEqual(lateLines(o.afterRetry.engineLog), [
@@ -166,6 +197,24 @@ test('PF-4 録音を始めたとき: 会議の後の文字起こしの頼みが�
   // 切った後にエンジンを起こし直し、会議の区間を文字にした。録音を止めた後に前の会議の3区間も文字にした
   assert.ok(whisperSpawns(o).length >= 2, brief(o));
   assert.ok(o.afterQueue.pages.length === 2 && o.afterQueue.pages.every((p) => p.segments.length > 0 && p.segments.every((x) => !x.failed)), JSON.stringify(o.afterQueue.pages));
+});
+
+// 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR23）: 会議の後の頼みがエンジンの起動を待つ間に録音を始めた（頼みはまだ送っていない）。
+// 送っていない頼みは whisper-server の中に無いので、エンジンを止めずに（起こしたばかりのエンジンをそのまま会議に使う）、今の録音中の止めと同じ形で待ち行列に残す。
+// 場面: s1・s2 がどちらも時間切れの会議（偽の whisper は 2 秒以上の WAV に答えない）。4 回目の引き直しで s1 が 3 回目の時間切れで保留になり（CR22: 止めずに進む）、
+// s2 のためにエンジンを起こし直している間（偽の whisper の起動を 2.5 秒遅らせる）に録音を始める
+test('PF-4 送る前に切った頼み: 会議の後の頼みがエンジンの起動を待つ間に録音を始めると、エンジンを止めず「切りました」も書かない。区間は数えずに待ち行列に残す', { timeout: sceneTimeout(60000) }, async () => {
+  const o = await run(['hang-first', '--segs=2', '--after-retry', '--recover-again=4', '--start-in-again=3'], { env: { FAKE_HANG_N: '99', FAKE_HANG_MIN_BYTES: '60000' }, limit: 60000 });
+  const c = o.cutCold;
+  assert.ok(c, JSON.stringify(o.again.map((a) => a.log)));
+  const after = c.log.slice(c.log.findIndex((l) => /^復旧の文字起こし: 時間切れが 3 回の区間 s1 は/.test(l)));
+  assert.ok(after.length > 0 && after.includes('復旧の文字起こしを止めました（理由: busy）。残りの 2 区間の音声と待ち行列は残します'), c.log.join('\n'));
+  assert.ok(!after.some((l) => l.startsWith('手元の文字起こしを切りました')), c.log.join('\n'));
+  assert.ok(!after.some((l) => l.startsWith('文字起こしエンジンが終了しました')), c.log.join('\n'));
+  assert.deepStrictEqual(lateLines(after), [], c.log.join('\n'));
+  // 録音を始めた後にエンジンを起こしていない（起こしたばかりのエンジンを使う）。切った s2 は数えない（2 回のまま）。s1 は保留
+  assert.strictEqual(c.spawnsAfter, c.spawnsBefore, c.log.join('\n'));
+  assert.deepStrictEqual(queueOf(c.queue), [[{ id: 's1', tries: 3, held: true }, { id: 's2', tries: 2, held: undefined }]], c.log.join('\n'));
 });
 
 test('PF-4 残ったエンジン: 起動のときポートが塞がっていて、engine-proc.json の番号のプロセスが今も同じ名前（tasklist）なら止め、ポートが空いてから起こす。起こしたエンジンの番号を engine-proc.json に書く', T, async () => {

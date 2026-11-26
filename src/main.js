@@ -1516,6 +1516,14 @@ function restartWhisperAfterCut(seg, sec) {
   engineLog(`手元の文字起こしを切りました: ${id}（音声 ${sec} 秒）。録音を始めたため、エンジンを起こし直します`);
   stopWhisperForRestart();
 }
+// 録音を始めて切った会議の後の頼みの誤り（keepForRetry・busy。transcribeRecoveredItems は数えずに待ち行列に残す）。0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR23）で
+// 送る前に切った形と1つにした
+function recordingCutError(cause) {
+  const err = new Error('録音を始めたため、会議の後の文字起こしを止めました', cause ? { cause } : undefined);
+  err.keepForRetry = true;
+  err.cloudCode = 'busy';
+  return err;
+}
 function stopWhisperForRestart() {
   const p = whisperEng.proc;
   stopEngine(whisperEng);
@@ -1603,6 +1611,9 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
     touchEngine(whisperEng);
     let res;
     for (;;) {
+      // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR23）: 送る前に切られていた頼み（エンジンの起動を待つ間に録音を始めた）は、送らずに同じ印で投げる。
+      // whisper-server の中に走る頼みが無いので、エンジンは止めない（起こしたばかりのエンジンをそのまま会議に使う。「切りました」の行も書かない）
+      if (opts.signal && opts.signal.aborted) throw recordingCutError();
       try {
         const sent = Date.now();
         try {
@@ -1615,11 +1626,9 @@ async function transcribeLocal(wavBuffer, extraPromptTail, durationMs, opts = {}
         // 0.18.1 PF-4（決めたこと 8・F257）: 録音を始めて切った頼み（opts.signal）は時間切れに数えない。エンジンを起こし直し、会議の後の文字起こしを止める印
         // （keepForRetry・busy。transcribeRecoveredItems は数えずに待ち行列に残す）で投げる
         if (opts.signal && opts.signal.aborted) {
-          restartWhisperAfterCut(opts.seg, sec);
-          const err = new Error('録音を始めたため、会議の後の文字起こしを止めました', { cause: e });
-          err.keepForRetry = true;
-          err.cloudCode = 'busy';
-          throw err;
+          // 0.18.1 点検の直し（CR23）: localhttp が送る前に断った頼み（unsent）はエンジンの中に無いので、エンジンを止めない
+          if (!(e && e.unsent)) restartWhisperAfterCut(opts.seg, sec);
+          throw recordingCutError(e);
         }
         // 0.9.4 S-2（決めたこと 16）: 時間切れの要求は whisper-server の中で走り続け、次の区間がその後ろで待つ。エンジンを止め、次に使うときに起こし直す
         if (lib.localFailKind(e) === 'late') restartWhisperAfterLate(opts.seg, sec, planMs);
@@ -4762,15 +4771,21 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
         const kind = e && !e.refused && e.sttRoute && e.sttRoute.route === 'local' ? lib.localFailKind(e) : '';
         if (e && (e.keepForRetry || e.engineMissing || kind === 'late' || kind === 'down')) {
           // 0.18.1 PF-4（決めたこと 7・M3）: PC の時間切れは回数 tries に数え、3 回で held（音声は残す。［もう一度文字起こし］で試せる）。保留でなければ
-          // 待ち行列の後ろへ回す。どちらもその回はそこで止める（1 回の起こしで時間切れは1つまで。次の回はほかの区間から進む）。録音を始めて切った頼み（busy）は数えない
+          // 待ち行列の後ろへ回し、その回はそこで止める（1 回の起こしで時間切れは1つまで。次の回はほかの区間から進む）。録音を始めて切った頼み（busy）は数えない
           if (kind === 'late' && !e.keepForRetry && !e.engineMissing) {
             const lateTries = (Number.isInteger(item.tries) && item.tries > 0 ? item.tries : 0) + 1;
-            const held = lateTries >= RECOVERY_TRIES_MAX;
-            if (held) await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: `（この区間の認識に失敗: ${localErrorText(e)}。音声は残してあります）` });
-            const moved = held ? { ...q.items[i], tries: lateTries, held: true } : { ...q.items[i], tries: lateTries };
+            if (lateTries >= RECOVERY_TRIES_MAX) {
+              // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR22・決めたこと 7 の理由「要約まで進む」）: 3 回目の時間切れで保留にした区間は、
+              // エンジンが誤りを返した区間の保留と同じく残して次の区間へ進む（止めない。止めると、ほかに文字になる区間が無い回で要約が始まらない）
+              await db.call('segment.fail', { pageId: q.pageId, segId: item.id, text: `（この区間の認識に失敗: ${localErrorText(e)}。音声は残してあります）` });
+              engineLog(`復旧の文字起こし: 時間切れが ${lateTries} 回の区間 ${item.id} は、自動ではやり直さずに音声を残します`);
+              settled = true;
+              left.push({ ...item, tries: lateTries, held: true });
+              continue;
+            }
+            const moved = { ...q.items[i], tries: lateTries };
             const rest = left.concat(q.items.slice(i + 1), [moved]).filter((it) => it && it.wav && fs.existsSync(it.wav));
-            engineLog(held ? `復旧の文字起こし: 時間切れが ${lateTries} 回の区間 ${item.id} は、自動ではやり直さずに音声を残します`
-              : `復旧の文字起こし: 時間切れの区間 ${item.id} を待ち行列の後ろへ回しました（${lateTries} 回目）`);
+            engineLog(`復旧の文字起こし: 時間切れの区間 ${item.id} を待ち行列の後ろへ回しました（${lateTries} 回目）`);
             engineLog(`復旧の文字起こしを止めました（理由: late）。残りの ${rest.length} 区間の音声と待ち行列は残します`);
             saveRecoveryQueue({ ...q, items: rest });   // F256: 回数と並びを recovery.json に残す
             sendRecoveryPending(q.pageId, rest, false);
@@ -4830,7 +4845,12 @@ async function transcribeRecoveredItems(q, { cloudOnly = false } = {}) {
   // 第1d2回 M-3（決めたこと 7）: 締めで要約を待たせた会議（要約の欄が S3・S3'）は、文字になった区間があれば R1 を出して要約を作る（待たない。
   // 経路は runSummary が決める。0.10.0 LS-2: オフラインモードの会議も Claude Code。届かなければ要約待ち）
   const waitText = [KEPT_SUMMARY_TEXT.wait, KEPT_SUMMARY_TEXT.waitLocal];
-  if (done > 0 && cur.page && waitText.includes(cur.page.summaryError)) {
+  // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR22）: 残りが自動ではやり直さない区間（held）だけになったら、その回で文字になった区間が無くても
+  // 要約を作る（前の回で文字になった区間で作る。要約の材料と同じく、失敗・待ちでない文字のある区間が1つも無ければ作らない）。作ると要約の欄が替わるので、
+  // 次の回はここへ来ない（走っている間は runSummary が同じ走りを返す）
+  const onlyHeld = left.every((it) => it.held === true);
+  const hasText = Array.isArray(cur.segments) && cur.segments.some((x) => x && !x.failed && !x.pending && String(x.text || '').trim());
+  if ((done > 0 || (onlyHeld && hasText)) && cur.page && waitText.includes(cur.page.summaryError)) {
     sendToMainWin('pages:updated', await db.call('pages.list', {}));
     const now = await db.call('page.get', { id: q.pageId });
     sendToMainWin('page:updated', { page: (now && now.page) || cur.page, segments: now ? now.segments : cur.segments });

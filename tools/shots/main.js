@@ -44,6 +44,10 @@ const FIRST_SIZE = { overlay: SH.OVERLAY_SIZE, nudge: SH.NUDGE_SIZE };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const msgOf = (e) => (e && e.message) || String(e);
 
+// 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR24）: 操作（act）を外で待つ時間。操作の中の待ち（until の 50 回 × 100 ミリ秒を 3 つまで・決まった待ち）の
+// 合計は 15 秒ほどまであり、前の 10 秒では遅いが生きている機械で中の待ちが済む前に外が「返らない」と投げた（OPEN_ICON は 10.1 秒）。中の待ちの合計の 1.5 倍より長くする
+// （test/shots.test.js が操作ごとに見積もって確かめる）。撮る画面の形は変わらない（待つ上限だけ）
+const ACT_MS = 30000;
 /** promise を ms で打ち切る（止まったまま見張りの時間を待たない） */
 function within(promise, ms, what) {
   let t;
@@ -225,7 +229,7 @@ function boot() {
     try {
       const warm = await open(SH.SCREENS[0].page, SH.SCREENS[0].theme, SH.fixtures());
       try {
-        if (SH.SCREENS[0].act) await within(warm.wc.executeJavaScript(SH.SCREENS[0].act, true), 10000, '慣らしの操作');
+        if (SH.SCREENS[0].act) await within(warm.wc.executeJavaScript(SH.SCREENS[0].act, true), ACT_MS, '慣らしの操作');
         await settle(warm.wc, warm.t);
         warmShot = await capture(warm.wc);
       } finally {
@@ -284,7 +288,7 @@ function boot() {
           closeOverlay();
           ov = { key, ...(await open('overlay', s.theme, SH.fixtures(), 1, SH.OVERLAY_SIZE, scale)) };
         }
-        await within(ov.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
+        await within(ov.wc.executeJavaScript(s.act, true), ACT_MS, `${s.name} の操作`);
         await settle(ov.wc, ov.t);
         const winSize = await fitPanel(ov, s.slot);
         const room = SH.judgePanel(await probePanel(ov));
@@ -327,7 +331,7 @@ function boot() {
         o = await open('nudge', s.theme, SH.fixtures(), 1, SH.NUDGE_SIZE, scale);
         for (const [name, payload] of s.events || []) o.wc.send(`shots:event:${BRIDGE[s.page]}.${name}`, payload);
         await wait(150);
-        if (s.act) await within(o.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
+        if (s.act) await within(o.wc.executeJavaScript(s.act, true), ACT_MS, `${s.name} の操作`);
         await settle(o.wc, o.t);
         const r = await within(o.wc.executeJavaScript(SH.NUDGE_PROBE), 10000, 'パネルを測る');
         if (!r || !r.pill) throw new Error('パネルを測れなかった');
@@ -377,7 +381,7 @@ function boot() {
         if (s.motion) await o.wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: s.motion }] });
         // 0.9.3 M-7: main から届く出来事の並び（音の波の WAVE_SPEECH など）を順に送る
         for (const [name, payload] of s.events || []) o.wc.send(`shots:event:${BRIDGE[s.page]}.${name}`, payload);
-        if (s.act) await within(o.wc.executeJavaScript(s.act, true), 10000, `${s.name} の操作`);
+        if (s.act) await within(o.wc.executeJavaScript(s.act, true), ACT_MS, `${s.name} の操作`);
         await settle(o.wc, o.t);
         await wait(300);
         if (s.zoom) {
@@ -445,7 +449,7 @@ function boot() {
             const name = `panel-${form}-${state}-${Math.round(scale * 100)}`;
             const s = SH.SCREENS.find((x) => x.pill && x.pill.form === form && x.pill.state === state && x.pill.desk === 'light' && x.pill.scale === 1);
             if (!s) throw new Error(`録音バーの画面 ${form}・${state} が無い`);
-            await within(o.wc.executeJavaScript(s.act, true), 10000, `${name} の操作`);
+            await within(o.wc.executeJavaScript(s.act, true), ACT_MS, `${name} の操作`);
             await settle(o.wc, o.t);
             const winSize = await fitPanel(o, s.slot);
             const dpr = await within(o.wc.executeJavaScript('window.devicePixelRatio'), 10000, '拡大率を読む');
@@ -531,7 +535,7 @@ function boot() {
         o = await open('app', 'light', { ...SH.fixtures(), ...JSON.parse(JSON.stringify((scr && scr.answers) || {})) });
         await o.wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
         o.wc.focus();
-        await within(o.wc.executeJavaScript(SH.dismissOpen(step.open), true), 10000, `外の押し ${step.name} の窓を開く`);
+        await within(o.wc.executeJavaScript(SH.dismissOpen(step.open), true), ACT_MS, `外の押し ${step.name} の窓を開く`);
         await settle(o.wc, o.t);
         await wait(150);
         const base = await within(o.wc.executeJavaScript(SH.DISMISS_PROBE), 10000, '形を読む');

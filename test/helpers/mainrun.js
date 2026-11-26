@@ -299,6 +299,7 @@ const { titleAt } = require('./titles');
 //   0.9.4 S-3（音声を失わない）:
 //     --recover-again=<n> … 議事録を写した後（--after-retry の後）、設定の保存（settings:save。保留の復旧を引き直す）を n 回。そのたびに
 //                     復旧の記録の行（止めました・保留）か待ち行列が無くなるのを 3 秒まで待ち、out.again に { pages, queue（recovery.json の中身）, wavs, requests（増えた要求の数）, log } を写す
+//                     （0.18.1 点検の直し（CR22）: summaryStarts … その引き金の間に要約の走りを始めた数）
 //     --delete-pages-then-recover … その後、議事録を全部消して（page.delete）設定を保存し、out.afterDelete に { queue, wavs }
 //     --skip-at-stop … 最後の区間を送った後、1 区間が文字になるのを待って meeting:skipPending（out.skip・out.skippedSegs）
 //     --wait-queue-empty … 議事録を写した後、待ち行列が無くなるまで待ち、out.afterQueue に { pages, notices, chats（偽の llama の要求の数）, wavs }
@@ -503,6 +504,10 @@ const { titleAt } = require('./titles');
 //   0.18.1 PF-4:
 //     --start-when-recovering … 会議を始める前に、偽の whisper が区間（試しでない）の要求を受けるまで待つ（起動の片付けの会議の後の文字起こしの頼みが
 //                     エンジンの中にある間に録音を始める。--extra-queue と hang-first・FAKE_HANG_N=1 で、その頼みが返らない形にする）
+//     --start-in-again=<k> … 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR23）: --recover-again の k 回目（0 から）の引き金の前に、偽の whisper の起動を
+//                     2.5 秒遅らせ（FAKE_START_MS）、その回で区間が 3 回目の時間切れで保留になり（CR22: 止めずに次の区間へ進む）、次の区間のためにエンジンを起こし直して
+//                     まだ要求を受けていない間に録音を始める（会議の後の頼みがエンジンの起動を待つ間に切られる）。会議の後の文字起こしが止まる（理由: busy）のを待って
+//                     out.cutCold（{ log: その回の engine.log・queue: その時の待ち行列・spawnsBefore・spawnsAfter: 録音を始める前と止まった後の起こした数 }）に写し、録音を止める
 //     --orphan=same|other … 起動の前に、前の NaTsu が残したエンジンの形を置く: 文字起こしのポートを塞ぐ node のプロセスを起こし、その番号と
 //                     偽の whisper の名前（fake-whisper.js）を <userData>/data/engine-proc.json に書く。偽の execFile は tasklist.exe の
 //                     「PID eq <番号>」に、same なら fake-whisper.js、other なら other.exe の名前で答える。呼んだ引数を out.tasklistCalls に、
@@ -571,6 +576,7 @@ const prioFlag = flagVal('--prio');
 const prioCalls = [];
 // 0.18.1 PF-4: 会議の後の文字起こしの頼みの間に録音を始める・前の NaTsu が残したエンジン（頭の注釈）
 const startWhenRecovering = flags.includes('--start-when-recovering');
+const startInAgain = flagVal('--start-in-again') === '' ? -1 : Number(flagVal('--start-in-again'));   // 0.18.1 点検の直し（CR23）
 const orphanFlag = flagVal('--orphan');
 let orphanKid = null;
 // 0.9.4 S-5: --clock-seq=<i>:<ミリ秒>,… … i 番目（0 から）の区間を送る前に main の時計（と中継の試しの時計）をその分だけ進める
@@ -2955,11 +2961,14 @@ process.on('exit', () => {
     const ids = store.listPages().map((p) => p.id);
     return waitFor(() => ids.every((id) => !handlers['page:pending']({}, { id }).running), 5000);
   };
-  const recoverOnce = async (pull) => {
+  const recoverOnce = async (pull, mid) => {
     await recoveryIdle();
     const log0 = elogLines().length;
     const req0 = segRequests();
+    const sent0 = sent.length;
+    const runAt0 = (sent.filter(([ch]) => ch === 'summary:running').pop() || [null, []])[1] || [];
     await pull();
+    if (mid) await mid(log0);
     const t0 = Date.now();
     while (Date.now() - t0 < 3000) {
       if (elogLines().slice(log0).some((l) => /^復旧の文字起こしを(止めました|保留)/.test(l)) || !queueFilesNow().length) break;
@@ -2967,7 +2976,11 @@ process.on('exit', () => {
     }
     await recoveryIdle();
     await sleep(200);
-    return { pages: snapPages(), queue: queueNow(), wavs: segWavFiles(), requests: segRequests() - req0, log: elogLines().slice(log0) };
+    // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR22）: summaryStarts … この引き金の間に要約の走りを始めた数（summary:running の知らせで、走るページが増えた回）
+    let starts = 0;
+    let prev = runAt0.length;
+    for (const [ch, ids] of sent.slice(sent0)) if (ch === 'summary:running' && Array.isArray(ids)) { if (ids.length > prev) starts++; prev = ids.length; }
+    return { pages: snapPages(), queue: queueNow(), wavs: segWavFiles(), requests: segRequests() - req0, log: elogLines().slice(log0), summaryStarts: starts };
   };
   // 画面に渡る経路の行（page:get の返事の routeText）と、最後の page:updated で送った routeText（第1c回 C-3）
   // 第2a1回 M-1（ST1）: ページの口は async（中身は await db.call）。答えを待ってから見る
@@ -4068,7 +4081,30 @@ process.on('exit', () => {
   // 0.9.4 S-3: 設定の保存で会議の後の文字起こしを引き直す
   if (recoverAgainN) {
     out.again = [];
-    for (let k = 0; k < recoverAgainN; k++) out.again.push(await recoverOnce(() => handlers['settings:save']({}, {})));
+    // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR23）: --start-in-again の回は、保留の後の区間がエンジンの起動を待つ間に録音を始める（頭の注釈）
+    const startDuringColdStart = async (log0) => {
+      const fl = () => fs.readFileSync(flog, 'utf8').split('\n');
+      const lastAt = (a, re) => { for (let i = a.length - 1; i >= 0; i--) if (re.test(a[i])) return i; return -1; };
+      const heldNow = () => elogLines().slice(log0).some((l) => /^復旧の文字起こし: 時間切れが 3 回の区間 s\d+ は/.test(l));
+      await waitFor(() => { const a = fl(); return heldNow() && lastAt(a, /^spawn /) > lastAt(a, /^inference /); }, 15000);
+      const spawnsBefore = spawns.length;
+      { const a = fl(); if (lastAt(a, /^served /) > lastAt(a, /^spawn /)) throw new Error('--start-in-again: 録音を始める前に起こし直したエンジンが要求を受けた'); }
+      const start = await handlers['meeting:toggle']();
+      await waitFor(() => elogLines().slice(log0).some((l) => l.startsWith('復旧の文字起こしを止めました（理由: busy）')), 15000);
+      delete process.env.FAKE_START_MS;
+      await sleep(300);
+      out.cutCold = { start, log: elogLines().slice(log0), queue: queueNow(), spawnsBefore, spawnsAfter: spawns.length };
+      const fin = (kinds) => trace.filter((t) => t.cmd === 'meeting.finalize' && kinds.includes(t.kind)).length;
+      const fin0 = fin(['call']);
+      await handlers['meeting:toggle']();
+      listeners['audio:segment']({}, { buffer: new Uint8Array(0), durationMs: 0, final: true });
+      await waitFor(() => !handlers['meeting:status']().active && fin(['call']) > fin0 && fin(['call']) === fin(['ack', 'fail']), 15000);
+      await sleep(50);
+    };
+    for (let k = 0; k < recoverAgainN; k++) {
+      if (k === startInAgain) process.env.FAKE_START_MS = '2500';
+      out.again.push(await recoverOnce(() => handlers['settings:save']({}, {}), k === startInAgain ? startDuringColdStart : null));
+    }
   }
   if (deletePagesThenRecover) {
     for (const p of store.listPages()) await appCall('page.delete', { id: p.id });

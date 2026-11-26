@@ -2057,3 +2057,34 @@ test('OD-3・F225: DISMISS_STEPS の手順（計画の OD-3 の 1〜13 と、本
   assert.match(m, /Input\.dispatchTouchEvent/, '本物のタップで押していない（R27）');
   assert.match(m, /Emulation\.setTouchEmulationEnabled/, 'タップの手でタッチを有効にしていない（R27）');
 });
+
+// 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR24。CR17 の electron-smoke の「icon-pop-light の操作 が 10000ms で返らない」の見込みの原因）:
+// 操作（act）の中の待ち（until の「50 回 × 100 ミリ秒」・決まった回数の待ちの繰り返し・決まった待ち）の合計が、外で操作を待つ時間（within）を越えると、
+// 遅いが生きている機械で、中の待ちが済む前に外が「返らない」と投げる（OPEN_ICON は 2 つの until と 100 ミリ秒で 10.1 秒、外は 10 秒だった）。
+// 外の時間は、どの操作の中の待ちの合計の 1.5 倍（込んだ機械でタイマーが遅れる分）より長い
+const actWaitBound = (act) => {
+  let rest = act;
+  let ms = 0;
+  const def = /const until = async[^\n]*?i < (\d+)[^\n]*?setTimeout\(r, (\d+)\)\);[^\n]*\n/.exec(rest);
+  if (def) { rest = rest.replace(def[0], ''); ms += (rest.match(/await until\(/g) || []).length * Number(def[1]) * Number(def[2]); }
+  rest = rest.replace(/for \(let i = 0; i < (\d+) && [^;]*; i\+\+\) await (?:w\((\d+)\)|new Promise\(\(r\) => setTimeout\(r, (\d+)\)\))/g, (_, k, a, b) => { ms += Number(k) * Number(a || b); return ''; });
+  for (const m of rest.matchAll(/setTimeout\(r2?, (\d+)\)|\bw\((\d+)\)/g)) ms += Number(m[1] || m[2]);
+  // 数えられない形（繰り返しの中で待つ・while）は投げる（数え方を足す）
+  if (/while \(|for \([^)]*\)\s*(\{[^}]*)?await/.test(rest)) throw new Error(`数えられない待ちの形: ${act.slice(0, 200)}`);
+  return ms;
+};
+test('撮る画面の操作を外で待つ時間（tools/shots/main.js の ACT_MS）は、どの操作の中の待ちの合計の 1.5 倍より長い（CR24）', { timeout: 5000 }, () => {
+  const m = read('tools/shots/main.js');
+  const at = /^const ACT_MS = (\d+);/m.exec(m);
+  assert.ok(at, 'tools/shots/main.js に ACT_MS が無い');
+  const actMs = Number(at[1]);
+  // 操作を走らせる所（慣らし・録音バー・パネル・画面・拡大の録音バー・外の押しの窓を開く）は、どれも ACT_MS で待つ
+  const runs = [...m.matchAll(/executeJavaScript\((?:[\w.[\]]+\.act|SH\.dismissOpen\(step\.open\)), true\), (\w+),/g)].map((x) => x[1]);
+  assert.ok(runs.length >= 6, `操作を走らせる所が ${runs.length} か所`);
+  assert.deepStrictEqual([...new Set(runs)], ['ACT_MS']);
+  const acts = [...SH.SCREENS.filter((s) => s.act).map((s) => [s.name, s.act]), ...SH.DISMISS_STEPS.filter((s) => s.open).map((s) => [`外の押し ${s.name}`, SH.dismissOpen(s.open)])];
+  assert.ok(acts.length > 200);
+  const worst = acts.map(([name, act]) => [name, actWaitBound(act)]).sort((a, b) => b[1] - a[1]);
+  assert.ok(worst[0][1] >= 15000, `いちばん長い操作の待ちの合計の見積もりが短すぎる（数え方の誤り）: ${JSON.stringify(worst.slice(0, 3))}`);
+  for (const [name, ms] of worst) assert.ok(actMs > ms * 1.5, `${name} の中の待ちの合計 ${ms} ミリ秒の 1.5 倍が、外で待つ ${actMs} ミリ秒を越える`);
+});
