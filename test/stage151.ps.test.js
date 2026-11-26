@@ -885,7 +885,13 @@ test('PS-2 直し: 「最終更新」の間は、兄弟の前後へ落とす印�
 
 // 0.15.1 R54: 全部のテストのファイルを並べて走らせる CI（Windows の run 42743040080）で、続けた3回が同じ込み合いに当たって中央値 46.7 ミリ秒の赤になった
 // （このファイルの速さは変わっていない。前の7回の Windows の run は通っていた）。0.16.0 の R109 と同じく、目安を越えたときだけ PF.recheck（PG1）で間を置いた2回を計り直し、はじめと合わせた中央値で決める（目安の値は変えない）
-test('PS-2 直し: sectionRows の「最終更新」は 5,000 ページでも速い（日時を木ごとに1回だけ読む。一覧の読み直しの4回で 40 ミリ秒以内・3 回の中央値・越えたら PF.recheck で計り直す）', { timeout: 30000 }, async () => {
+// 0.18.1 PF-6 の CI の直し（計画 docs/plans/2026-11-25-181.md の CR21）で意図して変えた: Windows の CI（run 45887808341）で、計り直しを合わせた3回が
+// 43.2・55.6・32.4 ミリ秒（中央値 43.2）の赤になった（このファイルと src/sideSection.js・src/pageTree.js は変わっていない）。Windows の機械では込み合いの
+// 無い回でも 32 ミリ秒ほどで 40 の目安との間が狭いので、tools/perf.js の決め方（Windows の CI は Linux より遅い。越えた名前だけ Windows の目安を
+// 測った中央値の 2 倍ほどにする: BUDGETS_WIN）と同じく、Windows だけ目安を 80 ミリ秒にした（Linux は 40 のまま）。日時を比べのたびに読む前の形は
+// この PC で 5 倍ほど（17 → 95 ミリ秒）遅いので、Windows でも 80 を越える
+const SS_BUDGET = process.platform === 'win32' ? 80 : 40;
+test('PS-2 直し: sectionRows の「最終更新」は 5,000 ページでも速い（日時を木ごとに1回だけ読む。一覧の読み直しの4回で 40 ミリ秒以内（Windows は 80）・3 回の中央値・越えたら PF.recheck で計り直す）', { timeout: 30000 }, async () => {
   const rows = [];
   for (let i = 0; i < 5000; i++) rows.push({ id: `q${i.toString(36)}`, parentId: null, ord: 'i', createdAt: new Date(Date.UTC(2026, 0, 1) + i * 60000).toISOString(), updatedAt: new Date(Date.UTC(2026, 5, 1) - ((i * 7919) % 100000) * 60000).toISOString() });
   const med3 = () => {
@@ -899,7 +905,7 @@ test('PS-2 直し: sectionRows の「最終更新」は 5,000 ページでも速
     return Number(PF.median(times).toFixed(1));
   };
   const ms = med3();
-  const [x] = await PF.recheck([{ name: 'sectionRows', ms, budget: 40, ok: ms <= 40 }], async () => { await new Promise((r) => setTimeout(r, 200)); return med3(); }, { rounds: 2 });
+  const [x] = await PF.recheck([{ name: 'sectionRows', ms, budget: SS_BUDGET, ok: ms <= SS_BUDGET }], async () => { await new Promise((r) => setTimeout(r, 200)); return med3(); }, { rounds: 2 });
   assert.ok(x.ok, `中央値 ${x.ms} ms${x.tries ? `（計り直し ${x.tries.join('・')}）` : ''}`);
   const r = SS.sectionRows(PT.pageTree(rows), new Set(), { sort: 'edited', show: 5 });
   assert.deepStrictEqual([r.rows.length, r.hidden], [5, 4995]);
