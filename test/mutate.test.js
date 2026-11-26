@@ -1944,3 +1944,37 @@ test('G3・0.18.0: 0.18.0 の変異が一覧にそろい、IDS_180 は計画の�
     assert.ok(typeof m.why === 'string' && m.why.startsWith('0.18.0 '), `${id}: why`);
   }
 });
+// 0.18.1（計画 docs/plans/2026-11-25-181.md の「変異の表」の pf- の表）: PC の中の文字起こし（ローカル AI）が重い・遅れる・止まる・終わらないの直し。
+// タスクを作るたびに、作ったタスクの行を表の行の順で足す（作っている間は「表の行の順の頭からの一部」を見る: 0.18.0 の作っている間と同じ）。
+// PF-6（「オフライン」の名前。第3版の承認を待つ）の pf-name- の行は、まだ外して数える
+const IDS_181 = [
+  // 0.18.1 Task PF-1（スレッドと優先度）
+  'pf-threads', 'pf-threads-small', 'pf-migrate', 'pf-priority',
+];
+const PREFIX_181 = /^pf-/;
+function planRows181() {
+  const plan = fs.readFileSync(path.join(ROOT, 'docs', 'plans', '2026-11-25-181.md'), 'utf8');
+  const at = plan.search(/^## 変異の表（直しを1つ戻すと/m);
+  assert.ok(at > 0, '計画の「変異の表」の節が無い');
+  const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
+  return [...table.matchAll(/^\| (pf-[a-z0-9-]*) \|/gm)].map((m) => m[1]);
+}
+test('G3・0.18.1: 0.18.1 の変異が一覧にそろい、IDS_181 は計画の「変異の表」の pf- の行（PF-6 の pf-name- を除く）の頭からの一部（行の順）。pf- の変異は IDS_181 にある。どれも決まったテストのファイルを持ち、why が 0.18.1 で始まる。前の版の IDS に pf- が無い', { timeout: 5000 }, () => {
+  const byId = new Map(MUTANTS.map((m) => [m.id, m]));
+  assert.deepStrictEqual(IDS_181.filter((id) => !byId.has(id)), [], 'IDS_181 の変異が一覧に無い');
+  assert.strictEqual(new Set(IDS_181).size, IDS_181.length, 'IDS_181 に重なり');
+  assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_181.test(m.id) && !IDS_181.includes(m.id)).map((m) => m.id), [], 'IDS_181 に無い pf- の変異がある');
+  const all = planRows181();
+  assert.strictEqual(all.length, 19, '計画の 0.18.1 の表（pf- 19 行。うち PF-6 の pf-name- 4 行）が読めない');
+  assert.strictEqual(new Set(all).size, all.length, '計画の表に重なり');
+  const rows = all.filter((id) => !/^pf-name-/.test(id));
+  assert.strictEqual(rows.length, 15);
+  assert.deepStrictEqual(IDS_181.filter((id) => !rows.includes(id)), [], '計画の「変異の表」（pf-name- を除く）に無い変異');
+  assert.deepStrictEqual(IDS_181, rows.slice(0, IDS_181.length), 'IDS_181 が計画の「変異の表」の行の順の頭からの一部でない');
+  for (const ids of [IDS_132, IDS_140, IDS_150, IDS_151, IDS_160, IDS_170, IDS_171, IDS_180]) assert.deepStrictEqual(ids.filter((id) => PREFIX_181.test(id)), [], '前の版の IDS に pf-');
+  for (const id of IDS_181) {
+    const m = byId.get(id);
+    assert.ok(Array.isArray(m.tests) && m.tests.length > 0 && m.tests.every((t) => /^test\/[^/]+\.test\.js$/.test(t)), `${id}: tests`);
+    assert.ok(typeof m.why === 'string' && m.why.startsWith('0.18.1 '), `${id}: why`);
+  }
+});

@@ -9,8 +9,9 @@ const test = require('node:test');
 const assert = require('node:assert');
 const S = require('../src/settings');
 
-const D = S.defaultSettings(8);   // スレッド数は Math.max(4, 8 - 2) = 6
-const T = 6;
+// 0.18.1 PF-1（計画 docs/plans/2026-11-25-181.md の決めたこと 1・「意図して変えるテスト」）で意図して変えた: スレッド数の既定は 4 まで（論理 CPU 8 で 4。前は Math.max(4, 8 - 2) = 6）
+const D = S.defaultSettings(8);
+const T = 4;
 // 今の main.js:77-120 の DEFAULT_SETTINGS を写したもの（第1a回の時点の正）
 const TODAY = {
   localServerExe: '', localModelPath: '', localPort: 8990, localThreads: T, vadModelPath: '', useVad: true, suppressNst: true,
@@ -67,7 +68,7 @@ test('JS6: 決まりの表のキーは既定の 30 のキーとちょうど同�
   assert.strictEqual(S.SETTING_KEYS.length, 30);   // 0.10.0 LS-3 で要約の5つを外し（35 → 30）、LS-4 で retiredSumNotified を足した（31）。0.11.0 Q-2 で qualityScore を足した（32。意図して変えた）。0.12.1 LV-2 で autoStopLeave を足した（33。意図して変えた）。0.14.0 DQ-3 で aiTidy を足した（34。意図して変えた）。0.15.1 ND-1 で音声入力の4つを外した（30。意図して変えた）
   assert.deepStrictEqual([...S.SETTING_KEYS].sort(), Object.keys(TODAY).sort());
   for (const k of S.SETTING_KEYS) assert.ok(typeof S.SETTING_RULES[k].label === 'string' && S.SETTING_RULES[k].label.length > 1, k);
-  assert.strictEqual(S.defaultSettings(2).localThreads, 4);
+  assert.strictEqual(S.defaultSettings(2).localThreads, 2);   // 0.18.1 PF-1 で意図して変えた（論理 CPU 4 以下は max(2, floor(n / 2))。前は 4 より少なくしなかった）
   assert.ok(!('dataDir' in D));
 });
 

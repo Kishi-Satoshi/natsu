@@ -1932,6 +1932,27 @@ function levelMsg(p) {
 // （UND_ERR_HEADERS_TIMEOUT・UND_ERR_BODY_TIMEOUT）。down = エンジンに届かない・切れた（ECONNREFUSED・ECONNRESET・EPIPE・UND_ERR_SOCKET・
 // engineMissing）。error = エンジンが答えた誤り（HTTP の誤り・{"error"}・読めない答え）と物でないもの
 const LATE_CODES = ['LOCAL_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'];
+// ---------------------------------------------------------------- 0.18.1 PF-1（決めたこと 1・3）: 文字起こしのスレッドの既定と、前の版の既定
+// 既定 = 論理 CPU が 4 より多ければ 4、4 以下なら max(2, floor(論理 CPU / 2))（4 → 2・2 → 2）。settings.js の defaultSettings と main.js が使う
+const THREADS_CAP = 4;
+function defaultThreads(n) {
+  const c = Number.isInteger(n) && n > 0 ? n : 1;
+  return c > THREADS_CAP ? THREADS_CAP : Math.max(2, Math.floor(c / 2));
+}
+// 前の版の既定（0.18.0 まで: max(4, n − 2)。0.9.x の前: max(4, floor(n / 2))）。新しい既定と同じ数は外す（移す必要が無い）
+function oldDefaultThreads(n) {
+  const c = Number.isInteger(n) && n > 0 ? n : 1;
+  return [...new Set([Math.max(4, c - 2), Math.max(4, Math.floor(c / 2))])].filter((t) => t !== defaultThreads(c));
+}
+// 前の版の既定のままの設定を新しい既定へ移す（決めたこと 3）。純粋: 移すキーと新しい値の物を返す（移す物が無ければ {}）。
+// settings.json は既定の数をそのまま書いているので、選んだ数と見分けられない。前の既定と同じ数を自分で選んだ人も移る（［設定］で戻せる）
+function oldDefaultsPatch(s, n) {
+  const patch = {};
+  if (!s || typeof s !== 'object') return patch;
+  if (oldDefaultThreads(n).includes(s.localThreads)) patch.localThreads = defaultThreads(n);
+  return patch;
+}
+
 const DOWN_CODES = ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET'];
 /** → 'late' | 'down' | 'error' */
 function localFailKind(e) {
@@ -2380,6 +2401,7 @@ module.exports = {
   NUDGE_EDGE, NUDGE_PAD, NUDGE_FIRST, nudgeBounds, LEVEL_ASK_MS, LEVEL_WARNS, levelMsg,
   LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
   // 0.9.4 S-1（文字起こしの安定化）
+  defaultThreads, oldDefaultThreads, oldDefaultsPatch,   // 0.18.1 PF-1
   localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, pendingLeft, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
   // 0.12.0 SP-1（2つの流れの文字起こし。timeline.js の表と部品を出し直す）
   VOICE_LEVEL, FRAME_MAX_MS, PAUSE_CUT_MS, LONG_PAUSE_MS, MIN_SEG_MS, IDLE_CUT_MS, PRE_ROLL_MS, BLEED_SHARE, BLEED_NEAR_MS,

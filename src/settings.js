@@ -48,6 +48,9 @@
  */
 'use strict';
 
+// 0.18.1 PF-1（決めたこと 1）: スレッドの既定は main.js と同じ1つの関数（mainlib も Electron に依存しない）
+const { defaultThreads } = require('./mainlib');
+
 // 外した設定キー。古い settings.json に残っていても読まず、書き戻さない（値のフォルダも開かない）
 //   dataDir: データ保存先の変更（#29）。保存先は userData/data だけにした（第0a回 R6）
 const REMOVED_KEYS = ['dataDir'];
@@ -97,9 +100,9 @@ const isEmailShape = (v) => typeof v === 'string' && v.length <= EMAIL_MAX && EM
 
 // 既定の設定（第1a回まで main.js の DEFAULT_SETTINGS に書いていた 30 のキーと値に、第1c回の claudeExe を足した 31。
 // 第1c回の送り先と同意の4つは 0.7.0 U-1 で外した。第1d回 A-2 で accountEmail を足して 32）。
-// スレッド数は CPU の数から 2 を引いた数（4 より少なくしない）
+// スレッド数は CPU の数から決める（0.18.1 PF-1（決めたこと 1）: 4 まで。mainlib.defaultThreads。前は CPU の数から 2 を引いた数で、4 より少なくしなかった）
 function defaultSettings(cpuCount) {
-  const threads = Math.max(4, cpuCount - 2);
+  const threads = defaultThreads(cpuCount);
   return {
     localServerExe: '',
     localModelPath: '',

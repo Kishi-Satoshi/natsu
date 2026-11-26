@@ -498,6 +498,10 @@ const { titleAt } = require('./titles');
 //                        どちらも、その後に本体の窓へ送った claude:wrote と pages:updated（一覧は ID の並び）を out.wrote に1つずつ）・
 //                        ["files", 名前]（その時の設定ファイルを out.snaps に）・["sleep", ms]・["save", 足す設定]（画面と同じ settings:save）・["second-instance", argv]（2つ目の起動）・["ipc-raw", 名前, 引数]。出力: bootConfigs（0.10.1 CD-4: 手順の前の claudeConfigs）・claudeConfigs（roaming・msix・data・data2 ごとに text（BOM も含む）・
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
+//   0.18.1 PF-1（計画 docs/plans/2026-11-25-181.md）:
+//     --cpus=N      … main.js が読む os.cpus() の数を N にする（スレッドの既定と前の版の既定の移しを、機械の CPU の数に関わらず見る）
+//     --prio=fail   … main.js の os.setPriority が EACCES で投げる。旗が無くても、main.js の os.setPriority は本物を呼ばずに
+//                     out.prioCalls（{ pid, priority, kid: 起こした子の pid か }）に残す（試験の偽の whisper の優先度を下げない）
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
 // 言ったときの engine:status を out.atReady に、壊れた知らせを送ったときの engine:status を out.atBroken に残す
 // （画面はその知らせでエンジンの状態を聞き直すので、そのとき main の答えがもう新しいこと: 第0b回 Task 14・15）
@@ -553,6 +557,10 @@ const relaySeq = flagVal('--relay-seq');   // 第1d回 A-5
 // 0.9.4 S-2: 区間の長さ（会議の時計の durationMs。音声のバイトは今の 3 秒・2 秒のまま）と、この PC の速さの覚え（local-pace.json）
 const segMsFlag = Number(flagVal('--seg-ms')) || 0;
 const paceFlag = flagVal('--pace');
+// 0.18.1 PF-1: main.js が読む論理 CPU の数と、優先度の下げ方（頭の注釈）
+const cpusFlag = Number(flagVal('--cpus')) || 0;
+const prioFlag = flagVal('--prio');
+const prioCalls = [];
 // 0.9.4 S-5: --clock-seq=<i>:<ミリ秒>,… … i 番目（0 から）の区間を送る前に main の時計（と中継の試しの時計）をその分だけ進める
 const clockSeq = new Map((flagVal('--clock-seq') || '').split(',').filter(Boolean).map((x) => x.split(':').map(Number)));
 // 0.9.4 S-3: 会議の後の文字起こしを引き直す・ページを消して引き直す・止めた後に後回しにする・待ち行列が無くなるまで待つ
@@ -2209,11 +2217,19 @@ process.on('exit', () => {
   }
   const MAIN = path.join(ROOT, 'src', 'main.js');
   const SRC = path.join(ROOT, 'src') + path.sep;
+  // 0.18.1 PF-1: main.js の os（論理 CPU の数と優先度の下げ方だけを差し替える）
+  const mainOs = { ...os,
+    cpus: () => (cpusFlag > 0 ? Array.from({ length: cpusFlag }, () => ({ model: 'test', speed: 1000, times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } })) : os.cpus()),
+    setPriority: (pid, priority) => {
+      prioCalls.push({ pid, priority, kid: kids.some((k) => k.pid === pid) });
+      if (prioFlag === 'fail') { const e = new Error('EACCES: 場面が優先度の変更を断った'); e.code = 'EACCES'; throw e; }
+    } };
   // 場面の faults: src/ の中のファイル（main・store・jsonfile など）が読む fs にだけ効く
   const sceneFs = scene && scene.faults ? require('./faulty-fs').faultyFs(scene.faults) : null;
   Module._load = function (req, ...rest) {
     if (req === 'electron') return electron;
     if (req === 'child_process') return childProcess;
+    if ((req === 'os' || req === 'node:os') && rest[0] && rest[0].filename === MAIN) return mainOs;   // 0.18.1 PF-1
     if (sceneFs && (req === 'fs' || req === 'node:fs') && rest[0] && typeof rest[0].filename === 'string' && rest[0].filename.startsWith(SRC)) return sceneFs;
     // main の客（第2a1回 M-2b）を捕まえる（場面は DB の用意を待ってから act を呼ぶ・終わるときに閉じる）。場面の dbDelayMs は、main の
     // db.call の答えを毎回その分だけ遅らせる（DB のプロセスの返事がさらに遅いときの待ち方を見る。第2a1回 M-1 の before-quit）
@@ -3986,6 +4002,7 @@ process.on('exit', () => {
   out.engineStatus = await handlers['engine:status']();
   out.engineFetchStatus = handlers['engine:fetch-status'] ? await handlers['engine:fetch-status']() : null;   // 第0b回 Task 13
   out.spawns = warmSnap ? warmSnap.spawns : spawns;
+  out.prioCalls = prioCalls.slice();   // 0.18.1 PF-1
   out.seq = seq;
   out.atReady = atReady;
   out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));

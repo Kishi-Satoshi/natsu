@@ -120,8 +120,9 @@ const APP_ID = 'local.natsu.app';
 // メッセージの窓の見出し。渡さないと Windows は app.name（小文字の natsu）を出す
 const APP_TITLE = 'NaTsu';
 
-const CPU_OLD_DEFAULT_THREADS = Math.max(4, Math.floor(os.cpus().length / 2));
-const CPU_DEFAULT_THREADS = Math.max(4, os.cpus().length - 2);
+// 0.18.1 PF-1（決めたこと 1・3）: 論理 CPU の数。スレッドの既定（settings.js の defaultSettings）と前の版の既定（migrateOldThreads）は
+// 同じ mainlib.defaultThreads から決める（前の CPU_DEFAULT_THREADS・CPU_OLD_DEFAULT_THREADS）
+const CPU_COUNT = os.cpus().length;
 // メモはプロンプトにそのまま前置きされるので、文脈を食い潰さない範囲に収める
 const MEMO_MAX = 1500;
 const ENGINE_READY_TIMEOUT_MS = 90000;
@@ -649,11 +650,10 @@ function retrySettingsRead() {
 }
 
 // 古い既定のスレッド数の移し替えは、今どおりメモリの中だけ（直しに数えない。知らせも写しも書き戻しも無い）。
-// 起動のときと、読めなかった設定を読み直して切り替えたとき（retrySettingsRead）に通す
+// 起動のときと、読めなかった設定を読み直して切り替えたとき（retrySettingsRead）に通す。
+// 0.18.1 PF-1（決めたこと 3）: 前の版の既定（max(4, n − 2)・max(4, floor(n / 2))）のどちらかと同じなら、新しい既定（4 まで）へ移す（mainlib.oldDefaultsPatch）
 function migrateOldThreads(s) {
-  if (CPU_DEFAULT_THREADS > CPU_OLD_DEFAULT_THREADS) {
-    if (s.localThreads === CPU_OLD_DEFAULT_THREADS) s.localThreads = CPU_DEFAULT_THREADS;
-  }
+  Object.assign(s, lib.oldDefaultsPatch(s, CPU_COUNT));
 }
 
 function loadStores() {
@@ -1009,6 +1009,11 @@ function startEngine(eng) {
     }
     eng.proc = p;
     eng.lastUsed = Date.now();
+    // 0.18.1 PF-1（決めたこと 2）: 起こしたエンジンの優先度を「通常より低い」に（Windows では BELOW_NORMAL_PRIORITY_CLASS。画面と会議のアプリが先に
+    // CPU を取れる）。断られても起こすのは止めず、engine.log に1行（番号の無い子は 'error' で来るので見ない）
+    if (Number.isInteger(p.pid)) {
+      try { os.setPriority(p.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) { engineLog(`${eng.name}: 優先度を下げられませんでした（${errCode(e)}）。通常の優先度のまま動かします`); }
+    }
     engineChanged();
     // 以下のハンドラは「自分が起動したプロセス」のときだけ状態を触る（#57）。
     // 再起動のあとに古いプロセスの exit が届き、新しいプロセスを null にしていた。
