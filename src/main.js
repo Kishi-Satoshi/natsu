@@ -1399,12 +1399,18 @@ const LOCAL_TIME_SCALE = (() => {
   return v > 0 && v <= 1 ? v : 1;
 })();
 // ---- この PC の文字起こしの速さの覚え（0.9.4。計画の決めたこと 10。<userData>/data/local-pace.json。モデルごと）
-// モデルはファイルの名前と大きさで見分ける（パスは覚えに書かない）。読めない・形の違う覚えは無いのと同じ
+// モデルはファイルの名前と大きさで見分ける（パスは覚えに書かない）。読めない・形の違う覚えは無いのと同じ。
+// 0.18.1 PF-3（決めたこと 6）: 覚えの印（paceStamp）が無い・違う覚えも無いのと同じ（会議の始めにも待ち時間にも使わない）
 const pacePath = () => path.join(app.getPath('userData'), 'data', 'local-pace.json');
 function paceModel() {
   const f = engineModel(whisperEng);
   if (!f) return null;
   try { return { name: path.basename(f), size: fs.statSync(f).size }; } catch (_) { return null; }
+}
+// 0.18.1 PF-3（決めたこと 6）: 覚えの印（mainlib.paceStamp）。取り込んだ組は置き場のフォルダの名前、手のパスは manual。スレッドの数は今の設定（記録中は変えられない）
+function paceStamp() {
+  const set = manualGroup(whisperEng) ? 'manual' : (managed.whisper && managed.whisper.exe ? path.basename(path.dirname(managed.whisper.exe)) : '');
+  return lib.paceStamp({ set, threads: settings.localThreads });
 }
 const isPaceShape = (v) => Boolean(v && typeof v === 'object' && !Array.isArray(v) && v.schema === 1 && v.model && typeof v.model === 'object');
 function readLocalPace() {
@@ -1418,6 +1424,7 @@ function pacedRtf() {
   const saved = readLocalPace();
   const model = paceModel();
   if (!saved || !model || !saved.model || saved.model.name !== model.name || saved.model.size !== model.size) return null;
+  if (!lib.sameStamp(saved.stamp, paceStamp())) return null;   // 0.18.1 PF-3: 印の違う覚えの rtf は使わない
   return Number.isFinite(saved.rtf) ? saved.rtf : null;
 }
 // 0.9.4 S-4（決めたこと 9・10・12）: 会議ごとの遅い PC の判断（mainlib.paceStep）。遅いになったときに記録を1行（数と符号だけ）
@@ -1435,13 +1442,13 @@ function paceEvent(m, ev) {
 // 会議の始め: 覚えが同じモデルで遅い・14 日の内なら始めから遅い
 function paceStart(m) {
   const saved = readLocalPace();
-  m.pace = lib.paceStep(undefined, { kind: 'start', saved, model: paceModel(), now: Date.now() }).st;
+  m.pace = lib.paceStep(undefined, { kind: 'start', saved, model: paceModel(), stamp: paceStamp(), now: Date.now() }).st;
   if (m.pace.slow) engineLog(`文字起こしの速さ: この PC は録音に追いつかないため、会議中は音声を残します（${paceRtfText(saved && saved.rtf)} 倍・理由 saved）`);
 }
 // 会議の終わり: 覚えを書く（mainlib.paceSaved。書かない会議もある）。書けなくても投げない
 function paceSave(m) {
   try {
-    const saved = lib.paceSaved(m.pace, readLocalPace(), { model: paceModel(), now: Date.now(), from: 'live' });
+    const saved = lib.paceSaved(m.pace, readLocalPace(), { model: paceModel(), stamp: paceStamp(), now: Date.now(), from: 'live' });
     if (saved) J.writeJsonFile(pacePath(), saved, { onFsyncUnsupported: noteFsyncOnce });
   } catch (e) { engineLog(`文字起こしの速さ: 覚えを書けませんでした（${errCode(e)}）`); }
 }

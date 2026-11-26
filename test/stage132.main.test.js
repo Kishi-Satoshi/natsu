@@ -22,7 +22,8 @@ const run = (args, { scale = '0.005', env = {}, timeout = 30000 } = {}) => new P
   });
 });
 const T = { timeout: sceneTimeout(30000) };
-const SLOW_PACE = `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`;
+// 0.18.1 PF-3（計画 docs/plans/2026-11-25-181.md の決めたこと 6・「意図して変えるテスト」）で意図して変えた: 覚えは印が同じときだけ使うので、この場面で main が使う印（stamp: 'same'）を書く
+const SLOW_PACE = `--pace=${JSON.stringify({ schema: 1, model: 'same', stamp: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`;
 const STT = '/v1/audio/transcriptions';
 const S3 = '文字起こし待ちの音声があります。文字起こしが済むと、自動で要約を作ります。';
 const ETA_RE = /この PC では約 \d+ 分かかります/;

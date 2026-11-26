@@ -92,8 +92,10 @@ test('エンジンが 500 を返した区間は今の失敗（seg-failed。音�
   assert.ok(!o.engineLog.some((l) => l.startsWith('手元の文字起こしの時間切れ')), o.engineLog.join('\n'));
 });
 
+// 0.18.1 PF-3（計画 docs/plans/2026-11-25-181.md の決めたこと 6・「意図して変えるテスト」）で意図して変えた: 覚えは印が同じときだけ使うので、この節の覚えには
+// この場面で main が使う印（stamp: 'same'）を書く（印の無い・違う覚えは stage181.main の「PF-3 前の版の覚え」が見る）
 test('待ち時間は localTimeoutMs（覚えの rtf 1.7・120 秒の区間で 468 秒 × 尺度）。別のモデルの覚えは使わない（300 秒）', T, async () => {
-  const pace = (model) => `--pace=${JSON.stringify({ schema: 1, model, rtf: 1.7, slow: false, at: 'now-1', from: 'live' })}`;
+  const pace = (model) => `--pace=${JSON.stringify({ schema: 1, model, stamp: 'same', rtf: 1.7, slow: false, at: 'now-1', from: 'live' })}`;
   const [same, other] = await Promise.all([
     run(['hang-first', '--segs=1', '--seg-ms=120000', pace('same')], { scale: '0.002' }),
     run(['hang-first', '--segs=1', '--seg-ms=120000', pace({ name: 'ggml-medium-q5_0.bin', size: 539212467 })], { scale: '0.002' }),
@@ -233,16 +235,17 @@ test('S5: オフラインモードの会議でも遅ければ kept（帯の文�
 });
 
 test('S4: 覚え（local-pace.json）にモデルの名前と大きさで書き、次の会議は始めから遅い。モデルを替えると覚えは使わない。14 日を過ぎると会議中に試す', T, async () => {
-  const pace = (model, at) => `--pace=${JSON.stringify({ schema: 1, model, rtf: 1.6, slow: true, at, from: 'live' })}`;
+  const pace = (model, at) => `--pace=${JSON.stringify({ schema: 1, model, stamp: 'same', rtf: 1.6, slow: true, at, from: 'live' })}`;
   const [first, saved, other, old] = await Promise.all([
-    run(['delay', '--local-only', '--segs=3', '--seg-ms=15000'], { scale: '0.01', env: slowEnv }),
+    // 0.18.1 PF-3（決めたこと 6）で意図して変えた: 「遅い」と覚えるのは速さの数が 3 つ以上の会議だけなので、1 つ目は速く（0 ミリ秒）、2・3 つ目で遅い（two）にする（前は 3 区間とも 400 ミリ秒）
+    run(['delay', '--local-only', '--segs=4', '--seg-ms=15000'], { scale: '0.01', env: { FAKE_DELAY_SEQ: '0,400,400' } }),
     // 尺度 1（縮めない）: 偽のエンジンはすぐ答えるので、混んだ機械でも遅いに数えない
     run(['text', '--local-only', '--segs=2', '--seg-ms=15000', pace('same', 'now-1')], { scale: '1' }),
     run(['text', '--local-only', '--segs=2', '--seg-ms=15000', pace({ name: 'ggml-medium-q5_0.bin', size: 539212467 }, 'now-1')], { scale: '1' }),
     run(['text', '--local-only', '--segs=2', '--seg-ms=15000', pace('same', 'now-15')], { scale: '1' }),
   ]);
   const j = JSON.parse(first.paceFile);
-  assert.deepStrictEqual(Object.keys(j).sort(), ['at', 'from', 'model', 'rtf', 'schema', 'slow']);
+  assert.deepStrictEqual(Object.keys(j).sort(), ['at', 'from', 'model', 'rtf', 'schema', 'slow', 'stamp']);   // 0.18.1 PF-3 で印 stamp を足した
   assert.deepStrictEqual([j.schema, j.slow, j.from, j.model.name, typeof j.model.size, j.rtf > 1], [1, true, 'live', 'ggml-fake.bin', 'number', true]);
   assert.ok(!first.paceFile.includes('/') && !first.paceFile.includes('\\\\'), '覚えにパスを書いた');
   // 会議の後の文字起こし（残した区間を PC で）は議事録を写す前に進むことがあるので、要求の数でなく会議の中の記録の行で見る
@@ -297,7 +300,7 @@ test('S7: 中継の 503 が 2 回続くと、60 秒の間は中継へも /health
 });
 
 test('S5: 遅い PC で中継の間が空いている間の区間は kept', T, async () => {
-  const o = await run(['text', '--relay-seq=55c', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`], { scale: '1' });
+  const o = await run(['text', '--relay-seq=55c', `--pace=${JSON.stringify({ schema: 1, model: 'same', stamp: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`], { scale: '1' });   // 0.18.1 PF-3: 印
   assert.ok(o.engineLog.includes('文字起こしの経路: 区間 s3 → 遅い PC のため音声を残した（relay-hold）'), o.engineLog.join('\n'));
   assert.strictEqual(sttPosts(o), 2);
 });
@@ -308,7 +311,7 @@ test('S5: 遅い PC で中継の間が空いている間の区間は kept', T, a
 // （stage132.main の「LN-2・RF47」に分けた）
 test('S-4F: 遅い会議の待ち行列は、ログインしていて中継が使えれば会議の後にクラウドで文字起こしする（偽の中継に届き、偽の PC のエンジンへは送らない）', T, async () => {
   // 覚えから始めから遅い会議。中継に届かない（n: 一時の失敗）区間は PC に送らず残し、3つ目は中継で文字になる。会議の後は中継が答える（c）
-  const o = await run(['text', '--relay-seq=nnc', `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`, '--wait-queue-empty'], { scale: '1' });
+  const o = await run(['text', '--relay-seq=nnc', `--pace=${JSON.stringify({ schema: 1, model: 'same', stamp: 'same', rtf: 1.6, slow: true, at: 'now-1', from: 'live' })}`, '--wait-queue-empty'], { scale: '1' });   // 0.18.1 PF-3: 印
   for (const id of ['s1', 's2']) assert.ok(o.engineLog.some((l) => l.startsWith(`文字起こしの経路: 区間 ${id} → 遅い PC のため音声を残した（`)), o.engineLog.join('\n'));
   const after = o.afterQueue.log || [];
   for (const id of ['s1', 's2']) {

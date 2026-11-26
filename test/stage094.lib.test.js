@@ -14,6 +14,9 @@ const L = require('../src/mainlib');
 const T = { timeout: 5000 };
 const DAY = 24 * 3600 * 1000;
 const MODEL = { name: 'ggml-large-v3-turbo-q5_0.bin', size: 574041195 };
+// 0.18.1 PF-3（計画 docs/plans/2026-11-25-181.md の決めたこと 6・「意図して変えるテスト」）で意図して変えた: 覚えは印（エンジンの組・スレッドの数・優先度の版）が
+// 同じときだけ使い、書く覚えにも印を書く。この表の覚えと会議には同じ印を渡す（印の違う覚えは stage181.lib の「PF-3 前の版の覚え」が見る）
+const STAMP = L.paceStamp({ set: 'manual', threads: 4 });
 
 test('localFailKind の表', T, () => {
   const withCause = (code, msg = 'fetch failed') => Object.assign(new TypeError(msg), { cause: Object.assign(new Error('x'), { code }) });
@@ -69,8 +72,8 @@ test('paceStep の表', T, () => {
   assert.deepStrictEqual(run([s(15, 20), s(15, 20)]), [[false, ''], [false, '']]);
   // 会議の始め: 覚えが同じモデル・slow・13 日前 → 始めから遅い（saved）。15 日前・別のモデル（名前・大きさ）・slow でない → 遅いでない
   const now = Date.UTC(2026, 9, 22, 1, 0, 0);
-  const saved = (o) => ({ schema: 1, model: { ...MODEL }, rtf: 1.7, slow: true, at: now - 13 * DAY, from: 'live', ...o });
-  const start = (sv, model = MODEL) => L.paceStep(undefined, { kind: 'start', saved: sv, model, now });
+  const saved = (o) => ({ schema: 1, model: { ...MODEL }, stamp: STAMP, rtf: 1.7, slow: true, at: now - 13 * DAY, from: 'live', ...o });
+  const start = (sv, model = MODEL) => L.paceStep(undefined, { kind: 'start', saved: sv, model, stamp: STAMP, now });
   assert.deepStrictEqual([start(saved()).slow, start(saved()).why], [true, 'saved']);
   assert.strictEqual(start(saved({ at: now - 15 * DAY })).slow, false, '14 日を過ぎた覚えを使った');
   assert.strictEqual(start(saved(), { name: 'ggml-medium-q5_0.bin', size: 539212467 }).slow, false, '別のモデルの覚えを使った');
@@ -79,7 +82,7 @@ test('paceStep の表', T, () => {
   assert.strictEqual(start(null).slow, false);
   assert.strictEqual(start(saved({ at: 'x' })).slow, false, '形の悪い覚え');
   // 始めの答えの st は会議の中の数えを空から始める（前の会議の続きにしない）
-  const fresh = L.paceStep({ slow: true, why: 'big', run: 1, rtf: 2 }, { kind: 'start', saved: null, model: MODEL, now });
+  const fresh = L.paceStep({ slow: true, why: 'big', run: 1, rtf: 2 }, { kind: 'start', saved: null, model: MODEL, stamp: STAMP, now });
   assert.strictEqual(fresh.slow, false);
   assert.deepStrictEqual(run([s(75, 90)], fresh.st), [[false, '']]);
   // 引数の st は書き換えない
@@ -97,16 +100,18 @@ test('paceSaved: rtf は重み 0.5 の移動平均・bench で 0.6 以下なら 
   let st;
   for (const ev of [s(60, 96), s(60, 120)]) st = L.paceStep(st, ev).st;
   // 会議の中の rtf: 1.6 → 1.6 + 0.5 × (2.0 − 1.6) = 1.8
-  const first = L.paceSaved(st, null, { model: MODEL, now, from: 'live' });
-  assert.deepStrictEqual(first, { schema: 1, model: { name: MODEL.name, size: MODEL.size }, rtf: 1.8, slow: true, at: now, from: 'live' });
-  // 前の覚え（同じモデル）と重み 0.5 で混ぜる
-  const prev = { schema: 1, model: { ...MODEL }, rtf: 1.0, slow: false, at: now - DAY, from: 'live' };
-  assert.strictEqual(L.paceSaved(st, prev, { model: MODEL, now, from: 'live' }).rtf, 1.4);
+  // 0.18.1 PF-3（決めたこと 6）で意図して変えた: 速さの数が 2 つの会議の「遅い」（big）は覚えない（slow は偽。前は真）。覚えに印を書く
+  const W = { model: MODEL, stamp: STAMP, now, from: 'live' };
+  const first = L.paceSaved(st, null, W);
+  assert.deepStrictEqual(first, { schema: 1, model: { name: MODEL.name, size: MODEL.size }, stamp: STAMP, rtf: 1.8, slow: false, at: now, from: 'live' });
+  // 前の覚え（同じモデル・同じ印）と重み 0.5 で混ぜる
+  const prev = { schema: 1, model: { ...MODEL }, stamp: STAMP, rtf: 1.0, slow: false, at: now - DAY, from: 'live' };
+  assert.strictEqual(L.paceSaved(st, prev, W).rtf, 1.4);
   // 別のモデルの覚えとは混ぜない
-  assert.strictEqual(L.paceSaved(st, { ...prev, model: { name: 'ggml-medium-q5_0.bin', size: 539212467 } }, { model: MODEL, now, from: 'live' }).rtf, 1.8);
+  assert.strictEqual(L.paceSaved(st, { ...prev, model: { name: 'ggml-medium-q5_0.bin', size: 539212467 } }, W).rtf, 1.8);
   // 測った数（bench）: 0.6 以下なら slow を外す・1.0 越えなら slow・間は前のまま
   const slowPrev = { ...prev, slow: true };
-  const bench = (r, p) => L.paceSaved({ rtf: r }, p, { model: MODEL, now, from: 'bench' });
+  const bench = (r, p) => L.paceSaved({ rtf: r }, p, { model: MODEL, stamp: STAMP, now, from: 'bench' });
   assert.strictEqual(bench(0.6, slowPrev).slow, false);
   assert.strictEqual(bench(0.61, slowPrev).slow, true, '0.6 と 1.0 の間は前のまま');
   assert.strictEqual(bench(0.8, prev).slow, false, '0.6 と 1.0 の間は前のまま');
@@ -114,12 +119,13 @@ test('paceSaved: rtf は重み 0.5 の移動平均・bench で 0.6 以下なら 
   assert.strictEqual(bench(1.0, prev).slow, false);
   assert.strictEqual(bench(0.5, slowPrev).from, 'bench');
   // 始めから遅い会議（覚えから。PC に送っていない）は覚えを書き直さない（14 日の期限を延ばさない）
-  const savedStart = L.paceStep(undefined, { kind: 'start', saved: { ...slowPrev, at: now - DAY }, model: MODEL, now }).st;
-  assert.strictEqual(L.paceSaved(savedStart, slowPrev, { model: MODEL, now, from: 'live' }), null);
+  const savedStart = L.paceStep(undefined, { kind: 'start', saved: { ...slowPrev, at: now - DAY }, model: MODEL, stamp: STAMP, now }).st;
+  assert.strictEqual(savedStart.why, 'saved');
+  assert.strictEqual(L.paceSaved(savedStart, slowPrev, W), null);
   // 数えた区間も遅いもない会議は書かない
-  assert.strictEqual(L.paceSaved(L.paceStep(undefined, { kind: 'start', saved: null, model: MODEL, now }).st, null, { model: MODEL, now, from: 'live' }), null);
+  assert.strictEqual(L.paceSaved(L.paceStep(undefined, { kind: 'start', saved: null, model: MODEL, stamp: STAMP, now }).st, null, W), null);
   // モデルが分からなければ書かない
-  assert.strictEqual(L.paceSaved(st, null, { model: null, now, from: 'live' }), null);
+  assert.strictEqual(L.paceSaved(st, null, { ...W, model: null }), null);
   assert.ok(Object.isFrozen(L.PACE));
   assert.deepStrictEqual({ ...L.PACE }, { over: 1.0, big: 1.5, backlogMs: 240000, exit: 0.6, ttlMs: 14 * DAY, alpha: 0.5 });
 });

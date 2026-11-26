@@ -3,6 +3,7 @@
  * （helpers/mainrun.js。論理 CPU の数は --cpus、優先度は out.prioCalls と --prio=fail）。
  *  PF-1: 起こしたエンジンのスレッドの数（既定と前の版の既定の移し。メモリの中だけ）・優先度（通常より低い。失敗しても起こす）
  *  PF-2: PC の中で文字起こしする会議の区切り（既定 30 秒・前の版の 75 秒の移し。メモリの中だけ）
+ *  PF-3: 「遅い」の覚え（local-pace.json）の印。印の無い・違う覚えは会議の始めにも待ち時間にも使わない。書く覚えに印を書く
  */
 'use strict';
 
@@ -83,4 +84,29 @@ test('PF-2 前の版の間隔: settings.json の 75 秒（前の版の既定）�
   assert.ok(chose60.engineLog.includes('文字起こしの状態: 区切り 60 秒（long・理由 start）'), chose60.engineLog.join('\n'));
   assert.deepStrictEqual(starts(none), [30], JSON.stringify(none.overlaySent));
   assert.ok(none.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 start）'), none.engineLog.join('\n'));
+});
+
+// ---------------------------------------------------------------- PF-3（決めたこと 6）
+const keptSlow = (o) => o.engineLog.filter((l) => /^文字起こしの経路: 区間 s\d+ → 遅い PC のため音声を残した/.test(l)).length;
+const paceArg = (o) => `--pace=${JSON.stringify({ schema: 1, model: 'same', rtf: 1.7, slow: true, at: 'now-1', from: 'live', ...o })}`;
+test('PF-3 前の版の覚え: 0.18.0 までの「遅い」の覚え（印が無い）・スレッドの数が違う覚えは使わない（会議は PC へ送る・待ち時間は rtf 1）。印が同じ覚えは使う。会議の後に書く覚えには印がある', T, async () => {
+  const [old, threads, same, oldLate] = await Promise.all([
+    run(['text', '--local-only', '--segs=2', '--seg-ms=15000', '--cpus=12', paceArg({})], { scale: '1' }),
+    run(['text', '--local-only', '--segs=2', '--seg-ms=15000', '--cpus=12', paceArg({ stamp: { set: 'manual', threads: 10, prio: 2 } })], { scale: '1' }),
+    run(['text', '--local-only', '--segs=2', '--seg-ms=15000', '--cpus=12', paceArg({ stamp: 'same' })], { scale: '1' }),
+    run(['hang-first', '--segs=1', '--seg-ms=120000', '--cpus=12', paceArg({ slow: false })], { scale: '0.002' }),
+  ]);
+  for (const o of [old, threads]) {
+    assert.strictEqual(keptSlow(o), 0, `印の違う覚えで遅いにした: ${o.engineLog.join('\n')}`);
+    assert.ok(!o.engineLog.some((l) => /理由 saved）$/.test(l)), o.engineLog.join('\n'));
+  }
+  assert.strictEqual(keptSlow(same), 2, same.engineLog.join('\n'));
+  assert.ok(same.engineLog.some((l) => /理由 saved）$/.test(l)), same.engineLog.join('\n'));
+  // 印の無い覚えの rtf 1.7 は待ち時間にも使わない（120 秒の区間で 300 秒。使えば 468 秒）
+  assert.ok(oldLate.engineLog.includes('手元の文字起こしの時間切れ: s1（音声 120 秒・待ち 300 秒）。エンジンを起こし直します'), oldLate.engineLog.join('\n'));
+  // 書いた覚え: 印（手のパスの組・起こしたスレッドの数・優先度の版 2）。パスは書かない
+  const j = JSON.parse(old.paceFile);
+  assert.deepStrictEqual(j.stamp, { set: 'manual', threads: 4, prio: 2 });
+  assert.deepStrictEqual(Object.keys(j).sort(), ['at', 'from', 'model', 'rtf', 'schema', 'slow', 'stamp']);
+  assert.ok(!old.paceFile.includes('/') && !old.paceFile.includes('\\\\'), '覚えにパスを書いた');
 });

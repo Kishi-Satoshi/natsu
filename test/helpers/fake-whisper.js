@@ -20,7 +20,8 @@
 //   hang-first    … 区間の最初の要求だけ答えない（FAKE_HANG_N があればその数まで。FAKE_LOG の隣の印のファイルで数える: 起こし直した次のプロセスは答える）
 //   err500        … 区間の要求に 500 {"error":"boom"}（エンジンが答えた誤り）
 //   refuse        … 区間の要求を受けたら口を閉じ、その接続も切る（次からは ECONNREFUSED。エンジンが止まった）
-//   delay         … 0.9.4 S-4: 区間の答えを FAKE_DELAY_MS ミリ秒遅らせる（遅い PC）
+//   delay         … 0.9.4 S-4: 区間の答えを FAKE_DELAY_MS ミリ秒遅らせる（遅い PC）。0.18.1 PF-3: FAKE_DELAY_SEQ（「100,400,400」のような ms の並び）が
+//                   あれば、このプロセスの k 番目の区間の答えを k 番目の ms だけ遅らせる（尽きたら最後の ms。速さの数が 3 つ目で遅いになる会議）
 // 0.9.4 S-4: FAKE_START_MS があれば、その分だけ口を開くのを遅らせる（エンジンの起動・モデルの読み込みに時間がかかる）
 // どの場面でも、WAV の頭（RIFF/WAVE、16kHz・モノラル・16bit）が壊れていれば 200 のまま {"error"} を返す
 // （本物の 1.7.6・1.8.0 と同じ）。受けた要求は FAKE_LOG に 1 行ずつ書く。
@@ -172,7 +173,10 @@ const server = http.createServer((req, res) => {
     const reply = () => json(res, 200, form.fields.response_format === 'verbose_json' && process.env.FAKE_SENTENCES !== 'none'
       ? { text: answerText, segments: sentencesOf(answerText) } : { text: answerText });
     if (mode === 'slow' && !isProbe) setTimeout(reply, 1500);
-    else if (mode === 'delay' && !isProbe) setTimeout(reply, Number(process.env.FAKE_DELAY_MS) || 0);
+    else if (mode === 'delay' && !isProbe) {
+      const seq = String(process.env.FAKE_DELAY_SEQ || '').split(',').filter(Boolean).map(Number);
+      setTimeout(reply, seq.length ? seq[Math.min(served, seq.length) - 1] : Number(process.env.FAKE_DELAY_MS) || 0);
+    }
     else reply();
   });
 }).on('error', (e) => {

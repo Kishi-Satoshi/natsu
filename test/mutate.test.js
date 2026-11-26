@@ -1952,6 +1952,8 @@ const IDS_181 = [
   'pf-threads', 'pf-threads-small', 'pf-migrate', 'pf-priority',
   // 0.18.1 Task PF-2（文字起こしの間隔）
   'pf-seg-default', 'pf-seg-migrate', 'pf-seg-fallback',
+  // 0.18.1 Task PF-3（遅いの覚え）
+  'pf-stamp', 'pf-pace-keep',
 ];
 const PREFIX_181 = /^pf-/;
 function planRows181() {

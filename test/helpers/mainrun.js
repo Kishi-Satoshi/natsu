@@ -500,6 +500,7 @@ const { titleAt } = require('./titles');
 //                        backups（NaTsu の控えの名前）・backupTexts・others（ほかのファイルの名前）。フォルダが無ければ null）・notices・engineLog・settingsText・dataDir
 //   0.18.1 PF-1（計画 docs/plans/2026-11-25-181.md）:
 //     --cpus=N      … main.js が読む os.cpus() の数を N にする（スレッドの既定と前の版の既定の移しを、機械の CPU の数に関わらず見る）
+//   0.18.1 PF-3: --pace の stamp が "same" なら、main がこの場面で使う印（{ set: 'manual', threads: 起こすときの数, prio: 2 }）にする
 //     --prio=fail   … main.js の os.setPriority が EACCES で投げる。旗が無くても、main.js の os.setPriority は本物を呼ばずに
 //                     out.prioCalls（{ pid, priority, kid: 起こした子の pid か }）に残す（試験の偽の whisper の優先度を下げない）
 // 画面へ送った知らせと進み具合は、送った順に out.seq へ残す。進み具合が初めて「使える」（whisperReady・sumReady）と
@@ -1018,6 +1019,14 @@ process.on('exit', () => {
   if (paceFlag) {
     const pace = JSON.parse(paceFlag);
     if (pace.model === 'same') pace.model = { name: path.basename(model), size: fs.statSync(model).size };
+    // 0.18.1 PF-3: stamp が "same" なら、main がこの場面で使う印（手のパスの組 manual・起こすときのスレッドの数・優先度の版 2）にする
+    if (pace.stamp === 'same') {
+      const L = require(path.join(ROOT, 'src', 'mainlib'));
+      const n = cpusFlag > 0 ? cpusFlag : os.cpus().length;
+      const t0 = settingsAdd && Number.isInteger(settingsAdd.localThreads) ? settingsAdd.localThreads : L.defaultThreads(n);
+      const t = L.oldDefaultsPatch({ localThreads: t0 }, n).localThreads || t0;
+      pace.stamp = { set: 'manual', threads: t, prio: 2 };   // 手のパスの場面だけ（--managed の組の名前は作らない）
+    }
     if (typeof pace.at === 'string' && /^now-\d+$/.test(pace.at)) pace.at = Date.now() - Number(pace.at.slice(4)) * 24 * 3600 * 1000;
     fs.mkdirSync(path.join(userData, 'data'), { recursive: true });
     fs.writeFileSync(path.join(userData, 'data', 'local-pace.json'), JSON.stringify(pace));

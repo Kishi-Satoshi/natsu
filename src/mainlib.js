@@ -1978,10 +1978,21 @@ function effRtf(t) {
   return Math.round((procMs / Math.max(audioMs, PACE_WINDOW_MS)) * 100) / 100;
 }
 const sameModel = (a, b) => Boolean(a && b && typeof a.name === 'string' && a.name && a.name === b.name && Number.isFinite(a.size) && a.size === b.size);
+// 0.18.1 PF-3（決めたこと 6）: 覚えの印 = エンジンの組の印（取り込んだ組の置き場の名前・手のパスなら manual）・スレッドの数・優先度の版（2: 0.18.1 で
+// 起こしたエンジンの優先度を下げた）。印が無い・違う覚えは無いのと同じ（前の版の重さ・違うスレッドの数で「遅い」と決めつけない）
+const PACE_PRIO = 2;
+const PACE_KEEP_SAMPLES = 3;   // 「遅い」と覚えるのは、その会議で速さの数がこれ以上あり、理由が two・big のときだけ
+function paceStamp({ set, threads } = {}) {
+  if (typeof set !== 'string' || !set || !Number.isInteger(threads) || threads < 1) return null;
+  return { set, threads, prio: PACE_PRIO };
+}
+const sameStamp = (a, b) => Boolean(a && b && typeof a === 'object' && typeof b === 'object' && typeof a.set === 'string' && a.set && a.set === b.set
+  && Number.isInteger(a.threads) && a.threads === b.threads && a.prio === PACE_PRIO && b.prio === PACE_PRIO);
 const paceInit = () => ({ slow: false, why: '', run: 0, rtf: null, samples: 0 });
 /**
  * 会議ごとの遅い PC の判断（純粋。時刻は ev.now だけ）。ev: { kind: 'sample', audioMs, procMs } | { kind: 'late' } | { kind: 'backlog', audioMs } |
- * { kind: 'start', saved, model, now } → { st, slow, why }。一度遅いになったら会議の中は戻らない（start で数え直す）
+ * { kind: 'start', saved, model, stamp, now } → { st, slow, why }。一度遅いになったら会議の中は戻らない（start で数え直す）。
+ * 0.18.1 PF-3: 覚えは印（stamp）が同じときだけ使う
  */
 function paceStep(st, ev) {
   const cur = st && typeof st === 'object' ? { ...paceInit(), ...st } : paceInit();
@@ -1990,7 +2001,7 @@ function paceStep(st, ev) {
   if (ev.kind === 'start') {
     const n = paceInit();
     const sv = ev.saved;
-    if (sv && typeof sv === 'object' && sv.slow === true && sameModel(sv.model, ev.model) && Number.isFinite(sv.at) && Number.isFinite(ev.now)
+    if (sv && typeof sv === 'object' && sv.slow === true && sameModel(sv.model, ev.model) && sameStamp(sv.stamp, ev.stamp) && Number.isFinite(sv.at) && Number.isFinite(ev.now)
       && ev.now - sv.at <= PACE.ttlMs) {
       n.slow = true; n.why = 'saved';
     }
@@ -2010,24 +2021,27 @@ function paceStep(st, ev) {
   return out(next);
 }
 /**
- * 覚え（<userData>/data/local-pace.json）の中身。st は paceStep の st（live）か { rtf }（bench）。prev は前の覚え（別のモデルなら無いのと同じ）。
- * → { schema: 1, model: { name, size }, rtf, slow, at, from } | null（書かない: モデルが分からない・会議で PC に送っていない・始めから覚えで遅かった）
+ * 覚え（<userData>/data/local-pace.json）の中身。st は paceStep の st（live）か { rtf }（bench）。prev は前の覚え（別のモデル・印なら無いのと同じ）。
+ * → { schema: 1, model: { name, size }, stamp, rtf, slow, at, from } | null（書かない: モデルか印が分からない・会議で PC に送っていない・始めから覚えで遅かった）。
+ * 0.18.1 PF-3（決めたこと 6）: 「遅い」と書くのは、その会議で速さの数が 3 つ以上あり、理由が two・big のときだけ（時間切れ1回・待ちだけの「遅い」は会議の中だけ）
  */
-function paceSaved(st, prev, { model, now, from } = {}) {
+function paceSaved(st, prev, { model, stamp, now, from } = {}) {
   if (!model || typeof model.name !== 'string' || !model.name || !Number.isFinite(model.size)) return null;
-  const p = prev && typeof prev === 'object' && sameModel(prev.model, model) ? prev : null;
+  if (!sameStamp(stamp, stamp)) return null;
+  const p = prev && typeof prev === 'object' && sameModel(prev.model, model) && sameStamp(prev.stamp, stamp) ? prev : null;
   const s = st && typeof st === 'object' ? st : {};
   const r = typeof s.rtf === 'number' && Number.isFinite(s.rtf) ? s.rtf : null;
   const mix = (x) => (p && typeof p.rtf === 'number' && Number.isFinite(p.rtf) ? Math.round((p.rtf + PACE.alpha * (x - p.rtf)) * 100) / 100 : x);
-  const base = { schema: 1, model: { name: model.name, size: model.size } };
+  const base = { schema: 1, model: { name: model.name, size: model.size }, stamp: { set: stamp.set, threads: stamp.threads, prio: stamp.prio } };
   if (from === 'bench') {
     if (r === null) return null;
     const slow = r > PACE.over ? true : r <= PACE.exit ? false : Boolean(p && p.slow);
     return { ...base, rtf: p && typeof p.rtf === 'number' && Number.isFinite(p.rtf) ? p.rtf : r, slow, at: now, from: 'bench' };
   }
   if (s.why === 'saved') return null;
-  if (!s.slow && r === null) return null;
-  return { ...base, rtf: r === null ? (p && Number.isFinite(p.rtf) ? p.rtf : null) : mix(r), slow: Boolean(s.slow), at: now, from: 'live' };
+  const keepSlow = s.slow === true && (s.why === 'two' || s.why === 'big') && Number(s.samples) >= PACE_KEEP_SAMPLES;
+  if (!keepSlow && r === null) return null;
+  return { ...base, rtf: r === null ? (p && Number.isFinite(p.rtf) ? p.rtf : null) : mix(r), slow: keepSlow, at: now, from: 'live' };
 }
 /** PC への要求の待ち時間 = min(30 分, max(240 秒, max(音声, 30 秒) × max(rtf, 1) × 2 + 60 秒))（rtf が無ければ 1） */
 function localTimeoutMs({ audioMs, rtf } = {}) {
@@ -2406,6 +2420,7 @@ module.exports = {
   LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
   // 0.9.4 S-1（文字起こしの安定化）
   defaultThreads, oldDefaultThreads, oldDefaultsPatch,   // 0.18.1 PF-1
+  paceStamp, sameStamp,   // 0.18.1 PF-3
   localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, pendingLeft, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,
   // 0.12.0 SP-1（2つの流れの文字起こし。timeline.js の表と部品を出し直す）
   VOICE_LEVEL, FRAME_MAX_MS, PAUSE_CUT_MS, LONG_PAUSE_MS, MIN_SEG_MS, IDLE_CUT_MS, PRE_ROLL_MS, BLEED_SHARE, BLEED_NEAR_MS,

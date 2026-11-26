@@ -2,6 +2,7 @@
  * stage181.lib.test.js — 0.18.1（計画 docs/plans/2026-11-25-181.md）の純粋な部分。
  *  PF-1: 文字起こしのスレッドの既定（lib.defaultThreads。settings.js の defaultSettings も同じ数）・前の版の既定（lib.oldDefaultThreads）と移し（lib.oldDefaultsPatch）
  *  PF-2: 文字起こしの間隔の既定 30 秒（settings.js・lib.segmentBaseMs）・前の版の 75 秒の移し（lib.oldDefaultsPatch）・録音中は変えない（F260）
+ *  PF-3: 「遅い」の覚えの印（lib.paceStamp・lib.sameStamp。印の違う覚えは無いのと同じ）と覚える条件（lib.paceSaved。速さの数 3 つ以上で理由 two・big だけ）
  */
 'use strict';
 
@@ -83,4 +84,62 @@ test('PF-2 字（決めたこと 5）: 設定の説明・ヘルプ・README の�
   for (const [f, t] of [['README.md', readme], ['help/articles/trouble/transcription-stops.md', stops], ['src/main.js', read('src', 'main.js')]]) {
     assert.ok(!/既定 ?75 ?秒|約75秒ごと|75 秒ずつの文字起こし/.test(t), `${f} に 75 秒の既定の字が残っている`);
   }
+});
+
+// ---------------------------------------------------------------- PF-3（決めたこと 6）
+const DAY = 24 * 3600 * 1000;
+const MODEL = { name: 'ggml-large-v3-turbo-q5_0.bin', size: 574041195 };
+const NOW = 1_800_000_000_000;
+test('PF-3 前の版の覚え: 印（エンジンの組・スレッドの数・優先度の版 2）が無い・違う「遅い」の覚えは会議の始めに使わない。印が同じなら今どおり使う。前の覚えの rtf は印が違えば混ぜない', T, () => {
+  const STAMP = L.paceStamp({ set: 'manual', threads: 4 });
+  assert.deepStrictEqual(STAMP, { set: 'manual', threads: 4, prio: 2 });
+  for (const x of [{}, { set: '', threads: 4 }, { set: 'manual', threads: 0 }, { set: 'manual', threads: '4' }, { set: 5, threads: 4 }]) assert.strictEqual(L.paceStamp(x), null, JSON.stringify(x));
+  const saved = (stamp) => ({ schema: 1, model: MODEL, rtf: 1.6, slow: true, at: NOW - DAY, from: 'live', ...(stamp === undefined ? {} : { stamp }) });
+  const start = (sv) => L.paceStep(undefined, { kind: 'start', saved: sv, model: MODEL, stamp: STAMP, now: NOW });
+  // 0.18.0 までの覚え（印が無い）・スレッドの数が違う・組が違う・優先度の版が違う・形の違う印は、無いのと同じ
+  for (const st of [undefined, null, { set: 'manual', threads: 8, prio: 2 }, { set: 'whisper-1.9.5-vk', threads: 4, prio: 2 }, { set: 'manual', threads: 4, prio: 1 }, { set: 'manual', threads: 4 }, 'manual']) {
+    const r = start(saved(st));
+    assert.ok(r.slow === false && r.why === '', JSON.stringify(st));
+  }
+  const same = start(saved({ set: 'manual', threads: 4, prio: 2 }));
+  assert.ok(same.slow === true && same.why === 'saved');
+  // 会議に印が無い（モデルが分からない形と同じ）なら使わない
+  assert.strictEqual(L.paceStep(undefined, { kind: 'start', saved: saved(STAMP), model: MODEL, stamp: null, now: NOW }).slow, false);
+  assert.ok(L.sameStamp(STAMP, { set: 'manual', threads: 4, prio: 2 }) && !L.sameStamp(STAMP, null) && !L.sameStamp(null, null));
+  // 書く覚えには印を書く。印の違う前の覚えの rtf は混ぜない（印が同じなら今どおり混ぜる）
+  const st = { slow: false, why: '', run: 0, rtf: 0.5, samples: 3 };
+  const w = L.paceSaved(st, { schema: 1, model: MODEL, rtf: 3, slow: false, at: NOW - DAY, from: 'live' }, { model: MODEL, stamp: STAMP, now: NOW, from: 'live' });
+  assert.deepStrictEqual(w, { schema: 1, model: MODEL, stamp: STAMP, rtf: 0.5, slow: false, at: NOW, from: 'live' });
+  const mixed = L.paceSaved(st, { schema: 1, model: MODEL, stamp: STAMP, rtf: 1.5, slow: false, at: NOW - DAY, from: 'live' }, { model: MODEL, stamp: STAMP, now: NOW, from: 'live' });
+  assert.strictEqual(mixed.rtf, 1);
+  // 印が分からない会議は書かない
+  assert.strictEqual(L.paceSaved(st, null, { model: MODEL, stamp: null, now: NOW, from: 'live' }), null);
+});
+
+test('PF-3 覚える条件: 「遅い」と覚えるのは、その会議で速さの数が 3 つ以上あり、理由が two・big のときだけ。時間切れ1回・待ちだけ・数の少ない会議の「遅い」は、その会議の中だけ（覚えは遅くない）', T, () => {
+  const STAMP = L.paceStamp({ set: 'manual', threads: 4 });
+  const save = (st) => L.paceSaved(st, null, { model: MODEL, stamp: STAMP, now: NOW, from: 'live' });
+  const run = (evs) => evs.reduce((st, ev) => L.paceStep(st, ev).st, L.paceStep(undefined, { kind: 'start', saved: null, model: MODEL, stamp: STAMP, now: NOW }).st);
+  const S = (procMs) => ({ kind: 'sample', audioMs: 30000, procMs });
+  // 時間切れ1回（速さの数なし）: その会議は遅いが、覚えない（書かない）
+  const late = run([{ kind: 'late' }]);
+  assert.ok(late.slow && late.why === 'late');
+  assert.strictEqual(save(late), null);
+  // 速さの数がある会議の時間切れ・待ち: 覚えは遅くない（rtf だけ）
+  const late1 = run([S(24000), { kind: 'late' }]);
+  assert.deepStrictEqual([late1.slow, save(late1).slow, save(late1).rtf], [true, false, 0.8]);
+  const backlog = run([S(24000), S(24000), S(24000), { kind: 'backlog', audioMs: 300000 }]);
+  assert.deepStrictEqual([backlog.slow, backlog.why, save(backlog).slow], [true, 'backlog', false]);
+  // two・big でも速さの数が 3 つに満たなければ覚えない
+  const two2 = run([S(36000), S(36000)]);
+  assert.deepStrictEqual([two2.slow, two2.why, two2.samples, save(two2).slow], [true, 'two', 2, false]);
+  const big1 = run([S(60000)]);
+  assert.deepStrictEqual([big1.slow, big1.why, save(big1).slow], [true, 'big', false]);
+  // 3 つ以上で two・big は覚える
+  const two3 = run([S(24000), S(36000), S(36000)]);
+  assert.deepStrictEqual([two3.slow, two3.why, two3.samples, save(two3).slow], [true, 'two', 3, true]);
+  const big3 = run([S(24000), S(24000), S(60000)]);
+  assert.deepStrictEqual([big3.why, save(big3).slow], ['big', true]);
+  // 遅くない会議は今どおり遅くないと書く
+  assert.strictEqual(save(run([S(15000), S(15000), S(15000)])).slow, false);
 });
