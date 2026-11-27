@@ -2201,7 +2201,11 @@ test('0.18.1 Task G: 設計書の版の表の 0.18.1 の書き添えに D205〜D
   assert.ok(rowOf(sec, 'D210').includes('持ち主の言葉「文字お越しをオフラインモードで行った場合は、「PC」→「オフライン」に名称を変えてもらえますか？」') && plan.includes('「文字お越しをオフラインモードで行った場合は、「PC」→「オフライン」に名称を変えてもらえますか？」'), 'D210 に持ち主の頼みの字が無い');
   assert.ok(!/notion/i.test(sec), '0.18.1 の節に参考にしたアプリの名前がある');
   // 計画: 今の状態は Task G 済み・字の OK 待ち・リリースは合図の後。決めたこと 6・7 に番号の書き添え
+  // 0.18.1 AQ181-15（計画の CR34）で意図して変えた: 字は持ち主の OK をもらった（AQ181-16）ので、今の状態は「OK 待ち」でなく「AQ181-16 で OK・K5 は AQ181-15 で直した」。
+  // Task G の後の状態（OK 待ち）は「AQ181-15 の前の状態」の記録の行に残る
   const now = plan.split('\n').find((l) => l.startsWith('> **今の状態（'));
-  assert.ok(now && now.includes('Task G を作った') && now.includes('持ち主の OK 待ち') && now.includes('持ち主のはっきりした合図の後だけ') && now.includes('D205〜D210'), '計画の今の状態が Task G 済み・OK 待ち・リリースは合図の後でない');
+  assert.ok(now && now.includes('Task G を作った') && now.includes('AQ181-16') && now.includes('K5') && now.includes('AQ181-15') && now.includes('持ち主のはっきりした合図の後だけ') && now.includes('D205〜D210'), '計画の今の状態が Task G 済み・字の OK（AQ181-16）・K5 の直し・リリースは合図の後でない');
+  const was = plan.split('\n').find((l) => l.startsWith('> **AQ181-15 の前の状態（'));
+  assert.ok(was && was.includes('Task G を作った') && was.includes('持ち主の OK 待ち'), '計画に Task G の後（OK 待ち）の状態の記録が無い');
   assert.ok(plan.includes('（D200 に書く）。**（Task G: D200 は 0.18.0 の行なので D205 に書いた: M16）**') && plan.includes('（D201 に書く）。**（Task G: D201 は 0.18.0 の行なので D206 に書いた: M16）**'), '計画の決めたこと 6・7 に番号の書き添えが無い');
 });

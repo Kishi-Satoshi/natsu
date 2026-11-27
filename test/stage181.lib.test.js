@@ -6,6 +6,7 @@
  *  PF-4: 会議の後の待ち時間（lib.localTimeoutMs の after。rtf が空なら 3）・残ったエンジンの照らし（lib.tasklistImageOf・lib.orphanMatches）
  *  PF-5: ヘルプ trouble/slow-pc（3 回までは時間切れの区間にも当たる・PC が重いときはスレッド数を下げる・覚えと録音の始まりの直し）
  *  AQ181-14: 前の版の既定の移しを1回だけにする（lib.oldDefaultsOnce と印 defaultsMigrated。印は settings.js の決まりの表に無い知らないキー）
+ *  AQ181-15: スレッド数の既定を書いた字（設定の吹き出し・README）を 0.18.1 の既定に。PF-2 で変えたヘルプの updated（CR35）
  */
 'use strict';
 
@@ -264,4 +265,19 @@ test('PF-6 字: ヘルプ（record/status-line・summary/how-summaries）と REA
   const app = read('src', 'renderer', 'app.html');
   assert.ok(app.includes("const head = `文字起こし中（${s.route === 'cloud' ? 'クラウド' : 'この PC'}）`;"), '録音中の状態の行を変えた');
   assert.ok(app.includes('ローカル AI'), '設定のローカル AI の字');
+});
+
+// ---------------------------------------------------------------- AQ181-15（K5。2026-11-27 の持ち主の答え「直す（おすすめ）」・CR34・CR35）
+test('AQ181-15 字: 設定の吹き出しと README の「高速化」はスレッド数の既定を 4（論理 CPU 4 以下の PC では 2）と言い、前の既定「コア数 − 2」を言う字は残らない。PF-2 で変えたヘルプの updated を直した', T, () => {
+  const app = read('src', 'renderer', 'app.html');
+  const readme = read('README.md');
+  assert.ok(app.includes('<li>スレッド数は文字起こしに使う CPU の数です（初期値は 4。CPU の数が 4 以下の PC では 2。増やすと速くなりますが、他の作業が重くなります）。</li>'), '設定の吹き出し');
+  assert.ok(readme.includes('1. スレッド数を上げる（既定は 4。論理コア数が 4 以下の PC では 2。上げると PC 全体が重くなることがあります）'), 'README の高速化の行');
+  const offline = read('help', 'articles', 'settings', 'offline.md');
+  const stops = read('help', 'articles', 'trouble', 'transcription-stops.md');
+  for (const [f, t] of [['src/renderer/app.html', app], ['README.md', readme], ['help/articles/settings/offline.md', offline],
+    ['help/articles/trouble/transcription-stops.md', stops], ['help/articles/trouble/slow-pc.md', read('help', 'articles', 'trouble', 'slow-pc.md')]]) {
+    assert.ok(!/コア数 ?[−-] ?2/.test(t), `${f} に前の既定（コア数 − 2）の字が残っている`);
+  }
+  for (const [f, t] of [['settings/offline.md', offline], ['trouble/transcription-stops.md', stops]]) assert.ok(/^updated: 2026-11-2[7-9]$/m.test(t), `${f}: PF-2 で変えたのに updated を直していない`);
 });

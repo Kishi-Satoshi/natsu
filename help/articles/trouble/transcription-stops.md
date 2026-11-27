@@ -1,7 +1,7 @@
 ---
 title: 文字起こしが止まる
 description: 録音中に文字が出なくなったとき。PC の中で続く仕組み・音声を残してつながると文字起こしすること・［もう一度］と、録音を止めた後
-updated: 2026-10-28
+updated: 2026-11-27
 sources: README.md, INSTALL.md, src/main.js, src/mainlib.js, src/renderer/app.html
 related: trouble/banners, record/status-line, settings/offline
 ---

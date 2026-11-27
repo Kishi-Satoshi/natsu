@@ -1,7 +1,7 @@
 ---
 title: ローカル AI
 description: ［設定］の「ローカル AI」で、PC の中の文字起こしのエンジンを取り込む（任意）。取り込まないときの動きと、使えるかの確かめ方。要約は Claude Code だけ
-updated: 2026-11-10
+updated: 2026-11-27
 sources: src/renderer/app.html, src/main.js, src/mainlib.js, INSTALL.md, README.md
 related: start/getting-started, record/pc-only, record/status-line
 ---
