@@ -638,22 +638,33 @@ function retrySettingsRead() {
   }
   if (r.state === 'ok') {
     settings = r.settings;
-    migrateOldThreads(settings);
+    migrateOldThreads(r.state);   // 0.18.1 AQ181-14: 起動のときに読めなかった設定は、ここで1回だけ移して書く（録音・議事録の最中はここに来ない）
     applyReloadedSettings(prev, settings);
     engineLog('設定: 読めたので、保存してある設定に切り替えました');
     notes.push(NOTICE.settingsReloaded);
   } else {
     // 無くなっていた・壊れていた（退けた）: 読めた値が無いので、今の設定のまま書けるようにする（待っていた変更は次の合図で書く）
     engineLog(`設定: 読み直したら${r.state === 'missing' ? '無くなっていた' : '壊れていた'}ので、今の設定のまま保存します`);
+    migrateOldThreads(r.state);   // 0.18.1 AQ181-14: 印だけ付ける（読めない間に画面で選んだ数を移さない。待っていた変更と一緒に書く）
   }
   if (notes.length) noticeMainWin(notes.join('　'));
 }
 
-// 古い既定のスレッド数の移し替えは、今どおりメモリの中だけ（直しに数えない。知らせも写しも書き戻しも無い）。
-// 起動のときと、読めなかった設定を読み直して切り替えたとき（retrySettingsRead）に通す。
-// 0.18.1 PF-1（決めたこと 3）: 前の版の既定（max(4, n − 2)・max(4, floor(n / 2))）のどちらかと同じなら、新しい既定（4 まで）へ移す（mainlib.oldDefaultsPatch）
-function migrateOldThreads(s) {
-  Object.assign(s, lib.oldDefaultsPatch(s, CPU_COUNT));
+// 前の版の既定の移し。起動のときと、読めなかった設定を読み直して切り替えたとき（retrySettingsRead）に通す。直しに数えない（知らせも写しも無い）。
+// 0.18.1 PF-1・PF-2（決めたこと 3・4）: 前の版の既定（スレッドの max(4, n − 2)・max(4, floor(n / 2))、間隔の 75 秒）と同じなら、新しい既定へ移す（mainlib.oldDefaultsPatch）。
+// 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の決めたこと 3・4・CR25〜CR27）: 移すのは印の無い設定の1回だけ（mainlib.oldDefaultsOnce）。読めた設定は、
+// 移した値と印を今の書き手（settingsWriter。同じ一時ファイルと名前の変更）で1回書く（前はメモリの中だけで、起動のたびに移していた）。書けなければ
+// engine.log に1行（落ちない。書き手が次の合図でやり直し、それでも書けなければ印が無いので次の起動でもう一度移す）。読めないファイルは書かない
+// （unreadable のときは何もせず、書き手も NOT_WRITABLE で断る）。無い・退けた設定は印だけ付けて、次のふつうの保存（どれも settings を丸ごと書く）に乗せる
+function migrateOldThreads(fileState) {
+  const m = lib.oldDefaultsOnce(settings, CPU_COUNT, fileState);
+  if (!m.mark) return;
+  Object.assign(settings, m.patch, { [lib.DEFAULTS_MOVED_KEY]: lib.DEFAULTS_MOVED_VER });
+  const keys = Object.keys(m.patch);
+  if (keys.length) engineLog(`設定: 前の版の既定のままの項目を新しい既定に移しました（${keys.join('・')}）`);   // キーの名前だけ（値は書かない）
+  if (!m.write) { if (settingsWriter.pending()) settingsWriter.set(settings); return; }
+  const w = settingsWriter.now(settings);   // 0.18.1 AQ181-14: 移した値と印を1回だけ書く
+  if (!w.ok) engineLog(`設定: 前の版の既定を移した設定を書けませんでした（${errCode(w.error)}）。次の起動でもう一度移します`);
 }
 
 function loadStores() {
@@ -668,7 +679,7 @@ function loadStores() {
     settingsRetryTimer = setTimeout(retrySettingsRead, RETRY_READ_MS[0]);
     settingsRetryIdx = 1;
   }
-  migrateOldThreads(settings);
+  migrateOldThreads(ls.state);   // 0.18.1 AQ181-14: 読めた設定に印が無ければ1回だけ移して書く（読めないときは読み直しで）
   // 0.15.1 ND-2（D114・計画の決めたこと 3）: 前の音声入力の履歴（history.json）は読まない・書かない・消さない・退けない（ファイルはそのまま残す）
   // 保存先は <userData>/data だけ。開けない（容量・権限など）と store.initDrafts は投げる。ここは
   // app.whenReady の中なので、投げると単一起動の鍵を持ったまま窓が出ず、次に起動しても何も

@@ -1966,13 +1966,32 @@ function orphanMatches(rec, image) {
 }
 
 // 前の版の既定のままの設定を新しい既定へ移す（決めたこと 3・4）。純粋: 移すキーと新しい値の物を返す（移す物が無ければ {}）。
-// settings.json は既定の数をそのまま書いているので、選んだ数と見分けられない。前の既定と同じ数を自分で選んだ人も移る（［設定］で戻せる）
+// settings.json は既定の数をそのまま書いているので、選んだ数と見分けられない。0.18.1 に更新する前に前の既定と同じ数を自分で選んでいた人も、1回だけ移る
+// （0.18.1 AQ181-14: 移すのは oldDefaultsOnce の印が無いときだけ。移した後に選んだ数は残る）
 function oldDefaultsPatch(s, n) {
   const patch = {};
   if (!s || typeof s !== 'object') return patch;
   if (oldDefaultThreads(n).includes(s.localThreads)) patch.localThreads = defaultThreads(n);
   if (s.segmentSec === OLD_DEFAULT_SEGMENT_SEC) patch.segmentSec = DEFAULT_SEGMENT_SEC;
   return patch;
+}
+// 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の決めたこと 3・4・CR25〜CR27）: 前の版の既定の移しは 0.18.1 の初めの起動で1回だけ。
+// 移したことは settings.json の印（DEFAULTS_MOVED_KEY。settings.js の決まりの表に無い知らないキーなので、読み込みで残り、画面からは保存させない）に書く。
+// 前は起動のたびにメモリの中だけで移していたので、後で自分で 10 スレッドや 75 秒を選んで保存しても、次の起動でまた移っていた
+const DEFAULTS_MOVED_KEY = 'defaultsMigrated';
+const DEFAULTS_MOVED_VER = 1;
+// 純粋。s: 読み込みの決まりを通した設定、n: 論理 CPU の数、state: 設定のファイルの読みの結果（jsonfile.loadJsonFile の state）。
+// → { patch: 移すキーと新しい値, mark: 印を付けるか, write: 起動のときに書くか }
+//   - 印がある（整数で DEFAULTS_MOVED_VER 以上）・読めない（unreadable。読み直しで読めたときに移す）: 何もしない
+//   - 読めた（ok）: 前の版の既定を移し（移すものが無くても）、印を付けて書く
+//   - 無い（missing）・壊れていて退けた（broken）: 既定で動くので移すものは無い。印だけ付け、起動では書かない（次のふつうの保存に印が乗る）
+function oldDefaultsOnce(s, n, state) {
+  const none = { patch: {}, mark: false, write: false };
+  if (state === 'unreadable' || !s || typeof s !== 'object') return none;
+  const v = s[DEFAULTS_MOVED_KEY];
+  if (Number.isInteger(v) && v >= DEFAULTS_MOVED_VER) return none;
+  if (state !== 'ok') return { patch: {}, mark: true, write: false };
+  return { patch: oldDefaultsPatch(s, n), mark: true, write: true };
 }
 
 const DOWN_CODES = ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET'];
@@ -2440,6 +2459,7 @@ module.exports = {
   LEVEL_BAR_W, LEVEL_BAR_SPEED, LEVEL_BAR_PHASE, levelBars,
   // 0.9.4 S-1（文字起こしの安定化）
   defaultThreads, oldDefaultThreads, oldDefaultsPatch,   // 0.18.1 PF-1
+  oldDefaultsOnce, DEFAULTS_MOVED_KEY, DEFAULTS_MOVED_VER,   // 0.18.1 AQ181-14
   paceStamp, sameStamp,   // 0.18.1 PF-3
   tasklistImageOf, orphanMatches,   // 0.18.1 PF-4
   localFailKind, effRtf, PACE, paceStep, paceSaved, localTimeoutMs, LOCAL_SEGMENT_MS_CAP, afterEtaMin, pendingLeft, RELAY_TRANSIENT, RELAY_HOLD_LADDER_MS, relayHoldStep,

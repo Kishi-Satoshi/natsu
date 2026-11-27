@@ -1,8 +1,10 @@
 /*
  * stage181.main.test.js — 0.18.1（計画 docs/plans/2026-11-25-181.md）の main の場面。偽の Electron の上で main.js を本当に動かして確かめる
  * （helpers/mainrun.js。論理 CPU の数は --cpus、優先度は out.prioCalls と --prio=fail）。
- *  PF-1: 起こしたエンジンのスレッドの数（既定と前の版の既定の移し。メモリの中だけ）・優先度（通常より低い。失敗しても起こす）
- *  PF-2: PC の中で文字起こしする会議の区切り（既定 30 秒・前の版の 75 秒の移し。メモリの中だけ）
+ *  PF-1: 起こしたエンジンのスレッドの数（既定と前の版の既定の移し）・優先度（通常より低い。失敗しても起こす）
+ *  PF-2: PC の中で文字起こしする会議の区切り（既定 30 秒・前の版の 75 秒の移し）
+ *  0.18.1 AQ181-14（計画の CR25〜CR27）: 前の版の既定の移しは 0.18.1 の初めの起動で1回だけ（移した値と印 defaultsMigrated を書く）。
+ *        2回目の起動・読めなかった設定の読み直し・書けなかったとき・settings.json の無い PC
  *  PF-3: 「遅い」の覚え（local-pace.json）の印。印の無い・違う覚えは会議の始めにも待ち時間にも使わない。書く覚えに印を書く
  *  PF-4: 会議の後の文字起こしの時間切れ（回数に数え・待ち行列の後ろへ回し・その回は止める・3 回で保留）・会議の後の待ち時間（rtf が空なら 3）・
  *        録音を始めたら会議の後の頼みを切る（数えない）・前の NaTsu が残したエンジン（engine-proc.json と tasklist の名前の照らし）
@@ -12,9 +14,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execScene, sceneTimeout } = require('./helpers/scene-slots');
+const SC = require('./helpers/json-scenes');
 
 const RUN = path.join(__dirname, 'helpers', 'mainrun.js');
 const run = (args, { scale = '0.005', env = {}, limit = 20000 } = {}) => new Promise((resolve, reject) => {
@@ -33,7 +37,9 @@ const add = (o) => `--settings-add=${JSON.stringify(o)}`;
 const brief = (o) => JSON.stringify({ spawns: o.spawns, prioCalls: o.prioCalls, engineLog: o.engineLog }, null, 1);
 
 // ---------------------------------------------------------------- PF-1（決めたこと 1〜3）
-test('PF-1 前の版の設定: 前の既定のままのスレッドの数（論理 CPU 12 の 10・6、論理 CPU 4 の 4）は新しい既定（4・2）で起こす。選んだ数（8）・無いとき（既定 4）はそのまま。settings.json は書き換えない（メモリの中だけ）', T, async () => {
+// 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の決めたこと 3・CR25）で意図して変えた: 前は「settings.json は書き換えない（メモリの中だけ）」で、
+// 移した数を書き戻さなかった（old10 の 10・old4 の 4 のまま）。0.18.1 の初めの起動で1回だけ移し、移した数と印を settings.json に書く
+test('PF-1 前の版の設定: 前の既定のままのスレッドの数（論理 CPU 12 の 10・6、論理 CPU 4 の 4）は新しい既定（4・2）で起こす。選んだ数（8）・無いとき（既定 4）はそのまま。初めの起動で移した数と印を settings.json に書く（選んだ数は印だけ）', T, async () => {
   const [old10, old6, chose8, none12, old4] = await Promise.all([
     run(['text', '--segs=1', '--cpus=12', add({ localThreads: 10 })]),
     run(['text', '--segs=1', '--cpus=12', add({ localThreads: 6 })]),
@@ -48,10 +54,14 @@ test('PF-1 前の版の設定: 前の既定のままのスレッドの数（論�
   assert.ok(t(chose8).length >= 1 && t(chose8).every((x) => x === '8'), brief(chose8));
   assert.ok(t(none12).length >= 1 && t(none12).every((x) => x === '4'), brief(none12));
   assert.ok(t(old4).length >= 1 && t(old4).every((x) => x === '2'), brief(old4));
-  // 書き戻さない・知らせない（［設定］を保存すると新しい数が書かれる）
-  assert.strictEqual(old10.savedSettings.localThreads, 10);
-  assert.strictEqual(old4.savedSettings.localThreads, 4);
+  // 0.18.1 AQ181-14 で意図して変えた（前は 10・4 のまま書き戻さなかった）: 移した数と印を書く。選んだ 8 は移さず、印だけ書く。画面には知らせない
+  const saved = (o) => [o.savedSettings.localThreads, o.savedSettings.defaultsMigrated];
+  assert.deepStrictEqual(saved(old10), [4, 1]);
+  assert.deepStrictEqual(saved(old4), [2, 1]);
+  assert.deepStrictEqual(saved(chose8), [8, 1]);
   assert.ok(!old10.engineLog.some((l) => /スレッド/.test(l)), old10.engineLog.join('\n'));
+  assert.ok(old10.engineLog.includes('設定: 前の版の既定のままの項目を新しい既定に移しました（localThreads）'), old10.engineLog.join('\n'));
+  assert.ok(!chose8.engineLog.some((l) => l.startsWith('設定: 前の版の既定')), chose8.engineLog.join('\n'));
 });
 
 test('PF-1 起こしたエンジンの優先度: 起こした whisper の番号で os.setPriority(PRIORITY_BELOW_NORMAL) を呼ぶ。断られても（Linux の CI の権限）起こすのは止めず、engine.log に1行だけ', T, async () => {
@@ -74,7 +84,8 @@ test('PF-1 起こしたエンジンの優先度: 起こした whisper の番号�
 
 // ---------------------------------------------------------------- PF-2（決めたこと 4）
 const starts = (o) => o.overlaySent.filter((x) => x && typeof x === 'object').map((x) => x.segmentSec);
-test('PF-2 前の版の間隔: settings.json の 75 秒（前の版の既定）は 30 秒で始める（録音バーへの始めの segmentSec・記録の行）。選んだ 60 秒・無いとき（既定 30 秒）。settings.json は書き換えない', T, async () => {
+// 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の決めたこと 4・CR25）で意図して変えた: 前は「settings.json は書き換えない」（75 のまま）。初めの起動で 30 と印を書く
+test('PF-2 前の版の間隔: settings.json の 75 秒（前の版の既定）は 30 秒で始める（録音バーへの始めの segmentSec・記録の行）。選んだ 60 秒・無いとき（既定 30 秒）。初めの起動で 30 秒と印を settings.json に書く', T, async () => {
   const [old75, chose60, none] = await Promise.all([
     run(['text', '--relay=text', '--offline', '--segs=1', add({ segmentSec: 75 })]),
     run(['text', '--relay=text', '--offline', '--segs=1', add({ segmentSec: 60 })]),
@@ -82,11 +93,74 @@ test('PF-2 前の版の間隔: settings.json の 75 秒（前の版の既定）�
   ]);
   assert.deepStrictEqual(starts(old75), [30], JSON.stringify(old75.overlaySent));
   assert.ok(old75.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 start）'), old75.engineLog.join('\n'));
-  assert.strictEqual(old75.savedSettings.segmentSec, 75);
+  assert.deepStrictEqual([old75.savedSettings.segmentSec, old75.savedSettings.defaultsMigrated], [30, 1]);   // 0.18.1 AQ181-14 で意図して変えた（前は 75）
+  assert.deepStrictEqual([chose60.savedSettings.segmentSec, chose60.savedSettings.defaultsMigrated], [60, 1]);
   assert.deepStrictEqual(starts(chose60), [60], JSON.stringify(chose60.overlaySent));
   assert.ok(chose60.engineLog.includes('文字起こしの状態: 区切り 60 秒（long・理由 start）'), chose60.engineLog.join('\n'));
   assert.deepStrictEqual(starts(none), [30], JSON.stringify(none.overlaySent));
   assert.ok(none.engineLog.includes('文字起こしの状態: 区切り 30 秒（long・理由 start）'), none.engineLog.join('\n'));
+});
+
+// ---------------------------------------------------------------- 0.18.1 AQ181-14（決めたこと 3・4 の一度だけの移し。計画の CR25〜CR27）
+const MOVED_LOG = /^設定: 前の版の既定のままの項目を新しい既定に移しました/;
+// 中継の場面（--relay）は spawns を出さないので、起こしたエンジンのスレッドの数は engine.log の起動の行の -t から読む
+const threadsLogged = (o) => o.engineLog.filter((l) => l.startsWith('文字起こしエンジン 起動:')).map((l) => (/ -t (\d+) /.exec(l) || [])[1]);
+test('AQ181-14 2回目の起動: 1回目（印の無い 10 スレッド・75 秒）は移して印と一緒に書く。その後に自分で 10 スレッド・75 秒を選んで保存した設定は、2回目の起動で移さず（起こすのは 10・区切りは 75 秒）、settings.json も書き直さない', T, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), '一度だけの移し𠮷-'));
+  try {
+    const args = ['text', '--relay=text', '--offline', '--segs=1', '--cpus=12', add({ localThreads: 10, segmentSec: 75 }), `--keep-user-data=${dir}`];
+    const first = await run(args);
+    const t1 = threadsLogged(first);
+    assert.ok(t1.length >= 1 && t1.every((x) => x === '4'), first.engineLog.join('\n'));
+    assert.deepStrictEqual(starts(first), [30], JSON.stringify(first.overlaySent));
+    assert.deepStrictEqual([first.savedSettings.localThreads, first.savedSettings.segmentSec, first.savedSettings.defaultsMigrated], [4, 30, 1]);
+    assert.ok(first.engineLog.includes('設定: 前の版の既定のままの項目を新しい既定に移しました（localThreads・segmentSec）'), first.engineLog.join('\n'));
+    // ［設定］で 10・75 秒を選んで保存した形（settings:save は印を残す: old181-fresh の場面）
+    const file = path.join(dir, 'settings.json');
+    fs.writeFileSync(file, JSON.stringify({ ...first.savedSettings, localThreads: 10, segmentSec: 75 }, null, 2));
+    fs.rmSync(path.join(dir, 'engine.log'), { force: true });   // 2回目の起動の行だけを見る
+    const second = await run(args);
+    const t2 = threadsLogged(second);
+    assert.ok(t2.length >= 1 && t2.every((x) => x === '10'), second.engineLog.join('\n'));
+    assert.deepStrictEqual(starts(second), [75], JSON.stringify(second.overlaySent));
+    assert.deepStrictEqual([second.savedSettings.localThreads, second.savedSettings.segmentSec, second.savedSettings.defaultsMigrated], [10, 75, 1]);
+    // mainrun はエンジンのパスとポートだけをこの起動のものに差し替えて置く（settingsPlaced）。main はそれを書き直さない
+    assert.ok(second.settingsPlaced && JSON.parse(second.settingsPlaced).localThreads === 10, String(second.settingsPlaced));
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), second.settingsPlaced, '2回目の起動で settings.json を書き直した');
+    assert.ok(!second.engineLog.some((l) => MOVED_LOG.test(l)), second.engineLog.join('\n'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const scene = (name) => run(['text', `--json-scene=${name}`]);
+test('AQ181-14 読めなかった設定: 起動で読めない間は移さず書かない。読み直しで読めたときに移して、印と一緒に1回書く（ほかの値はそのまま）', T, async () => {
+  const o = await scene('old181-unreadable');
+  assert.strictEqual(o.textWhileUnreadable, JSON.stringify(SC.OLD181, null, 2), '読めない間に書いた');
+  assert.deepStrictEqual([o.after.segmentSec, o.after.defaultsMigrated], [30, 1]);
+  const saved = JSON.parse(o.textAfterReload);
+  assert.deepStrictEqual([saved.segmentSec, saved.defaultsMigrated], [30, 1], o.textAfterReload);
+  for (const [k, v] of Object.entries(SC.OLD181)) if (k !== 'segmentSec') assert.deepStrictEqual(saved[k], v, k);
+  assert.deepStrictEqual(o.engineLog.filter((l) => MOVED_LOG.test(l)), ['設定: 前の版の既定のままの項目を新しい既定に移しました（segmentSec）'], o.engineLog.join('\n'));
+});
+
+test('AQ181-14 書けなかったとき: 移した設定を書けなくても落ちず、engine.log に1行。この起動は移した値で動き、ファイルは元のまま（印が無いので次の起動でもう一度移す）', T, async () => {
+  const o = await scene('old181-write-fail');
+  assert.ok(o.windows >= 2, `窓が出ない（${o.windows}）`);
+  assert.strictEqual(o.settingsText, JSON.stringify(SC.OLD181, null, 2), '書けないのにファイルが変わった');
+  assert.strictEqual(o.got.segmentSec, 30);
+  assert.deepStrictEqual(o.engineLog.filter((l) => l.startsWith('設定: 前の版の既定を移した設定を')), ['設定: 前の版の既定を移した設定を書けませんでした（EBUSY）。次の起動でもう一度移します'], o.engineLog.join('\n'));
+});
+
+test('AQ181-14 settings.json の無い PC: 起動では書かない。画面で 75 秒を選んで保存すると印も一緒に書かれ（次の起動で移さない）、次の保存でも印が残る', T, async () => {
+  const o = await scene('old181-fresh');
+  assert.strictEqual(o.textAtStart, null, '新しく入れた PC で起動だけで settings.json を書いた');
+  assert.ok(o.saved.ok && o.saved2.ok, JSON.stringify([o.saved, o.saved2]));
+  const s1 = JSON.parse(o.textAfterSave);
+  assert.deepStrictEqual([s1.segmentSec, s1.defaultsMigrated], [75, 1], o.textAfterSave);
+  const s2 = JSON.parse(o.textAfterSave2);
+  assert.deepStrictEqual([s2.segmentSec, s2.defaultsMigrated, s2.theme], [75, 1, 'light'], o.textAfterSave2);
+  assert.ok(!o.engineLog.some((l) => MOVED_LOG.test(l)), o.engineLog.join('\n'));
 });
 
 // ---------------------------------------------------------------- PF-3（決めたこと 6）

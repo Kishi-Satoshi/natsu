@@ -24,6 +24,8 @@ const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 const CP932_NIHONGO = Buffer.from([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]);
 // 今の利用者がふつうに持っている設定（30 のキー。localThreads は CPU の移し替えに当たらない 3）
 // 0.18.1 PF-2（計画 docs/plans/2026-11-25-181.md の決めたこと 4）で意図して変えた: segmentSec は前の版の既定の移し（75 → 30）に当たらない 60（前は 75）
+// 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の CR27）で意図して変えた: 前の版の既定の移しを済ませた印 defaultsMigrated: 1 を足した（0.18.1 で一度起動した人の形）。
+// 印があるので、起動の移し（migrateOldThreads）はこの設定を書き直さない（印の無い 0.18.0 までの設定は OLD181）
 // 0.9.0 O-1（設計書 D25）で意図して変えた: 0.9.0 の置き場所 pillSlot を足した（0.9.0 で一度起動した人の形）。前の版が書いた pillPos・pillCustom は
 // 知らないキーとして残っている（0.9.0 は読み書きしない）。pillSlot があるので、起動の前の位置の直し（migratePillSlot）はこの設定を書き直さない
 // 読めない間の登録 → 読み直し（retrySettingsRead）→ その後に globalShortcut.register へ渡したキーと、登録しているキー
@@ -45,7 +47,11 @@ const TYPICAL = {
   hotkey: 'Control+Shift+Space', meetingHotkey: 'Alt+M', micId: 'mic-1', pillPos: 'top-right', pillCustom: { x: 40, y: 60 }, pillSlot: 'top-right',
   autoPaste: true, removeFillers: true, soundFeedback: true, autoLaunch: false, theme: 'dark', stayInTray: false,
   dictionary: ['見積', '検収'], useBuiltinTerms: true, useSystemAudio: false, maxHistory: 300, segmentSec: 60, sumCtx: 32768, engineIdleMin: 10,
+  defaultsMigrated: 1,
 };
+// 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の CR25）: 前の版の既定の移しを済ませた印のない、0.18.0 までの設定（segmentSec は前の版の既定の 75）。
+// 0.18.1 の初めの起動で1回だけ移して印と一緒に書く場面（old181-*）が使う
+const OLD181 = (() => { const o = { ...TYPICAL, segmentSec: 75 }; delete o.defaultsMigrated; return o; })();
 const HISTORY = [{ id: 'h1', text: '前の口述', raw: '前の口述', createdAt: '2026-10-01T00:00:00.000Z', durationSec: 3, procMs: 900, chars: 4 }];
 // 画面（app.html の save）が送る 29 のキー
 const UI = (o = {}) => { const u = { ...TYPICAL, ...o }; delete u.pillCustom; delete u.maxHistory; return u; };
@@ -130,13 +136,38 @@ const RELAY_BASE_SETTINGS = ({ base, userData }) => JSON.stringify({ ...base, au
 const PILL_SETTINGS = {
   'pill-custom-left': { pillPos: 'bottom', pillCustom: { x: -328, y: 12 } },
   'pill-pos-left': { pillPos: 'left', pillCustom: 'x' },
-  'pill-slot-kept': { pillSlot: 'top-center', pillPos: 'top-right', pillCustom: { x: 40, y: 60 } },
+  // 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の CR28）で意図して変えた: 前の版の既定の移しを済ませた印 defaultsMigrated: 1 を足した（0.18.1 で一度起動した人の形。
+  // 印が無いと 0.18.1 の初めの起動の1回の書き込みに当たり、「直さないときは settings.json を書かない」を見られない）
+  'pill-slot-kept': { pillSlot: 'top-center', pillPos: 'top-right', pillCustom: { x: 40, y: 60 }, defaultsMigrated: 1 },
   // 0.9.0 O-2: 右下の置き場所（窓の大きさが変わっても右と下の端を保つ）
   'slot-bottom-right': { pillSlot: 'bottom-right' },
 };
 
 module.exports = {
-  TYPICAL, HISTORY, UI, OLD_DRAFT, WS, OLD_KEY_TEXT, PILL_SETTINGS,
+  TYPICAL, HISTORY, UI, OLD_DRAFT, WS, OLD_KEY_TEXT, PILL_SETTINGS, OLD181,
+  // 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の CR25〜CR27）: 前の版の既定の一度だけの移し
+  // old181-unreadable: 起動のときは読めず（移さない・書かない）、読み直しで読めたときに移して印と一緒に書く
+  'old181-unreadable': { files: { 'settings.json': pretty(OLD181) },
+    faults: [{ op: 'read', match: /settings\.json$/, code: 'EBUSY', times: 7 }],   // 起動の1回の読み（1 + READ_WAITS の 6）を全部失敗させる
+    act: async (c) => {
+      c.out.textWhileUnreadable = c.read('settings.json').toString('utf8');
+      c.timers.retrySettingsRead[0]();
+      c.out.after = await c.handlers['settings:get']();
+      c.out.textAfterReload = c.read('settings.json').toString('utf8');
+    } },
+  // old181-write-fail: 移した設定を書けない（名前の変更が 7 回とも EBUSY）。落ちずに engine.log に1行、ファイルは元のまま（次の起動でもう一度移す）
+  'old181-write-fail': { files: { 'settings.json': pretty(OLD181) },
+    faults: [{ op: 'rename', match: /settings\.json$/, code: 'EBUSY', times: 7 }],   // 起動の1回の書き込みの試し（1 + RENAME_WAITS の 6）を全部失敗させる
+    act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
+  // old181-fresh: settings.json の無い PC（新しく入れた）。起動では書かず、画面で 75 秒を選んで保存すると、印も一緒に書かれる（2回目の保存でも残る）
+  'old181-fresh': { files: {},
+    act: async (c) => {
+      c.out.textAtStart = c.read('settings.json') ? c.read('settings.json').toString('utf8') : null;
+      c.out.saved = await c.handlers['settings:save']({}, UI({ segmentSec: 75 }));
+      c.out.textAfterSave = c.read('settings.json').toString('utf8');
+      c.out.saved2 = await c.handlers['settings:save']({}, UI({ segmentSec: 75, theme: 'light' }));
+      c.out.textAfterSave2 = c.read('settings.json').toString('utf8');
+    } },
   plain: { files: { 'settings.json': pretty(TYPICAL), 'history.json': pretty(HISTORY) },
     act: async (c) => { c.out.got = await c.handlers['settings:get'](); } },
   bom: { engine: true, files: { 'settings.json': ({ base }) => Buffer.concat([BOM, Buffer.from(JSON.stringify({ ...base, theme: 'dark' }))]) } },

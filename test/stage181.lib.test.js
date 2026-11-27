@@ -5,6 +5,7 @@
  *  PF-3: 「遅い」の覚えの印（lib.paceStamp・lib.sameStamp。印の違う覚えは無いのと同じ）と覚える条件（lib.paceSaved。速さの数 3 つ以上で理由 two・big だけ）
  *  PF-4: 会議の後の待ち時間（lib.localTimeoutMs の after。rtf が空なら 3）・残ったエンジンの照らし（lib.tasklistImageOf・lib.orphanMatches）
  *  PF-5: ヘルプ trouble/slow-pc（3 回までは時間切れの区間にも当たる・PC が重いときはスレッド数を下げる・覚えと録音の始まりの直し）
+ *  AQ181-14: 前の版の既定の移しを1回だけにする（lib.oldDefaultsOnce と印 defaultsMigrated。印は settings.js の決まりの表に無い知らないキー）
  */
 'use strict';
 
@@ -63,6 +64,39 @@ test('PF-2 前の版の間隔: 前の版の既定のままの 75 秒だけを 30
   assert.deepStrictEqual(L.oldDefaultsPatch({ segmentSec: 75 }, 12), { segmentSec: 30 });
   assert.deepStrictEqual(L.oldDefaultsPatch({ segmentSec: 75, localThreads: 10 }, 12), { localThreads: 4, segmentSec: 30 });
   for (const v of [30, 20, 60, 74, 76, 90, 150, '75']) assert.deepStrictEqual(L.oldDefaultsPatch({ segmentSec: v, localThreads: 8 }, 12), {}, String(v));
+});
+
+// ---------------------------------------------------------------- 0.18.1 AQ181-14（決めたこと 3・4 の一度だけの移し。計画の CR25〜CR27）
+test('AQ181-14 一度だけの移し: 読めた設定に印が無ければ前の版の既定を移し、印を付けて書く（移すものが無くても印は書く）。印があれば何もしない。無い・壊れた設定は印だけで書かない。読めない間は何もしない', T, () => {
+  assert.strictEqual(L.DEFAULTS_MOVED_KEY, 'defaultsMigrated');
+  assert.strictEqual(L.DEFAULTS_MOVED_VER, 1);
+  const K = L.DEFAULTS_MOVED_KEY;
+  const old = { localThreads: 10, segmentSec: 75, language: 'ja' };
+  const moved = { patch: { localThreads: 4, segmentSec: 30 }, mark: true, write: true };
+  const none = { patch: {}, mark: false, write: false };
+  assert.deepStrictEqual(L.oldDefaultsOnce(old, 12, 'ok'), moved);
+  // 前の既定でない数（自分で選んだ 8・60）は触らないが、印は書く（後で 10・75 を選んでも、次の起動で移さないため）
+  assert.deepStrictEqual(L.oldDefaultsOnce({ localThreads: 8, segmentSec: 60 }, 12, 'ok'), { patch: {}, mark: true, write: true });
+  // 印がある（0.18.1 で一度起動した）: その後に自分で選んだ 10・75 は残す。後の版の印（2）も同じ
+  assert.deepStrictEqual(L.oldDefaultsOnce({ ...old, [K]: 1 }, 12, 'ok'), none);
+  assert.deepStrictEqual(L.oldDefaultsOnce({ ...old, [K]: 2 }, 12, 'ok'), none);
+  // 形の違う印（手で書き換えた）は無いのと同じ（もう一度移して印を書き直す）
+  for (const v of ['1', 0, -1, true, null, 1.5, {}]) assert.deepStrictEqual(L.oldDefaultsOnce({ ...old, [K]: v }, 12, 'ok'), moved, JSON.stringify(v));
+  // 無い（新しく入れた PC）・壊れていて退けた設定: 既定で動くので移すものは無い。印だけ付け、起動では書かない（次のふつうの保存に印が乗る）
+  for (const st of ['missing', 'broken']) assert.deepStrictEqual(L.oldDefaultsOnce({ localThreads: 4, segmentSec: 30 }, 12, st), { patch: {}, mark: true, write: false }, st);
+  // 読めない間は何もしない（読み直しで読めたときに移す。読めないファイルは上書きしない）
+  assert.deepStrictEqual(L.oldDefaultsOnce(old, 12, 'unreadable'), none);
+  assert.deepStrictEqual(L.oldDefaultsOnce(null, 12, 'ok'), none);
+});
+
+test('AQ181-14 印の読み書き: 印は settings.js の決まりの表に無い知らないキー。読み込み（readSettings）で直さずに残り、既定には無く、画面からは保存させない（pickSavable が落とす）', T, () => {
+  const r = S.readSettings({ localThreads: 10, segmentSec: 75, defaultsMigrated: 1 }, S.defaultSettings(12));
+  assert.strictEqual(r.settings.defaultsMigrated, 1);
+  assert.deepStrictEqual([r.settings.localThreads, r.settings.segmentSec], [10, 75]);
+  assert.deepStrictEqual(r.repaired, []);
+  assert.ok(!S.SETTING_KEYS.includes('defaultsMigrated'));
+  assert.ok(!('defaultsMigrated' in S.defaultSettings(12)));
+  assert.deepStrictEqual(S.pickSavable({ defaultsMigrated: 1, theme: 'dark' }), { theme: 'dark' });
 });
 
 test('PF-2・F260: 録音中に保存した文字起こしの間隔は前の値に留める（会議の区切りは会議の初めの設定のまま）', T, () => {

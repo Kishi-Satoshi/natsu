@@ -465,6 +465,8 @@ const { titleAt } = require('./titles');
 //                        出力（--mic-feed と sttOut）に tidy（{ requests: [{ body, cookie, xrw, type }], waits: [tidyTimeUp の ms] }）と、--mic-feed に overlayPhases を足す。
 //                        --relay-text=<文> … 中継の後ろの偽の OpenAI が返す文字起こしの文（既定は fake-stt の文。後ろに「区間<n>」が付く）。
 //                        --settings-add=<JSON> … 置く settings.json に重ねる（aiTidy・removeFillers など）。キーに null を渡すと、そのキーを書かない
+//                        （0.18.1 AQ181-14: --keep-user-data と組むと、2回目の起動ではフォルダの settings.json を置き直さず、1回目に main が書いた形を残して、
+//                        この起動の一時フォルダの物（エンジン・モデル・ポート・claude）だけを差し替える。差し替えた後の中身を out.settingsPlaced に出す）
 //   0.13.2 LN-1（LR14。計画 docs/plans/2026-10-28-132.md）
 //     --finalize-delay=<ms> … 偽の DB の締め（meeting.finalize）の答えを ms 遅らせる。--mic-feed の出力に pageFinal（ページごとの { id, title, phase（meeting.phase） }）を足す
 //     --quiet-mic … --quiet-seq の場面でも偽の見張りを起こし、字 T（見張りに mic teams:1）・L（mic -）を足す（どちらも偽の時計を 2 秒進める。Ruling R2）
@@ -708,6 +710,7 @@ const loginAfter = flags.includes('--login-after');
 const tidyFlag = /^\{/.test(flagVal('--tidy') || '') ? JSON.parse(flagVal('--tidy')) : (flagVal('--tidy') || '404');   // 0.14.0 DQ-3: 偽の整えの口の始めの答え方（{ で始まれば答えの JSON）
 const relayTextFlag = flagVal('--relay-text');   // 0.14.0 DQ-3: 偽の OpenAI の文字起こしの文
 const settingsAdd = flagVal('--settings-add') ? JSON.parse(flagVal('--settings-add')) : null;   // 0.14.0 DQ-3
+let settingsPlacedText = null;   // 0.18.1 AQ181-14: --settings-add と --keep-user-data の2回目の起動で、差し替えた後の settings.json の中身
 // 0.15.1 ND-2（計画 docs/plans/2026-11-04-151.md）: 利用者の前の音声入力のファイル（history.json・data/dictwait の WAV）と settings.json の前の4つのキーを置く
 const historyFileFlag = flagVal('--history-file');   // ok（正しい 500 件）| broken（壊れた JSON）
 const dictwaitN = Number(flagVal('--dictwait')) || 0;   // data/dictwait に n 個の WAV（と、history.json があればそれを指す行）
@@ -1435,6 +1438,12 @@ process.on('exit', () => {
       const cur = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
       fs.writeFileSync(f, JSON.stringify({ ...cur, accountEmail: seededMail }));
     }
+  } else if (settingsAdd && keepUserData && fs.existsSync(path.join(userData, 'settings.json'))) {
+    // 0.18.1 AQ181-14: 2回目の起動。1回目に main が書いた settings.json（移した値と印）を残し、1回目の一時フォルダの物だけを差し替える
+    const f = path.join(userData, 'settings.json');
+    const cur = JSON.parse(fs.readFileSync(f, 'utf8'));
+    fs.writeFileSync(f, JSON.stringify({ ...cur, ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, claudeExe }, null, 2));
+    settingsPlacedText = fs.readFileSync(f, 'utf8');
   } else if (!((pillSettings || retiredSum || claudeScenePlaced) && keepUserData && fs.existsSync(path.join(userData, 'settings.json')))) {
     fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
       ...(managedMode || noEngine || fetchMode ? {} : { localServerExe: exe, localModelPath: model }), localPort, sumPort, autoLaunch: false,
@@ -4063,6 +4072,7 @@ process.on('exit', () => {
   out.seq = seq;
   out.atReady = atReady;
   out.savedSettings = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8'));
+  if (settingsPlacedText != null) out.settingsPlaced = settingsPlacedText;   // 0.18.1 AQ181-14
   if (afterDict) {
     out.saved = await handlers['settings:save']({}, { dictionary: ['検収'] });
     out.promptInfoAfterDict = await handlers['prompt:info']();

@@ -1959,6 +1959,8 @@ const IDS_181 = [
   'pf-name-page', 'pf-name-mixed', 'pf-name-mcp', 'pf-name-summary',
   // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR22・CR23。会議の後の時間切れの後の要約・録音を始めて切った頼み）
   'pf-late-summary', 'pf-cut-signal', 'pf-cut-unsent',
+  // 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の決めたこと 3・4・CR25〜CR27。前の版の既定の移しを1回だけにする）
+  'pf-once-mark', 'pf-once-write', 'pf-once-fresh',
 ];
 const PREFIX_181 = /^pf-/;
 function planRows181() {
@@ -1970,13 +1972,14 @@ function planRows181() {
 }
 // 0.18.1 PF-6（計画 docs/plans/2026-11-25-181.md の決めたこと 10。第3版の承認 AQ181-13 の後）で意図して変えた: pf-name- の 4 行を IDS_181 に足し、表の pf- の行（19 行）とちょうど同じにした
 // 0.18.1 点検の直し（計画 docs/plans/2026-11-25-181.md の CR22・CR23）で意図して変えた: 点検の直しの 3 行（pf-late-summary・pf-cut-signal・pf-cut-unsent）を IDS_181 と表に足し、22 行にした
+// 0.18.1 AQ181-14（計画 docs/plans/2026-11-25-181.md の CR25〜CR27）で意図して変えた: 一度だけの移しの 3 行（pf-once-mark・pf-once-write・pf-once-fresh）を IDS_181 と表に足し、25 行にした
 test('G3・0.18.1: 0.18.1 の変異が一覧にそろい、IDS_181 は計画の「変異の表」の pf- の行とちょうど同じ（行の順）。pf- の変異は IDS_181 にある。どれも決まったテストのファイルを持ち、why が 0.18.1 で始まる。前の版の IDS に pf- が無い', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_181.filter((id) => !byId.has(id)), [], 'IDS_181 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_181).size, IDS_181.length, 'IDS_181 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_181.test(m.id) && !IDS_181.includes(m.id)).map((m) => m.id), [], 'IDS_181 に無い pf- の変異がある');
   const rows = planRows181();
-  assert.strictEqual(rows.length, 22, '計画の 0.18.1 の表（pf- 22 行。うち PF-6 の pf-name- 4 行・点検の直しの 3 行）が読めない');
+  assert.strictEqual(rows.length, 25, '計画の 0.18.1 の表（pf- 25 行。うち PF-6 の pf-name- 4 行・点検の直しの 3 行・AQ181-14 の 3 行）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.strictEqual(rows.filter((id) => /^pf-name-/.test(id)).length, 4);
   assert.deepStrictEqual(IDS_181, rows, 'IDS_181 が計画の「変異の表」の pf- の行とちょうど同じでない（行の順）');
