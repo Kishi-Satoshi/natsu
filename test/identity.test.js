@@ -69,9 +69,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.17.0 で意図して変えた: 版を 0.17.0 に（アイコンの版・データベースの作り方とサイドバーのビューの行・「議事録」データベース・タスク管理・行のテンプレート・ロック・実機との違いの直し。Electron は 44.9.0 のまま）
 // 0.17.1 で意図して変えた: 版を 0.17.1 に（メニューと窓を、外を押すと閉じる・Esc で閉じる・開くのは1つにする直しの版。Electron は 44.9.0 のまま）
 // 0.18.0 で意図して変えた: 版を 0.18.0 に（Claude からの要約の書き戻しと戻し方・指示書と、編集の動きと Notion との違いの直し。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.18.0・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.18.1 で意図して変えた: 版を 0.18.1 に（PC の中の文字起こしが重い・遅れる・終わらないのを直し、「オフライン」と呼ぶ直しの版。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.18.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.18.0');
+  assert.strictEqual(pkg.version, '0.18.1');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -307,8 +308,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.17.0 で意図して変えた: 版は 0.17.0（README の保存の説明は 0.7.0 のまま）
 // 0.17.1 で意図して変えた: 版は 0.17.1（README の保存の説明は 0.7.0 のまま）
 // 0.18.0 で意図して変えた: 版は 0.18.0（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0・0.17.1・0.18.0: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.18.0');
+// 0.18.1 で意図して変えた: 版は 0.18.1（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0・0.17.1・0.18.0・0.18.1: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.18.1');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -1015,7 +1017,8 @@ test('0.18.0: CHANGELOG の 0.18.0 の節（承認した字のまま）は日付
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.18.0 （2026-11-25）'), 'CHANGELOG.md に「## natsu-v0.18.0 （2026-11-25）」の見出しが無い');
-  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.18.0'), '0.18.0 の節が CHANGELOG の頭に無い');
+  // 0.18.1 Task G（計画 docs/plans/2026-11-25-181.md の Task G・CR30）で意図して変えた: CHANGELOG の頭は 0.18.1 の節になった（0.18.0 の節はそのすぐ下: 下の 0.18.1 のテスト）
+  assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.1') + 1) === cl.indexOf('\n## natsu-v0.18.0'), '0.18.0 の節が 0.18.1 の節のすぐ下に無い');
   assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.0') + 1) === cl.indexOf('\n## natsu-v0.17.1'), '0.18.0 の節のすぐ下が 0.17.1 の節でない');
   const sec = secOf(cl, '## natsu-v0.18.0');
   const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());
@@ -1045,6 +1048,49 @@ test('0.18.0: CHANGELOG の 0.18.0 の節（承認した字のまま）は日付
   assert.ok(!/<[a-z]/i.test(sec), '0.18.0 の節に生の HTML がある');
   const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
   for (const m of sec.matchAll(/［([^］]+)］/g)) assert.ok(src.includes(m[1]), `0.18.0 の節の［${m[1]}］が src/ に無い`);
+});
+
+// 0.18.1（計画 docs/plans/2026-11-25-181.md の「CHANGELOG の節」・Task G・CR30）: 版を 0.18.1 に上げる commit（Task G）で、計画の下書き（AQ181-14 で直した字と第3版の「オフライン」の行）を
+// 持ち主の読む言葉に直し、出す予定の日の見出し（## natsu-v0.18.1 （2026-11-27））で CHANGELOG.md の頭（0.18.0 の節の上）へ移した。字は持ち主の OK 待ち（直したらここも直す）。
+// 出す日が変われば見出しの日だけを替える（0.18.0 の CR168 と同じ）
+test('0.18.1: CHANGELOG の 0.18.1 の節は日付つきの見出しで CHANGELOG の頭（0.18.0 の節のすぐ上）にあり、頭の2行（［更新して再起動］と［設定］→［更新］）と箇条を Task G の字で書き、一度だけの移し（AQ181-14）・時間切れの区間の後の要約（CR22）・「オフライン」を書き、計画の番号と下書きの印を写さず、引いた［…］は src/ にある', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.18.1 （2026-11-27）'), 'CHANGELOG.md に「## natsu-v0.18.1 （2026-11-27）」の見出しが無い');
+  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.18.1'), '0.18.1 の節が CHANGELOG の頭に無い');
+  assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.1') + 1) === cl.indexOf('\n## natsu-v0.18.0'), '0.18.1 の節のすぐ下が 0.18.0 の節でない');
+  const sec = secOf(cl, '## natsu-v0.18.1');
+  const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());
+  assert.deepStrictEqual(body, [
+    'アプリの中の［更新して再起動］で当てられます（インストーラーの入れ直しは要りません）。試している方は、［設定］→［更新］で 0.18.1 にすると、下の直しが入ります。',
+    '- **PC の中の文字起こし（オフライン）で、PC 全体が重くなる・文字起こしが遅れる・会議の後の文字起こしが終わらないのを直しました。** 文字起こしに使うスレッド（同時に計算する CPU の数）の既定を 4 まで（CPU の数が 4 以下の PC では 2）にし、文字起こしのエンジンを、会議のアプリや画面の操作より後に回すようにしました（優先度を「通常より低い」にします）。',
+    '- PC の中で文字起こしする会議の区切りの既定を 75 秒から 30 秒にし、字が早く出るようにしました（クラウドで文字起こしする会議は、今までどおり 15 秒です）。',
+    '- **前の版の既定のままのスレッド数と文字起こしの間隔は、0.18.1 で初めて起動したときに1回だけ、新しい既定に直します。** 更新の前に前の版の既定と同じ数を自分で選んでいた場合も、そのときに新しい既定になります。その後に［設定］で選んだ数は、起動し直してもそのまま残ります。',
+    '- 前の版が覚えた「この PC は文字起こしが追いつかない」は使わず、0.18.1 でもう一度確かめます。これからは、PC で 3 区間以上文字起こしした会議で遅かったときだけ覚え、エンジンやスレッド数を変えると覚え直します。時間内に終わらなかった区間が1つあっただけでは、次の会議に持ち越しません。',
+    '- **会議の後の文字起こしで、時間内に終わらない区間が1つあっても、ほかの区間と要約を先に進めるようにしました。** 時間内に終わらなかった区間は後ろへ回し、3 回試しても終わらない区間は、音声を残して自動ではやり直しません（［もう一度文字起こし］で試せます）。その区間が残っていても、文字になった区間で要約を作ります。この PC の速さがまだ分からないときは、会議の後の区間の待ち時間を長めにとります。',
+    '- 録音を始めたときは、会議の後の文字起こしを止めて、会議の文字起こしを先にします。止めた区間は、録音が終わってからもう一度文字起こしします。',
+    '- NaTsu が途中で落ちて文字起こしのエンジンが残ったときは、次の起動で、残ったエンジンを止めてから起こします（0.18.1 で起こしたエンジンから効きます）。',
+    '- 議事録の上の行で、PC の中で文字起こしした会議を「🖥 文字起こし: オフライン」と出すようにしました（前は「PC」。クラウドと混ざった会議は「・オフライン 2」のように出ます）。0.9.x で PC の中で作った要約は「🖥 要約: オフライン」と出ます。Claude が読む議事録でも同じ名前です。前の議事録も、新しい名前で出ます。',
+    '- ヘルプセンターの「文字起こしが遅い・「文字起こし待ち」が出る」に「PC 全体が重いとき」を足し、時間内に終わらない区間の扱いと覚え方を直しました。「文字起こしが止まる」「ローカル AI」「文字起こしの状態と帯」「要約の作られ方」の区切りの長さと名前の例も直しました。',
+  ], '0.18.1 の節が Task G の字と違う');
+  // 一度だけの移し（AQ181-14。前の下書きの「自分で選んだ数はそのままです」は誤りだった: M15）・時間切れの区間の後の要約（CR22）・「オフライン」（決めたこと 10）
+  for (const w of ['0.18.1 で初めて起動したときに1回だけ', 'その後に［設定］で選んだ数は、起動し直してもそのまま残ります。', 'その区間が残っていても、文字になった区間で要約を作ります。',
+    '「🖥 文字起こし: オフライン」', '「・オフライン 2」', '「🖥 要約: オフライン」', '［設定］→［更新］で 0.18.1 にすると']) assert.ok(sec.includes(w), `0.18.1 の節に「${w}」が無い`);
+  assert.ok(!sec.includes('自分で選んだ数はそのままです'), '0.18.1 の節に AQ181-14 の前の誤った字がある');
+  assert.ok(!/（(?:CR|R)\d+）|AQ\d|PF-\d|<!--|承認|下書き|YYYY/.test(sec), '0.18.1 の節に計画の番号か下書きの印がある');
+  assert.ok(!/notion|aqua|typeless/i.test(sec), '0.18.1 の節に参考にしたアプリの名前がある');
+  assert.ok(!/<[a-z]/i.test(sec), '0.18.1 の節に生の HTML がある');
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  for (const m of sec.matchAll(/［([^］]+)］/g)) assert.ok(src.includes(m[1]), `0.18.1 の節の［${m[1]}］が src/ に無い`);
+  // 引いたヘルプの記事の題
+  const titles = ['trouble/slow-pc', 'trouble/transcription-stops', 'settings/offline', 'record/status-line', 'summary/how-summaries'].map((f) => (read(`help/articles/${f}.md`).match(/^title: (.+)$/m) || [])[1]);
+  for (const t of titles) assert.ok(sec.includes(`「${t}」`), `0.18.1 の節にヘルプの記事「${t}」が無い`);
+  // 計画の下書きは「移した」の1行
+  const plan = read('docs/plans/2026-11-25-181.md');
+  const d = plan.indexOf('\n## CHANGELOG の節（下書き。G で持ち主が読む言葉に直して移す）\n');
+  assert.ok(d >= 0, '計画に「CHANGELOG の節（下書き）」の見出しが無い');
+  const draft = plan.slice(d, plan.indexOf('\n## ', d + 2));
+  assert.ok(!draft.includes('\n- ') && draft.includes('移した'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
 });
 
 // ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）
