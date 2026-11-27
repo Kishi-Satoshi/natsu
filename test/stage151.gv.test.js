@@ -416,7 +416,9 @@ test('GV-2b・F166・F177: 会議の途中で GPU 版が落ちる（その区間
   assert.ok(!r.engineLog.some((l) => l.startsWith('取り込んだエンジンの取り直しを頼みます')), JSON.stringify(r.engineLog));
   assert.deepStrictEqual(calc(r), [GPU_LINE, GPU_LINE]);
   // 知らせと帯は、印の無い今の組が同じ所で落ちたときと同じ
-  assert.deepStrictEqual(r.notices, base.notices, '知らせが今のエンジンが落ちたときと違う');
+  // 0.18.1 AQ181-14 の CI の直し（計画 docs/plans/2026-11-25-181.md の CR29）で意図して変えた: 知らせは会議の後の送り直しが済んだ後の写し（afterRetry.notices）で比べる。
+  // 前の r.notices は送り直しを待たずに写すので、送り直しの済みと要約の知らせが入るかが機械の速さで変わった（CI run 45938402123 の ubuntu で lost だけ入らなかった）
+  assert.deepStrictEqual(r.afterRetry.notices, base.afterRetry.notices, '知らせが今のエンジンが落ちたときと違う');
   assert.deepStrictEqual(codes(r), codes(base), '帯が今のエンジンが落ちたときと違う');
   assert.deepStrictEqual(segsOf(r).map(([t, f]) => [t.replace(/区間\d+/, ''), f]), segsOf(base).map(([t, f]) => [t.replace(/区間\d+/, ''), f]), '区間の文が今と違う');
 });

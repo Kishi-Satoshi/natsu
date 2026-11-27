@@ -22,6 +22,8 @@ const { titleAt } = require('./titles');
 //                        （第1d回 A-6 の点検: 止まりの見張りで控えた WAV が、破棄で消えるかを見る）
 //     --after-retry … 議事録を写した後、会議の後の送り直し（認識に失敗した区間の待ち行列）が済むまで待ち、その後の区間・
 //                     engine.log・要求を out.afterRetry（{ segments, engineLog, requests }）に写す（送り直しまで含めて数える場面）
+//                     （0.18.1 AQ181-14 の CI の直し: 知らせ notices も写す。送り直しが済んだ後の知らせ（文字起こしの済み・要約）は DB の答えを待ってから
+//                     届くので、知らせと engine.log の行が 300ms 増えなくなるまで待ってから写す（3 秒まで））
 //     --after-dict  … 記録の後で辞書を保存し、認識ヒントの状態を聞き直す
 //     --sum         … 要約エンジン（helpers/fake-llama.js）も置く。要約は文字起こしに無い担当・期限を混ぜて返す
 //     --sum-port=N  … 要約エンジンのポート（--port と同じく、呼ぶ側が重ならないように渡す）
@@ -4080,8 +4082,22 @@ process.on('exit', () => {
   if (afterRetry) {
     await waitFor(recoverySettled, 15000);
     await sleep(100);
+    // 0.18.1 AQ181-14 の CI の直し（計画 docs/plans/2026-11-25-181.md の CR29）: 待ち行列のファイルを消した後に、DB の答えを待ってから知らせ（文字起こしの済み・
+    // 要約）が届く。知らせと engine.log の行が 300ms 増えなくなるまで待つ（3 秒まで）
+    {
+      const noticeN = () => sent.filter(([ch]) => ch === 'app:notice').length;
+      const mark = () => `${noticeN()}:${elogLines().length}`;
+      let last = mark(), quietFrom = Date.now();
+      const until = Date.now() + 3000;
+      while (Date.now() < until && Date.now() - quietFrom < 300) {
+        await sleep(50);
+        const m = mark();
+        if (m !== last) { last = m; quietFrom = Date.now(); }
+      }
+    }
     const p = store.listPages()[0];
     out.afterRetry = {
+      notices: sent.filter(([ch]) => ch === 'app:notice').map(([, p]) => p),
       segments: p ? store.getTranscript(p.id).map((x) => ({ text: x.text, failed: Boolean(x.failed), parts: x.parts, src: x.src })) : [],   // 0.12.0 SP-3b: parts・src
       engineLog: elogLines(),
       requests: fs.readFileSync(flog, 'utf8').split('\n').filter((l) => l.startsWith('inference')),
