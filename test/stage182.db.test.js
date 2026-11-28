@@ -1,6 +1,8 @@
 /* stage182.db.test.js — 0.18.2（計画 docs/plans/2026-11-28-182.md）の DB の側
  *  TD-1（決めたこと 1・2・F261〜F263）: 最初の起動の移し替え（minutes.gather の first）で「タスク管理」を作らない。起動の送る条件（src/db/server.js）は
  *  「議事録」の移し替えの要るときだけ。作るのは［タスクにする］（todo.toTask）と Claude の make_task（mcp.makeTask）の1回の中だけ
+ *  TD-2（決めたこと 3〜5・F264・F265）: todo.toTask の答えの made（その1回で「タスク管理」を作ったときだけ真）。前の版で作られた「タスク管理」（空・使っているもの）は
+ *  更新の起動でそのまま残る（AQ182-2）。Ctrl+Z は今のまま（AQ182-3: 作った「タスク管理」は戻さない）
  * 議事録の題名は titleAt の形。データベース・行の題名は作った物で、実在の人名・社名は使わない。
  */
 'use strict';
@@ -226,3 +228,96 @@ test('TD-1・F263: 最初の移し替えの後の「タスク管理」の無い 
   assert.deepStrictEqual(db.prepare('select action from oplog where seq > ?').all(seq).map((x) => x.action), ['mcp.makeTask'], '1つの命令でない');
   assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get(r.result.id).parent_id, K[0]);
 }));
+
+// ---------------------------------------------------------------- TD-2（決めたこと 3〜5）
+test('TD-2・F265: todo.toTask の答えの made は、その1回で「タスク管理」を作ったときだけ真（初めての押し・送り直し・「タスク管理」をゴミ箱に入れた後の押し）。二度目・ゴミ箱の行を作り直す（「タスク管理」はある）・もうタスクのある ToDo では付かない', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pz0', 0);
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  todoMeeting(db, 'pw1', ['見積もりを出す', '資料を集める', '先方に送る']);
+  const r1 = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), '初めての［タスクにする］');
+  const K = r1.result.db;
+  assert.deepStrictEqual(r1.result, { id: r1.result.id, db: K, made: true }, '初めての押しで made が無い');
+  const re = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }, 'app', r1.tx), '送り直し');
+  assert.deepStrictEqual([re.dup, re.result], [true, { id: r1.result.id, db: K, made: true }], '送り直しの答えに made が無い');
+  const r2 = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t1' }), '二度目');
+  assert.deepStrictEqual(r2.result, { id: r2.result.id, db: K }, '二度目に made が付いた');
+  const re2 = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t1' }, 'app', r2.tx), '二度目の送り直し');
+  assert.deepStrictEqual(re2.result, { id: r2.result.id, db: K }, '二度目の送り直しに made が付いた');
+  assert.deepStrictEqual(ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'もうタスクのある ToDo').result, { id: r1.result.id, db: K });
+  // ゴミ箱のタスクを作り直す（「タスク管理」はある）
+  ok(call(db, 'rows.trash', { db: K, ids: [r1.result.id] }), 'rows.trash');
+  const again = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'ゴミ箱の行を作り直す');
+  assert.deepStrictEqual(again.result, { id: again.result.id, db: K }, 'ゴミ箱の行を作り直して made が付いた');
+  assert.notStrictEqual(again.result.id, r1.result.id);
+  // 「タスク管理」をゴミ箱に入れた後は作り直す（made 真）
+  ok(call(db, 'page.delete', { id: K }), 'page.delete');
+  const fresh = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t2' }), '「タスク管理」がゴミ箱');
+  assert.notStrictEqual(fresh.result.db, K);
+  assert.deepStrictEqual(fresh.result, { id: fresh.result.id, db: fresh.result.db, made: true });
+  assert.deepStrictEqual(tasksDbs(db), [fresh.result.db]);
+}));
+
+test('TD-2・F265（決めたこと 4・AQ182-3）: 初めての［タスクにする］の Ctrl+Z（edit.revert）は今のまま、行をゴミ箱へ・ToDo の印を前へ戻し、作った「タスク管理」は空で残る。もう一度押すと同じ「タスク管理」に作り、made は付かない', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pz0', 0);
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  todoMeeting(db, 'pw1', ['見積もりを出す']);
+  const r = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'todo.toTask');
+  const K = r.result.db;
+  ok(call(db, 'edit.revert', { pageId: 'pw1', steps: [r.tx] }), 'edit.revert');
+  assert.deepStrictEqual([Boolean(db.prepare('select trashed_at from blocks where id = ?').get(r.result.id).trashed_at), attrsOf(db, 'pw1t0').task], [true, undefined], 'Ctrl+Z で行と印が戻らない');
+  assert.deepStrictEqual(tasksDbs(db), [K], 'Ctrl+Z で「タスク管理」を戻した');
+  const r2 = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'もう一度');
+  assert.deepStrictEqual(r2.result, { id: r2.result.id, db: K });
+}));
+
+// 前の版（0.17.0〜0.18.1）の最初の移し替えが作った形の「タスク管理」の行を、別の DB で初めての［タスクにする］に作らせてから写す（行の無い・手を付けていない形）
+function oldTasksRow() {
+  const t = tmpDb();
+  try {
+    const { db } = t.open();
+    todoMeeting(db, 'px1', ['写すためだけの ToDo']);
+    const K = ok(call(db, 'todo.toTask', { pageId: 'px1', blockId: 'px1t0' }), 'todo.toTask').result.db;
+    const row = { ...db.prepare('select * from blocks where id = ?').get(K) };
+    delete row.rid;
+    row.attrs = JSON.stringify({ ...JSON.parse(row.attrs), nextNo: 1 });
+    return row;
+  } finally { t.done(); }
+}
+const insertRow = (db, row) => db.prepare(`insert into blocks(${Object.keys(row).join(', ')}) values (${Object.keys(row).map(() => '?').join(', ')})`).run(...Object.values(row));
+const rowsOf = (db, ids) => ids.map((id) => { const r = { ...db.prepare('select * from blocks where id = ?').get(id) }; delete r.rid; return r; });
+
+test('TD-2・F264（決めたこと 3・AQ182-2）: 前の版で作られた「タスク管理」は、0.18.2 の起動でそのまま残る。手を付けていない空のもの（移し替えの済んだ DB）も、使っているもの（行と ToDo の印）も、行の欄・列・ビュー・番号・rev が1字も同じで、命令も送らない', { timeout: 60000 }, async () => {
+  const old = oldTasksRow();
+  // 空の「タスク管理」（前の版の最初の移し替えが作り、手を付けていない）
+  const a = tmpData({ pages: 1 });
+  insertRow(a.db, old);
+  a.db.prepare("insert into meta(key, value) values ('minutes.gathered', ?)").run(JSON.stringify({ n: 0, at: '2026-11-20T00:00:00.000Z' }));
+  const beforeA = [rowsOf(a.db, [old.id]), a.lastSeq()];
+  a.close();
+  // 使っている「タスク管理」（［タスクにする］の行と ToDo の印。0.16.0 から更新した最初の移し替えの前の形: 最上位の議事録が残っている）
+  const b = tmpData({ pages: 0 });
+  todoMeeting(b.db, 'pw1', ['見積もりを出す']);
+  const r = ok(call(b.db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'todo.toTask').result;
+  const K = r.db;
+  b.db.prepare('delete from meta where key = ?').run('minutes.gathered');
+  b.close();
+  addOld(b, 'pq0', 0);
+  const beforeB = peekDb(b, (db) => rowsOf(db, [K, r.id, 'pw1t0']));
+  try {
+    for (const [d, runCheck] of [[a, async () => 'ok'], [b, async () => 'ok']]) {
+      for (let i = 0; i < 2; i += 1) {
+        const s = boot(d, { runCheck });
+        try { await s.ready(); assert.ok((await status(s)).startup.minutes, '起動の移し替えの答えが無い'); } finally { await s.stop(); }
+      }
+    }
+    peekDb(a, (db) => {
+      assert.deepStrictEqual([rowsOf(db, [old.id]), db.prepare('select coalesce(max(seq), 0) s from oplog').get().s], beforeA, '空の「タスク管理」を書き替えた・命令を送った');
+      assert.deepStrictEqual(tasksDbs(db), [old.id]);
+    });
+    peekDb(b, (db) => {
+      assert.deepStrictEqual(rowsOf(db, [K, r.id, 'pw1t0']), beforeB, '使っている「タスク管理」・タスクの行・ToDo の印を書き替えた');
+      assert.deepStrictEqual(tasksDbs(db), [K], '「タスク管理」を2つにした・消した');
+      assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get('pq0').parent_id, minutesDbs(db)[0], '前提: 最初の移し替えで議事録を移していない');
+    });
+  } finally { a.done(); b.done(); }
+});

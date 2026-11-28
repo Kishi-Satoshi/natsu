@@ -2286,7 +2286,8 @@ const KIND_SWITCH_SKIP = Object.freeze(['views', 'nextNo', 'updatedAt']);
 // todo.toTask { pageId, blockId }（役 app・1つのトランザクション）: 議事録の要約・白紙のページの本文の ToDo の行から「タスク管理」の行を1つ作り（題名 = ToDo の文・
 // 担当 = ToDo の担当（あれば）・期限 = ToDo の期限（あれば。推し量った期限 dueApprox は入れない）・議事録 = その議事録（白紙のページなら空）・ステータス = ToDo が
 // 済みなら完了のまとまり、でなければ未着手のまとまりの最初の選択肢）、ToDo の行に attrs.task = 行の ID を書く。印のある ToDo は今の行を返すだけ（二度作らない）。
-// 「タスク管理」が無ければ同じ命令の中で作る（決めたこと 60）。列は名前と種類で探す（利用者が消した列には入れない）→ { id, db }
+// 「タスク管理」が無ければ同じ命令の中で作る（決めたこと 60）。列は名前と種類で探す（利用者が消した列には入れない）→ { id, db, made? }。
+// 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の決めたこと 5）: made（真だけ）は、その1回で「タスク管理」を作ったとき（画面の知らせを分ける）
 function colByName(d, name, type) { return d.cols.find((c) => !c.gone && c.name === name && c.type === type) || null; }
 function todoToTask(db, a, ctx) {
   const l = loadPage(db, a.pageId);
@@ -2302,6 +2303,7 @@ function todoToTask(db, a, ctx) {
   }
   const ops = [];
   let d = tasksDbOf(db);
+  const made = !d;
   if (!d) {
     const m = minutesDbFor(db, ctx, true);
     ops.push(...m.ops, newTasksDb(db, ctx, m.id));
@@ -2328,8 +2330,10 @@ function todoToTask(db, a, ctx) {
     { op: 'set', id: b.id, key: 'task', value: id, old: b.task }];
   applyOps(db, add);
   ops.push(...add);
-  return { ops, pageIds: [a.pageId, d.id, id], result: { id, db: d.id } };
+  return { ops, pageIds: [a.pageId, d.id, id], result: { id, db: d.id, ...(made ? { made: true } : {}) } };
 }
+// 0.18.2 TD-2（決めたこと 5）: 送り直しの答えの made は、1回目の操作に「タスク管理」の add があったとき（1回目と同じ知らせ）
+const madeTasksDb = (row) => dupOps(row).some((o) => isObj(o) && o.op === 'add' && isObj(o.row) && o.row.type === 'page' && ((isObj(o.row.attrs) ? o.row.attrs : parseOr(o.row.attrs)) || {}).role === 'tasks');
 // todo.toTask の歩み（とそれを戻した歩み）を戻す: ToDo の印を前の値へ、作った行はゴミ箱へ（戻した歩みのやり直しは行をゴミ箱から戻す）。「タスク管理」を作った分は戻さない。
 // ToDo の印か行が、その歩みの後の形のままでなければ stale（ほかの所で行を消した・印を変えた）
 function taskRevert(db, a, ctx, fwd) {
@@ -3586,6 +3590,7 @@ function mcpMakeTask(db, a, ctx) {
   if (ctx.making.has(w.page.id)) throw refuse('locked');   // main が要約を作っている間（todo.toTask が見るのは DB の要約の欄の鍵だけ）
   return withSnap(db, a.pageId, 'task', () => {
     const out = todoToTask(db, a, ctx);
+    // 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の CR5）: todo.toTask の made（「タスク管理」を作ったか）は、ここで行を作ったかの made で上書きする（Claude の答えの字は今のまま）
     return { ...out, what: 'task', result: { ...out.result, made: out.ops.length > 0 } };
   }, ctx);
 }
@@ -4401,7 +4406,7 @@ const DEFS = {
   'row.fromTpl': { roles: ['app'], write: true, args: { db: 'id', id: 'id', afterId: 'idOrEmpty?' }, pageOf: dbOfArgs, run: rowFromTpl, dupResult: (db, a, row) => ({ id: tplDupId(row) }) },
   // 0.17.0 TK-2（決めたこと 63）: ［タスクにする］（役 app・要約の欄の歩み: Ctrl+Z で行と印が一緒に戻る）
   'todo.toTask': { roles: ['app'], write: true, args: { pageId: 'id', blockId: 'id' }, run: todoToTask,
-    dupResult: (db, a) => { const l = loadPage(db, a.pageId); const h = l ? BT.locate(l.page.blocks, a.blockId) : null; const r = h && h.b.task ? db.prepare(HOT_QUERIES.dbRow).get(h.b.task) : null; return r ? { id: r.id, db: r.parent_id } : null; } },
+    dupResult: (db, a, row) => { const l = loadPage(db, a.pageId); const h = l ? BT.locate(l.page.blocks, a.blockId) : null; const r = h && h.b.task ? db.prepare(HOT_QUERIES.dbRow).get(h.b.task) : null; return r ? { id: r.id, db: r.parent_id, ...(row && madeTasksDb(row) ? { made: true } : {}) } : null; } },
   // 0.17.0 LK-1（決めたこと 73・75）: データベースのロック（役 app・元に戻すの歩みにしない: UNDO_CMDS に入れない）
   'db.setLock': { roles: ['app'], write: true, args: { db: 'id', on: 'bool' }, pageOf: dbOfArgs, run: dbSetLock, dupResult: (db, a) => { const d = dbOf(db, a.db); return d ? { locked: d.attrs.locked === true } : null; } },
   // 0.16.0 DR-1（決めたこと 33〜38・R98）: リレーションの行を足す・外す・サブアイテムを入れる・外す（データベースの歩み）・つなぐ先の行を探す（読む）

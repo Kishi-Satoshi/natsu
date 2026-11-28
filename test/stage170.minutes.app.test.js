@@ -320,6 +320,9 @@ test('TK-2・F199: 議事録の ToDo の行に［タスクにする］（aria-la
     call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [{ id: 'pw1h', type: 'heading', text: 'ToDo' },
       { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false, assignee: 'メンバー甲' }, { id: 'pw1t1', type: 'todo', text: '資料を集める', checked: false }] }, segments: [] }, 'main');
     call('minutes.gather', { first: true }, 'main');   // 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 答えの tasks（使っていない）を返さない
+    // 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の決めたこと 5・「意図して変えるテスト」）で意図して変えた: 「タスク管理」を先に作っておく（前の形。初めて作ったときの知らせは
+    // stage182.app.test.js の F265 で見る）。ここで見る知らせは今の「タスクにしました（Ctrl+Z で戻せます）」のまま
+    tasksDbVia(call);
     return {};
   } });
   try {
@@ -428,7 +431,9 @@ test('問い 4・R82: 「タスク管理」データベースがゴミ箱なら�
     await open(l, 'pw1');
     await clickEl(l, taskBtnOf(l, 'pw1t0'), 400);
     assert.deepStrictEqual(l.called('todoToTask').map((c) => c.args), [['pw1', 'pw1t0']], 'ゴミ箱のデータベースの行の［タスクを開く］で作り直さない');
-    assert.strictEqual($(l, 'toast').textContent, 'タスクにしました（Ctrl+Z で戻せます）');
+    // 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の決めたこと 5・AQ182-5・「意図して変えるテスト」）で意図して変えた: 「タスク管理」がゴミ箱なので、この1回で「タスク管理」を
+    // 作り直す（R7）。知らせは「作った」の字
+    assert.strictEqual($(l, 'toast').textContent, '「タスク管理」を作って、タスクにしました（タスクは Ctrl+Z で戻せます）');
     assert.notStrictEqual(markOf(l, 'pw1', 'pw1t0'), row, '印が新しい行を指さない');
     assert.strictEqual(l.document.querySelector('.tabitem.active').dataset.key, 'page:pw1', 'ゴミ箱のデータベースの行のページへ移った');
     assert.deepStrictEqual(l.errors.map(fmt), []);

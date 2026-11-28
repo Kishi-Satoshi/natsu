@@ -17015,6 +17015,8 @@
   const TASK_MAKE = 'タスクにする';
   const TASK_OPEN = 'タスクを開く';
   const TASK_DONE = 'タスクにしました（Ctrl+Z で戻せます）';
+  // 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の決めたこと 5・AQ182-5）: その1回で「タスク管理」を作ったとき（todo.toTask の答えの made）。Ctrl+Z で戻るのはタスクの方
+  const TASK_MADE = '「タスク管理」を作って、タスクにしました（タスクは Ctrl+Z で戻せます）';
   const taskablePage = () => Boolean(curPage) && !isRowPage(curPage) && !isDbPage(curPage) && !isLiveCopy(curPage);
   let taskBusy = false;
   function taskBtn(b) {
@@ -17036,9 +17038,10 @@
     if (taskBusy || !pid) return;
     taskBusy = true;
     try {
-      try { await inFlight(window.koeApp.todoToTask(pid, b.id)); }
+      let r;
+      try { r = await inFlight(window.koeApp.todoToTask(pid, b.id)); }
       catch (e) { toast(`変更を保存できませんでした: ${String((e && (e.code || e.message)) || 'internal')}`); return; }
-      toast(TASK_DONE);
+      toast(r && r.made === true ? TASK_MADE : TASK_DONE);
       await refreshList();
       if (curId === pid) await openPage(pid);
     } finally { taskBusy = false; }

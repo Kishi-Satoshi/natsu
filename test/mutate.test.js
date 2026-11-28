@@ -1991,10 +1991,12 @@ test('G3・0.18.1: 0.18.1 の変異が一覧にそろい、IDS_181 は計画の�
   }
 });
 // 0.18.2（計画 docs/plans/2026-11-28-182.md の「変異の表」の td- の表）: 「タスク管理」を最初の起動では作らず、初めて［タスクにする］を押したときに作る。
-// タスクを作るたびに、作ったタスクの行を表の行の順で足す（TD-2 で表の行とちょうど同じにする）
+// タスクを作るたびに、作ったタスクの行を表の行の順で足した。TD-2（知らせ）で表の行がそろった
 const IDS_182 = [
   // 0.18.2 Task TD-1（最初の起動で作らない）
   'td-first-none', 'td-send-cond', 'td-make-once',
+  // 0.18.2 Task TD-2（初めて作ったときの知らせ）
+  'td-made-flag', 'td-made-toast',
 ];
 const PREFIX_182 = /^td-/;
 function planRows182() {
@@ -2004,7 +2006,8 @@ function planRows182() {
   const table = plan.slice(at, plan.indexOf('\n## ', at + 5));
   return [...table.matchAll(/^\| `?(td-[a-z0-9-]*)`? \|/gm)].map((m) => m[1]);
 }
-test('G3・0.18.2: 0.18.2 の変異が一覧にそろい、IDS_182 は計画の「変異の表」の td- の行の順に並んだ一部（作っている間。TD-2 でちょうど同じ）。td- の変異は IDS_182 にある。どれも決まったテストのファイルを持ち、why が 0.18.2 で始まる。前の版の IDS に td- が無い', { timeout: 5000 }, () => {
+// 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の「変異の表」）で意図して変えた: td-made-flag・td-made-toast を IDS_182 に足し、作っている間の「表の行の順に並んだ一部」から、表の td- の行（5 行）とちょうど同じにした
+test('G3・0.18.2: 0.18.2 の変異が一覧にそろい、IDS_182 は計画の「変異の表」の td- の行とちょうど同じ（行の順・5 行）。td- の変異は IDS_182 にある。どれも決まったテストのファイルを持ち、why が 0.18.2 で始まる。前の版の IDS に td- が無い', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_182.filter((id) => !byId.has(id)), [], 'IDS_182 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_182).size, IDS_182.length, 'IDS_182 に重なり');
@@ -2013,7 +2016,7 @@ test('G3・0.18.2: 0.18.2 の変異が一覧にそろい、IDS_182 は計画の�
   assert.strictEqual(rows.length, 5, '計画の 0.18.2 の表（td- 5 行）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_182.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
-  assert.deepStrictEqual(IDS_182, rows.filter((id) => IDS_182.includes(id)), 'IDS_182 が表の行の順でない');
+  assert.deepStrictEqual(IDS_182, rows, 'IDS_182 が計画の「変異の表」の td- の行とちょうど同じでない（行の順）');
   for (const ids of [IDS_132, IDS_140, IDS_150, IDS_151, IDS_160, IDS_170, IDS_171, IDS_180, IDS_181]) assert.deepStrictEqual(ids.filter((id) => PREFIX_182.test(id)), [], '前の版の IDS に td-');
   for (const id of IDS_182) {
     const m = byId.get(id);
