@@ -2129,7 +2129,8 @@ test('0.18.0 Task G の前半: README の Claude の節と画面の使い方・C
   const heads = cl.split('\n').filter((l) => l.startsWith('## '));
   // 0.18.0 Task G（AQ48・CR166）で意図して変えた: 版を 0.18.0 に上げ、見出しに日付を足した（字は 0.18.0 の identity のテストが一字ずつ見る）
   // 0.18.1 Task G（計画 docs/plans/2026-11-25-181.md の CR30）で意図して変えた: CHANGELOG の頭は 0.18.1 の節になったので、その下の2つが日付つきの 0.18.0 の節と 0.17.1 の節（0.18.1 の節は identity のテストが見る）
-  assert.deepStrictEqual(heads.slice(1, 3), ['## natsu-v0.18.0 （2026-11-25）', '## natsu-v0.17.1 （2026-11-21）'], 'CHANGELOG の 0.18.1 の節の下が日付つきの 0.18.0 の節と 0.17.1 の節でない');
+  // 0.18.2 Task G（計画 docs/plans/2026-11-28-182.md の CR11）で意図して変えた: CHANGELOG の頭は 0.18.2 の節・その下が 0.18.1 の節になったので、その下の2つ
+  assert.deepStrictEqual(heads.slice(2, 4), ['## natsu-v0.18.0 （2026-11-25）', '## natsu-v0.17.1 （2026-11-21）'], 'CHANGELOG の 0.18.1 の節の下が日付つきの 0.18.0 の節と 0.17.1 の節でない');
   const sec = cl.slice(cl.indexOf('## natsu-v0.18.0'), cl.indexOf('## natsu-v0.17.1'));
   for (const w of ['Claude デスクトップから、NaTsu に書き戻せるようになりました。', 'Claude の変更を戻せます。', '［Claude の変更を戻す］', '🤖 要約: Claude（本人）',
     '約 0.5 秒', 'すぐ下に入ります', '見た目の1行ずつ', '新しいタブは後ろに開き', '［複製］（Ctrl+D）', '見出し4', '当たらない字を5つ続けて打つと閉じます', '文字の色のメニュー',
@@ -2176,7 +2177,8 @@ test('0.18.1 Task G: 設計書の版の表の 0.18.1 の書き添えに D205〜D
   const plan = read('docs/plans/2026-11-25-181.md');
   const rowOf = (text, k) => { const xs = text.split('\n').filter((l) => l.startsWith(`| ${k} |`)); assert.strictEqual(xs.length, 1, `${k} の行が1つでない`); return xs[0]; };
   const ver = d.split('\n').find((l) => l.startsWith('| 版 | 0.1.0'));
-  assert.ok(/直しの版 0\.18\.1: [^|]*`docs\/plans\/2026-11-25-181\.md`。2026-11-25 の持ち主の報告。D205〜D210）。D173〜D204） \| 0\.19\.0（/.test(ver), '版の表の 0.18.0 の欄に 0.18.1 の書き添え（D205〜D210）が無い');
+  // 0.18.2 Task G（計画 docs/plans/2026-11-28-182.md の CR12）で意図して変えた: 0.18.1 の書き添えの後ろ（「D173〜D204）」の前）に直しの版 0.18.2 の書き添えを足した（0.18.2 の書き添えは 0.18.2 Task G のテストが見る）
+  assert.ok(/直しの版 0\.18\.1: [^|]*`docs\/plans\/2026-11-25-181\.md`。2026-11-25 の持ち主の報告。D205〜D210）。直しの版 0\.18\.2: /.test(ver), '版の表の 0.18.0 の欄に 0.18.1 の書き添え（D205〜D210）が無い');
   const h = '## 利用者が決めたこと（PC の中の文字起こしの重さの直し。直しの版 0.18.1。2026-11-25〜11-27）';
   const at = d.indexOf(`\n${h}\n`);
   assert.ok(at > 0, `設計書に節「${h}」が無い`);
@@ -2223,4 +2225,37 @@ test('0.18.2 点検の直し: README の「ロック・タスク管理・行の�
   assert.ok(line.includes('「タスク管理」データベースが無いときに［タスクにする］を押すと（Claude にタスクを作らせたときも）、サイドバーの「議事録」の下にできます。'), `README の項の字: ${line.slice(0, 80)}`);
   assert.ok(!line.includes('初めて押したとき'), 'README の項に「初めて押したとき」が残る');
   assert.ok(line.includes('（担当と期限は ToDo に書いてあるときだけ入ります。タスクにした ToDo には［タスクを開く］）'), 'README の項の括弧の中を変えた');
+});
+
+// ---------------------------------------------------------------- 0.18.2 Task G（計画 docs/plans/2026-11-28-182.md の Task G・CR12）
+// 設計書の版の表の 0.18.0 の欄に直しの版 0.18.2 の書き添え（0.18.1 の書き添えの後・「D173〜D204）」の前）と、0.18.1 の節の後・「作り方」の前の節に D211
+// （0.17.0 の D148 の作る時を変える）。持ち主の言葉は計画の「問答の答え」と成り立ちの字のまま。計画の今の状態は Task G 済み・字の OK 待ち・リリースは合図の後
+test('0.18.2 Task G: 設計書の版の表の 0.18.2 の書き添えに D211・節「利用者が決めたこと（「タスク管理」を初めからは作らない。…）」の D211 は 0.18.1 の節の後と「作り方」の間に1つだけあり、D148 を変えると書き、持ち主の言葉は計画の字のまま、計画の今の状態は Task G 済み', { timeout: 5000 }, () => {
+  const d = read('docs/plans/natsu-design.md');
+  const plan = read('docs/plans/2026-11-28-182.md');
+  const ver = d.split('\n').find((l) => l.startsWith('| 版 | 0.1.0'));
+  assert.ok(/D205〜D210）。直しの版 0\.18\.2: [^|]*`docs\/plans\/2026-11-28-182\.md`。2026-11-28 の持ち主の頼み。D211）。D173〜D204） \| 0\.19\.0（/.test(ver), '版の表の 0.18.0 の欄に 0.18.2 の書き添え（D211）が無い');
+  const h = '## 利用者が決めたこと（「タスク管理」を初めからは作らない。直しの版 0.18.2。2026-11-28）';
+  const at = d.indexOf(`\n${h}\n`);
+  assert.ok(at > 0, `設計書に節「${h}」が無い`);
+  assert.ok(d.indexOf('\n| D210 |') < at && at < d.indexOf('\n## 作り方（Superpowers の進め方。'), '0.18.2 の節が D210 の後と「作り方」の間に無い');
+  const sec = d.slice(at, d.indexOf('\n## ', at + 5));
+  assert.deepStrictEqual([...sec.matchAll(/^\| (D\d+) \| \*\*/gm)].map((m) => m[1]), ['D211'], '0.18.2 の節の D の行が D211 だけでない');
+  const rows = d.split('\n').filter((l) => l.startsWith('| D211 |'));
+  assert.strictEqual(rows.length, 1, '設計書に D211 の行が1つでない');
+  const r = rows[0];
+  assert.ok(r.includes('D148') && r.includes('TQ3'), 'D211 に D148（TQ3）を変えると書いていない');
+  for (const q of ['AQ182-1「0.18.2 で先に出す（おすすめ）」', 'AQ182-2「そのまま残す（おすすめ）」', 'AQ182-3「今のまま（おすすめ）」', 'AQ182-4「作ったことも知らせる（おすすめ）」',
+    'AQ182-5「「タスクは Ctrl+Z」と書く（おすすめ）」', 'AQ182-7「今のまま作る（おすすめ）」', 'AQ182-8「1行足す（おすすめ）」']) {
+    assert.ok(r.includes(q), `D211 に ${q} が無い`);
+    const word = q.slice(q.indexOf('「'));
+    assert.ok(plan.includes(`| ${word} |`), `D211 の ${word} が計画の答えの表の字に無い`);
+  }
+  const ask = '「初めから作らないようにする（［タスクにする］を初めて押したときに作る）こともできます。→お願いします。次回の版でいいです。」';
+  assert.ok(r.includes(`持ち主の言葉${ask}`) && plan.includes(ask), 'D211 に持ち主の頼みの字が無い');
+  for (const w of ['「「タスク管理」を作って、タスクにしました（タスクは Ctrl+Z で戻せます）」', '「「タスク管理」を作りました（サイドバーの「議事録」の下）。」', '`madeDb`', '（あれば）']) assert.ok(r.includes(w), `D211 に「${w}」が無い`);
+  assert.ok(!/notion/i.test(sec), '0.18.2 の節に参考にしたアプリの名前がある');
+  // 計画: 今の状態は Task G 済み・字の OK 待ち・リリースは合図の後
+  const now = plan.split('\n').find((l) => l.startsWith('> **今の状態（'));
+  assert.ok(now && now.includes('Task G を作った') && now.includes('持ち主の OK 待ち') && now.includes('持ち主のはっきりした合図の後だけ') && now.includes('D211'), '計画の今の状態が Task G 済み・OK 待ち・リリースは合図の後でない');
 });

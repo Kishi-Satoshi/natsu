@@ -70,9 +70,10 @@ test('表示名は NaTsu（画面・録音バー・ウィンドウ・トレイ�
 // 0.17.1 で意図して変えた: 版を 0.17.1 に（メニューと窓を、外を押すと閉じる・Esc で閉じる・開くのは1つにする直しの版。Electron は 44.9.0 のまま）
 // 0.18.0 で意図して変えた: 版を 0.18.0 に（Claude からの要約の書き戻しと戻し方・指示書と、編集の動きと Notion との違いの直し。Electron は 44.9.0 のまま）
 // 0.18.1 で意図して変えた: 版を 0.18.1 に（PC の中の文字起こしが重い・遅れる・終わらないのを直し、「オフライン」と呼ぶ直しの版。Electron は 44.9.0 のまま）
-test('識別子: name は natsu・版は 0.18.1・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
+// 0.18.2 で意図して変えた: 版を 0.18.2 に（「タスク管理」データベースを初めからは作らず、［タスクにする］か Claude のタスクで作る直しの版。Electron は 44.9.0 のまま）
+test('識別子: name は natsu・版は 0.18.2・productName は build の中だけ（userData は %APPDATA%\\natsu）', () => {
   assert.strictEqual(pkg.name, 'natsu');
-  assert.strictEqual(pkg.version, '0.18.1');
+  assert.strictEqual(pkg.version, '0.18.2');
   assert.strictEqual(pkg.productName, undefined, 'top-level の productName は userData の名前を変える');
   assert.strictEqual(pkg.build.productName, 'NaTsu');
   assert.strictEqual(pkg.build.appId, 'local.natsu.app');
@@ -309,8 +310,9 @@ test('2a1: 試作の名前を持ち込んでいない（listener.db・Listener D
 // 0.17.1 で意図して変えた: 版は 0.17.1（README の保存の説明は 0.7.0 のまま）
 // 0.18.0 で意図して変えた: 版は 0.18.0（README の保存の説明は 0.7.0 のまま）
 // 0.18.1 で意図して変えた: 版は 0.18.1（README の保存の説明は 0.7.0 のまま）
-test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0・0.17.1・0.18.0・0.18.1: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
-  assert.strictEqual(require('../package.json').version, '0.18.1');
+// 0.18.2 で意図して変えた: 版は 0.18.2（README の保存の説明は 0.7.0 のまま）
+test('0.7.0・0.8.0・0.9.0・0.9.1・0.9.2・0.9.3・0.9.4・0.10.0・0.10.1・0.11.0・0.11.1・0.12.0・0.12.1・0.13.0・0.13.1・0.13.2・0.14.0・0.15.0・0.15.1・0.16.0・0.17.0・0.17.1・0.18.0・0.18.1・0.18.2: 版と、README の保存の説明（natsu.db・backup・元の JSON を残す・古い版に戻したとき・控えに残る期間）', () => {
+  assert.strictEqual(require('../package.json').version, '0.18.2');
   const r = read('README.md');
   for (const w of ['natsu.db', 'data\\backup', '元の JSON', '古い版', '3 日', '2 週']) assert.ok(r.includes(w), w);
 });
@@ -1057,7 +1059,8 @@ test('0.18.1: CHANGELOG の 0.18.1 の節は日付つきの見出しで CHANGELO
   const cl = read('CHANGELOG.md');
   const lines = cl.replace(/\r\n?/g, '\n').split('\n');
   assert.ok(lines.includes('## natsu-v0.18.1 （2026-11-28）'), 'CHANGELOG.md に「## natsu-v0.18.1 （2026-11-28）」の見出しが無い');
-  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.18.1'), '0.18.1 の節が CHANGELOG の頭に無い');
+  // 0.18.2 Task G（計画 docs/plans/2026-11-28-182.md の Task G・CR11）で意図して変えた: CHANGELOG の頭は 0.18.2 の節になった（0.18.1 の節はそのすぐ下: 下の 0.18.2 のテスト）
+  assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.2') + 1) === cl.indexOf('\n## natsu-v0.18.1'), '0.18.1 の節が 0.18.2 の節のすぐ下に無い');
   assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.1') + 1) === cl.indexOf('\n## natsu-v0.18.0'), '0.18.1 の節のすぐ下が 0.18.0 の節でない');
   const sec = secOf(cl, '## natsu-v0.18.1');
   const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());
@@ -1091,6 +1094,36 @@ test('0.18.1: CHANGELOG の 0.18.1 の節は日付つきの見出しで CHANGELO
   assert.ok(d >= 0, '計画に「CHANGELOG の節（下書き）」の見出しが無い');
   const draft = plan.slice(d, plan.indexOf('\n## ', d + 2));
   assert.ok(!draft.includes('\n- ') && draft.includes('移した'), '計画に下書きの本文が残っている（移したら「移した」の1行にする）');
+});
+
+// 0.18.2（計画 docs/plans/2026-11-28-182.md の Task G・CR11）: 版を 0.18.2 に上げる commit（Task G）で、CHANGELOG.md の頭（0.18.1 の節の上）に、出す予定の日の見出しで
+// 0.18.2 の節を書いた。字は持ち主の OK 待ち（AQ182-9。直したらここも直す）。出す日が変われば見出しの日だけを替える（0.18.1 の CR36 と同じ）
+test('0.18.2: CHANGELOG の 0.18.2 の節は日付つきの見出しで CHANGELOG の頭（0.18.1 の節のすぐ上）にあり、頭の［更新して再起動］の行と箇条（初めからは作らない・前の版のものは残る・作ったときの知らせ・Claude の答えの1行・ヘルプ）を Task G の字で書き、計画の番号と下書きの印を写さず、引いた［…］は src/ にあり、知らせと Claude の答えの字はコードと同じ', () => {
+  const cl = read('CHANGELOG.md');
+  const lines = cl.replace(/\r\n?/g, '\n').split('\n');
+  assert.ok(lines.includes('## natsu-v0.18.2 （2026-11-28）'), 'CHANGELOG.md に「## natsu-v0.18.2 （2026-11-28）」の見出しが無い');
+  assert.ok(cl.indexOf('\n## natsu-v') === cl.indexOf('\n## natsu-v0.18.2'), '0.18.2 の節が CHANGELOG の頭に無い');
+  assert.ok(cl.indexOf('\n## natsu-v', cl.indexOf('\n## natsu-v0.18.2') + 1) === cl.indexOf('\n## natsu-v0.18.1'), '0.18.2 の節のすぐ下が 0.18.1 の節でない');
+  const sec = secOf(cl, '## natsu-v0.18.2');
+  const body = sec.replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim());
+  assert.deepStrictEqual(body, [
+    'アプリの中の［更新して再起動］で当てられます（インストーラーの入れ直しは要りません）。',
+    '- **「タスク管理」データベースを、初めからは作らないようにしました。** 議事録の ToDo の［タスクにする］を初めて押したとき（Claude にタスクを作らせたときも）に、サイドバーの「議事録」の下にできます。消した後にもう一度押したときも、またできます。',
+    '- 前の版で作られた「タスク管理」は、更新してもそのまま残ります（中が空のものも）。要らなければ、今までどおり自分で消せます。',
+    '- 「タスク管理」を作ったときは、「「タスク管理」を作って、タスクにしました（タスクは Ctrl+Z で戻せます）」と知らせます。Ctrl+Z で戻るのはタスクで、作った「タスク管理」は残ります。',
+    '- Claude にタスクを作らせて「タスク管理」ができたときは、Claude への答えに「「タスク管理」を作りました（サイドバーの「議事録」の下）。」の1行が入ります。',
+    '- ヘルプセンターの「タスク管理と行のテンプレート」に、「タスク管理」ができるときを書きました。',
+  ], '0.18.2 の節が Task G の字と違う');
+  assert.ok(!/（(?:CR|R)\d+）|AQ\d|TD-\d|<!--|承認|下書き|YYYY/.test(sec), '0.18.2 の節に計画の番号か下書きの印がある');
+  assert.ok(!/notion|aqua|typeless/i.test(sec), '0.18.2 の節に参考にしたアプリの名前がある');
+  assert.ok(!/<[a-z]/i.test(sec), '0.18.2 の節に生の HTML がある');
+  const src = ['src/renderer/app.html', 'src/main.js'].map(read).join('\n');
+  for (const m of sec.matchAll(/［([^］]+)］/g)) assert.ok(src.includes(m[1]), `0.18.2 の節の［${m[1]}］が src/ に無い`);
+  // 知らせ（AQ182-5）と Claude の答えの1行（AQ182-8）はコードの字のまま
+  assert.ok(read('src/renderer/app.html').includes("'「タスク管理」を作って、タスクにしました（タスクは Ctrl+Z で戻せます）'"), '知らせの字がコードと違う');
+  assert.ok(read('src/mcp/tools.js').includes("'「タスク管理」を作りました（サイドバーの「議事録」の下）。'"), 'Claude の答えの字がコードと違う');
+  // 引いたヘルプの記事の題
+  assert.ok(sec.includes(`「${(read('help/articles/find/tasks.md').match(/^title: (.+)$/m) || [])[1]}」`), '0.18.2 の節にヘルプの記事の題が無い');
 });
 
 // ---------------------------------------------------------------- help-relnotes RN-1（RN4・Q1・RNF1。計画 docs/plans/2026-10-23-help-relnotes.md）
