@@ -1,5 +1,6 @@
 /* stage170.rv60.mcp.test.js — 0.17.0（計画 docs/plans/2026-11-13-170.md）の点検 3（rv60）の Claude（MCP）の答え
  *  重要 5（R64。2026-11-15 の持ち主の答え「このままにする（おすすめ）」）: 最初の移し替えで作る「タスク管理」は、Claude の一覧に出る（ほかのデータベースと同じ）。
+ *  （0.18.2 TD-1 から「タスク管理」は初めての［タスクにする］で作る: 計画 docs/plans/2026-11-28-182.md の決めたこと 1）
  *  持ち主が受けた差（失うもの）を、移し替えの前と後の答えで固定する: 「すべての議事録 n 件」と「探した会議 n 件」が1つ増え、移し替えの日の日付の絞りに当たる
  *  重要 2（R69）: 「データベース（行 n）」はテンプレートを数えない（表と同じ数え方）
  * 種は helpers/mcpdb.js（会議の題名は titleAt: D77）。
@@ -13,16 +14,22 @@ const tools = require('../src/mcp/tools');
 
 const NOW = () => new Date('2026-11-14T03:00:00.000Z');
 
-test('rv60 重要 5（R64）: 最初の移し替え（minutes.gather の first）の前と後の list_meetings・search_passages の差は、「タスク管理」の1行・件数の1つ・移し替えの日の絞りだけ（わざと変える所）。「タスク管理」のテンプレートは「行 n」に数えない（rv60 重要 2）', { timeout: 60000 }, () => {
+test('rv60 重要 5（R64）: 最初の移し替え（minutes.gather の first）の前と後で Claude の答えは同じ（0.18.2 TD-1）。初めての［タスクにする］の後の list_meetings・search_passages の差は、「タスク管理」の1行・件数の1つ・作った日の絞りだけ（わざと変える所）。「タスク管理」のテンプレートは「行 n」に数えない（rv60 重要 2）', { timeout: 60000 }, () => {
   const m = mcpDb({ only: ['plain1', 'plain2'] });
   try {
     const c = (name, args = {}) => tools.callTool(name, args, { sqlite, dataDir: m.dataDir, now: NOW }).text;
-    const DAY = { from: '2026-10-21', to: '2026-10-21' };   // 種の時計（SEED_NOW）の日: 移し替えで作る「タスク管理」の日付
+    const DAY = { from: '2026-10-21', to: '2026-10-21' };   // 種の時計（SEED_NOW）の日: ［タスクにする］で作る「タスク管理」の日付
     const ask = () => [c('list_meetings'), c('search_passages', { query: '予算' }), c('list_meetings', DAY), c('list_action_items')];
     const before = ask();
-    const g = m.call('main', 'minutes.gather', { first: true });
-    const K = g.tasks;
-    assert.ok(K, '前提: 移し替えで「タスク管理」を作っていない');
+    // 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の決めたこと 1・2・「意図して変えるテスト」）で意図して変えた: 最初の移し替えでは「タスク管理」を作らない（Claude の
+    // 答えは1字も変わらない）。「タスク管理」は初めての［タスクにする］（todo.toTask の1回）で作り、作った行はゴミ箱へ入れて、差の中身（「タスク管理」の1行・件数の1つ・
+    // その日の絞り・テンプレートを数えない）は今のまま確かめる
+    m.call('main', 'minutes.gather', { first: true });
+    m.close();
+    assert.deepStrictEqual(ask(), before, '最初の移し替えで Claude の答えが変わった');
+    const first = m.call('app', 'todo.toTask', { pageId: m.ids.plain1, blockId: `${m.ids.plain1}t1` });
+    const K = first.db;
+    m.call('app', 'rows.trash', { db: K, ids: [first.id] });
     m.call('app', 'tpl.add', { db: K, title: '見本' });   // テンプレートの題名（D77 の外）
     m.close();
     const after = ask();

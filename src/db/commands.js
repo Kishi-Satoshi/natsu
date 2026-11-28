@@ -828,7 +828,8 @@ function placeOps(db, id, ctx, ops) {
 }
 // minutes.gather（役 main・actor system・1つのトランザクション＝oplog の1行）: 最上位の締めた議事録（録音中の写し・ゴミ箱・白紙のページ・データベースを除く）を、
 // 会議の日付と始めた時刻の順に「議事録」データベースの子の末尾へ。壊れた attrs のページはそこに残して数える（skipped）。first（0.17.0 の最初の移し替え: 控えの後）は
-// 「議事録」が無ければ作り、meta に minutes.gathered（数と時刻）を書く。見回り（first 無し）は移すものがあるときだけ作る（消した「議事録」を起動のたびに作らない）
+// 「議事録」が無ければ作り、meta に minutes.gathered（数と時刻）を書く。見回り（first 無し）は移すものがあるときだけ作る（消した「議事録」を起動のたびに作らない）。
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の決めたこと 1・2）: 「タスク管理」は作らない（作るのは［タスクにする］と Claude の make_task の1回の中だけ）
 // → { moved, skipped, created, db }
 function minutesGather(db, a, ctx) {
   const top = [];
@@ -843,19 +844,15 @@ function minutesGather(db, a, ctx) {
   top.sort((x, y) => cmpStr(x.key, y.key));
   const moves = movesUnder(db, m, top);
   const ops = [...m.ops, ...moves];
-  // 0.17.0 TK-1（決めたこと 60）: 最初の移し替えと同じトランザクションで「タスク管理」も（無ければ。見回りでは作らない: 消した後は［タスクにする］が作り直す）
-  const tk = a.first === true && !tasksDbOf(db) ? newTasksDb(db, ctx, m.id) : null;
-  if (tk) ops.push(tk);
   applyOps(db, ops);
   if (a.first === true) putMetaRow(db, 'minutes.gathered', JSON.stringify({ n: moves.length, at: ctx.now().toISOString() }));
-  return { ops, pageIds: ops.length ? [m.id, ...moves.map((o) => o.id), ...(tk ? [tk.id] : []), ...colSetIds(m.ops)] : [], result: { moved: moves.length, skipped, created: Boolean(m.made), db: m.id, tasks: tk ? tk.id : null } };
+  return { ops, pageIds: ops.length ? [m.id, ...moves.map((o) => o.id), ...colSetIds(m.ops)] : [], result: { moved: moves.length, skipped, created: Boolean(m.made), db: m.id } };
 }
 // 起動のとき（DB のプロセス）: 移す議事録があるか（移す前の控えを取るか・見回りの命令を送るかを決める。壊れた attrs のページは数えない）と、
 // 「議事録」データベースがもうあるか（初めての起動で、移す物も作る物も無ければ命令を送らない: 空の oplog の行を積まない）
 const minutesState = (db) => ({
   pending: db.prepare(HOT_QUERIES.topPages).all().some((r) => { const a = parseOr(r.attrs); return Boolean(a) && isMeetingRaw(a); }),
   hasDb: Boolean(minutesDbOf(db)),
-  hasTasks: Boolean(tasksDbOf(db)),   // 0.17.0 TK-1: 最初の起動で「タスク管理」が無ければ、移す物が無くても命令を送る
 });
 
 // 送り直しの答え: 書いた操作に、ページの行を足したか会議の印を書き換えた操作があれば「作った・上書きした」（already: false）

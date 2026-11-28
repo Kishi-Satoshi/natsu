@@ -272,13 +272,23 @@ test('問い 5・M20（R85）: 「議事録」の表で選んだ行の［リン�
 });
 
 // ---------------------------------------------------------------- TK-1（決めたこと 60〜62・65・F200）
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の決めたこと 1・2・「意図して変えるテスト」）: 最初の移し替えは「タスク管理」を作らない。前の形（「タスク管理」がある）を、
+// ToDo のある議事録を1つ足して［タスクにする］（todo.toTask の1回）で作り直す → { K（「タスク管理」）, row（作った行） }
+function tasksDbVia(call) {
+  const at = '2026-11-09T01:00:00.000Z';
+  call('meeting.finalize', { pageId: 'pk0', page: { title: titleAt(at), date: '2026-11-09', createdAt: at, blocks: [{ id: 'pk0t0', type: 'todo', text: '段取りを決める', checked: false }] }, segments: [] }, 'main');
+  const r = call('todo.toTask', { pageId: 'pk0', blockId: 'pk0t0' });
+  return { K: r.db, row: r.id };
+}
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 「タスク管理」を minutes.gather の答え（tasks）でなく tasksDbVia で作る
 test('TK-1・F200: サイドバーは「議事録」の下に「タスク管理」・▸ を開くとビューの行「すべて」「マイタスク」「期限順」・「マイタスク」の行で開く・担当の候補の先頭が「自分」', T, async () => {
   const l = await realApp({ before: (call) => {
     minutesSeed(call);
     const g = call('minutes.gather', { first: true }, 'main');
-    call('row.add', { db: g.tasks, title: '見積もり' });   // タスクの題名（D77 の外）
+    const { K } = tasksDbVia(call);
+    call('row.add', { db: K, title: '見積もり' });   // タスクの題名（D77 の外）
     call('page.create', {});   // 「タスク管理」より後に作った白紙のページ（固定が無ければ上に並ぶ）
-    return { M: g.db, K: g.tasks };
+    return { M: g.db, K };
   } });
   try {
     const { M, K } = l.made;
@@ -309,7 +319,8 @@ test('TK-2・F199: 議事録の ToDo の行に［タスクにする］（aria-la
     const at = '2026-11-12T01:00:00.000Z';
     call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [{ id: 'pw1h', type: 'heading', text: 'ToDo' },
       { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false, assignee: 'メンバー甲' }, { id: 'pw1t1', type: 'todo', text: '資料を集める', checked: false }] }, segments: [] }, 'main');
-    return { K: call('minutes.gather', { first: true }, 'main').tasks };
+    call('minutes.gather', { first: true }, 'main');   // 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 答えの tasks（使っていない）を返さない
+    return {};
   } });
   try {
     await open(l, 'pw1');
@@ -371,8 +382,10 @@ test('問い 4・R82: ゴミ箱に入ったタスクの［タスクを開く］�
     const at = '2026-11-12T01:00:00.000Z';
     call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [
       { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false }, { id: 'pw1t1', type: 'todo', text: '資料を集める', checked: false }] }, segments: [] }, 'main');
-    const K = call('minutes.gather', { first: true }, 'main').tasks;
-    const gone = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }).id;
+    call('minutes.gather', { first: true }, 'main');
+    // 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 「タスク管理」は最初の todo.toTask が作ったもの
+    const first = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' });
+    const K = first.db; const gone = first.id;
     const live = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t1' }).id;
     call('rows.trash', { db: K, ids: [gone] });
     return { K, gone, live };
@@ -402,8 +415,10 @@ test('問い 4・R82: 「タスク管理」データベースがゴミ箱なら�
     const at = '2026-11-12T01:00:00.000Z';
     call('meeting.finalize', { pageId: 'pw1', page: { title: titleAt(at), date: '2026-11-12', createdAt: at, blocks: [
       { id: 'pw1t0', type: 'todo', text: '見積もりを出す', checked: false }] }, segments: [] }, 'main');
-    const K = call('minutes.gather', { first: true }, 'main').tasks;
-    const row = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }).id;
+    call('minutes.gather', { first: true }, 'main');
+    // 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 「タスク管理」は最初の todo.toTask が作ったもの
+    const first = call('todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' });
+    const K = first.db; const row = first.id;
     call('page.delete', { id: K });
     return { K, row };
   } });

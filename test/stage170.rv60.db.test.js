@@ -42,7 +42,7 @@ function meeting(db, id, { at = '2026-11-10T01:30:00.000Z', date = '2026-11-10',
   ok(call(db, 'meeting.finalize', { pageId: id, page, segments: [] }, 'main'), 'meeting.finalize');
   return id;
 }
-// 0.16.0 までに締めた議事録（移す前の形: 最上位）と、最初の移し替え（「議事録」と「タスク管理」を作る）
+// 0.16.0 までに締めた議事録（移す前の形: 最上位）と、最初の移し替え（「議事録」を作る）
 function oldMeeting(t, id, i) {
   const at = new Date(Date.parse('2026-10-01T01:00:00.000Z') + i * 3600000 * 7).toISOString();
   const { page, segments } = samplePage(id);
@@ -51,7 +51,16 @@ function oldMeeting(t, id, i) {
   t.seed(page, segments.map((s) => ({ ...s, id: `${id}${s.id}` })));
   return id;
 }
-const firstGather = (db, t) => { oldMeeting(t, 'pz0', 0); return ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather').result; };
+const gatherOnly = (db, t) => { oldMeeting(t, 'pz0', 0); return ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather').result; };
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の決めたこと 1・2・「意図して変えるテスト」）で意図して変えた: 最初の移し替えは「タスク管理」を作らないので、
+// 前の形（「議事録」と「タスク管理」がある）を、白紙のページの ToDo を1つ［タスクにする］（todo.toTask の1回）で作り直す。答えの tasks はその「タスク管理」
+function firstGather(db, t) {
+  const g = gatherOnly(db, t);
+  const P = ok(call(db, 'page.create', {}), 'page.create').result.id;
+  const b = ok(call(db, 'block.insert', { pageId: P, afterBlockId: '', type: 'todo' }), 'block.insert').result.blockId;
+  ok(call(db, 'block.update', { pageId: P, blockId: b, patch: { text: '机を片付ける' } }), 'block.update');
+  return { ...g, tasks: ok(call(db, 'todo.toTask', { pageId: P, blockId: b }), 'todo.toTask').result.db };
+}
 const view = (db, id, viewId = 'v1') => ok(call(db, 'db.view', { id, viewId, from: 0, count: 200 }), 'db.view').result;
 const dbGet = (db, id) => ok(call(db, 'db.get', { id }), 'db.get').result;
 
@@ -140,10 +149,12 @@ test('rv60 重要 4・F203（R43 の続き）: 親のページごとゴミ箱に
 }));
 
 test('rv60 重要 4・F203（2026-11-15 の持ち主の答え「議事録と同じく今の方へ移す（おすすめ）」）: 古い「タスク管理」をゴミ箱から戻すと、ほかに生きている「タスク管理」があれば、同じ命令で古い方の行（ゴミ箱の行も。テンプレートは除く）を今の方の末尾へ移し、古い方は役の印を外す。番号は今の方の続き・同じ列の値は残る', T, () => withDb((db, t) => {
-  const g = firstGather(db, t);
-  const OLD = g.tasks;
+  // 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 古い「タスク管理」は、最初の移し替えでなく最初の［タスクにする］（r1）で作る
+  gatherOnly(db, t);
   meeting(db, 'pc1', { todos: ['見積もりを出す', '資料を集める', '先方に送る'] });
-  const r1 = ok(call(db, 'todo.toTask', { pageId: 'pc1', blockId: 'pc1t0' }), 'todo.toTask').result.id;
+  const first = ok(call(db, 'todo.toTask', { pageId: 'pc1', blockId: 'pc1t0' }), 'todo.toTask').result;
+  const OLD = first.db;
+  const r1 = first.id;
   const r2 = ok(call(db, 'todo.toTask', { pageId: 'pc1', blockId: 'pc1t1' }), 'todo.toTask').result.id;
   ok(call(db, 'rows.trash', { db: OLD, ids: [r2] }), 'rows.trash');
   const pri = attrsOf(db, OLD).cols.find((c) => c.name === '優先度').id;

@@ -209,7 +209,9 @@ test('MG-2・F193: 移し替え（最上位の締めた議事録 300 だけが�
   const before = new Map([...ids, nested, gone, blank, otherDb, 'pl1'].map((id) => [id, { cols: pageCols(db, id), body: bodyOf(db, id), place: { ...db.prepare('select parent_id, ord from blocks where id = ?').get(id) } }]));
   const seq0 = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
   const r = ok(gather(db), 'minutes.gather');
-  assert.deepStrictEqual({ ...r.result, db: undefined, tasks: undefined }, { moved: 300, skipped: 0, created: true, db: undefined, tasks: undefined });   // TK-1 で tasks（作った「タスク管理」）を足した
+  // 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の決めたこと 1・「意図して変えるテスト」）で意図して変えた: 最初の移し替えで「タスク管理」を作らないので、
+  // TK-1 で足した tasks（作った「タスク管理」）を答えから外した（0.17.0 の TK-1 の前の形に戻る）
+  assert.deepStrictEqual({ ...r.result, db: undefined }, { moved: 300, skipped: 0, created: true, db: undefined });
   const dbs = minutesDbs(db);
   assert.strictEqual(dbs.length, 1, '「議事録」データベースが1つでない');
   const M = dbs[0];
@@ -737,15 +739,26 @@ test('MG-3・F198: 一覧の行は「議事録」データベースに minutes�
 // ---------------------------------------------------------------- TK-1（決めたこと 60〜62・65・F200・F203）: 「タスク管理」データベースとマイタスク
 const tasksDbs = (db) => db.prepare("select id, attrs from blocks where type = 'page' and trashed_at is null and instr(attrs, 'tasks') > 0").all()
   .filter((r) => { try { return JSON.parse(r.attrs).role === 'tasks'; } catch (_) { return false; } }).map((r) => r.id);
-test('TK-1・F200・F203: 最初の移し替えと同じトランザクションで「タスク管理」が1つ（列 ステータス・担当・期限・優先度・議事録（「議事録」への片側のリレーション）・ビュー すべて・マイタスク・期限順）。二度目は作らない・消しても見回りで作り直さない', T, () => withDb((db, t) => {
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の決めたこと 1・2・「意図して変えるテスト」）: 「タスク管理」は最初の移し替えでは作らず、初めての［タスクにする］で作る。
+// 前の形（「タスク管理」がある）を、要約に ToDo のある議事録を1つ足して todo.toTask を1回通して作り直す → { K（「タスク管理」）, row（作った行）, tx }
+function firstTask(db, id = 'pk0') {
+  todoMeeting(db, id, [{ text: '段取りを決める' }]);
+  const r = ok(call(db, 'todo.toTask', { pageId: id, blockId: `${id}t0` }), 'todo.toTask');
+  return { K: r.result.db, row: r.result.id, tx: r.tx };
+}
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の決めたこと 1・2・「意図して変えるテスト」）で意図して変えた: 最初の移し替えでは「タスク管理」を作らない。
+// 「タスク管理」の形（列・ビュー）と1つだけであること（二度目・見回り・消した後の見回りで作らない）は、初めての［タスクにする］（1つの命令）で作ったもので確かめる
+test('TK-1・F200・F203: 最初の移し替えでは「タスク管理」を作らず、初めての［タスクにする］と同じトランザクションで「タスク管理」が1つ（列 ステータス・担当・期限・優先度・議事録（「議事録」への片側のリレーション）・ビュー すべて・マイタスク・期限順）。二度目は作らない・消しても見回りで作り直さない', T, () => withDb((db, t) => {
   oldMeeting(t, 'pt0', 0);
-  const seq0 = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
   const g = ok(gather(db), 'minutes.gather');
+  assert.deepStrictEqual(tasksDbs(db), [], '最初の移し替えで「タスク管理」を作った');
+  const seq0 = db.prepare('select coalesce(max(seq), 0) s from oplog').get().s;
+  const first = firstTask(db);
   const T1 = tasksDbs(db);
   assert.strictEqual(T1.length, 1, '「タスク管理」が1つでない');
   const K = T1[0];
-  assert.strictEqual(g.result.tasks, K);
-  assert.strictEqual(db.prepare('select count(*) c from oplog where seq > ?').get(seq0).c, 1, '別のトランザクションで作った');
+  assert.strictEqual(first.K, K);
+  assert.deepStrictEqual(db.prepare('select tx from oplog where seq > ? and action = ?').all(seq0, 'todo.toTask').map((x) => x.tx), [first.tx], '別のトランザクションで作った');
   const a = attrsOf(db, K);
   const M = g.result.db;
   assert.deepStrictEqual([db.prepare('select text, parent_id from blocks where id = ?').get(K).text, a.kind, a.role, a.locked], ['タスク管理', 'database', 'tasks', undefined]);
@@ -757,7 +770,9 @@ test('TK-1・F200・F203: 最初の移し替えと同じトランザクション
   assert.ok(attrsOf(db, M).cols.every((c) => c.type !== 'rel'), '「議事録」の側に列を作った（TQ2b）');
   assert.deepStrictEqual(a.views.map((v) => v.name), ['すべて', 'マイタスク', '期限順']);
   for (const v of a.views) assert.deepStrictEqual(DV.normalizeView(v, a.cols).view, v, `${v.name} のビューの形が照らしで変わる`);
-  // 二度目の移し替え・見回りでは作らない。消した後も見回りでは作らない（作り直すのは［タスクにする］: TK-2）
+  // 二度目の［タスクにする］・見回りでは作らない。消した後も見回りでは作らない（作り直すのは［タスクにする］: TK-2）
+  todoMeeting(db, 'pk1', [{ text: '資料を集める' }]);
+  assert.strictEqual(ok(call(db, 'todo.toTask', { pageId: 'pk1', blockId: 'pk1t0' }), 'todo.toTask').result.db, K);
   oldMeeting(t, 'pt1', 1);
   ok(gather(db, {}), '見回り');
   assert.deepStrictEqual(tasksDbs(db), [K]);
@@ -767,10 +782,13 @@ test('TK-1・F200・F203: 最初の移し替えと同じトランザクション
   assert.deepStrictEqual(tasksDbs(db), [], '消した「タスク管理」を見回りで作り直した');
 }));
 
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 「タスク管理」を最初の移し替えでなく初めての［タスクにする］で作り、
+// そのとき作った行はゴミ箱へ入れる（ビューの並びを確かめる中身は変えない）
 test('TK-1・F200: 「マイタスク」は担当に「自分」があり完了でない行を期限の順に・「期限順」は完了を除いて期限の順。「議事録」へのリレーションの［新しい行を作ってつなぐ］は断る（rv59 軽い 6）', T, () => withDb((db, t) => {
   oldMeeting(t, 'pt0', 0);
-  const g = ok(gather(db), 'minutes.gather');
-  const K = g.result.tasks;
+  ok(gather(db), 'minutes.gather');
+  const { K, row: made } = firstTask(db);
+  ok(call(db, 'rows.trash', { db: K, ids: [made] }), 'rows.trash');
   const a = attrsOf(db, K);
   const [, st, who, due] = a.cols;
   const add = (title, cells) => ok(call(db, 'row.add', { db: K, title, cells }), 'row.add').result.id;   // タスクの題名（D77 の外）
@@ -796,13 +814,16 @@ function todoMeeting(db, id, todos) {
   return id;
 }
 const taskCells = (db, K, rowId) => { const cols = attrsOf(db, K).cols; const c = attrsOf(db, rowId).cells || {}; const by = (n) => c[cols.find((x) => x.name === n).id]; return { status: by('ステータス'), who: by('担当'), due: by('期限'), mins: by('議事録') }; };
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 「タスク管理」は最初の移し替えで作らないので、最初の todo.toTask が
+// 作った「タスク管理」を K にする（作るのは1つだけ）
 test('TK-2・F199: todo.toTask は「タスク管理」に行を1つ（題名・担当・期限は ToDo のまま・無ければ空・推し量った期限は入れない・済みなら完了）を作り、議事録のリレーションにその議事録、ToDo に印。二度押しても送り直しても1つ', T, () => withDb((db, t) => {
   oldMeeting(t, 'pz0', 0);
-  const K = ok(gather(db), 'minutes.gather').result.tasks;
+  ok(gather(db), 'minutes.gather');
   todoMeeting(db, 'pw1', [{ text: '見積もりを出す', assignee: 'メンバー甲', due: '2026-11-20' }, { text: '資料を集める' }, { text: '先方に送る', checked: true, due: '2026-11-21', approx: true }]);
   const r = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'todo.toTask');
   const row = r.result.id;
-  assert.strictEqual(r.result.db, K);
+  const K = r.result.db;
+  assert.deepStrictEqual(tasksDbs(db), [K]);
   assert.deepStrictEqual([db.prepare('select type, parent_id, text from blocks where id = ?').get(row).type, db.prepare('select parent_id from blocks where id = ?').get(row).parent_id, db.prepare('select text from blocks where id = ?').get(row).text], ['row', K, '見積もりを出す']);
   assert.deepStrictEqual(taskCells(db, K, row), { status: 'o1', who: ['メンバー甲'], due: { start: '2026-11-20' }, mins: ['pw1'] });
   assert.strictEqual(attrsOf(db, 'pw1t0').task, row, 'ToDo に印が無い');
@@ -829,12 +850,14 @@ test('TK-2・F199: todo.toTask は「タスク管理」に行を1つ（題名・
   assert.strictEqual(call(db, 'todo.toTask', { pageId: 'pl9', blockId: 'x1' }).code, 'bad-args');
 }));
 
+// 0.18.2 TD-1（計画 docs/plans/2026-11-28-182.md の「意図して変えるテスト」）で意図して変えた: 最初の todo.toTask が作った「タスク管理」を K にする
 test('TK-2・F199: Ctrl+Z（edit.revert）で行（ゴミ箱へ）と ToDo の印が一緒に戻り、やり直しでまた付く。「タスク管理」を消した後は、同じ命令の中で作り直す', T, () => withDb((db, t) => {
   oldMeeting(t, 'pz0', 0);
-  const K = ok(gather(db), 'minutes.gather').result.tasks;
+  ok(gather(db), 'minutes.gather');
   todoMeeting(db, 'pw1', [{ text: '見積もりを出す' }]);
   const r = ok(call(db, 'todo.toTask', { pageId: 'pw1', blockId: 'pw1t0' }), 'todo.toTask');
   const row = r.result.id;
+  const K = r.result.db;
   const back = ok(call(db, 'edit.revert', { pageId: 'pw1', steps: [r.tx] }), 'edit.revert');
   assert.deepStrictEqual([Boolean(trashedAt(db, row)), attrsOf(db, 'pw1t0').task], [true, undefined], 'Ctrl+Z で行と印が一緒に戻らない');
   ok(call(db, 'edit.revert', { pageId: 'pw1', steps: [back.tx] }), 'やり直し');
