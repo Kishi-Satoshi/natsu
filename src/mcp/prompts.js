@@ -80,7 +80,7 @@ function bodyOf(name, a) {
   if (name === 'make_material') return `次の会議を get_meetings で読み、要点を資料（見出しと箇条書き）にまとめてください。使った箇所ごとに出典を書いてください。会議: ${a.meetings.join('・')}`;
   if (name === 'cross_topic') return `search_passages で「${a.topic}」を、言い換えも使って何回か探し、会議をまたいで、いつ・何が話され・どう決まったかを日付の順にまとめてください。使った箇所ごとに出典を書いてください。`;
   const range = a.from || a.to ? `（${a.from || ''}〜${a.to || ''} の会議の分）` : '';   // 範囲が無ければ外す（AQ44 (a)）。片方だけは list_meetings の範囲の字と同じ形（CR82）
-  return `list_action_items で開いた ToDo を${range}読み、query_database で『タスク管理』の済んでいない行も読んで、ToDo と決定事項を担当ごとにまとめてください。`;
+  return `list_action_items で開いた ToDo を${range}読み、query_database で『タスク管理』（あれば）の済んでいない行も読んで、ToDo と決定事項を担当ごとにまとめてください。`;
 }
 
 function promptMessages(name, args) {

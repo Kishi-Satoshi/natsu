@@ -1001,7 +1001,9 @@ test('CT-1・F238: mcp.makeTask: ［タスクにする］（todo.toTask）と同
   ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
   const r = ok(mcp(db, 'mcp.makeTask', { pageId: a, blockId: 'pm1b6' }), 'mcp.makeTask');
   const tdb = db.prepare("select id from blocks where type = 'page' and instr(attrs, '\"tasks\"') > 0").get().id;
-  assert.deepStrictEqual(r.result, { id: r.result.id, db: tdb, made: true });
+  // 0.18.2 点検の直し（計画 docs/plans/2026-11-28-182.md の AQ182-8・CR5）で意図して変えた: 最初の移し替えは「タスク管理」を作らなくなった（TD-1）ので、
+  // この make_task が「タスク管理」を作り、答えに madeDb 真が付く（made は行を作ったかのまま）
+  assert.deepStrictEqual(r.result, { id: r.result.id, db: tdb, made: true, madeDb: true });
   assert.strictEqual(r.changed.what, 'task');
   assert.deepStrictEqual([r.changed.actor, r.changed.pageIds.includes(a), r.changed.pageIds.includes(r.result.id)], ['claude', true, true]);
   assert.deepStrictEqual(oplogOf(db, r.tx), { actor: 'claude', action: 'mcp.makeTask', page_id: a });

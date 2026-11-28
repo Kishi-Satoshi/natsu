@@ -3582,6 +3582,11 @@ function actionDup(db, a, row) {
   const task = h ? liveTaskOf(db, h.b) : null;
   return p ? { title: p.title, ...(task ? { task } : {}), ...(dupOps(row).length ? {} : { same: true }) } : null;
 }
+// 0.18.2 点検の直し（AQ182-8・CR5）: todo.toTask の答え { id, db, made? } → mcp.makeTask の答え { id, db, made（行を作ったか）, madeDb?（「タスク管理」を作ったときだけ真） }
+function mcpTaskResult(r, made) {
+  const { made: madeDb, ...rest } = r;
+  return { ...rest, made, ...(madeDb === true ? { madeDb: true } : {}) };
+}
 // mcp.makeTask（役 mcp）: ［タスクにする］（todo.toTask）と同じ部品で「タスク管理」の行を作り（無ければ「タスク管理」も）、ToDo に印を付ける。作成者は
 // Claude（actor）。もうタスクがあれば何もせずその行の ID（made 偽）。控えは ToDo のページの1行（戻すのは印だけ: CR13）。
 // 断る: mcpPageOf の not-found・main が要約を作っている間は locked・ほかは todo.toTask と同じ（ToDo でない行は bad-args・要約の欄の鍵は locked）
@@ -3590,8 +3595,9 @@ function mcpMakeTask(db, a, ctx) {
   if (ctx.making.has(w.page.id)) throw refuse('locked');   // main が要約を作っている間（todo.toTask が見るのは DB の要約の欄の鍵だけ）
   return withSnap(db, a.pageId, 'task', () => {
     const out = todoToTask(db, a, ctx);
-    // 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の CR5）: todo.toTask の made（「タスク管理」を作ったか）は、ここで行を作ったかの made で上書きする（Claude の答えの字は今のまま）
-    return { ...out, what: 'task', result: { ...out.result, made: out.ops.length > 0 } };
+    // 0.18.2 TD-2・点検の直し（計画 docs/plans/2026-11-28-182.md の CR5・AQ182-8）: made は、ここで行を作ったか（0.18.0 CT-1 のまま）。todo.toTask の made
+    //（「タスク管理」を作ったか）は名前を madeDb に替えて運ぶ（真だけ。Claude の答えに「作りました」の1行を足す）
+    return { ...out, what: 'task', result: mcpTaskResult(out.result, out.ops.length > 0) };
   }, ctx);
 }
 
@@ -3928,7 +3934,7 @@ const DEFS = {
   // 0.18.0 CT-1（決めたこと 27・28・D149）: Claude の ToDo の更新と［タスクにする］（役 mcp だけ）
   'mcp.updateAction': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id', done: 'bool?', assignee: 'short?', dueRaw: 'short?' }, run: mcpUpdateAction, dupResult: actionDup },
   'mcp.makeTask': { roles: ['mcp'], write: true, args: { pageId: 'id', blockId: 'id' }, run: mcpMakeTask,
-    dupResult: (db, a, row) => { const r = DEFS['todo.toTask'].dupResult(db, a); return r ? { ...r, made: JSON.parse(row.ops || '[]').length > 0 } : null; } },
+    dupResult: (db, a, row) => { const r = DEFS['todo.toTask'].dupResult(db, a, row); return r ? mcpTaskResult(r, JSON.parse(row.ops || '[]').length > 0) : null; } },   // 点検の直し（AQ182-8）: 送り直しも1回目と同じ madeDb
   // 0.18.0 CT-2（決めたこと 30〜33）: Claude の白紙のページを作る・書き足す（役 mcp だけ）
   'mcp.createPage': { roles: ['mcp'], write: true, args: { title: 'oneLineTitle', md: 'mdText', parentId: 'id?' }, run: mcpCreatePage, dupResult: createPageDup },
   'mcp.appendPage': { roles: ['mcp'], write: true, args: { pageId: 'id', md: 'mdText' }, run: mcpAppendPage, dupResult: appendPageDup },

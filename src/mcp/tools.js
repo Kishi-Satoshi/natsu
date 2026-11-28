@@ -786,6 +786,8 @@ const NO_HIT = '見つかりませんでした。';   // 決めたこと 24（�
 // （「書きました」と戻し方は言わない）
 const HAS_TASK = 'この ToDo には、もうタスクがあります。';
 const SAME_VALUE = '今の値と同じなので、変えませんでした。';
+// 0.18.2 点検の直し（計画 docs/plans/2026-11-28-182.md の AQ182-8「1行足す（おすすめ）」）: make_task がその1回で「タスク管理」を作ったとき（DB の答えの madeDb）だけ足す1行
+const TASKS_DB_MADE = '「タスク管理」を作りました（サイドバーの「議事録」の下）。';
 const titleOf = (x, kind) => `# ${F.titleLine({ title: x, kind })}`;
 const idLine = (id) => (typeof id === 'string' && ID_RE.test(id) ? [`- ID: ${id}`] : []);
 const countN = (n) => (Number.isSafeInteger(n) && n > 0 ? n : 0);
@@ -864,7 +866,7 @@ const WRITES = {
     field: { pageId: 'item', blockId: 'item' },
     look: (db, a) => todoLook(db, a, true),
     badArgs: 'not-todo',
-    answer: (r, a, p) => (r.made === false ? [HAS_TASK, ...idLine(r.id)] : [WROTE, titleOf(p.title, p.kind), ...idLine(r.id), DELETE_HINT, UNDO_HINT]),
+    answer: (r, a, p) => (r.made === false ? [HAS_TASK, ...idLine(r.id)] : [WROTE, titleOf(p.title, p.kind), ...idLine(r.id), ...(r.madeDb === true ? [TASKS_DB_MADE] : []), DELETE_HINT, UNDO_HINT]),
   },
   create_page: {
     cmd: 'mcp.createPage',

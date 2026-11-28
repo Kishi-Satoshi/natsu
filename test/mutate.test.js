@@ -1997,6 +1997,8 @@ const IDS_182 = [
   'td-first-none', 'td-send-cond', 'td-make-once',
   // 0.18.2 Task TD-2（初めて作ったときの知らせ）
   'td-made-flag', 'td-made-toast',
+  // 0.18.2 点検の直し（AQ182-8: Claude の make_task の答えの1行）
+  'td-mcp-made',
 ];
 const PREFIX_182 = /^td-/;
 function planRows182() {
@@ -2007,13 +2009,14 @@ function planRows182() {
   return [...table.matchAll(/^\| `?(td-[a-z0-9-]*)`? \|/gm)].map((m) => m[1]);
 }
 // 0.18.2 TD-2（計画 docs/plans/2026-11-28-182.md の「変異の表」）で意図して変えた: td-made-flag・td-made-toast を IDS_182 に足し、作っている間の「表の行の順に並んだ一部」から、表の td- の行（5 行）とちょうど同じにした
-test('G3・0.18.2: 0.18.2 の変異が一覧にそろい、IDS_182 は計画の「変異の表」の td- の行とちょうど同じ（行の順・5 行）。td- の変異は IDS_182 にある。どれも決まったテストのファイルを持ち、why が 0.18.2 で始まる。前の版の IDS に td- が無い', { timeout: 5000 }, () => {
+// 0.18.2 点検の直し（AQ182-8）で意図して変えた: td-mcp-made を足し、表の td- の行は 6 行
+test('G3・0.18.2: 0.18.2 の変異が一覧にそろい、IDS_182 は計画の「変異の表」の td- の行とちょうど同じ（行の順・6 行）。td- の変異は IDS_182 にある。どれも決まったテストのファイルを持ち、why が 0.18.2 で始まる。前の版の IDS に td- が無い', { timeout: 5000 }, () => {
   const byId = new Map(MUTANTS.map((m) => [m.id, m]));
   assert.deepStrictEqual(IDS_182.filter((id) => !byId.has(id)), [], 'IDS_182 の変異が一覧に無い');
   assert.strictEqual(new Set(IDS_182).size, IDS_182.length, 'IDS_182 に重なり');
   assert.deepStrictEqual(MUTANTS.filter((m) => PREFIX_182.test(m.id) && !IDS_182.includes(m.id)).map((m) => m.id), [], 'IDS_182 に無い td- の変異がある');
   const rows = planRows182();
-  assert.strictEqual(rows.length, 5, '計画の 0.18.2 の表（td- 5 行）が読めない');
+  assert.strictEqual(rows.length, 6, '計画の 0.18.2 の表（td- 6 行）が読めない');
   assert.strictEqual(new Set(rows).size, rows.length, '計画の表に重なり');
   assert.deepStrictEqual(IDS_182.filter((id) => !rows.includes(id)), [], '計画の「変異の表」に無い変異');
   assert.deepStrictEqual(IDS_182, rows, 'IDS_182 が計画の「変異の表」の td- の行とちょうど同じでない（行の順）');

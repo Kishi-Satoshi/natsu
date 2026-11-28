@@ -399,7 +399,8 @@ test('CP-1・AQ44 (a): 資料・横断・ToDo と決定事項の指示書の本�
     '次の会議を get_meetings で読み、要点を資料（見出しと箇条書き）にまとめてください。使った箇所ごとに出典を書いてください。会議: pm1・pm2・pm3');
   assert.strictEqual(textOfPrompt('cross_topic', { topic: '  見積の値引き ' }),
     'search_passages で「見積の値引き」を、言い換えも使って何回か探し、会議をまたいで、いつ・何が話され・どう決まったかを日付の順にまとめてください。使った箇所ごとに出典を書いてください。');
-  const tail = '読み、query_database で『タスク管理』の済んでいない行も読んで、ToDo と決定事項を担当ごとにまとめてください。';
+  // 0.18.2 点検の直し（計画 docs/plans/2026-11-28-182.md の CR8）で意図して変えた: 「タスク管理」は［タスクにする］を押すまで無いので『タスク管理』（あれば）
+  const tail = '読み、query_database で『タスク管理』（あれば）の済んでいない行も読んで、ToDo と決定事項を担当ごとにまとめてください。';
   assert.strictEqual(textOfPrompt('todo_digest', {}), `list_action_items で開いた ToDo を${tail}`);
   assert.strictEqual(textOfPrompt('todo_digest', { from: '', to: ' ' }), `list_action_items で開いた ToDo を${tail}`, '空の任意の引数は無いのと同じ');
   assert.strictEqual(textOfPrompt('todo_digest', { from: '2026-11-01', to: '2026-11-30' }), `list_action_items で開いた ToDo を（2026-11-01〜2026-11-30 の会議の分）${tail}`);

@@ -215,6 +215,7 @@ test('TD-1・F263: 最初の移し替えの後の「タスク管理」の無い 
   assert.deepStrictEqual(tasksDbs(db), K, '「タスク管理」を2つ作った');
 }));
 
+// 0.18.2 点検の直し（AQ182-8・CR5）で意図して変えた: 答えに madeDb 真（「タスク管理」を作った）が付く（made は行を作ったかのまま）
 test('TD-1・F263: 最初の移し替えの後の「タスク管理」の無い PC で、Claude の make_task（mcp.makeTask）も1つの命令で「タスク管理」と行を作る（答えは今どおり made 真）', T, () => withDb((db, t) => {
   oldMeeting(t, 'pz0', 0);
   ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
@@ -224,7 +225,7 @@ test('TD-1・F263: 最初の移し替えの後の「タスク管理」の無い 
   const r = ok(call(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1t0' }, 'mcp'), 'mcp.makeTask');
   const K = tasksDbs(db);
   assert.strictEqual(K.length, 1, '「タスク管理」を作らない');
-  assert.deepStrictEqual(r.result, { id: r.result.id, db: K[0], made: true });
+  assert.deepStrictEqual(r.result, { id: r.result.id, db: K[0], made: true, madeDb: true });
   assert.deepStrictEqual(db.prepare('select action from oplog where seq > ?').all(seq).map((x) => x.action), ['mcp.makeTask'], '1つの命令でない');
   assert.strictEqual(db.prepare('select parent_id from blocks where id = ?').get(r.result.id).parent_id, K[0]);
 }));
@@ -321,3 +322,48 @@ test('TD-2・F264（決めたこと 3・AQ182-2）: 前の版で作られた「�
     });
   } finally { a.done(); b.done(); }
 });
+
+// ---------------------------------------------------------------- 点検の直し（AQ182-8「1行足す（おすすめ）」・CR5・M6）
+// Claude の make_task で「タスク管理」を初めて作ったときは、答えにそう書く。mcp.makeTask の made は 0.18.0 CT-1 の「行を作ったか」のままなので、
+// 「タスク管理」を作ったかは別の名前 madeDb で運ぶ（todo.toTask の made と同じ意味）
+const tools = require('../src/mcp/tools');
+const WROTE = 'NaTsu に書きました。';
+const DB_MADE = '「タスク管理」を作りました（サイドバーの「議事録」の下）。';
+const DELETE_HINT = '要らなければ、NaTsu で［削除］してください。';
+const UNDO_HINT = 'NaTsu のページの「···」→［Claude の変更を戻す］で戻せます。';
+const HAS_TASK = 'この ToDo には、もうタスクがあります。';
+const answerOf = (r) => tools.WRITES.make_task.answer(r.result, {}, { title: '題', kind: 'meeting' });   // D77: 偽の題名（会議の題名の形でない）
+
+test('点検・AQ182-8: Claude の make_task（mcp.makeTask）の答えの madeDb は、その1回で「タスク管理」を作ったときだけ真（送り直しも1回目と同じ・「タスク管理」をゴミ箱に入れた後も真）。make_task の答えは、そのときだけ ID の次に「「タスク管理」を作りました（サイドバーの「議事録」の下）。」の1行を足し、ほかの行と made（行を作ったか）は今のまま', T, () => withDb((db, t) => {
+  oldMeeting(t, 'pz0', 0);
+  ok(call(db, 'minutes.gather', { first: true }, 'main'), 'minutes.gather');
+  todoMeeting(db, 'pw1', ['見積もりを出す', '資料を集める', '先方に送る']);
+  assert.deepStrictEqual(tasksDbs(db), [], '前提: 「タスク管理」が無い');
+  const r1 = ok(call(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1t0' }, 'mcp'), '初めての make_task');
+  const K = r1.result.db;
+  assert.deepStrictEqual(r1.result, { id: r1.result.id, db: K, made: true, madeDb: true }, '初めての make_task に madeDb が無い');
+  assert.deepStrictEqual(answerOf(r1), [WROTE, '# 題', `- ID: ${r1.result.id}`, DB_MADE, DELETE_HINT, UNDO_HINT], '初めて作った答えの行');
+  const re = ok(call(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1t0' }, 'mcp', r1.tx), '送り直し');
+  assert.deepStrictEqual([re.dup, re.result], [true, r1.result], '送り直しの答えが1回目と違う');
+  // 二度目（ほかの ToDo）: 「タスク管理」はある
+  const r2 = ok(call(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1t1' }, 'mcp'), '二度目');
+  assert.deepStrictEqual(r2.result, { id: r2.result.id, db: K, made: true }, '二度目に madeDb が付いた');
+  assert.deepStrictEqual(answerOf(r2), [WROTE, '# 題', `- ID: ${r2.result.id}`, DELETE_HINT, UNDO_HINT], '二度目の答えの行が今のままでない');
+  const re2 = ok(call(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1t1' }, 'mcp', r2.tx), '二度目の送り直し');
+  assert.deepStrictEqual(re2.result, r2.result, '二度目の送り直しの答えが1回目と違う');
+  // もうタスクのある ToDo（何もしない: made 偽）
+  const same = ok(call(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1t0' }, 'mcp'), 'もうタスクのある ToDo');
+  assert.deepStrictEqual(same.result, { id: r1.result.id, db: K, made: false });
+  assert.deepStrictEqual(answerOf(same), [HAS_TASK, `- ID: ${r1.result.id}`]);
+  // 「タスク管理」をゴミ箱に入れた後は作り直す（madeDb 真）
+  ok(call(db, 'page.delete', { id: K }), 'page.delete');
+  const r3 = ok(call(db, 'mcp.makeTask', { pageId: 'pw1', blockId: 'pw1t2' }, 'mcp'), '「タスク管理」がゴミ箱');
+  assert.notStrictEqual(r3.result.db, K);
+  assert.deepStrictEqual(r3.result, { id: r3.result.id, db: r3.result.db, made: true, madeDb: true });
+  assert.ok(answerOf(r3).includes(DB_MADE), '作り直した答えに「作りました」の行が無い');
+  // ［タスクにする］（todo.toTask）の答えは今のまま（madeDb を付けない）
+  todoMeeting(db, 'pw2', ['日程を決める']);
+  ok(call(db, 'page.delete', { id: r3.result.db }), 'page.delete');
+  const u = ok(call(db, 'todo.toTask', { pageId: 'pw2', blockId: 'pw2t0' }), 'todo.toTask');
+  assert.deepStrictEqual(u.result, { id: u.result.id, db: u.result.db, made: true }, 'todo.toTask の答えの形が変わった');
+}));
